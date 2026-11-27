@@ -1,12 +1,15 @@
+import { downloadDisposition } from "../internal/active-content.ts"
 import { byteRangeBounds } from "../internal/byte-range.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
-import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
+import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 import { assertValidPathname } from "../internal/pathname.ts"
 
 interface R2ObjectLike {
@@ -33,6 +36,8 @@ interface R2PutOptionsLike {
   httpMetadata?: { contentType?: string }
 }
 
+type R2PutCondition = { etagDoesNotMatch: "*" } | { etagMatches: string }
+
 interface R2BucketLike {
   createMultipartUpload(key: string, options?: R2PutOptionsLike): Promise<R2MultipartUploadLike>
   delete(key: string): Promise<void>
@@ -40,6 +45,8 @@ interface R2BucketLike {
   head(key: string): Promise<R2ObjectLike | null>
   list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
   put(key: string, value: BlobPutBody, options?: R2PutOptionsLike): Promise<R2ObjectLike>
+  /** R2 writes nothing and returns `null` when the condition does not hold. */
+  put(key: string, value: BlobPutBody, options: R2PutOptionsLike & { onlyIf: R2PutCondition }): Promise<R2ObjectLike | null>
   resumeMultipartUpload(key: string, uploadId: string): R2MultipartUploadLike
 }
 
@@ -62,6 +69,14 @@ export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig):
   // SAFETY: Cloudflare installs configured R2 buckets as globals; Object.hasOwn excludes inherited values before accessing that binding.
   return getActiveCloudflareBinding<R2BucketLike>(options.binding)
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
+}
+
+export function getCloudflareDevFallback(options: ResolvedCloudflareR2BlobStoreConfig): ResolvedFsBlobStoreConfig | undefined {
+  if (!options.localFallback || getOptionalBucket(options)) return undefined
+  if (globalThis.navigator?.userAgent === "Cloudflare-Workers") {
+    throw blobErrorDiagnostics.BLOB_R0001({ message: `R2 binding "${options.binding}" not found in the dev runner. Add a local R2 binding or use the Node dev runner for the filesystem fallback.` })
+  }
+  return options.localFallback
 }
 
 function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
@@ -101,10 +116,13 @@ function encodePathname(pathname: string): string {
   return assertValidPathname(pathname).split("/").map(encodeURIComponent).join("/")
 }
 
-async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
+  if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request. Bind the exact size with `contentLength`." })
+  }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
-  const accessKeyId = runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID")
-  const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+  const accessKeyId = r2Credential(options, "accessKeyId")
+  const secretAccessKey = r2Credential(options, "secretAccessKey")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
     throw blobErrorDiagnostics.BLOB_R0002({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })
@@ -117,9 +135,13 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
   const url = new URL(`${r2S3Endpoint(accountId, options.jurisdiction)}/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
   url.searchParams.set("X-Amz-Expires", String(signOptions.expiresIn))
+  const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
+  if (disposition) url.searchParams.set("response-content-disposition", disposition)
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
   const signed = await client.sign(url, {
-    headers,
+    headers: signOptions.method === "PUT" && signOptions.contentLength !== undefined
+      ? { ...headers, "Content-Length": String(signOptions.contentLength) }
+      : headers,
     method: signOptions.method,
     aws: { allHeaders: true, signQuery: true },
   })
@@ -130,6 +152,8 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
 }
 
+const r2MaximumListLimit = 1000
+
 function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
   if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
@@ -137,8 +161,14 @@ function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) 
 }
 
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
+  const putOptionsOf = (body: BlobPutBody, putOptions: BlobPutOptions): R2PutOptionsLike => ({
+    customMetadata: putOptions.customMetadata,
+    httpMetadata: {
+      contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
+    },
+  })
   return {
-    name: "cloudflare-r2",
+    name: "cloudflare",
     options,
     async createMultipartUpload(pathname, multipartOptions) {
       return toDriverMultipartUpload(await getBucket(options).createMultipartUpload(pathname, {
@@ -148,6 +178,16 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     },
     async resumeMultipartUpload(pathname, uploadId) {
       return toDriverMultipartUpload(getBucket(options).resumeMultipartUpload(pathname, uploadId))
+    },
+    // An R2 binding has no copy. The object body streams into the new object, with its HTTP and custom metadata.
+    async copy(from, to) {
+      const bucket = getBucket(options)
+      const source = await bucket.get(from)
+      if (!source) return null
+      return mapObject(await bucket.put(to, source.body ?? await readArrayBuffer(source), {
+        customMetadata: source.customMetadata,
+        httpMetadata: source.httpMetadata,
+      }))
     },
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))
@@ -188,29 +228,32 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       return object ? mapObject(object) : null
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
+      const { cursor, limit = r2MaximumListLimit } = listOptions
       const result = await getBucket(options).list({
-        cursor: listOptions.cursor,
+        cursor: toProviderListCursor(cursor),
         delimiter: listOptions.folded ? "/" : undefined,
         include: ["customMetadata", "httpMetadata"],
-        limit: listOptions.limit ?? 1000,
+        limit: Math.min(Math.max(limit, 1), r2MaximumListLimit),
         prefix: listOptions.prefix,
       })
       assertListPageCursor(result)
+      const heldBlob = limit === 0 && result.objects.length > 0
       return {
-        blobs: result.objects.map(mapObject),
-        cursor: result.truncated ? result.cursor : undefined,
-        folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
-        hasMore: Boolean(result.truncated || result.cursor),
+        blobs: limit === 0 ? [] : result.objects.map(mapObject),
+        cursor: heldBlob ? unconsumedListCursor(cursor) : fromProviderListCursor(result.cursor),
+        folders: listOptions.folded ? result.delimitedPrefixes?.sort() : undefined,
+        hasMore: heldBlob || Boolean(result.truncated),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      return mapObject(await getBucket(options).put(pathname, body, putOptionsOf(body, putOptions)))
+    },
+    async putIf(pathname, body, putOptions, condition) {
       const object = await getBucket(options).put(pathname, body, {
-        customMetadata: putOptions.customMetadata,
-        httpMetadata: {
-          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        },
+        ...putOptionsOf(body, putOptions),
+        onlyIf: condition.type === "create" ? { etagDoesNotMatch: "*" } : { etagMatches: bareETag(condition.etag) },
       })
-      return mapObject(object)
+      return object ? mapObject(object) : null
     },
     sign: (pathname, signOptions) => signRequest(options, pathname, signOptions),
   }

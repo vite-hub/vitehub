@@ -1,4 +1,6 @@
-import { installConsoleDocumentsScope, resolveConsoleDocuments } from "../../internal.ts"
+import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
+
+import { consoleState } from "../../internal.ts"
 import { readConsoleAccessUser, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
@@ -42,7 +44,7 @@ export interface ConsoleMediaAccess {
 /** Loads the owner actions of each document editor section on first use. */
 export type ConsoleDocumentEditors = Readonly<Record<string, () => Promise<ConsoleDocumentActions>>>
 
-/** What the generated Console plugin installs for one document editor section. */
+/** What the generated Console app module installs for one document editor section. */
 export interface ConsoleDocumentEditorInstall {
   /** Owner factory that turns the application module into actions. */
   actions: (module: Record<string, unknown>) => ConsoleDocumentActions
@@ -99,12 +101,12 @@ export function installConsoleDocuments(projectRoot: string, editors: Readonly<R
       return loading
     }
   }
-  return installConsoleDocumentsScope(projectRoot, Object.freeze(loaders))
+  return consoleState().documents = Object.freeze(loaders)
 }
 
 /** Loads the owner actions of a document editor section that the project enables. */
 export async function loadConsoleDocumentActions(section: string): Promise<ConsoleDocumentActions> {
-  const load = getConsoleSections().includes(section) ? resolveConsoleDocuments()?.[section] : undefined
+  const load = getConsoleSections().includes(section) ? consoleState().documents?.[section] : undefined
   if (!load) throw consoleRequestError(404, "Document editor section not found.")
   try {
     return await load()
@@ -170,3 +172,26 @@ const guardedHandler: ConsoleAccessRoute<typeof consoleDocumentsHandler> = withC
   section: event => consoleRequestURL(event).searchParams.get("section") ?? undefined,
 })
 export default guardedHandler
+
+/**
+ * `documents.preview`: check that the person may read the document and answer the app path of its page. The owner `get`
+ * action gives the page URL, which must be a page of the app. The Console calls it as the member before it signs a
+ * `preview` Site access token, and the app's `/_vitehub/site` runs the owner `preview` action as the person again.
+ */
+export async function checkConsoleDocumentPreview(
+  context: { access: ConsoleAccess, request?: Request },
+  input: { collection: string, id: string, section: string },
+): Promise<{ path: string }> {
+  const actions = await loadConsoleDocumentActions(input.section)
+  const user = await consoleDocumentActionContext(context.access)
+  const document: unknown = await runConsoleDocumentAction(() => actions.get({ collection: input.collection, id: input.id }, user))
+  if (!document) throw consoleRequestError(404, "The document does not exist.")
+  const url: unknown = Reflect.get(Object(document), "url")
+  if (String(url) !== url || !url) throw consoleRequestError(409, "The document has no page. Set url on its collection to preview its pages.")
+  const page = new URL(url, "http://vitehub.invalid")
+  const rpc = context.request ? new URL(context.request.url) : undefined
+  if (page.origin !== "http://vitehub.invalid" && page.origin !== rpc?.origin) throw consoleRequestError(409, "The page URL of the document is not on this app.")
+  const base = rpc?.pathname.endsWith(operationRpcPath) ? rpc.pathname.slice(0, -operationRpcPath.length) : ""
+  const below = base && (page.pathname === base || page.pathname.startsWith(`${base}/`)) ? page.pathname.slice(base.length) || "/" : page.pathname
+  return { path: `${below}${page.search}` }
+}

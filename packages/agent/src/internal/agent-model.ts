@@ -6,6 +6,7 @@ import type {
 } from "../types.ts"
 import type { LanguageModel } from "ai"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { emulatedLanguageModel, emulatedModelApi, emulatedModelObject, resolveModelEmulation } from "./agent-emulation.ts"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -52,17 +53,38 @@ function gatewayApiKey<TRuntimeConfig extends AgentRuntimeConfig>(
   return typeof process === "object" && process?.env ? process.env.AI_GATEWAY_API_KEY : undefined
 }
 
+/**
+ * The language model of an Agent model input. Every model entry point calls it. With `VITEHUB_MODELS=emulate`, it
+ * returns a model on the AI emulator and reads no credential, or it fails for a model that it cannot send there.
+ */
 export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeConfig>(
   model: AgentModelInput,
   context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
 ): Promise<LanguageModel> {
   const descriptor = gatewayModelDescriptor(model)
-  if (!descriptor) return model as LanguageModel
-  const id = descriptor.id.trim()
-  if (!id) {
+  const id = descriptor?.id.trim()
+  if (descriptor && !id) {
     throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] Agent model identifiers must be non-empty." })
   }
-  const { createGateway } = await import("@ai-sdk/gateway")
+  if (resolveModelEmulation(context)) {
+    return id ? await emulatedLanguageModel(id, emulatedModelApi(id), context) : await emulatedModelObject(model, context)
+  }
+  if (!descriptor || !id) return model as LanguageModel
+  // `ai` re-exports the gateway it depends on. A separate @ai-sdk/gateway import can resolve a second copy.
+  const { createGateway } = await import("ai")
   const apiKey = gatewayApiKey(descriptor.apiKey, context)
   return (apiKey ? createGateway({ apiKey }) : createGateway())(id)
+}
+
+/**
+ * The model that a run calls after `prepareCall`, `prepareStep`, or a Capability replaces the Driver model. With
+ * `VITEHUB_MODELS=emulate`, every replacement goes through `materializeAgentModel()`, so it goes to the emulator or
+ * fails before provider I/O. Call it only when the switch is on.
+ */
+export async function emulatedModelOverride<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: unknown,
+  context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
+): Promise<unknown> {
+  // SAFETY: AI SDK settings accept the same model inputs as an Agent model: a model ID or a model object.
+  return await materializeAgentModel(model as AgentModelInput, context)
 }

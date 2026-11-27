@@ -411,6 +411,22 @@ describe("createTrustedHostRuntime", () => {
     }
   });
 
+  it.skipIf(process.platform !== "linux")("stops commands that left their process group when the session closes", async () => {
+    const sandbox = await resolveSandbox({ runtime: createTrustedHostRuntime() }, {});
+    const session = await sandboxProvider(sandbox).createSession();
+    const result = await session.run({ command: "setsid sh -c 'echo $$; exec sleep 600 >/dev/null 2>&1' &" });
+    const leftover = Number(result.stdout.trim());
+    try {
+      expect(leftover).toBeGreaterThan(0);
+      await session.destroy?.();
+      await expect.poll(() => readFile(`/proc/${leftover}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)).toBe(false);
+    } finally {
+      try {
+        process.kill(leftover, "SIGKILL");
+      } catch {}
+    }
+  });
+
   it("closes completed command sessions idempotently", async () => {
     const sandbox = await resolveSandbox({ runtime: createTrustedHostRuntime() }, {});
     const session = await sandboxProvider(sandbox).createSession();
@@ -446,6 +462,38 @@ describe("createTrustedHostRuntime", () => {
     }
   });
 
+  it("reports a teardown that keeps failing after initialization failed", async () => {
+    const sandbox = await resolveSandbox({ runtime: createTrustedHostRuntime() }, {});
+    const remove = vi.mocked(rm);
+    const originalRemove = remove.getMockImplementation()!;
+    let sessionRoot: string | undefined;
+    let failedRemovals = 0;
+    remove.mockImplementation(async (path, options) => {
+      if (sessionRoot !== undefined && path === sessionRoot) {
+        failedRemovals++;
+        throw new Error("root removal failed");
+      }
+      return originalRemove(path, options);
+    });
+    try {
+      const failure = await sandboxProvider(sandbox).createSession({
+        async onFirstCreate(session) {
+          sessionRoot = (session as TestSession & { root: string }).root;
+          throw new Error("initialization failed");
+        },
+      }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([
+        expect.objectContaining({ message: "initialization failed" }),
+        expect.objectContaining({ message: "root removal failed" }),
+      ]);
+      expect(failedRemovals).toBe(3);
+    } finally {
+      remove.mockImplementation(originalRemove);
+      if (sessionRoot) roots.push(sessionRoot);
+    }
+  });
+
   it("retries state-lock removal after a failed release", async () => {
     const root = await temporaryRoot();
     const stateRoot = join(root, "state");
@@ -476,6 +524,39 @@ describe("createTrustedHostRuntime", () => {
     } finally {
       remove.mockImplementation(originalRemove);
       await session.destroy().catch(() => undefined);
+    }
+  });
+
+  it("recovers a Home state lease after reporting failed initialization cleanup", async () => {
+    const root = await temporaryRoot();
+    const stateRoot = join(root, "state");
+    const key = "portable-sandbox-test/recover-initialization-lease";
+    const lock = `${join(stateRoot, createHash("sha256").update(key).digest("hex"))}.lock`;
+    const sandbox = await resolveSandbox({
+      home: { state: { ".acme": { key } } },
+      runtime: createTrustedHostRuntime({ stateRoot }),
+    }, {});
+    const remove = vi.mocked(rm);
+    const originalRemove = remove.getMockImplementation()!;
+    const initError = new Error("initialization failed");
+    const leaseError = Object.assign(new Error("lock removal busy"), { code: "EBUSY" });
+    let busy = true;
+    remove.mockImplementation(async (path, options) => {
+      if (path === lock && busy) throw leaseError;
+      return originalRemove(path, options);
+    });
+    try {
+      const failure = await sandbox.open({
+        async initialize() { throw initError; },
+      }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([initError, leaseError]);
+      await expect(stat(lock)).resolves.toBeDefined();
+      busy = false;
+      const next = await sandbox.open({ signal: AbortSignal.timeout(2_000) });
+      await next.close();
+    } finally {
+      remove.mockImplementation(originalRemove);
     }
   });
 

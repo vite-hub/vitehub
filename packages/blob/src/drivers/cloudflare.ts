@@ -1,10 +1,11 @@
 import { byteRangeBounds } from "../internal/byte-range.ts"
+import { downloadDisposition } from "../internal/active-content.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
-import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
+import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
-import type { BlobDriverAdapter, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 const s3PeerInstall = "@aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
@@ -17,9 +18,9 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
   return createFilesSdkDriver({
     ...options,
     accountId: runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"),
-    accessKeyId: runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
+    accessKeyId: r2Credential(options, "accessKeyId"),
     bucketName,
-    secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
+    secretAccessKey: r2Credential(options, "secretAccessKey"),
   }, async resolved => (await importOptionalPeer(() => import("files-sdk/r2"), "files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
     accountId: resolved.accountId,
     accessKeyId: resolved.accessKeyId,
@@ -31,10 +32,13 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
   }))
 }
 
-async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
+  if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request. Bind the exact size with `contentLength`." })
+  }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
-  const accessKeyId = runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID")
-  const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+  const accessKeyId = r2Credential(options, "accessKeyId")
+  const secretAccessKey = r2Credential(options, "secretAccessKey")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
     throw blobErrorDiagnostics.BLOB_R0004({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })
@@ -51,26 +55,31 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
     requestChecksumCalculation: "WHEN_REQUIRED",
   })
   const headers: Record<string, string> = {}
+  const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
   const command = signOptions.method === "GET"
-    ? new GetObjectCommand({ Bucket: bucket, Key: pathname })
+    ? new GetObjectCommand({ Bucket: bucket, Key: pathname, ResponseContentDisposition: disposition })
     : new PutObjectCommand({
         Bucket: bucket,
+        ContentLength: signOptions.contentLength,
         ContentType: signOptions.contentType,
         IfNoneMatch: signOptions.createOnly ? "*" : undefined,
         Key: pathname,
       })
+  const signableHeaders = new Set<string>()
   if (signOptions.method === "PUT") {
-    if (signOptions.contentType) headers["Content-Type"] = signOptions.contentType
+    if (signOptions.contentType) {
+      headers["Content-Type"] = signOptions.contentType
+      signableHeaders.add("content-type")
+    }
     if (signOptions.createOnly) headers["If-None-Match"] = "*"
+    if (signOptions.contentLength !== undefined) signableHeaders.add("content-length")
   }
   return {
     headers,
     method: signOptions.method,
     url: await getSignedUrl(client, command, {
       expiresIn: signOptions.expiresIn,
-      signableHeaders: signOptions.method === "PUT" && signOptions.contentType
-        ? new Set(["content-type"])
-        : undefined,
+      signableHeaders: signableHeaders.size ? signableHeaders : undefined,
     }),
   }
 }
@@ -80,8 +89,9 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
   const activeDriver = () => getOptionalBucket(options) ? nativeDriver : createHttpDriver(options)
 
   return {
-    name: "cloudflare-r2",
+    name: "cloudflare",
     options,
+    copy: (from, to) => activeDriver().copy!(from, to),
     delete: pathnames => activeDriver().delete(pathnames),
     get: pathname => activeDriver().get(pathname),
     getArrayBuffer: pathname => activeDriver().getArrayBuffer(pathname),
@@ -105,6 +115,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     head: pathname => activeDriver().head(pathname),
     list: options => activeDriver().list(options),
     put: (pathname, body, options) => activeDriver().put(pathname, body, options),
+    putIf: (pathname, body, options, condition) => activeDriver().putIf!(pathname, body, options, condition),
     sign: (pathname, signOptions) => signRequest(options, pathname, signOptions),
   }
 }

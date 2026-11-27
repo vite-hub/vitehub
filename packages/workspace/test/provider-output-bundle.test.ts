@@ -13,10 +13,13 @@ async function readLocalImportClosure(entry: URL, visited = new Set<string>()): 
 }
 
 describe("Workspace Provider Output bundle", () => {
-  it("keeps esbuild external in the Vite entry", async () => {
+  it("loads Vite's Rolldown without bundling esbuild or Rolldown", async () => {
     const output = await readLocalImportClosure(new URL(`../${"dist"}/vite.js`, import.meta.url))
 
-    expect(output).toContain(`from "esbuild"`)
+    expect(output).toContain(`.resolve("rolldown")`)
+    expect(output).toContain(`.resolve("vite/rolldown")`)
+    expect(output).not.toContain(`import("esbuild")`)
     expect(output).not.toContain("esbuildCommandAndArgs")
+    expect(output).not.toContain("@rolldown/binding-")
   })
 })

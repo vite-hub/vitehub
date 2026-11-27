@@ -7,25 +7,10 @@ type PrimitiveId = (typeof landingPrimitives)[number]["id"];
 const grid = useTemplateRef<HTMLElement>("grid");
 const visible = ref(false);
 const activeId = ref<PrimitiveId | null>(null);
-const focusedId = ref<PrimitiveId | null>(null);
-const indicator = useSharedIndicator(grid);
-watch(activeId, (id) => {
-  if (!id) indicator.reset();
-});
 
 useIntersectionObserver(grid, ([entry]) => {
   visible.value = entry?.isIntersecting ?? false;
 });
-
-function focus(id: PrimitiveId) {
-  focusedId.value = id;
-  activeId.value = id;
-}
-
-function blur() {
-  focusedId.value = null;
-  activeId.value = null;
-}
 </script>
 
 <template>
@@ -34,7 +19,8 @@ function blur() {
       ref="grid"
       class="primitive-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7"
       aria-label="ViteHub APIs"
-      @pointerleave="activeId = focusedId"
+      data-motion-select
+      @pointerleave="activeId = null"
     >
       <li
         v-for="(primitive, index) in landingPrimitives"
@@ -43,14 +29,14 @@ function blur() {
       >
         <NuxtLink
           :to="primitive.to"
+          data-focus-inset
           class="primitive-tile group"
-          @focus="focus(primitive.id)"
-          @blur="blur"
+          :data-state="activeId === primitive.id ? 'active' : undefined"
           @pointerenter="activeId = primitive.id"
         >
           <div
             v-if="activeId === primitive.id"
-            :ref="indicator.track"
+            data-motion-indicator
             class="primitive-focus"
             aria-hidden="true"
           />
@@ -87,12 +73,6 @@ function blur() {
   border-bottom: 1px solid var(--ui-border);
   padding: 1rem 1.25rem;
   background: var(--ui-bg);
-}
-
-.primitive-tile:focus-visible {
-  z-index: 1;
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .primitive-focus {

@@ -7,9 +7,9 @@ layout: tutorial
 icon: i-lucide-logs
 ---
 
-Logs shows what your server did on each request. ViteHub uses [Evlog](https://evlog.dev), a logging library, to write one log event for each request. You add your own data to that event, and you read it in the Console.
+Logs shows what your server did on each request. ViteHub uses [Evlog](https://evlog.dev), a logging library, to write one log event for each request. You add your own data to that event and read it in the CLI or the Console.
 
-In this tutorial, you add data to the log event of one API route. Then you call the route and read its event in the Console.
+In this tutorial, you add data to the log event of one API route. Then you call the route and read its event.
 
 > [!NOTE] Before you start
 > Use a Vite app with Nitro 3, such as the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Everything runs on your computer.
@@ -26,14 +26,17 @@ pnpm add evlog
 
 ::tutorial-step{title="Enable local capture"}
 
-Add `logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
+Add `logs` and `console` to the ViteHub options of your app. Keep your other options. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', logs: true, console: { auth: false } },
+  vitehub: { logs: false, console: false },
+  $development: {
+    vitehub: { logs: true, console: { auth: false } },
+  },
 })
 ```
 ::::
@@ -44,10 +47,16 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false } }), nitro(),
-  ],
+export default defineConfig(({ command }) => {
+  return {
+    plugins: [
+      vitehub({
+        logs: command === 'serve' ? true : false,
+        console: command === 'serve' ? { auth: false } : false,
+      }),
+      nitro(),
+    ],
+  }
 })
 ```
 ::::
@@ -57,23 +66,28 @@ export default defineConfig({
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false } }),
-  ],
+export default defineConfig(({ command }) => {
+  return {
+    plugins: [
+      vitehub({
+        logs: command === 'serve' ? true : false,
+        console: command === 'serve' ? { auth: false } : false,
+      }),
+    ],
+  }
 })
 ```
 ::::
 :::
 
-- `logs: true` saves the log events on your computer while the dev server runs.
-- `auth: false` lets you open the Console with no sign-in. Use it only on your computer. See [Console](/docs/development/console) before you deploy.
+- `logs: true` keeps log events in memory on your computer, only in development. The production configuration disables capture, because each server process would otherwise keep its own short history. See [What happens when you deploy](#what-happens-when-you-deploy).
+- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/console) before you deploy.
 
 ::
 
 ::tutorial-step{title="Add request data"}
 
-Create `server/api/status.get.ts`. It adds a message and the environment name to the log event of the request:
+Create `server/api/status.get.ts` to add a message and environment name to the request's log event:
 
 ```ts [server/api/status.get.ts]
 import { useLogger } from 'evlog/nitro/v3'
@@ -85,7 +99,7 @@ export default defineHandler((event) => {
 })
 ```
 
-- `useLogger(event)` gets the log event of this request. Evlog makes it for you.
+- `useLogger(event)` returns the Evlog event created for this request.
 - `.set()` adds your fields to that event.
 
 ::
@@ -98,21 +112,19 @@ Start the dev server:
 pnpm dev
 ```
 
-1. Open `http://localhost:3000/api/status` in your browser. It shows `{"ok":true}`.
-2. Open `http://localhost:3000/_vitehub/logs`, and find the row `Status checked`. A row shows the `message` of the event. An event without a `message` shows its path, such as `/_vitehub/logs`.
-3. Select the row. The **Event details** panel shows your `message` and `deployment` fields, and the `path` `/api/status`.
-4. Switch between the **Explorer** and **Stream** views.
-5. Select **Follow**. The Console checks for new events every 2 seconds. Open `/api/status` again to see a new row.
+1. Open `http://localhost:3000/api/status` in your browser to see `{"ok":true}`.
+2. In a second terminal, run `pnpm vitehub logs list --json`. Find the event with the message `Status checked`. It has your `message` and `deployment` fields, and the `path` `/api/status`.
+3. Refresh `/api/status` and run the command again to see the new event.
+
+The Logs section of the [Console](/docs/console) reads the same events with the `logs.list` operation, in its Explorer and Stream views.
 
 ::
 
 ## What happens when you deploy
 
-Local capture works only in development. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
+Local capture works only in development and requires Nitro 3: in Vite, in Nuxt 4.7 with the `nitro` package, or in Nuxt 5. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
-Local capture requires Nitro 3, in Vite or Nuxt 5.
-
-For a larger example, run `playground/logs` in the ViteHub repository. It shows a checkout request, redacted fields, and a diagnostic. Its README tells you how to start it.
+For a richer example with a checkout request, redacted fields, and a diagnostic, run `playground/logs` in the ViteHub repository and follow its README.
 
 ## Next steps
 

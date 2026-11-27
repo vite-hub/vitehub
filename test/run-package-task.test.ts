@@ -120,6 +120,7 @@ describe("package task runner", { timeout: 60_000 }, () => {
   it.each([
     { buildPrefix: "", builds: '["pack","shared"]\n["pack","compound"]\n' },
     { buildPrefix: "vp run -t @fixture/compound#build && ", builds: '["pack","shared"]\n["pack","compound"]\n' },
+    { buildPrefix: "vp run --cache -t @fixture/compound#build && ", builds: '["pack","shared"]\n["pack","compound"]\n' },
     {
       buildPrefix: "vp run -t @fixture/shared#build && vp run -t @fixture/compound#build && ",
       builds: '["pack","shared"]\n["pack","compound"]\n',
@@ -148,7 +149,6 @@ describe("package task runner", { timeout: 60_000 }, () => {
       name: "@fixture/shared",
       scripts: { build: "vp pack shared" },
     }))
-    // Not a dependency of compound, so only a leading build task selects it.
     const toolDir = join(workspace, "packages/tool")
     await mkdir(toolDir, { recursive: true })
     await writeFile(join(toolDir, "package.json"), JSON.stringify({
@@ -174,6 +174,49 @@ describe("package task runner", { timeout: 60_000 }, () => {
     expect(result.code, result.stdout).toBe(7)
     expect(await readFile(log, "utf8")).toBe(`${builds}["test"]\n["test","--config","workerd.config.ts"]\n`)
     expect(result.stdout).toContain("FAIL @fixture/compound")
+  })
+
+  it("builds through the Vite+ task cache without concurrent writers", async () => {
+    const log = await tempFile("events.log")
+    const workspace = join(log, "..")
+    const binDir = join(workspace, "node_modules/.bin")
+    await mkdir(binDir, { recursive: true })
+    await writeFile(join(workspace, "package.json"), JSON.stringify({ private: true, packageManager: "pnpm@10.33.0" }))
+    await writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n")
+    for (const [name, manifest] of Object.entries({
+      shared: { name: "@fixture/shared", scripts: { build: "vp pack shared" } },
+      sibling: { name: "@fixture/sibling", scripts: { build: "vp pack sibling" } },
+      app: { name: "@fixture/app", dependencies: { "@fixture/shared": "workspace:*", "@fixture/sibling": "workspace:*" }, scripts: { build: "vp pack app", test: "vp test" } },
+    })) {
+      await mkdir(join(workspace, "packages", name), { recursive: true })
+      await writeFile(join(workspace, "packages", name, "package.json"), JSON.stringify(manifest))
+    }
+    const fakeVp = join(binDir, "vp")
+    await writeFile(fakeVp, [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs")',
+      'const log = process.env.VITEHUB_FIXTURE_LOG',
+      'const lock = log + ".lock"',
+      'const cached = process.argv.includes("--cache")',
+      'if (cached) fs.writeFileSync(lock, "", { flag: "wx" })',
+      'fs.appendFileSync(log, JSON.stringify(process.argv.slice(2)) + "\\n")',
+      'if (cached) setTimeout(() => fs.unlinkSync(lock), 500)',
+    ].join("\n"))
+    await chmod(fakeVp, 0o755)
+    await writeFile(`${fakeVp}.cmd`, `@node "${fakeVp}" %*`)
+
+    await execFileAsync(process.execPath, [runner, "test", "--cache", "--packages", "@fixture/app", "--workspace", workspace], {
+      env: { ...process.env, VITEHUB_FIXTURE_LOG: log },
+      timeout: 45_000,
+    })
+
+    expect(await readFile(log, "utf8")).toBe([
+      '["run","--cache","--filter","@fixture/shared","build"]',
+      '["run","--cache","--filter","@fixture/sibling","build"]',
+      '["run","--cache","--filter","@fixture/app","build"]',
+      '["test"]',
+      "",
+    ].join("\n"))
   })
 
   it("aggregates independent failures, skips dependents, and builds the diamond once", async () => {
@@ -240,15 +283,13 @@ describe("package task runner", { timeout: 60_000 }, () => {
     expect(await readFile(log, "utf8")).not.toContain("test:start:@fixture/app")
   })
 
-  it("keeps packages outside the safe allowlist serial", async () => {
-    const result = await runFixture(["@fixture/serial-a", "@fixture/serial-b"], { VITEHUB_FIXTURE_DELAY: "20" })
+  it("builds independent packages together and keeps tests outside the safe allowlist serial", async () => {
+    const result = await runFixture(["@fixture/serial-a", "@fixture/serial-b"], { VITEHUB_FIXTURE_DELAY: "1000" })
 
     expect(result.code).toBe(0)
-    expect(result.log.trim().split("\n")).toEqual([
-      "build:start:@fixture/serial-a",
-      "build:end:@fixture/serial-a",
-      "build:start:@fixture/serial-b",
-      "build:end:@fixture/serial-b",
+    const events = result.log.trim().split("\n")
+    expect(events.slice(0, 2).sort()).toEqual(["build:start:@fixture/serial-a", "build:start:@fixture/serial-b"])
+    expect(events.slice(4)).toEqual([
       "test:start:@fixture/serial-a",
       "test:end:@fixture/serial-a",
       "test:start:@fixture/serial-b",
@@ -302,8 +343,10 @@ describe("package task runner", { timeout: 60_000 }, () => {
       const code = await exited
 
       expect(code).toBe(143)
-      expect(await readFile(log, "utf8")).toContain("build:signal:@fixture/interrupt")
-      expect(stdout).toContain("SKIP @fixture/serial-a")
+      const events = await readFile(log, "utf8")
+      expect(events).toContain("build:signal:@fixture/interrupt")
+      expect(events).not.toContain("test:start:")
+      expect(stdout).toMatch(/(?:FAIL|SKIP) @fixture\/serial-a/)
     }
     finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")

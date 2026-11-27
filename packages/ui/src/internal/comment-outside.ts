@@ -1,4 +1,6 @@
-import { onBeforeUnmount, onMounted } from "vue";
+import { type InjectionKey, onBeforeUnmount, onMounted, type Ref } from "vue";
+
+export const commentThreadPortals: InjectionKey<Set<Ref<HTMLElement | undefined>>> = Symbol("comment-thread-portals");
 
 // A pointerdown that a composer or a thread already used. The comment layer skips it, so one click never does two things.
 export const consumedPointerEvents = new WeakSet<Event>();
@@ -29,15 +31,16 @@ export const shakeEventName = "comments:shake";
 const dirtySelector = "[data-slot='comment-composer'][data-dirty='true']";
 
 // A composer with text, the new comment, a reply, or an edit, keeps the page from closing it by accident.
-// Look in the root of the comment UI, which is a shadow root when the overlay lives in one.
-export function hasDirtyComposer(root: ParentNode = document): boolean {
-  return root.querySelector(dirtySelector) !== null;
+// Look in the root of the comment UI, which is a shadow root when the overlay lives in one. Composers that match `skip` do not count.
+export function hasDirtyComposer(root: ParentNode = document, skip?: string): boolean {
+  return [...root.querySelectorAll(dirtySelector)].some(composer => !skip || !composer.matches(skip));
 }
 
-// Shakes every composer that has text. Returns whether there was one.
-export function shakeDirtyComposers(root: ParentNode = document): boolean {
+// Shakes every composer that has text. Returns whether there was one. `escape`: Esc caused it, so the next Esc in that
+// composer discards its text.
+export function shakeDirtyComposers(root: ParentNode = document, escape = false): boolean {
   const dirty = [...root.querySelectorAll(dirtySelector)];
-  for (const composer of dirty) composer.dispatchEvent(new CustomEvent(shakeEventName));
+  for (const composer of dirty) composer.dispatchEvent(new CustomEvent(shakeEventName, { detail: { escape } }));
   return dirty.length > 0;
 }
 

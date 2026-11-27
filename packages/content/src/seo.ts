@@ -1,5 +1,6 @@
 import { isStandardSchema, standardIssuePath, standardJsonSchema } from "@vite-hub/internal/standard-schema"
 import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -56,10 +57,6 @@ function isString(value: unknown): value is string {
   return String(value) === value
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 /** Whether a value is an absolute http(s) URL or a root-relative path. */
 export function isContentUrl(value: unknown): value is string {
   return isString(value) && urlPattern.test(value)
@@ -92,9 +89,9 @@ const seoKeys: ReadonlySet<string> = new Set(["title", "description", "image", "
  * fields: { title: z.string(), seo: seo({ image: image() }) }
  */
 export function seo<TImage extends StandardSchemaV1 | undefined = undefined>(options: ContentSeoOptions<TImage> = {}): ContentSeoField<TImage> {
-  if (!isRecord(options)) throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] seo() options must be an object such as { image: image() }." })
+  if (!isRecord(options)) throw contentErrorDiagnostics.CONTENT_SEO_FIELD_INVALID({ problem: "[vitehub] seo() options must be an object such as { image: image() }." })
   if (options.image !== undefined && !isStandardSchema(options.image)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] seo({ image }) must be a Standard Schema validator, such as image() from vite-hub/content." })
+    throw contentErrorDiagnostics.CONTENT_SEO_FIELD_INVALID({ problem: "[vitehub] seo({ image }) must be a Standard Schema validator, such as image() from vite-hub/content." })
   }
   const image: StandardSchemaV1 = options.image ? withValibotJsonSchema(options.image) : defaultImage
 

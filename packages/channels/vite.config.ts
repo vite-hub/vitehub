@@ -1,16 +1,17 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: ["#vitehub/channels/registry", "vite"],
       onlyBundle: false,
     },
     entry: [
+      "src/adapters.ts",
       "src/index.ts",
       "src/runtime/empty-registry.ts",
       "src/server.ts",
@@ -24,10 +25,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

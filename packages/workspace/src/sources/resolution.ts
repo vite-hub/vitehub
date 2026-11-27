@@ -9,7 +9,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { registerWorkspaceStoreAlias } from "../storage/identity.ts"
-import { forwardWorkspaceStoreTarget, resolveWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, provideWorkspaceStoreTarget, resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataMutationTarget, resolveWorkspaceMetadataTarget, setWorkspaceMetadata, attachWorkspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { isInternalWorkspaceMetaKey } from "../storage/metadata-keys.ts"
@@ -19,6 +19,7 @@ import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExec
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView, type WorkspaceSourceWriteGrant } from "./view.ts"
 import { isWorkspaceSourceSyncMetaKey } from "./sync-state.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 import type {
   ReadonlyWorkspaceFacade,
@@ -46,6 +47,7 @@ import type {
   WorkspaceHistoryCommitOptions,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceSessionWriteFileOptions,
@@ -164,13 +166,11 @@ const isWorkspaceSourceProxy: (value: object) => boolean | undefined = (() => {
       process?: { getBuiltinModule?: (name: string) => unknown }
     }).process
     const getBuiltinModule = process?.getBuiltinModule
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
     if (typeof getBuiltinModule !== "function") return (_value: object) => undefined
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
     const util = getBuiltinModule.call(process, "util") as {
       types?: { isProxy?: (value: object) => boolean }
     } | undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
     return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => undefined
   }
   catch {
@@ -199,7 +199,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
   backingMetadataTarget?: WorkspaceMetadataTarget,
-): WorkspaceStore & WorkspaceStoreTargetCarrier & { isTombstoned(path: string): boolean } {
+): WorkspaceStore & { isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
   const tombstones = new Set<string>()
 
@@ -254,9 +254,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     }
   }
 
-  return {
-    // Snapshot metadata falls back to this Store, so its format must match too.
-    [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
+  const store: WorkspaceStore & { isTombstoned(path: string): boolean } = {
     isTombstoned,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
@@ -308,6 +306,9 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       await memory.setMeta?.(key, value)
     },
   }
+  // Snapshot metadata falls back to this Store, so its format must match too.
+  provideWorkspaceStoreTarget(store, async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" })
+  return store
 }
 
 const sourceSyncStores = new WeakMap<object, (definition: WorkspaceDefinition) => WorkspaceStore>()
@@ -776,6 +777,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         }))
       } } : {}),
       ...(baseHistory.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => { requireCompleteHistory(); return await baseHistory.openPullRequest!(options) } } : {}),
+      deleteRef: async (options: WorkspaceHistoryDeleteRefOptions) => {
+        requireCompleteHistory()
+        return await baseHistory.deleteRef(options)
+      },
       commit: commitHistory,
       checkpoint: baseHistory.checkpoint.bind(baseHistory),
       rebase,
@@ -889,6 +894,8 @@ async function resolveWorkspaceSource(
   if (!resolved) return undefined
 
   const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
+  // Normalization carries policy from every enclosing binding.
+  if (source.skills === false) resolvedSource.skills = false
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsSource(options.selectedWorkspaceScope, normalized)) return undefined
 
@@ -945,10 +952,6 @@ function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSo
   }
   if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {

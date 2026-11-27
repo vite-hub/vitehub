@@ -1,49 +1,61 @@
-export { normalizeWorkflowOptions } from "./config.ts"
 export { defineWorkflow } from "./definition.ts"
 export {
+  NonRetryableError,
   type WorkflowErrorCode,
   type WorkflowErrorDetails,
+  type WorkflowProviderFailure,
   type WorkflowOperationName,
   type WorkflowProviderName,
 } from "./errors.ts"
-export { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "./integrations/cloudflare.ts"
-export { getVercelWorkflowName } from "./integrations/vercel.ts"
-export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./runtime/client.ts"
+export { getCloudflareWorkflowBindingName } from "./integrations/cloudflare.ts"
+export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./runtime/client.ts"
 export { readRequestPayload, readValidatedPayload, validatePayload } from "./runtime/payload.ts"
-export { createWorkflowCloudflareWorker } from "./runtime/cloudflare-vite.ts"
 
 export type {
   CloudflareWorkflowBinding,
   CloudflareWorkflowInstance,
-  CloudflareWorkflowProviderOptions,
+  CloudflareWorkflowDriverOptions,
   DiscoveredWorkflowDefinition,
-  InferredWorkflowProviderOptions,
+  InferredWorkflowDriverOptions,
   OpenWorkflowPostgresOptions,
-  OpenWorkflowProviderOptions,
+  OpenWorkflowDriverOptions,
   OpenWorkflowWorkerOptions,
   ResolvedWorkflowOptions,
-  VercelWorkflowProviderOptions,
+  VercelWorkflowDriverOptions,
   WorkflowDefinition,
   WorkflowDefinitionOptions,
   WorkflowDefinitionRegistry,
   WorkflowCreateOptions,
-  WorkflowDeferOptions,
+  WorkflowDuration,
+  WorkflowDurationUnit,
   WorkflowExecutionContext,
   WorkflowHandle,
   WorkflowHandler,
-  WorkflowModuleOptions,
-  WorkflowModuleProviderOptions,
+  WorkflowOptions,
+  WorkflowModuleDriverOptions,
+  WorkflowName,
+  WorkflowPayload,
   WorkflowProviderContext,
   WorkflowProviderStep,
-  WorkflowProvider,
-  WorkflowProviderOptions,
+  WorkflowDriver,
+  WorkflowDriverOptions,
+  WorkflowRegistry,
   WorkflowRun,
+  WorkflowRunError,
   WorkflowRunStep,
+  WorkflowResultErrorCode,
   WorkflowRunStatus,
+  WorkflowSignal,
   WorkflowSignalResult,
   WorkflowSharedOptions,
+  WorkflowStepBackoff,
+  WorkflowStepContext,
   WorkflowStepFunction,
   WorkflowStepOptions,
-  WorkflowStepRunner,
+  WorkflowStepRetries,
+  WorkflowStep,
+  WorkflowStepRegistry,
+  WorkflowSteps,
+  WorkflowStartDelay,
   WorkflowStartOptions,
 } from "./types.ts"

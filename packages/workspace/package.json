@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -45,15 +45,15 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai": {
-      "types": "./dist/ai.d.ts",
-      "import": "./dist/ai.js",
-      "default": "./dist/ai.js"
-    },
     "./blob-database": {
       "types": "./dist/blob-database.d.ts",
       "import": "./dist/blob-database.js",
       "default": "./dist/blob-database.js"
+    },
+    "./blob-database/postgres": {
+      "types": "./dist/blob-database/postgres.d.ts",
+      "import": "./dist/blob-database/postgres.js",
+      "default": "./dist/blob-database/postgres.js"
     },
     "./checkout": {
       "types": "./dist/checkout.d.ts",
@@ -65,6 +65,11 @@
       "import": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./files": {
       "types": "./dist/files.d.ts",
       "import": "./dist/files.js",
@@ -75,6 +80,11 @@
       "import": "./dist/internal/path.js",
       "default": "./dist/internal/path.js"
     },
+    "./internal/workspace": {
+      "types": "./dist/internal/workspace.d.ts",
+      "import": "./dist/internal/workspace.js",
+      "default": "./dist/internal/workspace.js"
+    },
     "./lineage": {
       "types": "./dist/lineage.d.ts",
       "import": "./dist/lineage.js",
@@ -84,21 +94,6 @@
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
       "default": "./dist/loader.js"
-    },
-    "./mountx": {
-      "types": "./dist/mountx.d.ts",
-      "import": "./dist/mountx.js",
-      "default": "./dist/mountx.js"
-    },
-    "./nitro": {
-      "types": "./dist/nitro.d.ts",
-      "import": "./dist/nitro.js",
-      "default": "./dist/nitro.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -141,11 +136,6 @@
       "import": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
-    "./internal/runtime/state": {
-      "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js",
-      "default": "./dist/runtime/state.js"
-    },
     "./internal/runtime/workspace": {
       "types": "./dist/runtime/workspace.d.ts",
       "import": "./dist/runtime/workspace.js",
@@ -161,25 +151,21 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/workspace#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workspace#build && vp test"
+    "test": "vp run --cache -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
-    "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
-    "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
-    "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs",
     "valibot": "catalog:runtime",
     "yaml": "catalog:tooling",
     "@vite-hub/markdown-template": "workspace:*",
@@ -191,10 +177,11 @@
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
-    "ocache": "catalog:unjs",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -208,7 +195,8 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
+    "@vite-hub/forge": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@vite-hub/shell": {
@@ -219,9 +207,12 @@
     },
     "drizzle-orm": {
       "optional": true
+    },
+    "@vite-hub/forge": {
+      "optional": true
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

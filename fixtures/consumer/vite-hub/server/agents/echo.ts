@@ -1,6 +1,6 @@
 import { defineAgent } from "vite-hub/agent"
 import { workspaceShell } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels/adapters"
 
 import { renderMarkdownTemplate } from "vite-hub/markdown-template"
 
@@ -16,5 +16,5 @@ export default defineAgent({
       return { text: `VITE_HUB_SERVER_ONLY:${await renderMarkdownTemplate("{{ data.cwd }}", { data: { cwd: pwd.stdout.trim() } })}` }
     },
   },
-  workspace: { mode: "write", store: { provider: "memory" } },
+  workspace: { mode: "write", store: { driver: "memory" } },
 })

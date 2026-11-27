@@ -6,7 +6,7 @@ import type {
   CloudflareBrowserOptions,
   CloudflarePlaywrightDriver,
 } from "../internal/cloudflare-provider.ts"
-import type { BrowserProvider } from "../types.ts"
+import type { BrowserDriver } from "../types.ts"
 
 async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
   try {
@@ -19,7 +19,7 @@ async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
 
 export function cloudflareBrowser(
   options: CloudflareBrowserOptions = {},
-): BrowserProvider<CloudflareBrowserBindingConnection> {
+): BrowserDriver<CloudflareBrowserBindingConnection> {
   return createCloudflareBrowser(options, loadDriver)
 }
 

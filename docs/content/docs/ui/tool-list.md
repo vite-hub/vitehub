@@ -3,7 +3,7 @@ title: Tool List
 description: "Render Agent tool contracts with labels, schemas, MCP origin, and call counts."
 navigation.order: 35
 navigation.group: Agent work
-icon: i-ph-wrench-light
+icon: i-lucide-wrench
 ---
 
 `ToolList` shows a list of tool contracts (what each tool takes and returns). Use it to show which tools an Agent had and which it used. The inspectors and the Capability reference pages in these docs use it.
@@ -13,16 +13,16 @@ icon: i-ph-wrench-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/tool-list`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { ToolList } from "@vite-hub/ui";
+import { ToolList } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
+import { ToolList, type AgentToolInspection } from "vite-hub/ui";
 ```
 
 ```vue
@@ -98,5 +98,5 @@ Icons use Nuxt UI's `UIcon`. To replace it, see [Nuxt UI components](/docs/ui/in
 
 ## Related
 
-- [Console](/docs/development/console) groups the tools of a run by Capability.
+- [Console](/docs/console) groups the tools of a run by Capability.
 - [Code block](/docs/ui/code-block) shows the input and output of a tool call.

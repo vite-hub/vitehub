@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs"
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -9,6 +9,7 @@ import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 const sourceFilePattern = /\.(?:c|m)?[jt]sx?$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]sx?$/i
+const testFilePattern = /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/i
 const ignoredDirs = new Set(["node_modules", "dist", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
 
 export interface DiscoveredDefinition {
@@ -125,8 +126,23 @@ export function listMatchingFiles(root: string, predicate: (name: string) => boo
   return files.sort()
 }
 
+/** A module that a Definitions folder can hold: JavaScript or TypeScript, and not a declaration, test, or spec file. */
+export function isDefinitionSourceFile(name: string): boolean {
+  return sourceFilePattern.test(name) && !declarationFilePattern.test(name) && !testFilePattern.test(name)
+}
+
 export function listSourceFiles(root: string, options: { includeHidden?: boolean } = {}): string[] {
-  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name), options)
+  return listMatchingFiles(root, isDefinitionSourceFile, options)
+}
+
+/**
+ * Whether `path` is a file, or a folder that holds a Definition source file. A Definition file in a server directory,
+ * such as `server/auth.ts` or a file in `server/queues/`, turns its feature on without a key. An empty folder, which
+ * Git does not keep, turns nothing on.
+ */
+export function hasDefinitionFiles(path: string): boolean {
+  if (!existsSync(path)) return false
+  return statSync(path).isFile() || listSourceFiles(path).length > 0
 }
 
 export function normalizePathDefinitionName(rootDir: string, file: string): string {

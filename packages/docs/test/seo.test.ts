@@ -4,12 +4,42 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import type { NuxtConfig } from "nuxt/schema"
 import type { ModuleOptions as SchemaOrgOptions } from "nuxt-schema-org"
 
 const meta = (html: string, property: string) => new RegExp(`<meta (?:property|name)="${property}" content="([^"]*)"`).exec(html)?.[1]
+
+it("reports a broken Markdown link before Nuxt Link Checker exits", async () => {
+  const root = await mkdtemp(join(import.meta.dirname, ".tmp-links-"))
+  const docs = (await import(pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href)).default as never
+  let nuxt: Awaited<ReturnType<typeof loadNuxt>> | undefined
+  const exit = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("Nuxt Link Checker exited") })
+  try {
+    await mkdir(join(root, "content/docs/guide"), { recursive: true })
+    await writeFile(join(root, "content/index.md"), "---\ntitle: Home\nlayout: home\n---\nWelcome\n")
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\n\n[Missing](/docs/guide/missing)\n")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    const config: NuxtConfig = {
+      dev: false,
+      devtools: { enabled: false },
+      modules: [[docs, { mcp: false, ogImage: false, seoAudit: false, site: { url: "https://docs.test" } }]],
+      nitro: { static: true },
+    }
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    await expect(build(nuxt)).rejects.toMatchObject({
+      code: "DOCS_LINKS_BROKEN",
+      problems: [expect.stringContaining("docs/guide/index.md:5: /docs/guide links to /docs/guide/missing")],
+    })
+    expect(exit).not.toHaveBeenCalled()
+  }
+  finally {
+    exit.mockRestore()
+    await nuxt?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 180_000)
 
 it.each([true, false])("gives prerendered pages site meta and Schema.org with image generation enabled: %s", async (images) => {
   // Inside the package, so the build resolves Tailwind and Nuxt UI as an installed app does.
@@ -20,7 +50,9 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     await mkdir(join(root, "content/docs/guide"), { recursive: true })
     await mkdir(join(root, "public"))
     await writeFile(join(root, "content/index.md"), "---\ntitle: Lumen\nlayout: home\n---\nRead [the guide](/docs/guide) or [its Markdown](/raw/docs/guide.md).\n")
-    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
+    await writeFile(join(root, "content/docs/index.md"), "---\ntitle: Documentation\nlayout: landing\n---\nWelcome to the docs.\n")
+    await writeFile(join(root, "content/docs/license.md"), "---\ntitle: License\n---\nLicense text.\n")
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\nlayout: landing\n---\nHello\n")
     await writeFile(join(root, "content/docs/guide/install.md"), "---\ntitle: Install\ndescription: From zero to a running site.\n---\nInstall\n")
     await writeFile(join(root, "content/docs/guide/own.md"), "---\ntitle: Own\nseo.image: /own.png\n---\nOwn\n")
     await writeFile(join(root, "content/docs/guide/bare.md"), "---\ntitle: Bare\nseo.image: own.png\n---\nBare\n")
@@ -35,7 +67,7 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
       dev: false,
       devtools: { enabled: false },
-      modules: [[docs, { mcp: false, ...images ? {} : { ogImage: false }, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
+      modules: [[docs, { mcp: false, ...images ? {} : { ogImage: false, builtWith: false }, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
       schemaOrg: { defaults: false },
       app: { head: { meta: [
         { property: "og:image", content: "https://lumen.example.com/own.png" },
@@ -49,8 +81,8 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     }
     nuxt = await loadNuxt({
       cwd: root,
-      // `_generate` is what `nuxi generate` sets: prerender every page to static files. NuxtConfig doesn't type it.
-      overrides: Object.assign(config, { _generate: true }),
+      // `nuxi generate` sets both: prerender every page to static files and skip the server build. NuxtConfig does not type `_generate`.
+      overrides: Object.assign(config, { _generate: true, nitro: { static: true } }),
       ready: true,
     })
     // The link checker fails the build on a broken link. `site.url` isn't live, so every link must resolve in the build.
@@ -92,6 +124,13 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     // The action renders once on the server; after hydration it moves into the active shell.
     expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(install).toContain("vh-docs-aside-footer")
+    const creditLink = /Built with <a href="https:\/\/vitehub\.dev\/docs\/docs-site"/g
+    const landing = await page("docs")
+    const standalone = await page("docs/license")
+    const overview = await page("docs/guide")
+    for (const html of [landing, standalone, home, overview, install]) {
+      expect(html.match(creditLink) ?? []).toHaveLength(images ? 1 : 0)
+    }
     expect(install.match(/data-custom-docs-action/g)).toHaveLength(1)
     const noSidebar = await page("docs/guide/no-sidebar")
     expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
@@ -101,7 +140,7 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 
     // A page without a description shares the site's.
-    expect(meta(await page("docs/guide"), "og:description")).toBe("Lumen docs")
+    expect(meta(overview, "og:description")).toBe("Lumen docs")
     const own = await page("docs/guide/own")
     expect(meta(own, "og:image")).toBe("https://lumen.example.com/own.png")
     expect(meta(own, "twitter:image")).toBe("https://lumen.example.com/own.png")

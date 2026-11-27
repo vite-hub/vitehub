@@ -1,8 +1,8 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import type { ViteHubErrorDetail } from "@vite-hub/runtime"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type {
   AgentBudgetExceeded,
@@ -24,13 +24,13 @@ declare global {
 
 function assertFiniteLimit(value: number | undefined, name: string): void {
   if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
-    throw new TypeError(`[vitehub] budget ${name} must be a finite, non-negative number.`)
+    throw agentDiagnostics.AGENT_BUDGET_LIMIT_INVALID({ name })
   }
 }
 
 function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenLimits {
   if (value === undefined) return {}
-  if (hasRuntimeType(value, "number")) {
+  if (typeof value === "number") {
     assertFiniteLimit(value, "tokens")
     return { total: value }
   }
@@ -60,7 +60,7 @@ function decimalParts(value: number | string): { scale: bigint, units: bigint } 
         ? `${digits}${"0".repeat(decimalIndex - digits.length)}`
         : `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
   }
-  if (!/^\d+(?:\.\d+)?$/.test(text)) throw new TypeError("[vitehub] budget usd must be a non-negative decimal.")
+  if (!/^\d+(?:\.\d+)?$/.test(text)) throw agentDiagnostics.AGENT_BUDGET_USD_INVALID()
   const [whole, fraction = ""] = text.split(".")
   return { scale: 10n ** BigInt(fraction.length), units: BigInt(`${whole}${fraction}`) }
 }
@@ -73,17 +73,17 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
 
 function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
   if (options.capacity !== undefined) {
-    throw new TypeError("[vitehub] budget capability does not support capacity; configure it on defineAgent({ budget }).")
+    throw agentDiagnostics.AGENT_BUDGET_CAPACITY_UNSUPPORTED()
   }
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
-    if (hasRuntimeType(options.usd, "number")) assertFiniteLimit(options.usd, "usd")
+    if (typeof options.usd === "number") assertFiniteLimit(options.usd, "usd")
     decimalParts(options.usd)
     usd = options.usd
   }
   if (!Object.keys(tokens).length && usd === undefined) {
-    throw new TypeError("[vitehub] budget requires tokens or usd.")
+    throw agentDiagnostics.AGENT_BUDGET_LIMIT_MISSING()
   }
   const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
   if (usd !== undefined) result.usd = usd
@@ -135,7 +135,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (hasRuntimeType(current, "number")) return current <= maxOutputTokens ? undefined : { maxOutputTokens }
+          if (typeof current === "number") return current <= maxOutputTokens ? undefined : { maxOutputTokens }
           return { maxOutputTokens }
         },
       })

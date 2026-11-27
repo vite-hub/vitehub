@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -10,17 +11,21 @@ import { defineConnection } from "../src/definition.ts"
 import { createConnectionsHandler } from "../src/http.ts"
 import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN, testProvider } from "./helpers.ts"
 
+const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
+
 function cli(test = createTestRuntime()) {
   const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
   const output = { stderr: "", stdout: "" }
   const context = {
-    env: {},
+    env: { ...devServerEnv },
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const request = vi.fn<typeof fetch>(async (input, init) => handler.fetch(new Request(input, init)))
+  const options = { openBrowser: false as const, fetch: request, timeout: 5 }
   return {
     output,
+    request,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
     test,
   }
@@ -35,7 +40,7 @@ describe("vitehub connections", () => {
   it("contributes the connections namespace", () => {
     const [namespace] = createConnectionsCliContributor().namespaces
     expect(namespace?.name).toBe("connections")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "export", "import", "models", "set-key", "activity", "approvals", "revoke"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "export", "import", "models", "set-key", "activity", "approvals", "rotate-key", "revoke"])
   })
 
   it("connects through a loopback callback", async () => {
@@ -61,34 +66,34 @@ describe("vitehub connections", () => {
   it("waits for the sign-in as long as the authorization link works", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
     const expiresAt = new Date(Date.now() + 150)
-    const fetch = (async () => Response.json({ expiresAt: expiresAt.toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
-    expect(await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47991"], context, { fetch, openBrowser: false })).toBe(1)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ expiresAt: expiresAt.toISOString(), state: "state-1", url: "https://auth.example.com/authorize" }))
+    expect(await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741"], context, { fetch, openBrowser: false })).toBe(1)
+    expect(fetch).toHaveBeenCalledOnce()
+    const { redirectUri } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
     const until = expiresAt.toTimeString().slice(0, 5)
-    expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for http://127.0.0.1:47991/callback ...\n`)
-    expect(output.stderr).toContain(`The browser did not return to http://127.0.0.1:47991/callback before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
+    expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for ${redirectUri} ...\n`)
+    expect(output.stderr).toContain(`The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
   })
 
   it("allows OAuth completion to finish after the provider's 30-second deadline", async () => {
-    // Scale seconds to milliseconds to exercise the full request deadline without a slow test.
     const timeout = AbortSignal.timeout.bind(AbortSignal)
     const deadlines = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms / 1_000))
     const test = createTestRuntime()
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
     const request = (async (input, init) => {
-      const response = await handler(new Request(input, init))
+      const response = await handler.fetch(new Request(input, init))
       if (JSON.parse(String(init?.body)).action === "complete") {
-        // The grant is durable, but the app's final response arrives after 30 seconds.
         await new Promise(resolve => setTimeout(resolve, 31))
         init?.signal?.throwIfAborted()
       }
@@ -112,16 +117,21 @@ describe("vitehub connections", () => {
   })
 
   it("explains the port to forward when the browser runs on another computer", async () => {
-    const fetch = (async () => Response.json({ expiresAt: new Date(Date.now() + 100).toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
-    const hint = "If the browser runs on another computer, forward port 47992 first. On that computer, run:\n\n  ssh -N -L 47992:127.0.0.1:47992 <user>@<this computer>\n"
-    const run = async (env: NodeJS.ProcessEnv, openBrowser: false | ((url: string) => Promise<void>)) => {
+    const run = async (env: NodeJS.ProcessEnv, openBrowser: (url: string) => Promise<void>) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ expiresAt: new Date(Date.now() + 100).toISOString(), state: "state-1", url: "https://auth.example.com/authorize" }))
       let stderr = ""
-      await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47992"], { env, stderr: { write: chunk => (stderr += String(chunk)) }, stdout: { write: () => true } }, { fetch, openBrowser })
-      return stderr
+      await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741"], { env, stderr: { write: chunk => (stderr += String(chunk)) }, stdout: { write: () => true } }, { fetch, openBrowser })
+      expect(fetch).toHaveBeenCalledOnce()
+      const { redirectUri } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
+      const { port } = new URL(redirectUri)
+      expect(stderr).toContain(`Waiting for ${redirectUri} ...`)
+      return { stderr, hint: `If the browser runs on another computer, forward port ${port} first. On that computer, run:\n\n  ssh -N -L ${port}:127.0.0.1:${port} <user>@<this computer>\n` }
     }
-    expect(await run({ SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }, async () => {})).toContain(hint)
-    expect(await run({}, async () => { throw new Error("No browser") })).toContain(hint)
-    expect(await run({}, async () => {})).not.toContain("forward port")
+    const remote = await run({ SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }, async () => {})
+    expect(remote.stderr).toContain(remote.hint)
+    const noBrowser = await run({}, async () => { throw new Error("No browser") })
+    expect(noBrowser.stderr).toContain(noBrowser.hint)
+    expect((await run({}, async () => {})).stderr).not.toContain("forward port")
   })
 
   it("names the fix when the authorization link expired", async () => {
@@ -134,7 +144,7 @@ describe("vitehub connections", () => {
     const redirect = authorization.searchParams.get("redirect_uri")!
     expect((await fetch(`${redirect}?code=code-1&state=${authorization.searchParams.get("state")}`)).status).toBe(200)
     expect(await done).toBe(1)
-    expect(harness.output.stderr).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes. (CONNECTIONS_AUTHORIZATION_EXPIRED)\nRun `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in within 10 minutes.\n")
+    expect(harness.output.stderr).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes. (CONNECTIONS_AUTHORIZATION_EXPIRED)\nRun `vitehub connections connect <name>` again, and finish the sign-in within 10 minutes.\n")
   })
 
   it.each(["list", "inspect"])("preserves public OAuth metadata in JSON %s", async (command) => {
@@ -149,7 +159,15 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).not.toContain(REFRESH_TOKEN)
   })
 
-  it("prints the Console connect URL for a deployed app", async () => {
+  it("prints the Connection's docs after its actions", async () => {
+    const harness = cli(createTestRuntime(async () => defineConnection({ provider: testProvider(), scopes: [], docs: "Sign in with the **support** inbox.\n" })))
+    expect(await harness.run("inspect", ["mail"])).toBe(0)
+    expect(harness.output.stdout).toMatch(/\n\nSign in with the \*\*support\*\* inbox\.\n$/)
+    expect(await harness.run("inspect", ["mail", "--json"])).toBe(0)
+    expect(harness.output.stdout).toContain('"docs": "Sign in with the **support** inbox.\\n"')
+  })
+
+  it("prints the connect URL for a deployed app", async () => {
     const harness = cli()
     expect(await harness.run("connect", ["mail", "--url", "https://app.example.com"])).toBe(0)
     expect(harness.output.stdout).toContain("https://app.example.com/_vitehub/connections/connect/mail")
@@ -159,7 +177,7 @@ describe("vitehub connections", () => {
     const requests: string[] = []
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -179,10 +197,9 @@ describe("vitehub connections", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-connections-cli-"))
     try {
       await mkdir(join(root, ".vitehub"))
-      // A Nuxt dev server on a port other than 5173 records its URL with the app base.
       await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/docs/" }))
       const requests: string[] = []
-      const context = { env: {}, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
+      const context = { env: { ...devServerEnv }, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
       const fetch = (async (input: Parameters<typeof globalThis.fetch>[0]) => {
         requests.push(String(input))
         return Response.json({ connections: [] })
@@ -194,6 +211,82 @@ describe("vitehub connections", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("sends the app session cookie of --cookie or VITEHUB_CONNECTIONS_COOKIE, and no Console credentials", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-connections-cli-"))
+    try {
+      await mkdir(join(root, ".vitehub"))
+      await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/" }))
+      const sent: Record<string, string>[] = []
+      const fetch = (async (_input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+        sent.push(Object.fromEntries(new Headers(init?.headers)))
+        return Response.json({ connections: [] })
+      }) as typeof globalThis.fetch
+      const env = { VITEHUB_CONNECTIONS_COOKIE: "session=app", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token" }
+      const context = { env, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
+      expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(0)
+      expect(await runConnectionsCli("list", ["--url", "https://app.example.com", "--cookie", "session=flag"], context, { fetch })).toBe(0)
+      expect(sent[0]).toMatchObject({ cookie: "session=app" })
+      expect(sent[1]).toMatchObject({ cookie: "session=flag" })
+      for (const headers of sent) expect(Object.keys(headers)).not.toContain("authorization")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([301, 302, 303, 307, 308])("refuses a cross-origin %i redirect without forwarding the session cookie", async (status) => {
+    const sent: Record<string, string | string[] | undefined>[] = []
+    const forwarded: Record<string, string | string[] | undefined>[] = []
+    let location = ""
+    const destination = createServer((request, response) => {
+      forwarded.push(request.headers)
+      request.resume()
+      response.setHeader("content-type", "application/json")
+      response.end(JSON.stringify({ connections: [] }))
+    })
+    const app = createServer((request, response) => {
+      sent.push(request.headers)
+      request.resume()
+      response.writeHead(status, { location })
+      response.end()
+    })
+    try {
+      await new Promise<void>(resolve => destination.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>(resolve => app.listen(0, "127.0.0.1", resolve))
+      const destinationAddress = destination.address()
+      const appAddress = app.address()
+      if (!destinationAddress || typeof destinationAddress === "string" || !appAddress || typeof appAddress === "string") throw new Error("Expected local test listeners")
+      location = `http://127.0.0.1:${destinationAddress.port}/redirected`
+      const output = { stderr: "", stdout: "" }
+      const context = {
+        env: { VITEHUB_CONNECTIONS_COOKIE: "session=app" },
+        stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+        stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+      }
+      const result = await runConnectionsCli("list", ["--url", `http://127.0.0.1:${appAddress.port}`], context)
+      expect(sent).toMatchObject([{ cookie: "session=app" }])
+      expect(forwarded).toEqual([])
+      expect(result).toBe(1)
+      expect(output.stdout).toBe("")
+      expect(output.stderr).toContain(`returned ${status}`)
+    }
+    finally {
+      for (const server of [app, destination]) {
+        server.closeAllConnections()
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      }
+    }
+  })
+
+  it("names the session cookie when the app refuses the request", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = { env: { ...devServerEnv }, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
+    const fetch = (async () => Response.json({ code: "CONSOLE_UNAUTHORIZED", message: "Sign in to the Console.", ok: false, status: 401 }, { status: 401 })) as typeof globalThis.fetch
+    expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
+    expect(output.stderr).toContain("Sign in to the Console. (CONSOLE_UNAUTHORIZED)")
+    expect(output.stderr).toContain("Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts.")
   })
 
   it("lists, approves, and revokes", async () => {
@@ -210,8 +303,16 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).toContain("executed")
 
     expect(await harness.run("revoke", ["mail"])).toBe(1)
-    expect(harness.output.stderr).toContain("--confirm mail")
-    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(0)
+    expect(harness.output.stderr).toContain("run it again with --yes")
+    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
+    expect(harness.output.stderr).toContain("--confirm <name> is now --yes")
+    harness.request.mockClear()
+    for (const flag of ["--yes=false", "--yes=", "-y=false"]) {
+      expect(await harness.run("revoke", ["mail", flag])).toBe(1)
+      expect(harness.output.stderr).toContain("does not take a value")
+    }
+    expect(harness.request).not.toHaveBeenCalled()
+    expect(await harness.run("revoke", ["mail", "-y"])).toBe(0)
     expect(harness.output.stdout).toContain("revoked")
   })
 
@@ -254,7 +355,7 @@ describe("vitehub connections", () => {
   it("rejects malformed successful management responses", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -267,16 +368,15 @@ describe("vitehub connections", () => {
   it("stops waiting for an app that never answers", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
-    // A dev server that rebuilds Nitro can accept the request and never answer.
     const fetch = (async (_input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => await new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
     })) as typeof globalThis.fetch
     expect(await runConnectionsCli("list", ["--url", "http://127.0.0.1:4741"], context, { fetch, openBrowser: false, requestTimeout: 0.05 })).toBe(1)
-    expect(output.stderr).toBe("http://127.0.0.1:4741 did not answer in 0.05 seconds. If the server is restarting, wait until it is ready, then run the command again.\n")
+    expect(output.stderr).toBe("http://127.0.0.1:4741 did not answer in 0.05 seconds. If the server is restarting, wait until it is ready, then run the command again.\nFix: Start the development server with `vite dev`, or pass `--url <origin>` of an app that uses Connections. A retry helps when the server was restarting.\n")
   })
 
   it("reports errors and unknown options", async () => {

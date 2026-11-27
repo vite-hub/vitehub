@@ -16,3 +16,9 @@ export const contentPreviewPublishedParameter = "vitehub-content-published"
  * redirect to another site. Its `content` is the message. The Console shows it with a way to retry.
  */
 export const contentPreviewErrorName = "vitehub-content-preview-error"
+
+/**
+ * The search parameter of a signed link to one ref of a `github()` Source, such as `/tree/feat/x/-/guide?vitehub-content-token=…`.
+ * `content.sources.sign()` makes the token and `content.sources.allow()` checks it.
+ */
+export const contentRefTokenParameter = "vitehub-content-token"

@@ -10,21 +10,57 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Get a Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
-| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
+| `useDatabase` from `vite-hub/database` | Select a generated Drizzle database and its schema, by name or the only one. |
+| `useDatabaseBinding` from `vite-hub/database` | Get the D1 binding or request session of a database. |
+| `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
+| `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
+| `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
+| `withIdempotency` from `vite-hub/database` | Run work once for a key, such as a webhook delivery id, and give repeats the first result. |
+| `useLeases` from `vite-hub/database` | Let one server at a time hold a key, such as a sync or a leader job, and renew it while the work runs. |
+| `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
-| `@vite-hub/database/cli` | The `vitehub db` CLI commands. |
+| `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
-`@vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
+`vite-hub/database` exports all Definition, option, connection, D1, Drizzle, and runtime config types.
 
 ## Use it at runtime
 
-Call `useDatabase()` in server code with the database name, or `default` for the default database. It returns the Drizzle client as `db` and your tables as `schema`. For a name with no Definition it returns `undefined`, so destructuring fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`, and the relations of `db.query` as `relations`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+
+| Call | App Databases | Result |
+| --- | --- | --- |
+| `useDatabase()` | A Default Database, or one Named Database | That Database |
+| `useDatabase()` | Several Named Databases | Throws [`DATABASE_NAME_REQUIRED`](/docs/database/limits-and-errors#database_name_required) |
+| `useDatabase(name)` | A Definition with this name | That Database |
+| `useDatabase(name)` or `useDatabase()` | No Definition with this name, or no Database | Throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found) |
+
+Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
+
+This route reads the `notes` table of the Default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
+
+```ts [src/database.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+    files: sqliteTable('files', {
+      id: text('id').primaryKey(),
+      ownerId: text('owner_id').notNull(),
+      name: text('name').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -32,14 +68,16 @@ export default defineEventHandler(() => {
 })
 ```
 
-ViteHub resolves `@vite-hub/database/drizzle` only in server code that Nitro builds. Do not run files that import it with plain `node`. Run your Nitro server output.
+`db`, `schema`, and `useDatabase()` read the Databases that the ViteHub Vite Integration generates for server code that Nitro builds. Run them through your Nitro server output. In plain `node`, outside Vite, they find no Database.
 
 ### Use Named Databases
 
 Use named databases when the app needs more than one separate database. Split for a real data or deployment reason, not to mirror a source folder.
 
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine `src/database.ts` with Named Database Definitions. To keep a Default Database beside Named Databases, define it in `server/databases/default.ts` and move any existing `src/migrations/` files to `server/databases/default/migrations/`.
+
 ```ts [src/analytics.database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const events = sqliteTable('events', {
@@ -54,7 +92,8 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -62,13 +101,41 @@ export default defineEventHandler(() => {
 })
 ```
 
+### Run queries in one batch
+
+On SQLite Databases (D1, D1 over HTTP, and libSQL), `db.batch()` runs a list of queries in one transaction and one call. A literal list types each result. A list that the handler builds works too:
+
+```ts [server/api/notes/import.post.ts]
+import type { BatchItem } from 'drizzle-orm/batch'
+import { defineEventHandler, readBody } from 'h3'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineEventHandler(async (event) => {
+  const { db, schema } = useDatabase('default')
+  const { titles } = await readBody<{ titles: string[] }>(event) ?? { titles: [] }
+  const writes: BatchItem<'sqlite'>[] = []
+  for (const title of titles) writes.push(db.insert(schema.notes).values({ title }))
+  await db.batch(writes)
+})
+```
+
+An empty list runs nothing and resolves `[]`. D1 rejects an empty batch, so ViteHub does not send it.
+
+### Pass the D1 binding to other code
+
+Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
+
+The return type, `DatabaseD1Binding`, exposes `prepare()` and `batch()`, which both bindings and sessions support. It fits consumers of these operations, including the D1 Agent Invocation store. It is not the full Cloudflare `D1Database` type: sessions have no `exec()`, `withSession()`, or `dump()`.
+
+It throws `DATABASE_NO_D1_BINDING` when the database does not run on a D1 binding, such as local SQLite during `vite dev` or D1 over HTTP.
+
 ### Stay under the bound parameter limit
 
-D1 binds at most 100 parameters per statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a Cloudflare dev server on local SQLite. `chunkParameters(values, options)` splits the values into arrays that each fit one statement:
+D1 binds at most 100 parameters per statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a Cloudflare dev server on local SQLite. `chunkParameters(values, options)` splits the values into arrays that each fit one statement. This example uses the `files` table of the Default Database above:
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from 'vite-hub/database'
 
 const { db, schema } = useDatabase('default')
 
@@ -93,7 +160,99 @@ export async function deleteFiles(ownerId: string, ids: string[]) {
 
 The helper trusts your counts. It does not read row contents or SQL defaults. An SQL expression can bind several parameters in one column: a one-column row with `` sql`${first} || ${second}` `` binds two, so use `{ per: 2 }`, not the table. Pick a `per` that covers the most a whole row can bind, SQL defaults included.
 
-Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
+Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws `DATABASE_CHUNK_VALUE_TOO_LARGE`, and `DATABASE_CHUNK_INVALID_COUNT` when a count is not a whole number in range. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
+
+## Run work once for a key
+
+Webhook senders, queues, and browsers retry. `withIdempotency(key, fn)` runs `fn` once for each key, on every instance of the app. A repeat gets the stored result and does not run `fn`:
+
+```ts [server/api/webhooks/payments.post.ts]
+import { defineEventHandler, HTTPError, readBody } from 'h3'
+import { withIdempotency } from 'vite-hub/database'
+
+export default defineEventHandler(async (event) => {
+  // A Standard Webhooks sender retries a delivery with the same `webhook-id`.
+  const delivery = event.req.headers.get('webhook-id')
+  if (!delivery) throw new HTTPError({ status: 400, statusText: 'The webhook-id header is missing.' })
+  const payment = await readBody<{ orderId: string }>(event)
+
+  const [error, receipt] = await withIdempotency(`payments:${delivery}`, async () => {
+    const response = await fetch('https://mail.example.com/send', {
+      method: 'POST',
+      body: JSON.stringify({ template: 'receipt', orderId: payment?.orderId }),
+    })
+    if (!response.ok) throw new Error(`The receipt mail failed with HTTP ${response.status}.`)
+    return { mailed: payment?.orderId }
+  })
+  if (error) throw new HTTPError({ status: 409, statusText: error.why })
+  return receipt
+})
+```
+
+| Case | Result |
+| --- | --- |
+| First call for the key | Runs `fn`, stores its result, and returns `[undefined, result]`. |
+| Repeat after the first call finished | Returns `[undefined, result]` with the stored result. `fn` does not run. |
+| Repeat while the first call runs | Returns [`DATABASE_IDEMPOTENCY_IN_PROGRESS`](/docs/database/diagnostics/database_idempotency_in_progress). Answer 409 so the client retries, or return from a Queue handler. |
+| `fn` throws | Rethrows the error and frees the key, so a retry runs `fn` again. |
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `ttl` | `86400` | Seconds that the stored result answers repeats. After that, the key is new again. |
+| `timeout` | `300` | Seconds that a running call holds the key. When a call crashes, the next call after `timeout` runs `fn` again. |
+| `database` | the default or only Database | The Database that stores the keys. |
+
+The keys live in the table `vitehub_idempotency_keys`, which the first call creates, on SQLite, D1, libSQL, and Postgres. Read it with `vitehub database sql "SELECT * FROM vitehub_idempotency_keys"`. The result must be JSON: a repeat gets `JSON.parse(JSON.stringify(result))`, so a `Date` comes back as a string. Pick a `timeout` longer than `fn` can run. A call that runs past it no longer holds the key, and a repeat runs `fn` a second time.
+
+`fn` and the stored result are separate writes. When the process stops after `fn` and before the result is stored, the key frees itself after `timeout` and a retry runs `fn` again. Make the work safe to repeat when that matters, for example with the idempotency key of your payment or mail provider.
+
+## Hold a lease
+
+`useLeases()` lets one server at a time hold a key. A lease ends at `release()` or when its `ttl` passes, and the holder can `renew()` it while the work runs:
+
+```ts [server/api/sync/stripe.post.ts]
+import { defineEventHandler, HTTPError } from 'h3'
+import { useLeases } from 'vite-hub/database'
+
+export default defineEventHandler(async () => {
+  const [error, lease] = await useLeases().acquire('sync:stripe-payouts', { ttl: 60 })
+  if (error) throw new HTTPError({ status: 503, statusText: error.why })
+  if (!lease) return { skipped: true }
+  try {
+    const response = await fetch('https://api.stripe.com/v1/payouts?limit=100')
+    const { data }: { data: { id: string }[] } = await response.json()
+    return { synced: data.length }
+  }
+  finally {
+    await lease.release()
+  }
+})
+```
+
+The leases live in the table `vitehub_leases` of the default or only Database, which the first call creates, on SQLite, D1, libSQL, and Postgres. Pass `{ database }` to use another Database. The [locks and leases guide](/docs/guides/run-one-at-a-time) shows `renew()`, `get()`, and when to use `kv.lock()` instead.
+
+## Apply migrations from server code
+
+`ensureMigrations(name?)` applies the pending migrations of the Database `name`, or of every Database without a name. It uses the same code as [migrate on start](/docs/database/configure#migrate-when-the-server-starts): the same migrations table, the same data loss check, and the Postgres advisory lock. Use it where the start plugin does not run first: a Nitro task, a Nitro plugin, an app test, or a build with `migrateOnStart: false`.
+
+```ts [server/tasks/db/migrate.ts]
+import { ensureMigrations } from 'vite-hub/database'
+import { defineTask } from 'nitro/task'
+
+export default defineTask({
+  meta: { description: 'Apply the pending migrations' },
+  async run() {
+    await ensureMigrations()
+    return { result: 'ok' }
+  },
+})
+```
+
+A process runs the migrations of a Database once. Calls during that run, and calls after it succeeds, wait for the same run and apply nothing. The start plugin shares this run, so a call after the start does no work. When a run fails, the call rejects and the process forgets the run, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. Several processes on one Postgres database apply each migration once: one process takes the lock and the others wait, then find nothing pending.
+
+The build writes the migrations into the server output, and the server reads them at the first call. A Cloudflare or Vercel build ships none, and a call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`: migrate those from the deployment with `vitehub database migrate` or Wrangler. Remote libSQL rejects with the same error. D1 over HTTP in a Node build migrates with Wrangler's migrations table. In app tests with `vite-hub/test`, a SQLite Database is an in-memory copy that already has its migrations, so the call skips it.
+
+A Nitro plugin that calls `ensureMigrations()` also runs in the prerender server during the build. Check `import.meta.prerender` first if the build must not migrate the runtime database.
 
 ## See database work on each request
 
@@ -111,4 +270,4 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 
 `calls: 9`, `maxConcurrent: 1`, and a high `ms` mean the calls ran one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
 
-It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.
+It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres, also on local PGlite. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.

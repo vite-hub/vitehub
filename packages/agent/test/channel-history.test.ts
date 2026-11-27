@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { defineAgent } from "../src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import type { AgentInvocationRecord } from "../src/invocations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -34,16 +34,16 @@ describe("Collection history Invocation joins", () => {
       if (record.id === "wrong-thread") return item("m1", "t2")
       return item(record.id, String(record.annotations?.["productlane.thread"]))
     })
-    const channel = defineChannel("productlane", {
+    const channel = channelAdapter("productlane", {
       messages: false,
       history: { collection: { parseQuery: async query => query, page: async () => ({ items: [item("m1"), item("m2")], nextCursor: null }) },
         key: entry => entry.data.message.id, thread: entry => entry.data.thread.id, invocationItem },
       triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "unused" } }) }) },
-      webhooks: { secretHeader: "x-test-secret", secretToken: "secret" },
+      webhooks: { secretHeader: "x-test-secret", secret: () => "secret" },
     })
     const agent = defineAgent({ name: "bot-dev", channels: { productlane: channel }, driver: { run: () => "unused" }, invocations, runtime: false })
     const handler = createChannelWebhookRouteHandler(agent)
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/bot-dev/webhooks/productlane", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/bot-dev/webhooks/productlane", {
       method: "POST", body: JSON.stringify({ invocations: true }), headers: { "x-test-secret": "secret", "x-vitehub-channel-history": "1" },
     }), "productlane", { agentIdentity: { name: "discovered-file" } })
     expect(response.status).toBe(200)
@@ -60,7 +60,7 @@ describe("Collection history Invocation joins", () => {
   })
 
   it("validates invocationItem using the history diagnostic", () => {
-    expect(() => defineChannel("x", { history: {
+    expect(() => channelAdapter("x", { history: {
       collection: { parseQuery: async () => ({}), page: async () => ({ items: [], nextCursor: null }) }, key: () => "m1",
       invocationItem: "invalid" as never,
     }, triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "unused" } }) }) } })).toThrow(/invocationItem.*must be a function/)

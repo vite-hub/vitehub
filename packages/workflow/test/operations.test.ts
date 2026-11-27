@@ -6,7 +6,9 @@ import { workflowOperations } from "../src/operations.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
+import { startWorkflow } from "../src/runtime/client.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 import type { WorkflowExecutionContext } from "../src/types.ts"
 
@@ -19,7 +21,7 @@ async function call(name: string, input: unknown, sections: "all" | readonly str
 
 beforeEach(() => {
   resetWorkflowRuntime()
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
     welcome: async () => ({ default: { handler: async ({ payload }) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
   })
@@ -35,32 +37,23 @@ describe("workflow operations", () => {
       ["workflow.resume", "write", "workflows"],
       ["workflow.runs-clear", "destructive", "workflows"],
       ["workflow.runs-list", "read", "workflows"],
-      ["workflow.runs-show", "read", "workflows"],
       ["workflow.start", "write", "workflows"],
     ])
     expect(registry.list().map(operation => operationCliPath(operation))).toEqual([
       { command: "cancel", namespace: "workflow" },
-      { command: "get", namespace: "workflow" },
+      { command: "runs get", namespace: "workflow" },
       { command: "resume", namespace: "workflow" },
       { command: "runs clear", namespace: "workflow" },
       { command: "runs list", namespace: "workflow" },
-      { command: "runs show", namespace: "workflow" },
       { command: "start", namespace: "workflow" },
     ])
   })
 
-  it("are contributed by the Workflow Vite plugin, which no longer adds a dev endpoint", async () => {
+  it("are contributed by the Workflow Vite plugin", async () => {
     const plugin = hubWorkflow()
     const [entry] = plugin.vitehub?.operations ?? []
-    expect(entry).toMatchObject({ export: "workflowOperations", module: "@vite-hub/workflow/operations" })
+    expect(entry).toMatchObject({ export: "workflowOperations", module: expect.stringMatching(/[\\/]workflow[\\/](?:src|dist)[\\/]operations\.(?:ts|js)$/) })
     expect(await entry?.load?.()).toBe(workflowOperations)
-    expect(plugin.vitehub).not.toHaveProperty("cli")
-    const nitro: Record<string, unknown> = {}
-    const config = { nitro, root: process.cwd() }
-    const hook = plugin.config
-    await (typeof hook === "function" ? hook : hook?.handler)?.call({} as never, config as never, { command: "serve", mode: "development" })
-    expect(JSON.stringify(config.nitro)).not.toContain("/_vitehub/workflow/dev")
-    expect(JSON.stringify(config.nitro)).not.toContain("dev-handler")
   })
 
   it("starts a run and reads it back without naming the Workflow", async () => {
@@ -87,7 +80,6 @@ describe("workflow operations", () => {
 
   it("lists and shows the runs that `vite dev` recorded, with steps, result, and error", async () => {
     enableWorkflowDevRuns()
-    // A folder Workflow: each step file runs through the step runner.
     const folder = (fail: boolean) => async () => ({
       default: {
         handler: async (context: WorkflowExecutionContext) => {
@@ -98,7 +90,7 @@ describe("workflow operations", () => {
           await steps.load!(undefined)
           return await steps.send!(undefined)
         },
-        options: { rootStep: false },
+        rootStep: false,
       },
     })
     setWorkflowRuntimeRegistry({ broken: folder(true), onboard: folder(false) })
@@ -109,7 +101,7 @@ describe("workflow operations", () => {
     const okId = (ok.value as { run: { id: string } }).run.id
     const failedId = (failed.value as { run: { id: string } }).run.id
 
-    await expect.poll(async () => await call("workflow.runs-show", { id: okId })).toMatchObject({
+    await expect.poll(async () => await call("workflow.get", { runId: okId })).toMatchObject({
       ok: true,
       value: {
         run: {
@@ -124,16 +116,16 @@ describe("workflow operations", () => {
         },
       },
     })
-    await expect.poll(async () => await call("workflow.runs-show", { id: failedId })).toMatchObject({
+    await expect.poll(async () => await call("workflow.get", { runId: failedId })).toMatchObject({
       ok: true,
       value: { run: { error: { message: expect.stringContaining("SMTP rejected") }, status: "failed", steps: [{ status: "completed" }, { error: { message: expect.stringContaining("SMTP rejected") }, status: "failed" }] } },
     })
-    expect(JSON.stringify(await call("workflow.runs-show", { id: failedId }))).not.toContain("abc.def.ghi")
+    expect(JSON.stringify(await call("workflow.get", { runId: failedId }))).not.toContain("abc.def.ghi")
 
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [{ id: failedId, stepCount: 2 }, { id: okId, stepCount: 2 }] } })
     expect(await call("workflow.runs-list", { status: "failed" })).toMatchObject({ ok: true, value: { runs: [{ id: failedId }] } })
     expect(await call("workflow.runs-list", { limit: 1, workflow: "onboard" })).toMatchObject({ ok: true, value: { runs: [{ id: okId }] } })
-    expect(await call("workflow.runs-show", { id: "wrun_missing" })).toMatchObject({ code: "WORKFLOW_RUN_NOT_FOUND", fix: expect.any(String), ok: false, status: 404 })
+    expect(await call("workflow.get", { runId: "wrun_missing" })).toMatchObject({ code: "WORKFLOW_RUN_UNKNOWN", fix: expect.any(String), ok: false })
     expect(await call("workflow.runs-list", {}, ["workflows:read"])).toMatchObject({ ok: true })
   })
 
@@ -142,16 +134,16 @@ describe("workflow operations", () => {
     const started = await call("workflow.start", { payload: { name: "ada" }, workflow: "welcome" })
     if (!started.ok) throw new Error("start failed")
     const { id } = (started.value as { run: { id: string } }).run
-    await expect.poll(async () => await call("workflow.runs-show", { id })).toMatchObject({ ok: true, value: { run: { status: "completed" } } })
+    await expect.poll(async () => await call("workflow.get", { runId: id })).toMatchObject({ ok: true, value: { run: { status: "completed", steps: expect.any(Array) } } })
 
     expect(await call("workflow.runs-clear", {}, ["workflows:read"])).toMatchObject({ ok: false, status: 403 })
     expect(await call("workflow.runs-clear", {})).toEqual({ ok: true, value: { cleared: 1 } })
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [] } })
-    expect(await call("workflow.runs-show", { id })).toMatchObject({ code: "WORKFLOW_RUN_NOT_FOUND", ok: false, status: 404 })
-    // `workflow.get` still reads the run: clear removes only the dev history.
-    expect(await call("workflow.get", { runId: id })).toMatchObject({ ok: true, value: { run: { id, status: "completed" } } })
+    // `workflow.get` still reads the run from the provider, without steps: clear removes only the dev history.
+    const read = await call("workflow.get", { runId: id })
+    expect(read).toMatchObject({ ok: true, value: { run: { id, status: "completed" } } })
+    expect(read.ok && (read.value as { run: object }).run).not.toHaveProperty("steps")
 
-    // A second enable keeps the history, and new runs are recorded after a clear.
     enableWorkflowDevRuns()
     await call("workflow.start", { workflow: "welcome" })
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [{ workflow: "welcome" }] } })
@@ -161,7 +153,6 @@ describe("workflow operations", () => {
   it("says that a runtime outside `vite dev` keeps no run history", async () => {
     await call("workflow.start", { payload: { name: "ada" }, workflow: "welcome" })
     expect(await call("workflow.runs-list", {})).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", fix: expect.stringContaining("vite dev"), ok: false, status: 409 })
-    expect(await call("workflow.runs-show", { id: "wrun_1" })).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", ok: false, status: 409 })
     expect(await call("workflow.runs-clear", {})).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", ok: false, status: 409 })
   })
 
@@ -183,10 +174,22 @@ describe("workflow operations", () => {
     expect(await call("workflow.start", { workflow: "welcome" })).toMatchObject({ code: "WORKFLOW_DISABLED", fix: expect.any(String), ok: false, status: 409 })
   })
 
-  it("reports operations that a provider does not support", async () => {
-    setWorkflowRuntimeConfig({ provider: "cloudflare" } as never)
-    expect(await call("workflow.cancel", { runId: "wrun_1", workflow: "welcome" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
-    expect(await call("workflow.resume", { token: "token" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
+  it("delivers a signal through the resume operation", async () => {
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
+    let resolveToken!: (token: string) => void
+    const tokenReady = new Promise<string>((resolve) => {
+      resolveToken = resolve
+    })
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ rootStep: false, handler: async ({ createSignal }) => {
+      const signal = createSignal()
+      resolveToken(signal.token)
+      return await signal.wait()
+    } }) })
+    const started = await unwrap(startWorkflow("welcome"))
+    const token = await tokenReady
+
+    expect(await call("workflow.resume", { token, payload: "approved" }, ["workflows"])).toMatchObject({ ok: true })
+    await expect.poll(() => call("workflow.get", { runId: started.id, workflow: "welcome" })).toMatchObject({ value: { run: { result: "approved", status: "completed" } }, ok: true })
   })
 
   it("lets a read-only grant read runs but not start, cancel, or resume", async () => {

@@ -30,8 +30,8 @@ function setup(context: EnvAccessContext | null = admin) {
   const client = createClient({ url: ":memory:" })
   cleanup.push(() => client.close())
   const store = createDatabaseEnvStore({
-    db: drizzle(client),
-    encryptionKey: new Uint8Array(32).fill(9),
+    db: drizzle({ client: client }),
+    encryptionKeys: [new Uint8Array(32).fill(9)],
     previews: true,
   })
   const bridge = createEnvBridge({ ...store, runtimeActor: { kind: "service", id: "runtime" } })

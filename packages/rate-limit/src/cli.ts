@@ -1,16 +1,15 @@
-import { createInterface } from "node:readline/promises"
-
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { askOnTerminal, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseRateLimitWindow } from "./policy.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
-import type { RateLimitWindow } from "./types.ts"
+import type { Duration } from "@vite-hub/runtime"
 
 export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
@@ -39,6 +38,7 @@ const rateLimitDevTargetErrors = {
   invalidInlineTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   invalidTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   missingValue: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
+  unknownOption: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
 }
 
 const rateLimitCommands: readonly RateLimitCommand[] = [
@@ -63,7 +63,7 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
     "Options:",
     ...(command.name === "reset" ? ["  --yes, -y         Reset without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --json            Print JSON.",
-    "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
+    "  --url <url>       Deployed app URL. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
     "  -h, --help        Show this help.",
     "",
@@ -109,11 +109,6 @@ function parseArgs(args: readonly string[]): ParsedRateLimitArgs {
   return parsed
 }
 
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
-
 function scopeNotice(scope: string): string {
   return scope === "process"
     ? "Scope: process. The counter exists only in this server process."
@@ -140,9 +135,18 @@ function formatReset(result: RateLimitResetInspection): string {
   return `Reset Rate Limit ${result.name} for key ${result.key}.\nProvider: ${result.provider}\n${scopeNotice(result.scope)}\n`
 }
 
-const windowSchema = v.custom<RateLimitWindow>(value => v.is(v.pipe(v.string(), v.regex(/^\d+(?:\.\d+)?(?:ms|s|m|h|d)$/)), value))
+const windowSchema = v.custom<Duration>((value) => {
+  if (typeof value !== "string") return false
+  try {
+    parseRateLimitWindow(value as Duration)
+    return true
+  }
+  catch {
+    return false
+  }
+})
 const finiteNumber = v.pipe(v.number(), v.finite())
-const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "cloudflare"]) }
+const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "kv", "cloudflare"]) }
 const scopeSchema = v.picklist(["global", "location", "process"])
 const counterSchema = v.object({
   limit: finiteNumber, remaining: finiteNumber, resetAt: v.optional(v.pipe(finiteNumber, v.minValue(-8.64e15), v.maxValue(8.64e15))),
@@ -167,21 +171,8 @@ function parseInspection(operation: RateLimitCommand["name"], value: unknown): R
   return parsed.success ? { operation, value: parsed.output } : undefined
 }
 
-function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: { code?: string, fix?: string, message: string }): number {
-  const message = redactInspectionText(failure.message)
-  if (parsed.json) context.stdout.write(`${JSON.stringify({ error: { ...failure, message } }, null, 2)}\n`)
-  else context.stderr.write(`${message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
+function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: ViteHubCliFailure): number {
+  return writeCliFailure(parsed.json, context, { ...failure, message: redactInspectionText(failure.message) })
 }
 
 async function runRateLimitCommand(
@@ -205,7 +196,6 @@ async function runRateLimitCommand(
     writeUsage(command, context.stdout)
     return 0
   }
-  // A reset deletes the counter, which lets a limited client through again.
   if (command.name === "reset" && !parsed.yes) {
     const question = `Reset the Rate Limit ${parsed.name} for key ${redactInspectionText(parsed.key!)}? The next request starts a new window. [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
@@ -225,7 +215,6 @@ async function runRateLimitCommand(
   if (!result) return writeFailure(parsed, context, { message: "The rate-limit operation answered with an invalid result." })
   const output = result.operation === "peek" ? formatPeek(result.value) : formatReset(result.value)
   context.stdout.write(parsed.json ? `${JSON.stringify(result.value, null, 2)}\n` : output)
-  // A counter that the provider cannot read or reset is a command failure, so scripts can check the exit code.
   return result.value.status === "unsupported" || result.value.status === "unavailable" ? 1 : 0
 }
 

@@ -1,4 +1,3 @@
-import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterAll, beforeEach, expect, it } from "vitest"
 
@@ -8,7 +7,7 @@ import { blob } from "../src/runtime/storage.ts"
 import { setBlobRuntimeConfig } from "../src/runtime/state.ts"
 
 const mode = enableViteHubTestMode()
-const store = { binding: "BLOB", driver: "cloudflare-r2" } as const
+const store = { binding: "BLOB", driver: "cloudflare" } as const
 
 beforeEach(async () => {
   await mode.reset()
@@ -62,11 +61,10 @@ it.each([false as const, { transformer: "passthrough" as const }])("preserves im
     const storage = blob.store(name)
     const [putError] = await storage.media.put("photo.jpg", bytes)
     expect(putError).toBeUndefined()
-    const event = new H3Event(new Request("https://example.test/photo.jpg"))
-    const [error, body] = await storage.serve(event, "photo.jpg", { variant: { format: "webp", width: 64 } })
-    expect(error).toBeUndefined()
-    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
-    expect(new Uint8Array(await new Response(body).arrayBuffer())).toEqual(new Uint8Array(bytes))
+    const response = await storage.serve(new Request("https://example.test/photo.jpg"), "photo.jpg", { variant: { format: "webp", width: 64 } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("image/jpeg")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(bytes))
   }
 })
 
@@ -78,10 +76,9 @@ it("preserves custom image sizes, quality, and transformer for every test store"
     const storage = blob.store(name)
     const [putError] = await storage.media.put("photo.jpg", bytes)
     expect(putError).toBeUndefined()
-    const event = new H3Event(new Request("https://example.test/photo.jpg"))
-    const [error, body] = await storage.serve(event, "photo.jpg", { variant: { width: 70 } })
-    expect(error).toBeUndefined()
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "webp", width: 80 })
+    const response = await storage.serve(new Request("https://example.test/photo.jpg"), "photo.jpg", { variant: { width: 70 } })
+    expect(response.status).toBe(200)
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ format: "webp", width: 80 })
     const [variantsError, variants] = await storage.media.variants("photo.jpg")
     expect(variantsError).toBeUndefined()
     expect(variants?.[0]?.key).toContain("q=42;engine=photon")

@@ -3,7 +3,7 @@ title: Attachments
 description: "Validate browser files, preview them, and convert them to AI SDK file parts."
 navigation.order: 40
 navigation.group: Utilities
-icon: i-ph-files-light
+icon: i-lucide-files
 ---
 
 `useAgentAttachments()` holds raw `File` values, checks type, size, and count, and converts them to AI SDK `FileUIPart` values when you send. Use it for your own attachment UI, or to validate files before conversion. `PromptInput` already converts files itself.
@@ -13,16 +13,16 @@ icon: i-ph-files-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `vite-hub/ui`:
 
 ```ts
-import { useAgentAttachments } from "@vite-hub/ui";
+import { useAgentAttachments } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { useAgentAttachments } from "@vite-hub/ui";
+import { useAgentAttachments } from "vite-hub/ui";
 ```
 
 ```ts fragment
@@ -118,7 +118,7 @@ function useAgentAttachments(options?: UseAgentAttachmentsOptions): AgentAttachm
 
 ### Helpers
 
-`@vite-hub/ui` also exports the two functions that `toFileParts()` uses.
+`vite-hub/ui` also exports the two functions that `toFileParts()` uses.
 
 | Function        | Signature                             | Description                               |
 | --------------- | ------------------------------------- | ----------------------------------------- |

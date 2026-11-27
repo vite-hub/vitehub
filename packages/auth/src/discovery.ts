@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 import type { DiscoveredAuthDefinition } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -53,6 +53,31 @@ export function discoverAuthDefinitions(rootDir: string, options: { serverDirs?:
   return layerDefinitions
 }
 
+/** Finds the app's Auth client options, `auth.client.ts`, in the Vite root, which is `app/` in a Nuxt app. */
+export function discoverAuthClient(appDir: string): string | undefined {
+  return authDefinitionExtensions.map(extension => resolve(appDir, `auth.client${extension}`)).find(file => existsSync(file))
+}
+
 export function discoverAuthDefinition(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredAuthDefinition | undefined {
   return discoverAuthDefinitions(rootDir, options)[0]
+}
+
+const abilitiesExtensions = [".ts", ".mts", ".js", ".mjs"]
+
+/** The app's candidates come first; the remaining candidates belong to Nuxt layers. */
+export function authAbilitiesCandidates(rootDir: string, options: { serverDirs?: string[] } = {}) {
+  const [appServerDir = resolve(rootDir, "server"), ...layerServerDirs] = options.serverDirs ?? []
+  const candidates = (serverDir: string) => abilitiesExtensions.map(extension => resolve(dirname(serverDir), "shared", `abilities${extension}`))
+  return { app: candidates(appServerDir), layers: layerServerDirs.flatMap(candidates) }
+}
+
+/** The app replaces layer rules. Without app rules, exactly one layer may provide them. */
+export function discoverAuthAbilities(rootDir: string, options: { serverDirs?: string[] } = {}): string | undefined {
+  const candidates = authAbilitiesCandidates(rootDir, options)
+  const app = candidates.app.filter(file => existsSync(file))
+  const found = app.length ? app : candidates.layers.filter(file => existsSync(file))
+  if (found.length > 1) {
+    throw authErrorDiagnostics.AUTH_C0060({ message: ["[vitehub] Only one abilities file is allowed. Found:", ...found.map(file => `  - ${file}`)].join("\n") })
+  }
+  return found[0]
 }

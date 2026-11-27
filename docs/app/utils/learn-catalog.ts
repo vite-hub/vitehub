@@ -1,4 +1,4 @@
-import type { DocsSection } from "@vite-hub/docs";
+import type { DocsAppPage, DocsSection } from "@vite-hub/docs";
 
 export interface LearnFacts {
   steps: number;
@@ -26,7 +26,7 @@ export interface LearnQuickstartGroup {
 }
 
 export interface LearnCatalog {
-  /** Tutorials that run beside a live workspace on `/learn/<slug>`. */
+  /** Tutorials that run beside a live workspace on their `layout: learn` page. */
   browser: LearnEntry[];
   /** Complete projects on the reader's machine. */
   projects: LearnEntry[];
@@ -36,35 +36,35 @@ export interface LearnCatalog {
 
 /** Sorts the tutorial pages of the docs into the groups of the Learn page. */
 export function buildLearnCatalog(input: {
-  sections: readonly DocsSection[]
-  runnable: readonly { slug: string, page: string }[]
+  sections: readonly DocsSection<DocsAppPage>[]
+  /** The `layout: learn` pages, in the order to take them: `path` runs the steps of the docs page `lesson`. */
+  runnable: readonly { path: string, lesson: string }[]
   facts: Readonly<Record<string, LearnFacts>>
 }): LearnCatalog {
-  const runnable = new Map(input.runnable.map(tutorial => [tutorial.page, tutorial.slug]));
+  const runnable = new Map(input.runnable.map(tutorial => [tutorial.lesson, tutorial.path]));
   const catalog: LearnCatalog = { browser: [], projects: [], quickstarts: [] };
   for (const section of input.sections) {
     const entries: LearnEntry[] = [];
     for (const page of section.pages) {
       if (page.layout !== "tutorial" || !page.navigation) continue;
-      const slug = runnable.get(page.path);
+      const learn = runnable.get(page.path);
       const facts = input.facts[page.path] ?? { steps: 0, minutes: 5 };
       const entry: LearnEntry = {
         title: page.sourceTitle || page.title,
         description: page.description ?? "",
         product: section.title,
         icon: page.icon ?? section.icon,
-        to: slug ? `/learn/${slug}` : page.path,
+        to: learn ?? page.path,
         page: page.path,
         ...facts,
       };
-      if (slug) catalog.browser.push(entry);
+      if (learn) catalog.browser.push(entry);
       else if (page.tutorial === "project") catalog.projects.push(entry);
       else entries.push(entry);
     }
     if (entries.length) catalog.quickstarts.push({ product: section.title, icon: section.icon, entries });
   }
-  // The runnable tutorials follow their order in `modules/tutorials/list.ts`, which is the order to take them in.
-  const order = input.runnable.map(tutorial => tutorial.page);
+  const order = input.runnable.map(tutorial => tutorial.lesson);
   catalog.browser.sort((a, b) => order.indexOf(a.page) - order.indexOf(b.page));
   return catalog;
 }

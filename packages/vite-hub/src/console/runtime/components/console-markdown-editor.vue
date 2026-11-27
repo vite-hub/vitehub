@@ -7,6 +7,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
 import { EditorContent, nodeViewProps, useEditor, VueNodeViewRenderer } from "@tiptap/vue-3";
 import { createContentEditorCodec } from "@vite-hub/content/editor";
+import { useCopy } from "@vite-hub/ui";
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
 import {
@@ -23,6 +24,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleComarkComponent from "./console-comark-component.vue";
 import ConsoleMediaDialog from "./console-media-dialog.vue";
 import ConsoleLoading from "./console-loading.vue";
+import Icon from "./console-icon.vue";
 
 import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "@nuxt/ui";
 import type { Editor, JSONContent } from "@tiptap/vue-3";
@@ -60,6 +62,8 @@ const emit = defineEmits<{
 
 const model = defineModel<string>({ required: true });
 const toast = useConsoleToast();
+// The block menu has no button to show the check, so a toast confirms the copy.
+const clipboard = useCopy();
 const lossy = ref<string>();
 // Mirrors `editor.isEditable`, which is not reactive.
 const editable = ref(Boolean(props.live) && !props.disabled);
@@ -153,7 +157,7 @@ const extensions = codec.extensions().map(extension => extension.extend({
   starterKit: {
     undoRedo: live ? false : undefined,
     trailingNode: false,
-    dropcursor: { class: "vitehub-drop-cursor", color: "var(--ui-primary)", width: 2 },
+    dropcursor: { class: "vitehub-drop-cursor", color: "var(--primary)", width: 2 },
     link: { openOnClick: false },
   },
 }));
@@ -332,6 +336,7 @@ onBeforeUnmount(() => {
   flushVersion++;
   if (pending) clearTimeout(pending);
   clearTimeout(outlineTimer);
+  clearTimeout(sectionTimer);
 });
 
 /** The body as Markdown now, such as the live room body for a preview. Null while it cannot serialize. */
@@ -395,7 +400,7 @@ const bubbleItems = computed(() => [
     tooltip: { text: "Turn into" },
     trailingIcon: "i-lucide-chevron-down",
     // Opaque: a blurred menu inside the blurred bubble cannot blur the page behind both.
-    ui: { content: "bg-default backdrop-blur-none", label: "text-xs" },
+    ui: { content: "bg-default backdrop-blur-none" },
   }],
   [
     { "aria-label": "Bold", icon: "i-lucide-bold", kind: "mark", mark: "bold", tooltip: { kbds: ["meta", "b"], text: "Bold" } },
@@ -462,13 +467,8 @@ async function copyLink(instance: Editor, pos: number): Promise<void> {
   });
   const url = new URL(window.location.href);
   url.hash = anchor;
-  try {
-    await navigator.clipboard.writeText(url.toString());
-    toast.show({ title: anchor ? "Link to section copied" : "Link copied" });
-  }
-  catch {
-    toast.error("Couldn't copy the link.");
-  }
+  if (await clipboard.copy(url.toString())) toast.show({ title: anchor ? "Link to section copied" : "Link copied" });
+  else toast.error("Couldn't copy the link.");
 }
 
 function insertBelow(instance: Editor | undefined, onClick: () => { pos: number } | undefined): void {
@@ -477,15 +477,19 @@ function insertBelow(instance: Editor | undefined, onClick: () => { pos: number 
   handlers.value.suggestion.execute(instance, { pos: node?.pos }).run();
 }
 
-function lockHandle(instance: Editor, open: boolean): void {
+// Enter opens the block menu without a click, so opening it selects the block under the handle, as a press does.
+function toggleBlockMenu(instance: Editor, open: boolean, select: () => unknown): void {
+  if (open) select();
   instance.chain().setMeta("lockDragHandle", open).run();
 }
 
 // A link that names a section scrolls to it once the body loads.
+let sectionTimer: ReturnType<typeof setTimeout> | undefined;
 watch(editor, (instance) => {
   if (!instance || !window.location.hash) return;
   const target = decodeURIComponent(window.location.hash.slice(1));
-  setTimeout(() => {
+  clearTimeout(sectionTimer);
+  sectionTimer = setTimeout(() => {
     instance.state.doc.forEach((node, offset) => {
       if (node.type.name === "heading" && consoleHeadingSlug(node.textContent) === target) scrollTo(offset);
     });
@@ -497,7 +501,7 @@ watch(editor, (instance) => {
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
     <ConsoleLoading v-if="hydrating" label="Loading editor…" />
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
-      <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <Icon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>Read-only here. {{ lossy }} Switch to Source to read or edit the Markdown.</span>
     </p>
     <template v-if="editor">
@@ -517,14 +521,13 @@ watch(editor, (instance) => {
             <UButton
               icon="i-lucide-link"
               variant="ghost"
-              size="sm"
               aria-label="Link"
               :active="editor.isActive('link')"
               active-variant="soft"
             />
             <template #content>
               <form class="flex w-72 items-center gap-1 p-1" @submit.prevent="applyLink">
-                <UInput v-model="linkHref" autofocus class="flex-1" variant="none" placeholder="https://vitehub.dev" aria-label="Link URL" :ui="{ base: 'text-[13px]' }" />
+                <UInput v-model="linkHref" autofocus class="flex-1" variant="none" placeholder="https://vitehub.dev" aria-label="Link URL" />
                 <UButton type="submit" size="xs" variant="ghost" icon="i-lucide-corner-down-left" aria-label="Apply link" />
                 <UButton v-if="editor.isActive('link')" size="xs" variant="ghost" icon="i-lucide-link-2-off" aria-label="Remove link" @click="linkHref = ''; applyLink()" />
               </form>
@@ -553,7 +556,7 @@ watch(editor, (instance) => {
           :items="blockItems(editor)"
           :content="{ side: 'left', align: 'start' }"
           :ui="{ content: 'w-52' }"
-          @update:open="lockHandle(editor, $event)"
+          @update:open="toggleBlockMenu(editor, $event, onClick)"
         >
           <UButton
             icon="i-lucide-grip-vertical"
@@ -563,7 +566,6 @@ watch(editor, (instance) => {
             aria-label="Block actions. Drag to move."
             :active="open"
             :class="ui.handle()"
-            @click="onClick"
           />
         </UDropdownMenu>
       </UEditorDragHandle>
@@ -574,6 +576,7 @@ watch(editor, (instance) => {
 </template>
 
 <style>
+/* The writing surface shows focus with its caret, as a document does, not with a ring around the whole body. */
 .vitehub-markdown-editor__content {
   color: var(--ui-text);
   font-size: 0.9375rem;
@@ -587,7 +590,7 @@ watch(editor, (instance) => {
 .vitehub-markdown-editor__content > :first-child { margin-top: 0; }
 
 .vitehub-markdown-editor__content :is(h1, h2, h3, h4) {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-weight: 600;
 }
 
@@ -603,20 +606,20 @@ watch(editor, (instance) => {
 .vitehub-markdown-editor__content li::marker { color: var(--ui-text-dimmed); }
 
 .vitehub-markdown-editor__content blockquote {
-  border-inline-start: 2px solid var(--ui-text-highlighted);
+  border-inline-start: 2px solid var(--foreground);
   padding-inline-start: 1rem;
 }
 
 .vitehub-markdown-editor__content a {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   text-decoration: underline;
   text-decoration-color: var(--ui-border-accented);
   text-underline-offset: 3px;
 }
 
 .vitehub-markdown-editor__content code {
-  background: var(--ui-bg-elevated);
-  border-radius: 0.25rem;
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.1em 0.3em;
@@ -624,8 +627,8 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content pre {
   background: var(--ui-bg-muted);
-  border-radius: 0.5rem;
-  box-shadow: inset 0 0 0 1px var(--ui-border);
+  border-radius: calc(var(--radius) * 2);
+  box-shadow: inset 0 0 0 1px var(--border);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.25rem;
@@ -637,38 +640,36 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content hr {
   border: 0;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   margin-block: 1.5rem;
 }
 
 .vitehub-markdown-editor__content table { border-collapse: collapse; margin-block: 1rem; table-layout: fixed; width: 100%; }
 .vitehub-markdown-editor__content :is(th, td) {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   padding: 0.375rem 0.625rem;
   position: relative;
   text-align: start;
   vertical-align: top;
 }
-.vitehub-markdown-editor__content th { background: var(--ui-bg-elevated); font-weight: 500; }
+.vitehub-markdown-editor__content th { background: var(--muted); font-weight: 500; }
 .vitehub-markdown-editor__content .selectedCell::after {
-  background: color-mix(in oklab, var(--ui-primary) 12%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
   content: "";
   inset: 0;
   pointer-events: none;
   position: absolute;
 }
-.vitehub-markdown-editor__content .column-resize-handle { background: var(--ui-primary); bottom: 0; position: absolute; right: -1px; top: 0; width: 2px; }
+.vitehub-markdown-editor__content .column-resize-handle { background: var(--primary); bottom: 0; position: absolute; right: -1px; top: 0; width: 2px; }
 
-.vitehub-markdown-editor__content img { border-radius: 0.375rem; display: inline-block; max-width: 100%; }
-.vitehub-markdown-editor__content img.ProseMirror-selectednode { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.vitehub-markdown-editor__content img { border-radius: calc(var(--radius) * 1.5); display: inline-block; max-width: 100%; }
+.vitehub-markdown-editor__content img.ProseMirror-selectednode { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* The block that the handle selected gets a tint, as in Notion. */
 .vitehub-markdown-editor__content .ProseMirror-selectednode:not(img) {
-  background: color-mix(in oklab, var(--ui-primary) 10%, transparent);
-  border-radius: 0.25rem;
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  border-radius: calc(var(--radius) * 1.5);
 }
-
-.vitehub-markdown-editor__content ::selection { background: color-mix(in oklab, var(--ui-primary) 22%, transparent); }
 
 /* Placeholder on the empty line with the cursor. */
 .vitehub-markdown-editor__content :is(p, h1, h2, h3, h4).is-empty::before {

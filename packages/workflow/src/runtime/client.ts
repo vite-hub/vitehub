@@ -1,17 +1,64 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { getViteHubErrorShape, isRuntimeDiagnostic, toResultError } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { resolveWorkflowStartAt } from "./delay.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
 
-import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
+import type { Result, ResultError } from "@vite-hub/runtime"
+import type { Diagnostic } from "nostics"
+import type { WorkflowProviderFailure } from "../errors.ts"
+import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowName, WorkflowPayload, WorkflowResultErrorCode, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartArguments, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+
+const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
+  "RUNTIME_DURATION_INVALID",
+  "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID",
+  "WORKFLOW_OPERATION_UNSUPPORTED",
+  "WORKFLOW_PROVIDER_OPERATION_FAILED",
+  "WORKFLOW_R0014",
+  "WORKFLOW_RUN_ID_UNSUPPORTED",
+  "WORKFLOW_SIGNAL_NOT_WAITING",
+  "WORKFLOW_SIGNAL_TOKEN_INVALID",
+  "WORKFLOW_START_DELAY_INVALID",
+])
+
+function resultError(diagnostic: Diagnostic<unknown>): ResultError<WorkflowResultErrorCode> {
+  // SAFETY: Each caller passes a catalog error whose code is one of WorkflowResultErrorCode.
+  return toResultError(diagnostic) as ResultError<WorkflowResultErrorCode>
+}
+
+function toWorkflowResultError(error: unknown): ResultError<WorkflowResultErrorCode> {
+  if (isRuntimeDiagnostic(error) && resultErrorCodes.has(error.code)) return resultError(error)
+  const shape = getViteHubErrorShape(error)
+  if (!shape || !resultErrorCodes.has(shape.code)) throw error
+  const cause: unknown = error instanceof Error ? error.cause : undefined
+  // SAFETY: createWorkflowError gives each of these codes the details of its WorkflowErrorDetails branch.
+  const details = (shape.details ?? {}) as Partial<WorkflowProviderFailure> & { operation: string, provider: string }
+  if (shape.code === "WORKFLOW_PROVIDER_OPERATION_FAILED") {
+    return resultError(workflowErrorDiagnostics.WORKFLOW_PROVIDER_OPERATION_FAILED({ ...details, cause }))
+  }
+  if (shape.code === "WORKFLOW_RUN_ID_UNSUPPORTED") {
+    return resultError(workflowErrorDiagnostics.WORKFLOW_RUN_ID_UNSUPPORTED({ cause }))
+  }
+  return resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ cause, operation: details.operation, provider: details.provider }))
+}
+
+async function toWorkflowResult<T>(run: () => Promise<T>): Promise<Result<T, WorkflowResultErrorCode>> {
+  try {
+    return [undefined, await run()]
+  }
+  catch (error) {
+    return [toWorkflowResultError(error), undefined]
+  }
+}
 
 function getActiveWorkflowConfig(): ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
@@ -39,7 +86,7 @@ function normalizeWorkflowRunIdValue(value: WorkflowRunIdValue): unknown {
   if (value === undefined) {
     return null
   }
-  if (value === null || !hasRuntimeType(value, "object")) {
+  if (value === null || typeof value !== "object") {
     return value
   }
   if (Array.isArray(value)) {
@@ -64,7 +111,7 @@ async function sha256Hex(value: string): Promise<string> {
 async function createStableWorkflowRunId(name: string, value: WorkflowRunIdValue): Promise<string> {
   const normalized = JSON.stringify(normalizeWorkflowRunIdValue(value))
   const hash = await sha256Hex(`${name}:${normalized}`)
-  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"
+  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 67) || "workflow"
   return `${prefix}-${hash.slice(0, 32)}`
 }
 
@@ -109,12 +156,12 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   let handler: WorkflowHandler<TPayload, TResult> | undefined
   let createOptions: WorkflowCreateOptions<TPayload, TResult> | undefined
 
-  if (hasRuntimeType(nameOrOptions, "object") && nameOrOptions !== null) {
+  if (typeof nameOrOptions === "object" && nameOrOptions !== null) {
     createOptions = nameOrOptions
-    if (!createOptions.name || !hasRuntimeType(createOptions.name, "string")) {
+    if (!createOptions.name || typeof createOptions.name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0009({ message: "`createWorkflow()` requires a workflow name." })
     }
-    if (!hasRuntimeType(createOptions.handler, "function")) {
+    if (typeof createOptions.handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0010({ message: "`createWorkflow()` requires a workflow handler." })
     }
     name = createOptions.name
@@ -122,19 +169,19 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   }
   else {
     name = nameOrOptions
-    if (!name || !hasRuntimeType(name, "string")) {
+    if (!name || typeof name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
     }
-    handler = hasRuntimeType(handlerOrOptions, "function")
+    handler = typeof handlerOrOptions === "function"
       ? handlerOrOptions
-      : hasRuntimeType(handlerOrOptions, "object") && handlerOrOptions !== null
+      : typeof handlerOrOptions === "object" && handlerOrOptions !== null
         ? handlerOrOptions.handler
         : undefined
-    createOptions = hasRuntimeType(handlerOrOptions, "function") ? options : handlerOrOptions
-    if (handler !== undefined && !hasRuntimeType(handler, "function")) {
+    createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
+    if (handler !== undefined && typeof handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0012({ message: "`createWorkflow()` requires a workflow handler." })
     }
-    if (handler === undefined && handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
+    if (handler === undefined && handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
       throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
     }
   }
@@ -143,44 +190,64 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     registerInlineWorkflowDefinition(name, {
       // SAFETY: Workflow definition registration establishes the handler's erased registry payload contract.
       handler: handler as WorkflowHandler,
-      ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
+      ...(createOptions?.internalAgentWorkflow ? { internalAgentWorkflow: true } : {}),
+      ...(createOptions?.rootStep === undefined ? {} : { rootStep: createOptions.rootStep }),
     })
   }
 
   return {
     cancel: (id: string) => cancelWorkflow(name, id),
     name,
-    defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
+    defer: (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflowStart(
       name,
-      payload,
-      await resolveWorkflowStartOptions(name, payload, createOptions, options),
+      async () => await startWorkflowRun<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options), true),
     ),
     getRun: (id: string) => getWorkflowRun(name, id),
-    async run(payload?: TPayload, options: WorkflowStartOptions = {}) {
-      const run = await runWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options))
+    async start(payload?: TPayload, options: WorkflowStartOptions = {}) {
+      const startOptions = await resolveWorkflowStartOptions(name, payload, createOptions, options)
+      const result = await toWorkflowResult(() => startWorkflowRun<TPayload>(name, payload, startOptions))
       // SAFETY: Typed createWorkflow overloads require a handler; handler-free handles expose unknown results.
-      return run as WorkflowRun<TPayload, TResult>
+      return result as Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>
     },
   }
 }
 
-export async function runWorkflow<TPayload = unknown>(
+/**
+ * Starts one durable run of a Workflow Definition and returns `[error, run]`. `run` has the id and the status.
+ * The name and the payload type come from `WorkflowRegistry`, which ViteHub writes to `.vitehub/workflow.d.ts`.
+ * A provider failure, an unsupported option, or an invalid `delay` is `error`. Config errors, for example an unknown
+ * Workflow name, throw.
+ */
+export function startWorkflow<TArgs extends WorkflowStartCall>(
+  ...args: TArgs
+): Promise<Result<WorkflowRun<WorkflowPayload<TArgs[0]>, unknown>, WorkflowResultErrorCode>>
+export async function startWorkflow(name: string, payload?: unknown, options: WorkflowStartOptions = {}): Promise<Result<WorkflowRun, WorkflowResultErrorCode>> {
+  return await toWorkflowResult(() => startWorkflowRun(name, payload, options))
+}
+
+type WorkflowStartCall = {
+  [TName in WorkflowName]: [name: TName, ...WorkflowStartArguments<WorkflowPayload<TName>>]
+}[WorkflowName]
+
+async function startWorkflowRun<TPayload>(
   name: string,
-  payload?: TPayload,
-  options: WorkflowDeferOptions = {},
+  payload: TPayload | undefined,
+  options: WorkflowStartOptions,
+  deferred = false,
 ): Promise<WorkflowRun<TPayload, unknown>> {
   const config = getActiveWorkflowConfig()
 
   const id = options.id || randomId("wrun")
+  const startAt = resolveWorkflowStartAt(options.delay)
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.provider === "vercel" && definition.options?.native && options.id) {
+  if (config.driver === "vercel" && definition.native && options.id) {
     throw createWorkflowError({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
   const test = getViteHubTestMode()
-  if (test) return recordWorkflowTestRun(test, config.provider, { deferred: options.deferred === true, id, name, payload })
+  if (test) return recordWorkflowTestRun(test, config.driver, { deferred, id, name, payload })
   return await getWorkflowRuntimeAdapter(config).run<TPayload, unknown>({
     // SAFETY: The named Workflow definition receives the caller-provided payload and its result remains unknown.
     definition: definition as WorkflowDefinition<TPayload, unknown>,
@@ -189,56 +256,80 @@ export async function runWorkflow<TPayload = unknown>(
     name,
     options,
     payload,
+    startAt,
   })
 }
 
-export async function getWorkflowRun(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
+/**
+ * Reads one run and returns `[error, run]`. A provider failure is `error`. A run that the provider does not know has
+ * `status: "unknown"`. Config errors throw.
+ */
+export async function getWorkflowRun(name: string, id: string): Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>> {
   const config = getActiveWorkflowConfig()
   const test = getViteHubTestMode()
-  if (test) return getWorkflowTestRun(test, config.provider, name, id)
+  if (test) return [undefined, getWorkflowTestRun(test, config.driver, name, id)]
 
-  return await getWorkflowRuntimeAdapter(config).get({
+  return await toWorkflowResult(() => getWorkflowRuntimeAdapter(config).get({
     event: getWorkflowRuntimeEvent(),
     id,
     name,
-  })
+  }))
 }
 
-export async function cancelWorkflow(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
+/**
+ * Cancels one run and returns `[error, run]`. A provider failure, or a provider that cannot cancel the run, is
+ * `error`. Config errors, for example an unknown Workflow name, throw.
+ */
+export async function cancelWorkflow(name: string, id: string): Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>> {
   const config = getActiveWorkflowConfig()
 
   const definition = await loadRequiredWorkflowDefinition(name)
   const test = getViteHubTestMode()
   if (test) {
-    if (config.provider === "cloudflare" || (config.provider === "vercel" && !definition.options?.native)) {
-      throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.provider } })
+    if (config.driver === "vercel" && !definition.native) {
+      return [resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "cancellation", provider: config.driver })), undefined]
     }
-    return getWorkflowTestRun(test, config.provider, name, id, true)
+    return [undefined, getWorkflowTestRun(test, config.driver, name, id, true)]
   }
-  return await getWorkflowRuntimeAdapter(config).cancel({
+  return await toWorkflowResult(() => getWorkflowRuntimeAdapter(config).cancel({
     event: getWorkflowRuntimeEvent(),
     id,
     name,
-  })
+  }))
 }
 
-export async function resumeWorkflowSignal<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
-  if (!token || !hasRuntimeType(token, "string")) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflowSignal()` requires an opaque signal token." })
+/**
+ * Resumes a run that waits for a signal and returns `[error, signal]`. `token` is `signal.token` from
+ * `context.createSignal()`, or the hook token of a native Vercel entry. `payload` is the value that `signal.wait()`
+ * returns: send a JSON value. An invalid token, a run that does not wait for the token, or a provider failure is
+ * `error`. Config errors throw.
+ */
+export async function resumeWorkflow<TPayload = unknown>(token: string, payload: TPayload): Promise<Result<WorkflowSignalResult, WorkflowResultErrorCode>> {
+  if (!token || typeof token !== "string") {
+    return [resultError(workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflow()` requires an opaque signal token." })), undefined]
   }
   const config = getActiveWorkflowConfig()
-  // Test backends start no handlers, so there is no suspended signal to resume.
   if (getViteHubTestMode()) {
-    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: config.provider } })
+    return [resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "signals", provider: config.driver })), undefined]
   }
-  return await getWorkflowRuntimeAdapter(config).resume(token, payload)
+  return await toWorkflowResult(() => getWorkflowRuntimeAdapter(config).resume(token, payload))
 }
 
-export function deferWorkflow<TPayload = unknown>(
-  name: string,
-  payload?: TPayload,
-  options: WorkflowStartOptions = {},
-): Promise<WorkflowRun<TPayload>> {
+function deferWorkflowStart(name: string, start: () => Promise<unknown>): void {
   const request = getWorkflowRuntimeEvent()
-  return runWithWorkflowRuntimeEvent(request, () => runWorkflow<TPayload>(name, payload, { ...options, deferred: true }))
+  const promise = runWithWorkflowRuntimeEvent(request, start).then(() => undefined, (error: unknown) => {
+    console.error(`[vitehub] Deferred Workflow start failed for "${name}"`, error)
+  })
+  const waitUntil = resolveWaitUntil(request)
+  if (typeof waitUntil === "function") {
+    waitUntil(promise)
+  }
+}
+
+/**
+ * Starts a run after the response, through `waitUntil`. It returns nothing: a failure goes to the log.
+ * Call `startWorkflow()` when the caller needs the run ID or the start error.
+ */
+export function deferWorkflow(...[name, payload, options = {}]: WorkflowStartCall): void {
+  deferWorkflowStart(name, () => startWorkflowRun(name, payload, options, true))
 }

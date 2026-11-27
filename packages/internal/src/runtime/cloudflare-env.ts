@@ -1,13 +1,25 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-export type CloudflareWorkerEnv = Record<string, unknown>
+import {
+  activeEnvStorageKey,
+  cloudflareOwners,
+  getActiveCloudflareEnv,
+  getCloudflareEnv,
+  getInstalledCloudflareEnv,
+  getScopedCloudflareEnv,
+  ownObject,
+  ownValue,
+  setInstalledCloudflareEnv,
+} from "./cloudflare-env-lookup.ts"
+import type { CloudflareWorkerEnv } from "./cloudflare-env-lookup.ts"
+
+export { getActiveCloudflareEnv, getCloudflareEnv }
+export type { CloudflareWorkerEnv }
 
 export interface CloudflareWorkerExecutionContext {
   waitUntil?: (promise: Promise<unknown>) => void
 }
 
-let activeEnv: CloudflareWorkerEnv | undefined
-const activeEnvStorageKey = Symbol.for("vitehub.cloudflare.env-storage")
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const activeEnvStorage = (runtimeGlobal[activeEnvStorageKey] ||= new AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>()) as AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>
 
@@ -35,7 +47,7 @@ function readsGlobalEnv(env: CloudflareWorkerEnv): boolean {
 }
 
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
-  activeEnv = env
+  setInstalledCloudflareEnv(env)
   // Keep the host's bindings in `__env__` when env is a view of `__env__` itself.
   if (!env || !readsGlobalEnv(env)) (globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
   try {
@@ -56,15 +68,6 @@ export function runWithActiveCloudflareEnv<T>(env: CloudflareWorkerEnv | undefin
   return activeEnvStorage.run({ env }, callback)
 }
 
-export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
-  const scoped = activeEnvStorage.getStore()
-  if (scoped) return scoped.env
-  const host = globalThis as { __env__?: CloudflareWorkerEnv }
-  // Nitro updates __env__ for the current Worker request. Prefer that ambient
-  // binding over the process fallback, which may belong to an earlier request.
-  return Object.hasOwn(host, "__env__") && host.__env__ !== undefined ? host.__env__ : activeEnv
-}
-
 /**
  * Identifies the active Cloudflare request. `runWithActiveCloudflareEnv()` creates one scope per call.
  * Without that wrapper, the scope is the env object last installed with `setActiveCloudflareEnv()`.
@@ -72,49 +75,15 @@ export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
  * Returns undefined outside a Cloudflare request.
  */
 export function getActiveCloudflareRequestScope(): object | undefined {
-  const scoped = activeEnvStorage.getStore()
+  const scoped = getScopedCloudflareEnv()
   if (scoped) return scoped.env ? scoped : undefined
-  return activeEnv
+  return getInstalledCloudflareEnv()
 }
 
 export function getActiveCloudflareBinding<T>(name: string): T | undefined {
   const env = getActiveCloudflareEnv()
   // SAFETY: The caller chooses T, and the binding name is an own property of the environment.
   return env && Object.hasOwn(env, name) ? env[name] as T : undefined
-}
-
-function ownValue(value: unknown, key: PropertyKey): unknown {
-  if (value === null || (typeof value !== "object" && typeof value !== "function") || !Object.hasOwn(value, key)) return undefined
-  return Reflect.get(value, key)
-}
-
-function ownObject(value: unknown): Record<PropertyKey, unknown> | undefined {
-  return value !== null && (typeof value === "object" || typeof value === "function")
-    ? value as Record<PropertyKey, unknown>
-    : undefined
-}
-
-/** The objects where H3 1, H3 2, and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
-function cloudflareOwners(target: Record<PropertyKey, unknown> | undefined): Array<Record<PropertyKey, unknown> | undefined> {
-  const context = ownObject(ownValue(target, "context"))
-  const platform = ownObject(ownValue(context, "_platform"))
-  const req = ownObject(ownValue(target, "req"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
-  return [
-    ownObject(ownValue(context, "cloudflare")),
-    ownObject(ownValue(platform, "cloudflare")),
-    ownObject(ownValue(ownObject(ownValue(req, "runtime")), "cloudflare")),
-    ownObject(ownValue(ownObject(ownValue(nodeReq, "runtime")), "cloudflare")),
-  ]
-}
-
-export function getCloudflareEnv(event: unknown, options: { fallback?: boolean } = {}): CloudflareWorkerEnv | undefined {
-  const target = ownObject(event)
-  for (const candidate of [ownValue(target, "env"), ...cloudflareOwners(target).map(owner => ownValue(owner, "env"))]) {
-    if (candidate) return candidate as CloudflareWorkerEnv
-  }
-  return options.fallback === false ? undefined : getActiveCloudflareEnv()
 }
 
 /**
@@ -151,11 +120,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
   const reqRuntime = ownObject(ownValue(req, "runtime"))
   const reqCloudflare = ownObject(ownValue(reqRuntime, "cloudflare"))
   const reqCloudflareContext = ownObject(ownValue(reqCloudflare, "context"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
-  const nodeRuntime = ownObject(ownValue(nodeReq, "runtime"))
-  const nodeCloudflare = ownObject(ownValue(nodeRuntime, "cloudflare"))
-  const nodeCloudflareContext = ownObject(ownValue(nodeCloudflare, "context"))
   const hosts = [
     context,
     cloudflare,
@@ -165,9 +129,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
     req,
     reqCloudflare,
     reqCloudflareContext,
-    nodeReq,
-    nodeCloudflare,
-    nodeCloudflareContext,
   ]
   const owners = options.preferHost ? [...hosts, target] : [target, ...hosts]
   for (const owner of owners) {

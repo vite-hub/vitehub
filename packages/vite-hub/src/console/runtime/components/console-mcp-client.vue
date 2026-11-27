@@ -1,15 +1,17 @@
 <script setup lang="ts">
+import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
-import { projectUrl } from "../client/project";
+import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
+import { projectAppUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
 import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 import type { ConsoleMcpConnection, ConsoleMcpOverview } from "../mcp-client";
 
@@ -36,7 +38,7 @@ const connectOpen = ref(false);
 const connectPreset = ref<{ another?: boolean, server: string }>();
 let request: AbortController | undefined;
 
-const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectUrl("/"), window.location.href).origin) : []);
+const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectAppUrl("/"), window.location.href).origin) : []);
 const connections = computed(() => overview.value?.connections ?? []);
 
 function queryValue(name: string): string | undefined {
@@ -134,7 +136,7 @@ onBeforeUnmount(() => request?.abort());
       <div v-if="!collapsed" class="vitehub-console__panel-title">
         <span class="min-w-0 flex-1 truncate">MCP client</span>
         <UTooltip text="Connect to a server">
-          <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
+          <UButton aria-label="Connect to a server" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
         </UTooltip>
       </div>
     </template>
@@ -158,13 +160,13 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? `${consoleMcpAccount(connection).primary}, ${consoleMcpStatus[connection.status].label}` : undefined"
               @click="open(connection)"
             >
-              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleMcpInitials(consoleMcpAccount(connection).primary)" size="xs" />
+              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleInitials(consoleMcpAccount(connection).primary)" size="xs" />
               <span v-if="!collapsed" class="grid min-w-0 flex-1 text-start">
                 <span class="truncate">{{ consoleMcpAccount(connection).primary }}</span>
                 <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
               </span>
               <template v-if="!collapsed">
-                <UIcon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
+                <Icon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
                 <span v-else class="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
                 <span class="sr-only">{{ consoleMcpStatus[connection.status].label }}</span>
               </template>
@@ -178,12 +180,12 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? `${group.connections.length ? 'Add an account to' : 'Connect to'} ${group.title}` : undefined"
               @click="connect({ another: group.connections.length > 0, server: group.url })"
             >
-              <UIcon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
+              <Icon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
               <span v-if="!collapsed" class="truncate font-normal">{{ group.connections.length ? "Add an account" : "Connect" }}</span>
             </button>
           </UTooltip>
         </template>
-        <p v-if="!collapsed && overview && !groups.length" class="px-2 py-1.5 text-xs text-muted">No servers yet.</p>
+        <UEmpty v-if="!collapsed && overview && !groups.length" variant="naked" size="xs" icon="i-lucide-server" title="No servers yet" description="Connect to an MCP server to see its tools here." />
       </nav>
     </template>
   </UDashboardSidebar>
@@ -196,7 +198,7 @@ onBeforeUnmount(() => request?.abort());
     :sections-base="sectionsBase"
   />
 
-  <UDashboardPanel id="mcp-client" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+  <UDashboardPanel id="mcp-client">
     <ConsoleMcpConnectionView
       v-if="selected"
       :key="selected.id"
@@ -211,7 +213,7 @@ onBeforeUnmount(() => request?.abort());
     <template v-else>
       <ConsolePageHeader title="MCP client">
         <template #right>
-          <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
+          <UButton icon="i-lucide-plus" label="Connect" variant="soft" @click="connect()" />
         </template>
       </ConsolePageHeader>
       <main class="min-h-0 flex-1 overflow-auto">
@@ -230,7 +232,7 @@ onBeforeUnmount(() => request?.abort());
         >
           <ul v-if="overview?.servers.length" class="grid w-full max-w-md gap-2 text-start">
             <li v-for="candidate in overview.servers" :key="candidate.url" class="flex min-w-0 items-center gap-3 rounded-lg border border-default px-3 py-2.5">
-              <UIcon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+              <Icon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
               <span class="grid min-w-0 flex-1">
                 <span class="truncate text-[13px] font-medium text-highlighted">{{ candidate.label }}</span>
                 <span class="truncate font-mono text-xs text-dimmed">{{ consoleMcpEndpoint(candidate.url) }}</span>

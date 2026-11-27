@@ -1,4 +1,4 @@
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 
 const maxRequestStateBytes = 8 * 1024 * 1024
 
@@ -11,9 +11,6 @@ const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(Object.getPro
 function normalizeRealtimeStateChunk(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
     try {
-      // Walk the full prototype chain and keep the intrinsic width. Subclass
-      // prototypes may shadow BYTES_PER_ELEMENT, while the concrete typed-array
-      // prototype later in the chain carries the actual element width.
       let prototype = Object.getPrototypeOf(value)
       let bytesPerElement: unknown
       while (prototype) {

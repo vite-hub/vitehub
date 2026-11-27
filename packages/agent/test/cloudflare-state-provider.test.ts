@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AtomicAgentStateQueueAdapter } from "../src/internal/state-queue.ts"
 import { isDurableAgentState } from "../src/internal/state-lock.ts"
-import { isRuntimeNumber } from "../src/internal/runtime-value.ts"
 import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
 import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-namespace.ts"
 
@@ -121,7 +120,7 @@ function createFakeDurableObjectState() {
         const next =
           lists
             .map((row) => row.expires_at)
-            .filter((expiresAt): expiresAt is number => isRuntimeNumber(expiresAt) && expiresAt > now)
+            .filter((expiresAt): expiresAt is number => typeof expiresAt === "number" && expiresAt > now)
             .sort((a, b) => a - b)[0] ?? null
         return sqlCursor([{ next_expiry: next }])
       }
@@ -284,6 +283,58 @@ describe("Cloudflare Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-05-31T10:00:00.200Z"))
 
     expect(state.listGet("history")).toEqual(["one", "two"])
+  })
+
+  it("takes a lock with mutations and reads, and commits, releases and reads in one request each", async () => {
+    const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
+    const { DatabaseSync } = await import("node:sqlite")
+    const database = new DatabaseSync(":memory:")
+    const sql = {
+      exec(query: string, ...bindings: Array<string | number | null>) {
+        if (!bindings.length && !/^\s*SELECT/i.test(query)) {
+          database.exec(query)
+          return sqlCursor()
+        }
+        const statement = database.prepare(query)
+        const rows = /^\s*SELECT/i.test(query) ? statement.all(...bindings) as Array<Record<string, unknown>> : (statement.run(...bindings), [])
+        return sqlCursor(rows)
+      },
+    }
+    const ctx = {
+      blockConcurrencyWhile: (callback: () => Promise<void>) => void callback(),
+      storage: {
+        setAlarm: async () => {},
+        sql,
+        transactionSync: <T>(callback: () => T): T => {
+          database.exec("BEGIN")
+          try {
+            const result = callback()
+            database.exec("COMMIT")
+            return result
+          }
+          catch (error) {
+            database.exec("ROLLBACK")
+            throw error
+          }
+        },
+      },
+    }
+    // SAFETY: This fixture provides the storage fields that the Durable Object reads.
+    const state = new ViteHubAgentStateDO(ctx as never, {})
+    state.cacheSet("pending", "true")
+    state.cacheSet("record", JSON.stringify({ cursor: 1 }))
+
+    const first = state.acquireLockWith("sync", 60_000, [{ key: "pending", type: "delete" }], ["record", "pending"])
+    expect(first.lock).toMatchObject({ threadId: "sync" })
+    expect(first.values).toEqual([JSON.stringify({ cursor: 1 }), null])
+    state.cacheSet("pending", "true")
+    expect(state.acquireLockWith("sync", 60_000, [{ key: "pending", type: "delete" }], ["record"])).toEqual({ lock: null, values: [] })
+    expect(state.cacheGet("pending")).toBe("true")
+
+    expect(state.releaseLockWith("sync", "stale", [{ key: "record", type: "set", value: { cursor: 3 } }], [])).toEqual({ committed: false, values: [] })
+    expect(state.releaseLockWith("sync", first.lock!.token, [{ key: "record", type: "set", value: { cursor: 2 } }], ["pending", "record"]))
+      .toEqual({ committed: true, values: ["true", JSON.stringify({ cursor: 2 })] })
+    expect(state.acquireLock("sync", 60_000)).toMatchObject({ threadId: "sync" })
   })
 
   it("atomically replaces a durable queue head", async () => {

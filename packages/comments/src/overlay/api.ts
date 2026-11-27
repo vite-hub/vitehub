@@ -1,20 +1,42 @@
 import { commentsApiRoute, commentsRoute } from "../page.ts"
-import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
+import { Diagnostic } from "nostics"
 
-import type { RestTransport } from "../rest-transport.ts"
-import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentUser } from "../types.ts"
+import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
+import { createCommentSendTransport } from "../send-transport.ts"
+
+import type { CommentsAgentAccess } from "../agent-prompt.ts"
+import type { CommentSendTransport } from "../client-send.ts"
+
+import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
+import type { CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentUser | null
   /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
   github?: CommentsGitHubAccess
-  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
-  /** The GitHub sign-in, when the person may not read yet and the site offers it. */
-  signIn?: { provider: "github", url: string }
+  /** `change: false` keeps every message as it was sent: no one edits or deletes one, not even their own. */
+  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean, change?: false }
+  /**
+   * The GitHub sign-in, when the person may not read yet and the site offers it. With `newTab`, `url` is complete and
+   * opens in a new tab, and the page stays.
+   */
+  signIn?: { provider: "github" | "console", url: string }
   /** Signs out of the GitHub sign-in of Comments. */
   signOut?: string
   realtime: boolean
+  attachments?: false
+  /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
+  presence?: false
   content: boolean
+  /** Send is on, and this person may hand the waiting comments to their agent. */
+  send?: true
+  agent?: CommentsAgentAccess
+  /** The GitHub repository of the app, `owner/name`, that "Open in T3 Code" opens. */
+  repository?: string
+  /** The subject of the page, which `page` of `defineComments()` decides on the server. */
+  subject?: CommentSubject
+  /** The version of the subject that new threads start on. */
+  revision?: number
 }
 
 export interface CommentsField {
@@ -38,6 +60,14 @@ export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 const guestKey = "vitehub-comments-guest"
 const route = commentsApiRoute(import.meta.url)
 
+/**
+ * Where the outbox of the overlay keeps its comments: one queue for each destination, so a comment saved for one
+ * Comments API or Hosted Comments project never goes out through another on the same origin.
+ */
+export function overlayOutboxNamespace(): string {
+  return backend ? backend.namespace : new URL(route, location.href).href
+}
+
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
   try {
@@ -55,28 +85,49 @@ export function saveGuest(name: string): { id: string, name: string } {
 
 const send = createCommentsRestRequest({ route, guest: readGuest })
 
+/** The error part of an API answer, from the diagnostic that a failed request throws. */
+export function apiError(error: unknown): CommentsApiError {
+  if (error instanceof Diagnostic) return { code: error.code, why: error.message, ...(error.fix ? { fix: error.fix } : {}) }
+  throw error
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   try {
     return [undefined, (await send<T>(path, init)).data]
   }
   catch (error) {
-    if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
-    throw error
+    return [apiError(error), undefined]
   }
+}
+
+/**
+ * Where the overlay reads its session and threads when they do not come from the Comments API of the page, such as
+ * the hosted embed, whose Console frame makes every request.
+ */
+export interface CommentsOverlayBackend {
+  /** A stable key of the destination, such as the Console URL of the project, that scopes the outbox. */
+  namespace: string
+  session: (page: string) => Promise<ApiResult<CommentsSession>>
+  transport: (onAnswer: (answer: CommentsRestAnswer<unknown>) => void) => RestTransport
+}
+
+let backend: CommentsOverlayBackend | undefined
+
+/** Sends the session and thread requests of the overlay to `next`. Call it before the overlay starts. */
+export function useCommentsOverlayBackend(next: CommentsOverlayBackend): void {
+  backend = next
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
 /** The routes that are not comment threads: who the person is on a page, and the Content fields of inline edits. */
 export const api = {
-  session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
+  session: (page: string) => backend ? backend.session(page) : call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
   field: (field: string, page: string) => call<CommentsField>(`/fields?page=${encodeURIComponent(page)}&field=${encodeURIComponent(field)}`),
   saveField: (input: { field: string, value: string, ifDigest: string }, page: string) => call<{ field: string, value: string, digest: string }>(`/fields?page=${encodeURIComponent(page)}`, post(input)),
 }
 
 export interface OverlayTransportOptions {
-  /** The page context of a new thread, which the overlay read when the draft started. */
-  contextOf: (input: CommentCreateInput) => CommentContext | undefined
   /** The people that an answer named, so their mentions get names. */
   onPeople: (people: readonly CommentUser[]) => void
   /** After each change, so the other people on the page read the threads again. */
@@ -85,15 +136,12 @@ export interface OverlayTransportOptions {
 
 /**
  * The comment parts' transport: `createRestTransport()` over the Comments API of the page, with the guest of this
- * browser. A new thread also sends the page context that the overlay read, and each change tells the other people on
- * the page.
+ * browser. Each change tells the other people on the page. A new thread sends the `context` and `revision` that the
+ * overlay put on its input at Send, because the outbox may send a saved copy of it later.
  */
 export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
-  const rest = createRestTransport({
-    base: route.slice(0, -commentsRoute.length),
-    guest: readGuest,
-    onAnswer: answer => answer.people.length && options.onPeople(answer.people),
-  })
+  const onAnswer = (answer: CommentsRestAnswer<unknown>) => answer.people.length && options.onPeople(answer.people)
+  const rest = backend ? backend.transport(onAnswer) : createRestTransport({ base: route.slice(0, -commentsRoute.length), guest: readGuest, onAnswer })
   const changed = <A extends unknown[], T>(run: (...input: A) => Promise<T>) => async (...input: A): Promise<T> => {
     const value = await run(...input)
     options.onChange()
@@ -101,11 +149,7 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
   }
   return {
     ...rest,
-    create: changed((input: CommentCreateInput) => {
-      const context = options.contextOf(input)
-      // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
-      return rest.create((context ? { ...input, context } : input) as CommentCreateInput)
-    }),
+    create: changed(rest.create),
     reply: changed(rest.reply),
     edit: changed(rest.edit),
     delete: changed(rest.delete),
@@ -114,10 +158,7 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
   }
 }
 
-/** The file as Base64, the form that `comments.upload` takes. */
-export async function base64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ""
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  return btoa(binary)
+/** The transport of Send in the pill, over the Send routes of the page's Comments API. */
+export function createOverlaySendTransport(page: () => string): CommentSendTransport {
+  return createCommentSendTransport({ base: route.slice(0, -commentsRoute.length), page })
 }

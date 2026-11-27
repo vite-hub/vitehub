@@ -6,7 +6,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { discoverChannelDefinitions, receivesChannelWebhooks } from "./discovery.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
-export { discoverChannelDefinitions } from "./discovery.ts"
+export { discoverChannelDefinitions, isOutboundChannelSource } from "./discovery.ts"
 
 const agentVitePluginName = "@vite-hub/agent/vite"
 
@@ -20,7 +20,7 @@ export const CHANNELS_VITE_PLUGIN_NAME = "@vite-hub/channels/vite"
 const resolvedChannelsRegistryId = `\0${CHANNELS_REGISTRY_ID}`
 const noExternalAddition = createNoExternalAddition("@vite-hub/channels")
 
-export interface ChannelsVitePluginOptions {
+export interface ChannelsOptions {
   projectRoot?: string
 }
 
@@ -29,11 +29,19 @@ export interface ChannelsVitePluginAPI {
   refresh: () => DiscoveredChannelDefinition[]
 }
 
-export type ChannelsVitePlugin = Plugin & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
+export type ChannelsVitePlugin = Plugin<ChannelsVitePluginAPI> & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
 
 export interface ChannelInspectionOptions {
   projectRoot: string
   serverDirs?: string[]
+}
+
+/**
+ * The first Channel that receives webhooks, with `webhook()` or `stripe()`. The Agent package serves those webhooks, so
+ * `vitehub()` turns it on for this Channel.
+ */
+export function findWebhookChannel(options: ChannelInspectionOptions): DiscoveredChannelDefinition | undefined {
+  return discoverChannelDefinitions({ rootDir: options.projectRoot, serverDirs: options.serverDirs }).find(definition => receivesChannelWebhooks(definition.handler))
 }
 
 /** Lists Channel Definitions as serializable inspection summaries. */
@@ -61,20 +69,11 @@ async function configureNitroChannels(
   await writeFileIfChanged(registryFile, renderRegistry(definitions))
   const nitro = config.nitro && typeof config.nitro === "object" ? config.nitro as Record<string, unknown> : {}
   const alias = nitro.alias && typeof nitro.alias === "object" ? nitro.alias as Record<string, unknown> : {}
-  const externals = nitro.externals && typeof nitro.externals === "object" ? nitro.externals as Record<string, unknown> : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  const inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, "vite-hub", "@vite-hub/channels"])]
   return {
     ...nitro,
     alias: {
       ...alias,
       [CHANNELS_REGISTRY_ID]: registryFile,
-    },
-    externals: {
-      ...externals,
-      inline,
     },
   }
 }
@@ -104,7 +103,7 @@ function isChannelDefinitionFile(file: string, projectRoot: string, serverDirs: 
   })
 }
 
-export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVitePlugin {
+export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
   let resolved: ResolvedConfig | undefined
   let definitions: DiscoveredChannelDefinition[] = []
   let serverDirs: string[] | undefined
@@ -149,11 +148,10 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       const configuredServerDirs = Object.hasOwn(config, VITEHUB_SERVER_DIRS)
         ? (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
         : undefined
-      serverDirs = configuredServerDirs ?? serverDirs
+      serverDirs = options.projectRoot ? undefined : configuredServerDirs ?? serverDirs
       if (hasNitroConfigContext(config)) {
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
-        // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
         // SAFETY: Nitro extends Vite's config with this optional record; configureNitroChannels produces the replacement.
         ;(config as { nitro?: Record<string, unknown> }).nitro = await configureNitroChannels(config as Record<string, unknown>, root, nitroDefinitions)
         nitroRegistryFile = resolve(root, ".vitehub", "nitro", "channels", "registry.ts")
@@ -166,7 +164,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       await refreshGeneratedFiles()
       const inbound = definitions.find(definition => receivesChannelWebhooks(definition.handler))
       if (inbound && !config.plugins?.some(plugin => plugin.name === agentVitePluginName)) {
-        throw channelsErrorDiagnostics.CHANNELS_B0001({ message: `[vitehub] The Channel "${inbound.name}" receives webhooks, which the Agent webhook route serves. Set \`agent: true\` next to \`channels: true\` in vitehub(), and install @vite-hub/agent.` })
+        throw channelsErrorDiagnostics.CHANNELS_WEBHOOK_HOST_OFF({ channel: inbound.name })
       }
     },
     configEnvironment(name, config) {
@@ -185,11 +183,17 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       const module = context.server.moduleGraph.getModuleById(resolvedChannelsRegistryId)
       if (module) context.server.moduleGraph.invalidateModule(module)
     },
-    resolveId(id) {
-      if (id === CHANNELS_REGISTRY_ID) return resolvedChannelsRegistryId
+    resolveId: {
+      filter: { id: /^#vitehub\/channels\/registry$/ },
+      handler(id) {
+        if (id === CHANNELS_REGISTRY_ID) return resolvedChannelsRegistryId
+      },
     },
-    load(id) {
-      if (id === resolvedChannelsRegistryId) return renderRegistry(definitions)
+    load: {
+      filter: { id: /^\0#vitehub\/channels\/registry$/ },
+      handler(id) {
+        if (id === resolvedChannelsRegistryId) return renderRegistry(definitions)
+      },
     },
   }
 }

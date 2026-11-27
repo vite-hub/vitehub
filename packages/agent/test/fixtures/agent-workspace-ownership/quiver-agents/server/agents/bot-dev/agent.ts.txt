@@ -1,0 +1,52 @@
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+import { github } from 'vite-hub/workspace'
+import bot from '../bot/agent'
+import githubChannel from '../../channels/github'
+import { portalMcpServers } from '../../mcp/servers'
+import { githubSourceAuth } from '../../workspace/sources'
+import { PRODUCTLANE_TEAMS_CHANNEL_ID } from '../../channels/teams/recipients'
+import prefectChannel from '../../channels/prefect'
+import productlaneChannel from '../../channels/productlane'
+import { productlaneReadOnlyTools, productlaneTeamsDelivery, productlaneTeamsDrafting, productlaneTeamsFailure, productlaneTeamsMirror } from '../../channels/productlane/teams'
+import instructions from './instructions.md?raw'
+
+const teams = useChannel('teams')
+
+export default defineAgent({
+  name: 'bot-dev',
+  extends: bot,
+  driver: {
+    instructions,
+    requirements: inherited => [...inherited, 'env-cli', 'uv', 'kubectl', 'gcloud', 'helm', 'agent-browser'],
+  },
+  capabilities: [
+    mcp({ servers: portalMcpServers }),
+  ],
+  messages: {
+    timeout: 60 * 60 * 1000,
+    consoleLink: true,
+  },
+  workspace: {
+    store: { provider: 'local', locks: 'process' },
+    materialize: 'none',
+    sources: {
+      portal: github({ auth: githubSourceAuth, cache: { maxAge: 3600 }, repo: 'example/portal' }),
+    },
+  },
+  channels: {
+    productlane: productlaneChannel({
+      onMessage: productlaneTeamsMirror(teams, PRODUCTLANE_TEAMS_CHANNEL_ID),
+      onDraft: productlaneTeamsDrafting(teams, PRODUCTLANE_TEAMS_CHANNEL_ID),
+      onFailed: productlaneTeamsFailure(teams, PRODUCTLANE_TEAMS_CHANNEL_ID),
+      capabilities: [productlaneReadOnlyTools, productlaneTeamsDelivery({
+        channel: teams,
+        recipient: PRODUCTLANE_TEAMS_CHANNEL_ID,
+        description: 'Send the finished reply to its thread for internal review, or `NO_REPLY:` with a short note. Call this before finishing.',
+      })],
+    }),
+    github: githubChannel(),
+    prefect: prefectChannel(),
+  },
+})

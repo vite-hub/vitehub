@@ -21,6 +21,8 @@ describe("Runtime representation guards", () => {
     expect(isRuntimeResponse(Object.create(Response.prototype))).toBe(false)
     expect(isRuntimeResponse({ [Symbol.toStringTag]: "Response", status: 401 })).toBe(false)
     expect(isRuntimeResponse(null)).toBe(false)
+    expect(isRuntimeResponse(Object.create(null))).toBe(false)
+    expect(isRuntimeResponse([])).toBe(false)
   })
 
   describe("with a server Response class", () => {
@@ -30,7 +32,6 @@ describe("Runtime representation guards", () => {
     })
 
     it("accepts Responses of the class that the server installed as the global Response", () => {
-      // Like srvx's NodeResponse: its getters read private fields.
       class ServerResponse {
         #status: number
         constructor(_body?: unknown, init?: { status?: number }) {

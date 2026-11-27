@@ -13,26 +13,26 @@ The [`comments()` plugin](/docs/comments/get-started) keeps threads in the datab
 | Host | Works | Where threads go |
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, no option needed |
-| `vite dev` with a Cloudflare preset | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, no option needed |
+| `vite dev` with a Cloudflare host | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, no option needed |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })` on a disk or volume that survives deploys |
 | Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
 | Vercel, Netlify | Yes | A Turso database, set in the project's environment variables. |
 
-`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. The SQLite file needs Node.js 22.5 or newer for `node:sqlite`. It has no presence, edits in place, or Console section.
+`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. It has no presence, edits in place, or Console section.
 
 [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) stores nothing on the server, because the session is a cookie. It works the same in a ViteHub app on every host.
 
 ## In a ViteHub app
 
-Presence and cursors also need a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority). Without one, everything else works.
+Presence and cursors also need a [Realtime room driver](/docs/realtime/configure#choose-a-driver). Without one, everything else works.
 
 ### Host support
 
 | Host | Threads, replies, resolve | Edits in place | Presence and cursors |
 | --- | --- | --- | --- |
 | `vite dev` | Yes | Yes, with Content | Yes, with Realtime on. Rooms run in the dev server. |
-| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { authority: 'memory' }` |
+| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { driver: 'memory' }` |
 | Cloudflare Workers | Yes, with D1 | Yes, with Content | Yes, with Durable Objects |
 | Vercel, Netlify | Yes | Yes, with Content | No. Pages reload threads on focus and every 30 seconds. |
 
@@ -40,7 +40,7 @@ The overlay works in Nitro 3 apps, including Nuxt 5, on each of these hosts.
 
 ### Node
 
-Use a SQLite file or libSQL Database, and the memory room authority:
+Use a SQLite file or libSQL Database, and the `memory` driver:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -48,9 +48,9 @@ Use a SQLite file or libSQL Database, and the memory room authority:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
-    realtime: { authority: 'memory' },
+    realtime: { driver: 'memory' },
   },
 })
 ```
@@ -65,9 +65,9 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
     nitro(),
   ],
@@ -83,9 +83,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
   ],
 })
@@ -93,11 +93,11 @@ export default defineConfig({
 :::
 ::
 
-The memory authority keeps presence rooms in one process. With several processes or machines, people see only others on their process. Comments still reach everyone when the processes share a libSQL Database, but a local SQLite file is not shared between machines.
+The memory driver keeps presence rooms in one process. With several processes or machines, people see only others on their process. Comments still reach everyone when the processes share a libSQL Database, but a local SQLite file is not shared between machines.
 
 ### Cloudflare
 
-Use a D1 Database. On the Cloudflare preset, `realtime: true` selects Durable Objects, with one room per page.
+Use a D1 Database. On the Cloudflare host, `realtime: true` selects Durable Objects, with one room per page.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -105,8 +105,8 @@ Use a D1 Database. On the Cloudflare preset, `realtime: true` selects Durable Ob
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
-    database: { driver: 'd1', databaseName: 'site' },
+    host: 'cloudflare',
+    database: { driver: 'cloudflare', databaseName: 'site' },
     realtime: true,
   },
 })
@@ -122,8 +122,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
-      database: { driver: 'd1', databaseName: 'site' },
+      host: 'cloudflare',
+      database: { driver: 'cloudflare', databaseName: 'site' },
       realtime: true,
     }),
     nitro(),
@@ -140,8 +140,8 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
-      database: { driver: 'd1', databaseName: 'site' },
+      host: 'cloudflare',
+      database: { driver: 'cloudflare', databaseName: 'site' },
       realtime: true,
     }),
   ],
@@ -150,11 +150,11 @@ export default defineConfig({
 :::
 ::
 
-Run `pnpm vitehub provision run --provider cloudflare` to create the D1 Database, then apply the migrations. See [Database hosts](/docs/database/hosts) and [Realtime host support](/docs/realtime/configure#host-support).
+Run `pnpm vitehub provision run --host cloudflare` to create the D1 Database, then apply the migrations. See [Database hosts](/docs/database/hosts) and [Realtime host support](/docs/realtime/configure#host-support).
 
 ### Vercel and Netlify
 
-Use a hosted Database, such as libSQL. Do not turn on Realtime. These hosts have no room authority, so the build fails with `REALTIME_MISSING_AUTHORITY`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
+Use a hosted Database, such as libSQL. Do not turn on Realtime. These hosts have no room driver, so the build fails with `REALTIME_MISSING_DRIVER`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
 
 ## Proxies that end TLS
 
@@ -185,7 +185,7 @@ Pages with the page tools loader get `cache-control: private, no-store`. Other p
 
 ## Content Security Policy
 
-The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
+The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
 
 - When the `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the loader script gets that nonce. `'strict-dynamic'` then trusts the overlay it imports.
 - The overlay adds styles inside its shadow root, so `style-src` must allow inline styles.
@@ -193,4 +193,4 @@ The page gets one same-origin script: the page tools loader at `/_vitehub/page/a
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime authority, the presence line reads `off: the host has no Realtime authority`. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the Comments tables as contributed tables.

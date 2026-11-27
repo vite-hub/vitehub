@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import { formatConsoleUsageShare, type ConsoleUsageSegment } from "./console-usage-model";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{
   format: (value: number) => string;
@@ -23,11 +24,10 @@ function tooltip(segment: ConsoleUsageSegment): string {
 </script>
 
 <template>
-  <div v-if="total > 0" class="flex min-w-0 flex-col gap-2.5" data-slot="usage-share-bar">
-    <div class="flex items-baseline justify-between gap-3">
-      <h3 class="text-sm font-semibold">{{ label }}</h3>
+  <ConsoleSection v-if="total > 0" :level="3" :title="label" data-slot="usage-share-bar">
+    <template v-if="$slots.aside" #actions>
       <slot name="aside" />
-    </div>
+    </template>
     <div role="img" :aria-label="description" class="flex h-2 gap-0.5">
       <UTooltip v-for="segment in visible" :key="segment.key" :text="tooltip(segment)">
         <div
@@ -44,5 +44,5 @@ function tooltip(segment: ConsoleUsageSegment): string {
       </span>
     </div>
     <p v-if="note" class="text-xs text-muted">{{ note }}</p>
-  </div>
+  </ConsoleSection>
 </template>

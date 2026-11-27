@@ -1,11 +1,14 @@
 import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
+import { downloadDisposition } from "../internal/active-content.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
-import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, FileInfo, Files, ListOptions, ListResult } from "files-sdk"
+import type { BlobDriverAdapter, BlobDriverSignOptions, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedBlobStoreConfig } from "../types.ts"
+import type { Adapter, FileInfo, Files, ListOptions, ListResult, UploadCondition } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -41,7 +44,7 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
-  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   let decoded: string
   try {
     const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
@@ -49,17 +52,17 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
   }
   catch {
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  if (encodeBase64Url(decoded) !== cursor) throw blobErrors.BLOB_INVALID_CURSOR()
   let parsed: unknown
   try {
     parsed = JSON.parse(decoded)
   }
   catch {
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
+  if (!isPlainObject(parsed)) throw blobErrors.BLOB_INVALID_CURSOR()
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
     !isNumber(index)
@@ -68,7 +71,7 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     || (providerCursor !== undefined && !isString(providerCursor))
     || (providerCursorHistory !== undefined && (!Array.isArray(providerCursorHistory) || !providerCursorHistory.every(isString)))
   ) {
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
   return {
     index,
@@ -102,20 +105,28 @@ function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject
   }
 }
 
+function unsupportedCondition(driver: string, cause?: unknown) {
+  return blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED({ cause, driver })
+}
+
 function unsupportedSign(driver: string, reason: string) {
   return blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver}" cannot sign this request: ${reason}.` })
 }
 
 // files-sdk reports per instance whether `url()` and `signedUploadUrl()` mint expiring links,
 // so one implementation serves every files-sdk driver without a permanent-link fallback.
-async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   const { signedUpload, signedUrl } = client.capabilities
   if (signOptions.method === "GET") {
     if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")
-    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn }) }
+    const disposition = downloadDisposition(pathname, signOptions.download)
+    if (disposition && !signedUrl.disposition) throw unsupportedSign(driver, "the provider cannot bind `download`")
+    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn, ...(disposition ? { responseContentDisposition: disposition } : {}) }) }
   }
   if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
   if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.contentLength !== undefined) throw unsupportedSign(driver, "the provider cannot bind `contentLength`")
+  if (signOptions.maxSize !== undefined) throw unsupportedSign(driver, "the provider cannot bind `maxSize`")
   if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
   const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
   if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")
@@ -146,26 +157,45 @@ async function getUploadUrl(client: FilesInstance, pathname: string): Promise<st
 
 export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   options: TOptions,
-  createAdapter: (options: TOptions, putOptions?: BlobPutOptions) => Adapter | Promise<Adapter>,
+  createAdapter: (options: TOptions) => Adapter | Promise<Adapter>,
   FilesConstructor?: FilesCtor,
 ): BlobDriverAdapter<TOptions> {
   let filesPromise: Promise<FilesInstance> | undefined
 
-  async function createFiles(putOptions?: BlobPutOptions) {
+  async function createFiles() {
     const Files = FilesConstructor ?? await loadFiles()
-    return new Files({ adapter: await (putOptions ? createAdapter(options, putOptions) : createAdapter(options)) }) as FilesInstance
+    return new Files({ adapter: await createAdapter(options) }) as FilesInstance
   }
 
-  async function files(putOptions?: BlobPutOptions) {
-    if (putOptions?.access && options.driver === "vercel-blob" && putOptions.access !== options.access) {
-      return await createFiles(putOptions)
-    }
-
-    filesPromise ||= createFiles()
+  async function files() {
+    // A failed creation lets the next call try again.
+    filesPromise ||= createFiles().catch((error: unknown) => {
+      filesPromise = undefined
+      throw error
+    })
     return await filesPromise
   }
 
-  return {
+  async function upload(client: FilesInstance, pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition?: UploadCondition): Promise<BlobObject> {
+    const contentType = putOptions.contentType || (isBlob(body) ? body.type : undefined)
+    const uploadOptions = {
+      contentLength: putOptions.contentLength,
+      contentType,
+      metadata: putOptions.customMetadata,
+    }
+    // A conditional upload sends one request with a known body, so it takes no `contentLength`.
+    const result = condition
+      ? await client.upload(pathname, body as never, { condition, contentType, metadata: putOptions.customMetadata })
+      : await client.upload(pathname, body as never, uploadOptions)
+    return {
+      ...mapUploadResult(result, putOptions),
+      pathname: result.key,
+      contentType: result.contentType || contentType,
+      url: await getUploadUrl(client, result.key),
+    }
+  }
+
+  const driver: BlobDriverAdapter<TOptions> = {
     name: options.driver,
     options,
     async delete(pathnames) {
@@ -214,17 +244,20 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           const prefix = listOptions.prefix || ""
           // Directory buckets require a folder prefix; filter partial names within their parent.
           const providerPrefix = prefix && !prefix.endsWith("/") ? prefix.slice(0, prefix.lastIndexOf("/") + 1) : listOptions.prefix
+          const limit = listOptions.limit ?? 1000
           const result = await listPage(client, {
-            cursor: listOptions.cursor,
+            cursor: toProviderListCursor(listOptions.cursor),
             delimiter: "/",
-            limit: listOptions.limit ?? 1000,
+            limit: Math.max(limit, 1),
             prefix: providerPrefix,
           })
+          const items = result.items.filter(item => item.key.startsWith(prefix))
+          const heldBlob = limit === 0 && items.length > 0
           return {
-            blobs: result.items.filter(item => item.key.startsWith(prefix)).map(mapFileInfo),
-            cursor: result.cursor,
-            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort((left, right) => left.localeCompare(right)),
-            hasMore: Boolean(result.cursor),
+            blobs: limit === 0 ? [] : items.map(mapFileInfo),
+            cursor: heldBlob ? unconsumedListCursor(listOptions.cursor) : fromProviderListCursor(result.cursor),
+            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort(),
+            hasMore: heldBlob || Boolean(result.cursor),
           }
         }
 
@@ -239,7 +272,25 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         let start = initialCursor.index
         let nextCursor: string | undefined
 
-        while (blobs.length < limit) {
+        if (limit === 0) {
+          const result = await listPage(client, { cursor: providerCursor, limit: 1000, prefix: listOptions.prefix })
+          if (start > 0 && start >= result.items.length) throw blobErrors.BLOB_INVALID_CURSOR()
+          let heldBlob = false
+          for (const item of result.items.slice(start)) {
+            const remainder = item.key.slice(prefix.length)
+            const firstSlash = remainder.indexOf("/")
+            if (firstSlash === -1) heldBlob = true
+            else folders.add(item.key.slice(0, prefix.length + firstSlash + 1))
+          }
+          if (result.cursor && seenProviderCursors.has(result.cursor)) {
+            throw blobErrorDiagnostics.BLOB_R0017({ message: "Blob provider listing returned a repeated pagination cursor." })
+          }
+          nextCursor = heldBlob
+            ? listOptions.cursor ?? encodeFoldedCursor({ index: 0 })
+            : result.cursor ? encodeFoldedCursor({ index: 0, providerCursor: result.cursor, providerCursorHistory: [...seenProviderCursors] }) : undefined
+        }
+
+        while (limit > 0 && blobs.length < limit) {
           const result = await listPage(client, {
             cursor: providerCursor,
             limit: 1000,
@@ -247,7 +298,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           })
 
           if (start > 0 && start >= result.items.length) {
-            throw new TypeError("Invalid Blob cursor.")
+            throw blobErrors.BLOB_INVALID_CURSOR()
           }
 
           let consumed = start
@@ -288,41 +339,63 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         return {
           blobs,
           cursor: nextCursor,
-          folders: [...folders].sort((left, right) => left.localeCompare(right)),
+          folders: [...folders].sort(),
           hasMore: Boolean(nextCursor),
         }
       }
 
+      const limit = listOptions.limit ?? 1000
       const result = await listPage(await files(), {
-        cursor: listOptions.cursor,
-        limit: listOptions.limit ?? 1000,
+        cursor: toProviderListCursor(listOptions.cursor),
+        limit: Math.max(limit, 1),
         prefix: listOptions.prefix,
       })
+      const heldBlob = limit === 0 && result.items.length > 0
 
       return {
-        blobs: result.items.map(mapFileInfo),
-        cursor: result.cursor,
-        hasMore: Boolean(result.cursor),
+        blobs: limit === 0 ? [] : result.items.map(mapFileInfo),
+        cursor: heldBlob ? unconsumedListCursor(listOptions.cursor) : fromProviderListCursor(result.cursor),
+        hasMore: heldBlob || Boolean(result.cursor),
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const client = await files(putOptions)
-      const uploadOptions = {
-        contentLength: putOptions.contentLength,
-        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        metadata: putOptions.customMetadata,
+    // The provider copies the object on its side, with its content type and metadata.
+    async copy(from, to) {
+      try {
+        await (await files()).copy(from, to)
       }
-      const result = await client.upload(pathname, body as never, uploadOptions)
-
-      return {
-        ...mapUploadResult(result, putOptions),
-        pathname: result.key,
-        contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        url: await getUploadUrl(client, result.key),
+      catch (error) {
+        // Providers report a missing source in different ways. Azure wraps the source 404 in `CannotVerifyCopySource`.
+        if (isNotFound(error) || !await driver.head(from)) return null
+        throw error
+      }
+      return await driver.head(to)
+    },
+    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      return await upload(await files(), pathname, body, putOptions)
+    },
+    async putIf(pathname, body, putOptions, condition) {
+      const client = await files()
+      // files-sdk turns conditions off where the provider may not honor them, such as an S3-compatible endpoint.
+      if (!client.capabilities.conditional[condition.type]) throw unsupportedCondition(options.driver)
+      try {
+        // A conditional upload refuses a stream body.
+        const bytes = body instanceof ReadableStream ? await new Response(body as ReadableStream<Uint8Array>).arrayBuffer() : body
+        return await upload(client, pathname, bytes, putOptions, condition.type === "create" ? condition : { etag: bareETag(condition.etag), type: "replace" })
+      }
+      catch (error) {
+        const code = (error as { code?: unknown } | null)?.code
+        const cause = (error as { cause?: { name?: string, Code?: string } } | null)?.cause
+        const providerCode = cause?.name ?? cause?.Code
+        // S3 also maps a missing bucket's 404 to NotFound. Only a missing key refuses a replacement.
+        const missingTarget = code === "NotFound" && (!providerCode || providerCode === "NoSuchKey" || providerCode === "NotFound")
+        if (code === "Conflict" || (condition.type === "replace" && missingTarget)) return null
+        if (code === "Unsupported") throw unsupportedCondition(options.driver, error)
+        throw error
       }
     },
     async sign(pathname, signOptions) {
       return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
+  return driver
 }

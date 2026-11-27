@@ -26,7 +26,7 @@ test("the package build revision tracks source changes with an unchanged manifes
 });
 
 
-for (const changed of ['lockfile', 'catalog', 'bundled source', 'transitive source', 'build config']) {
+for (const changed of ['lockfile', 'catalog', 'bundled source', 'transitive source', 'build config', 'shared build tsconfig']) {
   test(`the recovery revision tracks resolved workspace ${changed} changes`, async t => {
     const workspace = await mkdtemp(join(tmpdir(), 'agent-workspace-revision-'));
     t.onTestFinished(() => rm(workspace, { recursive: true, force: true }));
@@ -53,6 +53,7 @@ for (const changed of ['lockfile', 'catalog', 'bundled source', 'transitive sour
       'bundled source': join(workspace, 'packages', 'internal', 'src', 'index.ts'),
       'transitive source': join(workspace, 'packages', 'runtime', 'src', 'index.ts'),
       'build config': join(root, 'vite.config.ts'),
+      'shared build tsconfig': join(workspace, 'tsconfig.build.base.json'),
     };
     await writeFile(files[changed]!, 'changed resolved build input');
     assert.notEqual(presetsBuildRevision(root), original);

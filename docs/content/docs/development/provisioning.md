@@ -20,7 +20,14 @@ sets `readReplication`.
 | Cloudflare | Queues | Queue |
 | Vercel | Blob stores, connected to the project | Blob |
 
-`vitehub provision` accepts only `--provider cloudflare` and `--provider vercel`.
+`vitehub provision` supports `--host cloudflare` and `--host vercel`. Without `--host`, it picks the host the same way as `vitehub deploy`: the default target of `.vitehub/link.json`, else the only target, else `host` in `vitehub()`. The old `--provider` flag exits with a fix line that names `--host`. Like `vitehub deploy --host`, it loads the config of a build for that host, with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`. A config that picks its stores with `detectHost()` gets the stores of that host.
+
+`vitehub deploy` runs the same plan before each build on Cloudflare and Vercel,
+so you rarely need `provision run` yourself. See
+[Create the host resources](/docs/cli/project#create-the-host-resources).
+Both commands read credentials the same way: environment variables first, then
+a `wrangler login`. A Cloudflare login with several accounts needs
+`CLOUDFLARE_ACCOUNT_ID`.
 
 ## Preview the plan
 
@@ -28,8 +35,8 @@ Run a dry run first. The CLI loads the Vite config, collects Provision Steps
 from active packages, and prints the actions for one provider.
 
 ```bash [Terminal]
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --host cloudflare --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
 ```
 
 Planning uses read credentials to tell existing resources from new ones. Each
@@ -64,9 +71,11 @@ exists  cloudflare-r2-bucket     uploads
 
 Apply uses the same credentials as the plan. Without them, `provision run` exits with code 1 before it plans. Cloudflare and Vercel need different credentials.
 
+Apply also needs a checked plan. When a step cannot look up its resources, such as Vercel Blob without `VERCEL_PROJECT_ID`, `provision run` applies nothing and exits with code 1. Fix the warning, then run it again. With `--json`, the result has `checked: false`.
+
 ```bash [Terminal]
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --host cloudflare
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --host vercel
 ```
 
 Vercel Blob needs `VERCEL_PROJECT_ID` to connect the store to the project. The
@@ -104,14 +113,14 @@ provider, and what the current plan would do. It plans like `provision run`,
 but never calls `apply()`, creates resources, or writes Provision State.
 
 ```bash [Terminal]
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision status --provider cloudflare
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision status --host cloudflare
 ```
 
 ```txt [Output]
 recorded cloudflare ids (.vitehub/provision.json):
 d1      default database-id
 create  cloudflare-d1   app-content
-plan: 1 pending action. Run `vitehub provision run --provider cloudflare` to apply.
+plan: 1 pending action. Run `vitehub provision run --host cloudflare` to apply.
 ```
 
 A pending action needs resource creation or provider-side setup. An existing Vercel Blob store remains pending until it is connected to the project in all required environments.
@@ -134,9 +143,9 @@ fix: d1 "primary": d1 "main" uses the same id, so keep the resource and only rem
 fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run `wrangler kv namespace delete --namespace-id ns-cache`, then remove the entry from .vitehub/provision.json.
 ```
 
-ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
+ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKV()`, is also marked `not declared`.
 
-Status defers deletion guidance when it cannot verify a current Definition's recorded resource against current config. A renamed Definition may reuse the resource recorded under its old key, even when its new key already has an id from an older Definition. D1 and KV ids cannot be matched to configured resource names locally: compare the provider's resource names and bindings with current Definitions before deleting anything. For R2 and Queues, `vitehub provision run --provider cloudflare` refreshes recorded identities that status can compare with config.
+Status defers deletion guidance when it cannot verify a current Definition's recorded resource against current config. A renamed Definition may reuse the resource recorded under its old key, even when its new key already has an id from an older Definition. D1 and KV ids cannot be matched to configured resource names locally: compare the provider's resource names and bindings with current Definitions before deleting anything. For R2 and Queues, `vitehub provision run --host cloudflare` refreshes recorded identities that status can compare with config.
 
 R2 shared-resource checks include the bucket's jurisdiction, and deletion hints include `--jurisdiction` when needed. Older R2 entries containing only a bucket name have an unknown jurisdiction, so status never assumes they share a resource and defers their deletion guidance while any R2 Store remains declared. Check the jurisdiction before following deletion hints when no R2 Stores remain declared.
 
@@ -150,8 +159,8 @@ go in the `warnings` array. Output never has credentials. Saved ids are not
 secret.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run --json
-pnpm vitehub provision status --provider cloudflare --json
+pnpm vitehub provision run --host cloudflare --dry-run --json
+pnpm vitehub provision status --host cloudflare --json
 ```
 
 ```json [provision status --json]
@@ -201,7 +210,7 @@ production.
 | --- | --- | --- |
 | Cloudflare Version URLs | The production resources of that Worker version: the same D1 databases, KV namespaces, R2 buckets, and Queues. | [Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/) |
 | Cloudflare Previews | Only the bindings in the `previews` block of the Wrangler config. ViteHub does not write that block. Two Previews bound to the same D1 `database_id`, KV `id`, R2 `bucket_name`, or queue name share its data. | [Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/), [Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/) |
-| Vercel preview deployments | The Blob store connected to the project in the Preview environment. `vitehub provision run --provider vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
+| Vercel preview deployments | The Blob store connected to the project in the Preview environment. `vitehub provision run --host vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
 
 How you isolate a preview depends on how you deploy it.
 
@@ -212,7 +221,7 @@ the `previews` block of the project Wrangler config: `previews.d1_databases`,
 `previews.queues.producers`, with the production binding names. Cloudflare does
 not accept Queue consumers in `previews`. Point them at staging or test
 resources, never production ids. After a build, check that the generated
-config still has the block with `vitehub inspect provider-output --json`.
+config still has the block with `vitehub inspect output --json`.
 
 For D1, apply migrations before you deploy the Preview:
 
@@ -264,7 +273,7 @@ ids. Run it in its own CI job or checkout, and check the ids with
 `vitehub provision status` before you deploy.
 ::
 
-`provision run --provider vercel` expects one store connected in all three
+`provision run --host vercel` expects one store connected in all three
 environments. After you split stores by environment, planning fails with
 `BLOB_R0020`. Manage the connections in the Vercel dashboard, and do not run
 Vercel provisioning for that project.

@@ -1,6 +1,56 @@
+import { DatabaseSync } from "node:sqlite"
+
 import { describe, expect, it } from "vitest"
 
-import { findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+import { addStatementBreakpoints, findDataLoss, isNoTransactionMigration, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+
+it("preserves same-line statements in a whole script with existing breakpoints", () => {
+  const sql = "CREATE TABLE notes (id INTEGER);\n--> statement-breakpoint\nINSERT INTO notes VALUES (1); INSERT INTO notes VALUES (2);"
+  const rewritten = addStatementBreakpoints(sql)
+  expect(rewritten.split("--> statement-breakpoint")).toHaveLength(3)
+  using database = new DatabaseSync(":memory:")
+  database.exec(rewritten)
+  expect(database.prepare("SELECT id FROM notes ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
+})
+
+it("keeps a Postgres dollar-quoted body in one statement", () => {
+  const fn = "CREATE FUNCTION f() RETURNS integer LANGUAGE plpgsql AS $body$ BEGIN PERFORM 'a;b'; RETURN 1; END; $body$;"
+  const trigger = "CREATE TRIGGER t BEFORE UPDATE ON notes FOR EACH ROW EXECUTE FUNCTION f();"
+  expect(splitSqlStatements(`${fn}\n${trigger}\nSELECT $$;$$;`, "postgresql")).toEqual([fn, trigger, "SELECT $$;$$;"])
+  expect(addStatementBreakpoints(`${trigger}\n${fn}`, "postgresql").split("--> statement-breakpoint")).toHaveLength(2)
+  expect(splitSqlStatements("SELECT $1; SELECT 2;", "postgresql")).toEqual(["SELECT $1;", "SELECT 2;"])
+})
+
+it("does not mistake dollar signs in SQLite identifiers for quotes", () => {
+  const sql = "CREATE TABLE café$archive$ (id INTEGER); CREATE TABLE notes (id INTEGER);"
+  expect(addStatementBreakpoints(sql)).toContain(";\n--> statement-breakpoint\n CREATE TABLE notes")
+  expect(splitSqlStatements(sql)).toHaveLength(2)
+})
+
+it("reads -- vitehub:no-transaction only on the first line that is not blank", () => {
+  expect(isNoTransactionMigration("\n  -- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY i ON t (c);")).toBe(true)
+  expect(isNoTransactionMigration("CREATE TABLE t (c integer);\n-- vitehub:no-transaction")).toBe(false)
+  expect(isNoTransactionMigration("-- vitehub:no-transaction later")).toBe(false)
+  expect(isNoTransactionMigration("-- vitehub:no-transaction\r\nVACUUM t;")).toBe(true)
+})
+
+it("splits a -- vitehub:no-transaction file into single statements across breakpoints", () => {
+  const sql = [
+    "-- vitehub:no-transaction",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id); VACUUM t;",
+    "--> statement-breakpoint",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ].join("\n")
+  expect(splitSqlStatements(sql, "postgresql")).toEqual([
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id);",
+    "VACUUM t;",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ])
+})
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
   return findDataLoss(Array.isArray(sql) ? sql : [sql], before).map(loss => loss.reason)
@@ -59,6 +109,40 @@ describe("migration data loss", () => {
     ])
   })
 
+  // D1 enforces foreign keys during the run, and SQLite ignores `PRAGMA foreign_keys=OFF` in the migration transaction,
+  // so dropping the old table deletes the rows that reference it. An Auth migration lost every `member` row this way.
+  it("flags a SQLite table rebuild that runs the ON DELETE action of a referencing table", () => {
+    const references = new Map([["notes", [
+      { table: "comments", columns: ["note_id"], onDelete: "CASCADE" },
+      { table: "pins", columns: ["note_id"], onDelete: "SET NULL" },
+    ]]])
+    const [loss] = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(loss).toMatchObject({
+      reason: "rebuilds table \"notes\", and dropping the old table deletes the rows of \"comments\".\"note_id\" (ON DELETE CASCADE), clears \"pins\".\"note_id\" (ON DELETE SET NULL)",
+      statement: "DROP TABLE `notes`;",
+      tables: ["comments", "pins"],
+    })
+  })
+
+  it("retains losses through a new cascading intermediate table, including cycles", () => {
+    const references = new Map([
+      ["notes", [{ table: "membership", columns: ["note_id"], onDelete: "CASCADE" }]],
+      ["membership", [{ table: "document", columns: ["membership_id"], onDelete: "CASCADE" }]],
+      ["document", [{ table: "membership", columns: ["document_id"], onDelete: "CASCADE" }]],
+    ])
+    const dataLoss = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(dataLoss[0]?.tables).toEqual(["membership", "document"])
+    const filtered = withoutNewTableDataLoss([
+      { statements: ["CREATE TABLE membership (id integer PRIMARY KEY);"], dataLoss: [] },
+      { statements: rebuild, dataLoss },
+    ])
+    expect(filtered[1]?.dataLoss).toHaveLength(1)
+  })
+
+  it("accepts a SQLite table rebuild that only the table itself references", () => {
+    expect(findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), new Map([["notes", [{ table: "notes", columns: ["parent_id"], onDelete: "CASCADE" }]]]))).toEqual([])
+  })
+
   it("flags a SQLite table rebuild when the previous columns are unknown", () => {
     expect(reasons(rebuild)).toEqual([
       "rebuilds table \"notes\", and ViteHub cannot confirm that the copy keeps every column",
@@ -78,6 +162,48 @@ describe("migration data loss", () => {
 
     const createNotes = ["CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `body` text);"]
 
+    const createParent = ["CREATE TABLE `parent` (`id` integer PRIMARY KEY NOT NULL);"]
+
+    it("keeps the loss on a new table that a table with older rows references with a foreign key of the run", () => {
+      const addReference = ["ALTER TABLE `accounts` ADD `parent_id` integer REFERENCES parent(id) ON DELETE cascade;", "INSERT INTO `parent` (`id`) VALUES (1);", "UPDATE `accounts` SET `parent_id` = 1;"]
+      expect(runLosses(createParent, addReference, ["DROP TABLE `parent`;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses(createParent, addReference, ["DELETE FROM `parent`;"])).toEqual(["deletes every row of \"parent\""])
+      const rebuildAccounts = [
+        "CREATE TABLE `__new_accounts` (`id` integer PRIMARY KEY, `parent_id` integer, FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE cascade);",
+        "INSERT INTO `__new_accounts`(\"id\") SELECT \"id\" FROM `accounts`;",
+        "DROP TABLE `accounts`;",
+        "ALTER TABLE `__new_accounts` RENAME TO `accounts`;",
+      ]
+      expect(runLosses(createParent, rebuildAccounts, ["DROP TABLE `parent`;"])).toContain("drops table \"parent\"")
+    })
+
+    it("accepts a drop of a new table that only new tables reference", () => {
+      const createChild = ["CREATE TABLE `child` (`id` integer PRIMARY KEY, `parent_id` integer REFERENCES `parent`(`id`) ON DELETE cascade);"]
+      expect(runLosses(createParent, createChild, ["DROP TABLE `child`;", "DROP TABLE `parent`;"])).toEqual([])
+      expect(runLosses(createParent, createChild, ["DELETE FROM `parent`;"])).toEqual([])
+    })
+
+    it.each([
+      ["main.parent", " parent", "accounts"],
+      ['"Parent"', " parent", "accounts"],
+      ["parent", '"parent"', "accounts"],
+      ["parent", "'parent'", "'accounts'"],
+    ])("keeps the loss through a SQLite foreign key to %s (%s)", (parent, referenceName, child) => {
+      const create = [`CREATE TABLE ${parent} (id integer PRIMARY KEY);`]
+      const reference = [`ALTER TABLE ${child} ADD COLUMN parent_id integer REFERENCES${referenceName}(id) ON DELETE CASCADE;`]
+      expect(runLosses(create, reference, [`DROP TABLE ${parent};`])).toHaveLength(1)
+      expect(runLosses(create, reference, [`DELETE FROM ${parent};`])).toHaveLength(1)
+    })
+
+    it("keeps the loss on a new table that an older table references in the previous snapshot", () => {
+      const references = new Map([["parent", [{ table: "accounts", columns: ["parent_id"], onDelete: "CASCADE" }]]])
+      for (const statement of ["DROP TABLE `parent`;", "DELETE FROM `parent`;"]) {
+        const dataLoss = findDataLoss([statement], new Map(), references)
+        expect(dataLoss[0]).toMatchObject({ reason: expect.stringContaining("deletes the rows of \"accounts\".\"parent_id\" (ON DELETE CASCADE)"), tables: ["parent", "accounts"] })
+        expect(withoutNewTableDataLoss([{ dataLoss: [], statements: createParent }, { dataLoss, statements: [statement] }])[1]!.dataLoss).toHaveLength(1)
+      }
+    })
+
     it("accepts data loss on tables that an earlier migration of the run created", () => {
       expect(runLosses(createNotes, ["INSERT INTO `notes` (`id`) VALUES (1);", "DROP TABLE `notes`;"])).toEqual([])
       expect(runLosses(createNotes, ["ALTER TABLE `notes` DROP COLUMN `body`;", "DELETE FROM notes;"])).toEqual([])
@@ -92,6 +218,14 @@ describe("migration data loss", () => {
     it("accepts a drop after a trigger that writes into another table", () => {
       const trigger = "CREATE TRIGGER `count_views` AFTER INSERT ON `views` BEGIN\n  INSERT OR IGNORE INTO `totals` (`id`, `n`) VALUES (NEW.id, 0);\n  UPDATE `totals` SET `n` = `n` + 1 WHERE `id` = NEW.id;\nEND;"
       expect(runLosses([...createNotes, trigger], ["DROP TABLE `notes`;"])).toEqual([])
+    })
+
+    it("keeps losses when a delete or cascade can fire a SQLite trigger", () => {
+      const child = "CREATE TABLE child (id integer PRIMARY KEY, parent_id integer REFERENCES parent(id) ON DELETE SET NULL);"
+      const trigger = "CREATE TRIGGER remove_account AFTER UPDATE OF parent_id ON child BEGIN DELETE FROM accounts WHERE id = OLD.id; END;"
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE parent;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DELETE FROM parent;"])).toEqual(["deletes every row of \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE child;"])).toEqual([])
     })
 
     it("flags data loss on tables that existed before the run", () => {

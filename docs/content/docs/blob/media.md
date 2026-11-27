@@ -16,7 +16,7 @@ Records are JSON files in the same store, so they work on every driver, even Ver
 
 ```ts [server/api/media.post.ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The route decides who may upload.
@@ -31,12 +31,19 @@ export default defineEventHandler(async (event) => {
 
 `handleUpload()` reads the `files` form field, stores each file under `folder`, and returns one record per file. If the store already has the same bytes, it returns that record and stores nothing. `media.put()` writes to your pathname unless you pass `dedupe: true`.
 
-```ts
-const [error, record] = await blob.media.put('posts/cover.jpg', file, {
-  alt: 'A field at sunrise',
-  focal: { x: 0.7, y: 0.4 },
-  crops: { mobile: { aspect: '4:5' } },
-})
+```ts [server/utils/cover.ts]
+import { blob } from 'vite-hub/blob'
+
+// Store a cover image that server code already holds, such as a generated one
+export async function saveCover(file: Blob) {
+  const [error, record] = await blob.media.put('posts/cover.jpg', file, {
+    alt: 'A field at sunrise',
+    focal: { x: 0.7, y: 0.4 },
+    crops: { mobile: { aspect: '4:5' } },
+  })
+  if (error) throw error
+  return record
+}
 ```
 
 A record looks like this:
@@ -56,11 +63,11 @@ A record looks like this:
   "crops": { "mobile": { "aspect": "4:5" } },
   "createdAt": "2026-10-14T15:38:53.716Z",
   "updatedAt": "2026-10-14T15:38:53.716Z",
-  "url": "/api/_vitehub/blob/posts/cover.jpg"
+  "url": "/_vitehub/blob/posts/cover.jpg"
 }
 ```
 
-- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have none. `probeImage()` from `@vite-hub/blob/media` is the same parser.
+- `width` and `height` come from the JPEG, PNG, WebP, GIF, AVIF, or SVG header, after EXIF rotation. Other files have none. `probeImage()` from `vite-hub/blob/media` is the same parser.
 - `color` is the average color, for a placeholder background. It needs an [image transformer](#image-transformers), so passthrough stores leave it out.
 - `focal` runs from 0 to 1 on each axis. `{ x: 0.5, y: 0.5 }` is the center.
 - `url` is set only for the [served store](/docs/blob/configure#serve-blob-backed-assets), and is never stored.
@@ -124,9 +131,9 @@ An `image()` field or other stored pathname still points at the old path after a
 The serve route reads variant parameters from the query string. Without them, it serves the original.
 
 ```text
-/api/_vitehub/blob/posts/cover.jpg?w=640
-/api/_vitehub/blob/posts/cover.jpg?w=256&h=256
-/api/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
+/_vitehub/blob/posts/cover.jpg?w=640
+/_vitehub/blob/posts/cover.jpg?w=256&h=256
+/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
 ```
 
 | Parameter | Values | Default |
@@ -145,10 +152,11 @@ Variants are cached under `_vitehub/derived/` like every [transformed object](/d
 In your own routes, pass the variant to `blob.serve()`:
 
 ```ts fragment
-import { blob, parseImageVariant } from '@vite-hub/blob'
+import { blob, parseImageVariant } from 'vite-hub/blob'
 
-const [error, stream] = await blob.serve(event, pathname, {
-  variant: parseImageVariant(getQuery(event)) ?? { width: 640 },
+const url = new URL(request.url)
+return blob.serve(request, pathname, {
+  variant: parseImageVariant(url.searchParams) ?? { width: 640 },
 })
 ```
 
@@ -171,8 +179,8 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
-      serve: true,
+      driver: 'cloudflare',
+      serve: { access: 'public' },
       images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
   },
@@ -190,8 +198,8 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
-        serve: true,
+        driver: 'cloudflare',
+        serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -210,8 +218,8 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
-        serve: true,
+        driver: 'cloudflare',
+        serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -245,8 +253,8 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
-      serve: true,
+      driver: 'cloudflare',
+      serve: { access: 'public' },
       images: { transformer: 'photon' },
     },
   },
@@ -264,8 +272,8 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
-        serve: true,
+        driver: 'cloudflare',
+        serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
     }),
@@ -284,8 +292,8 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
-        serve: true,
+        driver: 'cloudflare',
+        serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
     }),
@@ -306,13 +314,27 @@ Photon reads JPEG, PNG, WebP, and GIF. It turns JPEG images upright from their E
 
 `responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
 
-Photon decodes the full source first, at about 19 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
+Photon decodes the full source first, at about 17 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
 
-The Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+Set `maxPixels` to change the pixel limit:
 
-- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+```ts fragment
+images: { transformer: 'photon', maxPixels: 6_000_000 }
+```
+
+| Source | WebAssembly memory for one variant |
+| --- | --- |
+| 4 MP (default) | about 67 MB |
+| 6 MP | about 96 MB |
+| 8 MP | about 123 MB |
+
+On a Worker, the JavaScript heap and the rest of the app share the same 128 MB, so stay at 6 megapixels or less there. On Node, the limit is the memory of the server. `maxPixels` works only with `transformer: 'photon'`. With another transformer, the build fails with `BLOB_C0015`.
+
+The Nitro plugin imports Photon with a dynamic `import()`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+
+- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression. ViteHub turns on Nitro's `wasm.lazy` for Cloudflare, and Photon loads with or without it.
 - On Node, the `node` entry embeds the WebAssembly in JavaScript and compiles it on the first variant.
-- In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node preset in development, or run the built Worker with `wrangler dev`.
+- In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node host in development, or run the built Worker with `wrangler dev`.
 
 `auto` never selects Photon, even when it is installed. Photon adds 1.5 MB to the Worker, rejects large photos that passthrough serves, and changes the engine in every variant cache key. An explicit `photon` fails the build with `BLOB_B0007` when `@cf-wasm/photon` is not installed.
 
@@ -331,10 +353,10 @@ Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their cente
 
 ## Responsive images
 
-`responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
+`responsiveImage()` from `vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
 
 ```ts [server/api/posts/[slug].get.ts] fragment
-import { blob, responsiveImage } from '@vite-hub/blob'
+import { blob, responsiveImage } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const post = await findPost(getRouterParam(event, 'slug')!)
@@ -354,7 +376,7 @@ export default defineEventHandler(async (event) => {
 
 ```vue [components/CoverImage.vue]
 <script setup lang="ts">
-import type { ResponsiveImage } from '@vite-hub/blob/media'
+import type { ResponsiveImage } from 'vite-hub/blob/media'
 
 defineProps<{ image: ResponsiveImage }>()
 </script>
@@ -377,7 +399,40 @@ useHead({
 })
 ```
 
-With custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
+With custom `blob.images.sizes`, pass the same values as `imageSizes`, and pass `widths` as well when you want candidate widths below the default 640px minimum in `srcset`. The server snaps requested widths to `blob.images.sizes`, and `responsiveImage()` defaults to the standard sizes unless `imageSizes` is set.
+
+## Nuxt Image
+
+With [`@nuxt/image`](https://image.nuxt.com) in `modules` and `blob.serve` set, `vite-hub/nuxt` adds a Nuxt Image provider named `vitehub`. It turns `<NuxtImg>` modifiers into variant URLs of the served store.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@nuxt/image', 'vite-hub/nuxt'],
+  vitehub: {
+    blob: { driver: 'fs', serve: { access: 'public' } },
+  },
+})
+```
+
+```vue [pages/index.vue]
+<template>
+  <NuxtImg provider="vitehub" src="photos/cat.jpg" width="400" height="300" fit="cover" format="avif" />
+</template>
+```
+
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+
+| Modifier | Parameter |
+| --- | --- |
+| `width`, `height` | `w`, `h`, snapped up to the allowed sizes, so equal variants share one URL and one CDN cache entry |
+| `fit` | `cover`, or `inside` for `inside` and `contain`. Other values are ignored. |
+| `format` | `fmt`: `webp`, `avif`, `jpeg` (or `jpg`), `png`. Other values are ignored. |
+| `quality` | `q`, from 1 to 100 |
+| `crop` | `crop`, a named crop of the record. Pass it as `:modifiers="{ crop: 'mobile' }"`. |
+
+The provider reads `blob.serve.route`, `blob.serve.publicBaseUrl`, and `blob.images.sizes` from the `vitehub` key of `nuxt.config.ts`. Options passed inline to the module are not read. ViteHub does not make `vitehub` the default provider, because images in `public/` would then go to the Blob route. To use it for every image, set `image: { provider: 'vitehub' }`.
+
+To change or replace the provider, define `image.providers.vitehub` yourself. Your entry wins. The provider file is `vite-hub/blob/nuxt-image`, with the options `baseURL` and `imageSizes`.
 
 ## Media in Content
 
@@ -391,7 +446,7 @@ References stay portable in Markdown frontmatter and JSON. An alt-text fix in th
 
 The media library edits folders, uploads, alt text, focal points, and crops, and has a picker for `image()` fields and Markdown images.
 
-When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/console/access#grant-one-blob-store).
 
 ## Storage layout
 

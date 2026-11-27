@@ -12,10 +12,42 @@ Use it when an Agent run (an Invocation) must deliver its result somewhere other
 
 ## Configure Channel delivery
 
-Pass the client from `useChannel()` and the send options. Set `required` to fail the Invocation when nothing was sent:
+Pass the Channel client from `useChannel()` and the send options. Set `required` when the Agent Invocation must fail without a successful send. The examples on this page send through this `teams` Channel, which posts to a Microsoft Teams chat through your own relay:
 
-```ts [server/schedules/weekly-report.ts] fragment
-import { defineSchedule } from '@vite-hub/schedule'
+```ts [server/channels/teams.ts]
+import { defineChannel } from 'vite-hub/channels'
+
+export default defineChannel({
+  adapter: {
+    kind: 'teams',
+    async send(text: string, options: { recipient: string }) {
+      const response = await fetch('https://teams-relay.example.com/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ recipient: options.recipient, text }),
+      })
+      if (!response.ok) throw new Error(`Teams answered ${response.status}`)
+      return { id: response.headers.get('x-message-id') ?? crypto.randomUUID() }
+    },
+  },
+})
+```
+
+The Schedule extends this `bot` Agent:
+
+```ts [server/agents/bot/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Write short reports from the data in the prompt.',
+  },
+})
+```
+
+```ts [server/schedules/weekly-report.ts]
+import { defineSchedule } from 'vite-hub/schedule'
 import { defineAgent, runAgent } from 'vite-hub/agent'
 import { channelDelivery } from 'vite-hub/agent/capabilities'
 import { useChannel } from 'vite-hub/channels/server'
@@ -54,14 +86,23 @@ Capabilities attach through the Agent Definition, so the Schedule extends the Ag
 
 `options` can be a function of the Capability context. It runs once per Invocation, before the Driver (the part that runs the model), and can return a promise. Use it when the Invocation input picks the recipient:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options(context) {
-    const thread = context.invocation.input.get().context?.thread
-    if (typeof thread !== 'string') throw new Error('Send a thread ID in the invocation context.')
-    return { recipient: thread }
-  },
+```ts [server/agents/thread-reply.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options(context) {
+        const thread = context.invocation.input.get().context?.thread
+        if (typeof thread !== 'string') throw new Error('Send a thread ID in the invocation context.')
+        return { recipient: thread }
+      },
+    }),
+  ],
 })
 ```
 
@@ -73,13 +114,22 @@ channelDelivery({
 
 `onDelivered(message, receipt, context)` runs after each successful send, also in a dry run. `message` is the model's message. `receipt` is `{ deliveryId, dryRun, text }`, where `text` is the text after `format`. Use it to record what was sent:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options: { recipient: 'user:7b0bff9d' },
-  onDelivered(message, receipt) {
-    console.info(`Sent ${receipt.deliveryId}${receipt.dryRun ? ' (dry run)' : ''}: ${receipt.text.length} characters`)
-  },
+```ts [server/agents/logged-report.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options: { recipient: 'user:7b0bff9d' },
+      onDelivered(message, receipt) {
+        console.info(`Sent ${receipt.deliveryId}${receipt.dryRun ? ' (dry run)' : ''}: ${receipt.text.length} characters`)
+      },
+    }),
+  ],
 })
 ```
 
@@ -106,12 +156,21 @@ The tool takes one field, `message`, a non-empty string. On success, it returns 
 
 Models sometimes end with the answer as final text and never call the tool. With `required: true`, set `reminder` to run the Driver again before the Invocation fails:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options: { recipient: 'user:7b0bff9d' },
-  required: true,
-  reminder: { turns: 1, instruction: 'Send the finished report with send_message now.' },
+```ts [server/agents/reminded-report.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options: { recipient: 'user:7b0bff9d' },
+      required: true,
+      reminder: { turns: 1, instruction: 'Send the finished report with send_message now.' },
+    }),
+  ],
 })
 ```
 
@@ -157,7 +216,7 @@ channelDelivery({
 ## Verify Channel delivery
 
 1. When the Capability is on a discovered Agent, start the Vite dev server.
-2. Run `vitehub agent info --agent <name> --json`. Check that `tools` has `name: "send_message"`, and `capabilities` has `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, `required`, and `reminder`.
+2. Run `vitehub agent get <name> --json`. Check that `tools` has `name: "send_message"`, and `capabilities` has `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, `required`, and `reminder`.
 3. Run the Agent with a test recipient. Check that the tool result has a `deliveryId` and the message arrives.
 4. With `required: true`, use a prompt that does not ask for a send. Check that the Invocation fails with `CHANNEL_DELIVERY_REQUIRED`.
 5. With `reminder`, run the same prompt. Check for one `agent.channel.delivery.reminder` Trace Event per reminder turn. When no send follows, `details.reminders` must match the turns that ran.

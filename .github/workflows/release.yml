@@ -25,24 +25,15 @@ jobs:
     outputs:
       artifact_digest: ${{ steps.release-artifact.outputs.artifact-digest }}
       artifact_name: ${{ steps.release.outputs.artifact_name }}
-      npm_tag: ${{ steps.release.outputs.npm_tag }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
+      npm_tag: ${{ steps.verified.outputs.npm-tag }}
+      prerelease: ${{ steps.verified.outputs.prerelease }}
       publish: ${{ steps.release.outputs.publish }}
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.verified.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
-        with:
-          node-version: "24"
-          cache: true
-
-      - uses: ./.github/actions/setup-deno
-
-      - run: vp install --frozen-lockfile
 
       - name: Resolve release metadata
         id: release
@@ -56,30 +47,32 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
           fi
 
-          npm_tag=latest
-          prerelease=false
-          if [[ "$version" == *"-alpha"* ]]; then
-            npm_tag=alpha
-            prerelease=true
-          elif [[ "$version" == *"-beta"* ]]; then
-            npm_tag=beta
-            prerelease=true
-          elif [[ "$version" == *"-rc"* ]]; then
-            npm_tag=rc
-            prerelease=true
-          elif [[ "$version" == *"-"* ]]; then
-            npm_tag=next
-            prerelease=true
-          fi
-
           artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
-          mkdir -p .release
-          RELEASE_ARTIFACT_NAME="$artifact_name" \
-          RELEASE_NPM_TAG="$npm_tag" \
-          RELEASE_PRERELEASE="$prerelease" \
-          RELEASE_PUBLISH="$publish" \
-          RELEASE_VERSION="$version" \
+          {
+            echo "artifact_name=$artifact_name"
+            echo "publish=$publish"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+      # The pre-tag jobs in release-pr.yml run this same action at the
+      # reviewed commit and version before they create the tag.
+      - name: Verify the exact release
+        id: verified
+        uses: ./.github/actions/verify-release
+        with:
+          version: ${{ steps.release.outputs.version }}
+          exact: ${{ steps.release.outputs.publish }}
+          source-sha: ${{ github.sha }}
+
+      - name: Write release metadata
+        env:
+          RELEASE_ARTIFACT_NAME: ${{ steps.release.outputs.artifact_name }}
+          RELEASE_NPM_TAG: ${{ steps.verified.outputs.npm-tag }}
+          RELEASE_PRERELEASE: ${{ steps.verified.outputs.prerelease }}
+          RELEASE_PUBLISH: ${{ steps.release.outputs.publish }}
+          RELEASE_VERSION: ${{ steps.verified.outputs.version }}
+        run: |
           node <<'NODE'
           const { writeFileSync } = require("node:fs")
 
@@ -95,151 +88,6 @@ jobs:
             version: process.env.RELEASE_VERSION,
           }, null, 2)}\n`)
           NODE
-
-          {
-            echo "artifact_name=$artifact_name"
-            echo "publish=$publish"
-            echo "version=$version"
-            echo "npm_tag=$npm_tag"
-            echo "prerelease=$prerelease"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Apply release version
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          RELEASE_PUBLISH: ${{ steps.release.outputs.publish }}
-        run: |
-          node <<'NODE'
-          const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
-          const { join } = require("node:path")
-
-          if (!process.env.RELEASE_VERSION) throw new Error("Missing release version")
-          if (process.env.RELEASE_PUBLISH === "true") {
-            const root = JSON.parse(readFileSync("package.json", "utf8"))
-            if (root.version !== process.env.RELEASE_VERSION) {
-              throw new Error(`Release tag does not match root version ${root.version}`)
-            }
-          }
-
-          const manifests = []
-          for (const entry of readdirSync("packages", { withFileTypes: true })) {
-            if (!entry.isDirectory()) continue
-            const path = join("packages", entry.name, "package.json")
-            let manifest
-            try {
-              manifest = JSON.parse(readFileSync(path, "utf8"))
-            }
-            catch (error) {
-              if (error.code === "ENOENT") continue
-              throw error
-            }
-            if (manifest.private === true) continue
-            manifests.push({ manifest, path })
-          }
-
-          for (const { manifest, path } of manifests) {
-            if (process.env.RELEASE_PUBLISH === "true" && manifest.version !== process.env.RELEASE_VERSION) {
-              throw new Error(`Release tag does not match ${manifest.name} version ${manifest.version}`)
-            }
-            manifest.version = process.env.RELEASE_VERSION
-            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
-          }
-          NODE
-
-      - run: vp run lint
-      - run: vp run typecheck
-      - run: vp run test
-      # Published packages come from a fresh build, not from task cache
-      # fingerprints. The root build task always enables the cache.
-      - run: vp run --no-cache --filter "./packages/*" build
-
-      # vp run orders tasks by workspace:* dependencies only, so pin the
-      # release version only while packing.
-      - name: Pin release dependency versions
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          node <<'NODE'
-          const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
-          const { join } = require("node:path")
-
-          const manifests = []
-          for (const entry of readdirSync("packages", { withFileTypes: true })) {
-            if (!entry.isDirectory()) continue
-            const path = join("packages", entry.name, "package.json")
-            let manifest
-            try {
-              manifest = JSON.parse(readFileSync(path, "utf8"))
-            }
-            catch (error) {
-              if (error.code === "ENOENT") continue
-              throw error
-            }
-            if (manifest.private === true) continue
-            manifests.push({ manifest, path })
-          }
-
-          writeFileSync(".release/workspace-manifests.json", JSON.stringify(Object.fromEntries(manifests.map(({ path }) => [path, readFileSync(path, "utf8")]))))
-          const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
-          for (const { manifest, path } of manifests) {
-            for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-              for (const name of Object.keys(manifest[section] || {})) {
-                if (releaseNames.has(name)) manifest[section][name] = process.env.RELEASE_VERSION
-              }
-            }
-            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
-          }
-          NODE
-
-      - name: Pack immutable release tarballs
-        run: |
-          node .github/scripts/release-packages.mjs pack \
-            --workspace . \
-            --output .release/npm \
-            --source-sha "$GITHUB_SHA" \
-            --verify-reproducible
-
-      - name: Restore workspace dependency ranges
-        run: |
-          node <<'NODE'
-          const { readFileSync, rmSync, writeFileSync } = require("node:fs")
-
-          const manifests = JSON.parse(readFileSync(".release/workspace-manifests.json", "utf8"))
-          for (const [path, source] of Object.entries(manifests)) writeFileSync(path, source)
-          rmSync(".release/workspace-manifests.json")
-          NODE
-
-      - name: Verify exact release tarballs
-        run: |
-          node .github/scripts/release-packages.mjs verify \
-            --manifest .release/npm/release-manifest.json \
-            --workspace . \
-            --source-sha "$GITHUB_SHA"
-
-          while IFS= read -r tarball; do
-            vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict
-          done < <(node .github/scripts/release-packages.mjs files --manifest .release/npm/release-manifest.json)
-
-      - name: Test package contracts against exact release tarballs
-        env:
-          VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
-        run: vp run test:contracts
-
-      - name: Test no-hoist consumers against exact release tarballs
-        env:
-          VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
-        run: vp run test:consumer
-
-      - name: Dry-run npm package publish
-        env:
-          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
-        run: |
-          node .github/scripts/release-packages.mjs publish \
-            --manifest .release/npm/release-manifest.json \
-            --tag "$NPM_TAG" \
-            --source-sha "$GITHUB_SHA" \
-            --source-ref "$GITHUB_REF" \
-            --dry-run
 
       - name: Upload verified release workspace
         id: release-artifact
@@ -421,5 +269,5 @@ jobs:
             if (( ${#notes} > 120000 )); then
               notes="$(grep -m1 '^\*\*Full Changelog\*\*: ' <<< "$notes" || echo "**Full Changelog**: https://github.com/${GH_REPO}/commits/${release_tag}")"
             fi
-            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --notes-file -
+            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --title "$release_tag" --notes-file -
           fi

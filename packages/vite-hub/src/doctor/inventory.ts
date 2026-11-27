@@ -1,8 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
-import { dirname, relative, resolve } from "node:path"
+import { basename, dirname, relative, resolve } from "node:path"
+import { keyName, parseProgram, type Node } from "@vite-hub/internal/ast"
+import { viteHubServerImportSources } from "@vite-hub/internal/nuxt-server-imports"
+import { parseJSONC } from "confbox/jsonc"
 import * as v from "valibot"
 import { importOptionalOwner } from "../internal/optional-owners.ts"
+import { configObject } from "./config-object.ts"
 import type { ProjectInfo, ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
 
 /** Name of the ViteHub Project Inventory contribution, read by rules through `viteHubInventory()`. */
@@ -18,6 +22,8 @@ const definitionSchema = v.object({
   manual: v.optional(v.boolean()),
   imports: v.optional(v.array(v.string())),
 })
+const serverImportOriginsSchema = v.record(v.string(), v.object({ name: v.string(), source: v.string() }))
+const defaultServerImportOrigins = Object.fromEntries(Array.from(viteHubServerImportSources, ([name, source]) => [name, { name, source }]))
 const inventorySchema = v.object({
   /** Definitions that each owner package discovers. A kind is missing when its discovery failed. */
   definitions: v.record(v.string(), v.array(definitionSchema)),
@@ -25,12 +31,19 @@ const inventorySchema = v.object({
   env: v.optional(v.object({ secret: v.array(v.string()), provider: v.array(v.string()) })),
   /** Server directories of the app and its Nuxt layers, relative to the project root. */
   serverDirs: v.optional(v.array(v.string())),
+  /** Direct dependencies whose installed `package.json` needs `@nuxthub/core`. */
+  nuxtHubDependents: v.optional(v.array(v.object({ name: v.string(), field: v.picklist(["peerDependencies", "dependencies"]) }))),
+  nuxtServerAutoImports: v.optional(serverImportOriginsSchema),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
   serverDirs?: string[]
+  nuxtHubDependents?: NuxtHubDependent[]
+  nuxtServerAutoImports?: v.InferOutput<typeof serverImportOriginsSchema>
 }
+/** A dependency that lists `@nuxthub/core` in `field`, so installing it also installs NuxtHub. */
+export type NuxtHubDependent = { name: string, field: "peerDependencies" | "dependencies" }
 export type DiscoveredFile = {
   name: string
   file: string
@@ -105,12 +118,170 @@ function serverDirsOf(project: ProjectInfo): string[] {
   return [resolve(root, appServerDir ?? "server"), ...layerDirs.filter(isDirectory)]
 }
 
-function configuredServerDir(root: string): string | undefined {
+function nuxtConfigSource(root: string): string | undefined {
   for (const name of ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]) {
     const file = resolve(root, name)
-    if (!existsSync(file)) continue
-    const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(readFileSync(file, "utf8"))
-    return match?.[1] && resolve(root, match[1])
+    if (existsSync(file)) return readFileSync(file, "utf8")
+  }
+}
+
+function configuredServerDir(root: string): string | undefined {
+  const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(nuxtConfigSource(root) ?? "")
+  return match?.[1] && resolve(root, match[1])
+}
+
+const unknownConfig = Symbol("unknown Nuxt config")
+type ConfigValue = Node | typeof unknownConfig | undefined
+
+function configProperty(object: ConfigValue, name: string): ConfigValue {
+  if (object === unknownConfig) return object
+  if (object?.type !== "ObjectExpression") {
+    return object && object.type !== "BooleanLiteral" ? unknownConfig : undefined
+  }
+  for (const property of object.properties.toReversed()) {
+    if (property.type === "SpreadElement") return unknownConfig
+    const key = keyName(property.key, property.computed)
+    if (key === name) return property.type === "ObjectProperty" ? property.value : unknownConfig
+    if (key === undefined && property.computed) return unknownConfig
+  }
+}
+
+function layerOptions(configs: ConfigValue[], name: string): ConfigValue[] {
+  const values: ConfigValue[] = []
+  for (const config of configs) {
+    const value = configProperty(config, name)
+    if (value === undefined || value !== unknownConfig && value.type === "NullLiteral") continue
+    if (value === unknownConfig || value.type !== "ObjectExpression") {
+      if (!values.length || value === unknownConfig) values.push(value)
+      break
+    }
+    values.push(value)
+  }
+  return values
+}
+
+function configBoolean(value: ConfigValue): boolean | undefined {
+  return value && value !== unknownConfig && value.type === "BooleanLiteral" ? value.value : undefined
+}
+
+function nuxtConfigLayers(project: ProjectInfo): ConfigValue[] {
+  const seen = new Set<string>()
+  function read(root: string, inherited: readonly string[] = []): ConfigValue[] {
+    if (seen.has(root)) return []
+    seen.add(root)
+    const source = nuxtConfigSource(root)
+    const config = source === undefined ? undefined : configObject(source) ?? unknownConfig
+    if (inherited.length) return [config, ...inherited.flatMap(layer => read(layer))]
+    const extended = configProperty(config, "extends")
+    const layers: readonly (ConfigValue | null)[] = extended !== unknownConfig && extended?.type === "ArrayExpression" ? extended.elements : [extended]
+    const dir = resolve(root, "layers")
+    const auto = isDirectory(dir) ? readdirSync(dir).sort().reverse().flatMap(name => {
+      const layer = resolve(dir, name)
+      return isDirectory(layer) ? read(layer) : []
+    }) : []
+    return [config, ...auto, ...layers.flatMap((layer): ConfigValue[] => {
+      if (layer === undefined) return []
+      if (layer && layer !== unknownConfig && layer.type === "StringLiteral" && layer.value.startsWith(".")) return read(resolve(root, layer.value))
+      return [unknownConfig]
+    })]
+  }
+  const root = resolve(project.root)
+  const known = [...project.nuxt?.layers ?? []].sort((left, right) => right.priority - left.priority)
+    .map(layer => resolve(root, layer.root)).filter(layer => layer !== root)
+  return read(root, known)
+}
+
+function configuredServerAutoImports(layers: ConfigValue[]): boolean {
+  const option = (configs: ConfigValue[], key: string) => layerOptions(configs, key)[0]
+  const experimental = option(layerOptions(layers, "experimental"), "nitroAutoImports")
+  const legacy = layerOptions(layers, "nitroLegacy")
+  const legacyImports = option(legacy, "imports")
+  const first = legacy[0]
+  const legacyEnabled = configBoolean(first) === true || first !== undefined && first !== unknownConfig
+    && first.type === "ObjectExpression" && (legacyImports === undefined || configBoolean(legacyImports) === true)
+  if (configBoolean(experimental) !== true && !legacyEnabled) return false
+
+  const nitro = layerOptions(layers, "nitro")
+  const nitroImports = layerOptions(nitro, "imports")
+  if (nitroImports[0] === unknownConfig || configBoolean(nitroImports[0]) === false) return false
+  const autoImport = option(nitroImports, "autoImport") ?? option(layerOptions(layers, "imports"), "autoImport")
+  return autoImport === undefined || configBoolean(autoImport) === true
+}
+
+const tsconfigReferencesSchema = v.object({ references: v.array(v.object({ path: v.string() })) })
+const serverImportsPath = "types/server-imports.mjs"
+
+function referencedServerImports(root: string): string | undefined {
+  try {
+    const config: unknown = parseJSONC(readFileSync(resolve(root, "tsconfig.json"), "utf8"), { allowTrailingComma: true })
+    if (!v.is(tsconfigReferencesSchema, config)) return
+    const references = config.references.filter(ref => basename(ref.path) === "tsconfig.server.json")
+    const [reference] = references
+    if (references.length === 1 && reference) {
+      const file = resolve(root, dirname(reference.path), serverImportsPath)
+      if (existsSync(file)) return file
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function staticDirectory(value: ConfigValue): string | typeof unknownConfig | undefined {
+  if (!value || value === unknownConfig) return value
+  if (value.type === "StringLiteral") return value.value
+  if (value.type === "TemplateLiteral" && !value.expressions.length) return value.quasis[0]?.value.cooked ?? undefined
+  return unknownConfig
+}
+
+function configuredServerImports(root: string, layers: ConfigValue[]): string | undefined {
+  const typesDir = staticDirectory(layerOptions(layers, "typesDir")[0])
+  const directory = typesDir || staticDirectory(layerOptions(layers, "buildDir")[0]) || ".nuxt"
+  if (directory !== unknownConfig) return resolve(root, directory, serverImportsPath)
+}
+
+function configKeys(config: ConfigValue): string[] {
+  return config && config !== unknownConfig && config.type === "ObjectExpression"
+    ? config.properties.flatMap(property => property.type === "SpreadElement" ? [] : keyName(property.key, property.computed) ?? [])
+    : []
+}
+
+function generatedServerImports(root: string, layers: ConfigValue[]): string | undefined {
+  const referenced = referencedServerImports(root)
+  if (referenced) return referenced
+  const configured = configuredServerImports(root, layers)
+  if (configured && existsSync(configured)) return configured
+  const envNames = new Set(layers.flatMap(layer => [
+    ...configKeys(configProperty(layer, "$env")),
+    ...configKeys(layer).filter(key => key.startsWith("$") && key !== "$env").map(key => key.slice(1)),
+  ]))
+  const candidates = new Set<string>()
+  for (const name of envNames) {
+    const overrides = layers.flatMap<ConfigValue>(layer => [configProperty(configProperty(layer, "$env"), name), configProperty(layer, `$${name}`), layer])
+    const file = configuredServerImports(root, overrides)
+    if (file && existsSync(file)) candidates.add(file)
+  }
+  if (candidates.size === 1) return candidates.values().next().value
+}
+
+function readNuxtServerImportOrigins(root: string, layers: ConfigValue[]): ViteHubInventory["nuxtServerAutoImports"] {
+  const file = generatedServerImports(root, layers)
+  if (!file) return
+  try {
+    const { program } = parseProgram(readFileSync(file, "utf8"), { typescript: false })
+    return Object.fromEntries(program.body.flatMap((statement) => {
+      if (statement.type !== "ExportNamedDeclaration" || !statement.source) return []
+      const source = statement.source.value
+      return statement.specifiers.flatMap((specifier) => {
+        if (specifier.type !== "ExportSpecifier" && specifier.type !== "ExportNamespaceSpecifier") return []
+        const binding = keyName(specifier.exported)
+        const name = specifier.type === "ExportNamespaceSpecifier" ? "*" : keyName(specifier.local)
+        return binding !== undefined && name !== undefined ? [[binding, { name, source }] as const] : []
+      })
+    }))
+  }
+  catch {
+    return undefined
   }
 }
 
@@ -143,6 +314,48 @@ function relativeImports(root: string, file: string): { imports?: string[] } {
   return imports.length ? { imports } : {}
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readJson(file: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, "utf8"))
+    return isRecord(value) ? value : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/** The installed `package.json` of `name`, from the nearest `node_modules` at or above `root`. */
+function installedManifest(root: string, name: string): Record<string, unknown> | undefined {
+  for (let dir = resolve(root); ; dir = dirname(dir)) {
+    const file = resolve(dir, "node_modules", name, "package.json")
+    if (existsSync(file)) return readJson(file)
+    if (dirname(dir) === dir) return undefined
+  }
+}
+
+/** Direct dependencies of the app that need `@nuxthub/core`. pnpm installs it for them, and their module starts it. */
+function readNuxtHubDependents(root: string): NuxtHubDependent[] {
+  const manifest = readJson(resolve(root, "package.json"))
+  if (!manifest) return []
+  const names = new Set(["dependencies", "devDependencies"].flatMap((field) => {
+    const value = manifest[field]
+    return isRecord(value) ? Object.keys(value) : []
+  }))
+  names.delete("@nuxthub/core")
+  return [...names].sort().flatMap((name) => {
+    const installed = installedManifest(root, name)
+    const field = (["peerDependencies", "dependencies"] as const).find((key) => {
+      const dependencies = installed?.[key]
+      return isRecord(dependencies) && Object.hasOwn(dependencies, "@nuxthub/core")
+    })
+    return field ? [{ name, field }] : []
+  })
+}
+
 export const viteHubInventoryContributor: ProjectInventoryContributor = {
   name: inventoryName,
   async contribute(project) {
@@ -172,10 +385,17 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
     catch {
       env = undefined
     }
+    const nuxtHubDependents = readNuxtHubDependents(root)
+    const layers = project.framework === "nuxt" ? nuxtConfigLayers(project) : []
+    const nuxtServerAutoImports = configuredServerAutoImports(layers)
+      ? readNuxtServerImportOrigins(root, layers) ?? defaultServerImportOrigins
+      : undefined
     return {
       definitions,
       serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
       ...(env ? { env } : {}),
+      ...(nuxtHubDependents.length ? { nuxtHubDependents } : {}),
+      ...(nuxtServerAutoImports ? { nuxtServerAutoImports } : {}),
     } satisfies ViteHubInventory
   },
 }

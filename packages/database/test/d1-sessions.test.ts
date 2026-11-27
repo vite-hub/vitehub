@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it } from "vitest"
+import { defineRelations } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
@@ -11,6 +12,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { cloudflareOptions, mergeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { d1BookmarkCookieName, runWithDatabaseRequest } from "../src/runtime/d1-sessions.ts"
+import { createDatabaseBindingLookup } from "../src/runtime/agent.ts"
 
 const schema = {
   notes: sqliteTable("notes", {
@@ -61,9 +63,8 @@ function createReplicatedD1() {
 function createDb(readReplication: boolean | undefined) {
   return createDrizzleSqliteAdapter({
     cloudflare: { binding: "DB", ...(readReplication === undefined ? {} : { readReplication }) },
-    drizzle: {},
     name: "default",
-  }, schema, { missingConnection: "a D1 binding", requireRemoteUrl: true })
+  }, defineRelations(schema), { missingConnection: "a D1 binding", requireRemoteUrl: true })
 }
 
 function createEvent(method: string, cookie?: string, url = "https://app.example/api/notes") {
@@ -96,6 +97,13 @@ describe("D1 read replication", () => {
     expect(event.res.headers.get("set-cookie")).toBeNull()
   })
 
+  it("skips a malformed or empty duplicate bookmark cookie", async () => {
+    const { binding, constraints } = createReplicatedD1()
+    const name = d1BookmarkCookieName("DB")
+    await inRequest(binding, createEvent("GET", `${name}=%E0%A4%A; ${name}=; ${name}=bookmark-valid`), () => createDb(true).select().from(schema.notes))
+    expect(constraints).toEqual(["bookmark-valid"])
+  })
+
   it("starts a write on the primary and carries its bookmark to the next read", async () => {
     const { binding, constraints } = createReplicatedD1()
     const db = createDb(true)
@@ -122,6 +130,30 @@ describe("D1 read replication", () => {
     })
     expect(constraints).toEqual(["first-unconstrained"])
     expect(queries).toEqual(["session 1: select 1"])
+  })
+
+  it("returns the current request's session from the binding lookup", async () => {
+    const { binding, constraints, queries } = createReplicatedD1()
+    const lookup = createDatabaseBindingLookup({ default: { db: createDb(true) } })
+    const sessions: object[] = []
+
+    await runWithActiveCloudflareEnv({ DB: binding }, async () => {
+      expect(lookup("default")).toBe(binding)
+      for (let request = 0; request < 2; request++) {
+        await inRequest(binding, createEvent("GET"), async () => {
+          const session = lookup("default")
+          sessions.push(session)
+          expect(session).toBe(lookup("default"))
+          expect(session).not.toBe(binding)
+          expect(session).not.toHaveProperty("exec")
+          await session.prepare("select 1").bind().all()
+          await expect(session.batch([])).resolves.toEqual([])
+        })
+      }
+    })
+    expect(sessions[0]).not.toBe(sessions[1])
+    expect(constraints).toEqual(["first-unconstrained", "first-unconstrained"])
+    expect(queries).toEqual(["session 1: select 1", "session 2: select 1"])
   })
 
   it("leaves Secure off over plain HTTP", async () => {
@@ -170,7 +202,7 @@ describe("D1 read replication", () => {
   })
 
   it("inherits the integration option and lets a Definition turn it off", () => {
-    const defaults = cloudflareOptions({ driver: "d1", databaseName: "app", readReplication: true })
+    const defaults = cloudflareOptions({ driver: "cloudflare", databaseName: "app", readReplication: true })
     expect(defaults).toEqual({ databaseName: "app", readReplication: true })
     expect(mergeCloudflareConfig(defaults, { binding: "DB" })?.readReplication).toBe(true)
     expect(mergeCloudflareConfig(defaults, { readReplication: false })?.readReplication).toBe(false)
@@ -180,7 +212,7 @@ describe("D1 read replication", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-replication-"))
     try {
       await mkdir(join(rootDir, "server", "databases"), { recursive: true })
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), [
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), [
         "import { defineDatabase } from '@vite-hub/database'",
         "export default defineDatabase({ cloudflare: { readReplication: true }, schema: {} })",
         "",
@@ -188,7 +220,7 @@ describe("D1 read replication", () => {
       const [definition] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
       expect(definition?.fields).toContainEqual(expect.objectContaining({ label: "Read replication" }))
 
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", "utf8")
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", "utf8")
       const [inherited] = await inspectDatabaseDefinitions({ projectRoot: rootDir, readReplication: true, rootDir })
       expect(inherited?.fields).toContainEqual(expect.objectContaining({ label: "Read replication" }))
       const [plain] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })

@@ -1,0 +1,84 @@
+import { defineAgent } from 'vite-hub/agent'
+import { babysitter } from 'vite-hub/agent/presets/babysitter'
+import { diagnostics } from 'vite-hub/agent/capabilities'
+import { createAgentEvlog } from 'vite-hub/agent/evlog'
+import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
+import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { usePublicEnv } from '#vitehub/env/public'
+import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
+
+const telemetry = createAgentEvlog({
+  service: 'babysitter',
+  environment: process.env.NODE_ENV ?? 'production',
+  metadata: { agent_family: 'babysitter' },
+  level: 'standard',
+  ...(process.env.POSTHOG_API_KEY ? {
+    exporter: posthogAgentExporter({
+      apiKey: process.env.POSTHOG_API_KEY,
+      host: process.env.POSTHOG_HOST ?? 'https://posthog.example.com',
+      service: 'babysitter',
+    }),
+  } : {}),
+})
+
+// A comment between statements.
+registerFleetFromEnvironment()
+
+function inputTokenLimit(name: string) {
+  const raw = process.env[name]
+  if (raw === undefined || raw.trim() === '') return undefined
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`)
+  return value
+}
+
+const admissionInputTokens = {
+  hourly: inputTokenLimit('BABYSITTER_HOURLY_INPUT_TOKENS'),
+  daily: inputTokenLimit('BABYSITTER_DAILY_INPUT_TOKENS'),
+}
+
+export default defineAgent({
+  extends: babysitter,
+  name: 'babysitter',
+  version: usePublicEnv().releaseRevision,
+  options: {
+    filter: {
+      repository: {
+        allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'example/app')
+          .split(/[,\s]+/).filter(Boolean),
+      },
+      author: { allow: ['example', 'renovate[bot]'] },
+      labels: { deny: ['babysitter:skip'] },
+    },
+    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
+    capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
+    admission: { inputTokens: admissionInputTokens },
+    install: { cache: false },
+    deferWhilePending: true,
+    ciRecovery: false,
+    reviewChecks: ['review', 'review-approval'],
+    reviewPushBudget: 3,
+    dailyPassBudget: 16,
+    priorityLabels: ['babysitter:priority'],
+    noFindingsReviews: ['> No new issues found.'],
+    ignoreFeedbackAuthors: ['preview[bot]'],
+    merge: { strategy: 'direct', method: 'squash' },
+  },
+  workspace: {},
+  capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
+  driver: {
+    model: process.env.BABYSITTER_MODEL || 'model',
+    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'high',
+    env: () => ({
+      OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+      NODE_OPTIONS: '--max-old-space-size=4096',
+      ...(process.env.BABYSITTER_WORKER_BIN ? { PATH: `${process.env.BABYSITTER_WORKER_BIN}:${process.env.PATH}` } : {}),
+    }),
+    instructions: `
+Own the repair and verification in this invocation. Call the tools named
+mcp__t3_code__pushRepair and mcp__t3_code__readCheckLogs directly.
+
+Report the commands and results you observed, for example "Review: P2 cleanup race".
+`,
+  },
+})

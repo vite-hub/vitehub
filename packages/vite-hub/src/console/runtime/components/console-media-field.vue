@@ -6,6 +6,7 @@ import { consoleFocalCropPosition } from "../client/media-library";
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaDetails, ConsoleMediaReference } from "../client/media";
+import Icon from "./console-icon.vue";
 
 /**
  * A Blob reference field, such as `image()` or `file()`, as a property value: a thumbnail and the file name, Replace and
@@ -105,22 +106,22 @@ const meta = computed(() => {
     <span v-else class="text-dimmed">Empty</span>
     <span v-if="reference?.contentType" class="truncate text-xs text-dimmed">{{ reference.contentType }}</span>
   </div>
-  <button
+  <UButton
     v-else-if="!reference"
     :id="inputId"
-    type="button"
-    class="vitehub-media-field__empty"
+    variant="ghost"
+    class="w-full text-dimmed"
+    :icon="kind === 'image' ? 'i-lucide-image-plus' : 'i-lucide-paperclip'"
+    :label="disabled ? 'Empty' : kind === 'image' ? 'Choose an image…' : 'Choose a file…'"
+    :loading="choosing"
     :disabled="disabled"
     @click="choose"
-  >
-    <UIcon :name="choosing ? 'i-lucide-loader-circle' : kind === 'image' ? 'i-lucide-image-plus' : 'i-lucide-paperclip'" class="size-4 shrink-0" :class="choosing ? 'animate-spin' : ''" aria-hidden="true" />
-    <span>{{ disabled ? "Empty" : kind === "image" ? "Choose an image…" : "Choose a file…" }}</span>
-  </button>
+  />
   <div v-else class="grid gap-1 py-1">
     <div class="group flex min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1 hover:bg-elevated/50">
       <span class="vitehub-media-field__thumb" :style="{ background: details?.color }">
         <img v-if="details?.thumbnail && kind === 'image'" :src="details.thumbnail" :alt="alt" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(details.focal, details, 1) }">
-        <UIcon v-else :name="missing ? 'i-lucide-triangle-alert' : kind === 'image' ? 'i-lucide-image' : 'i-lucide-file'" class="size-4" :class="missing ? 'text-warning' : 'text-dimmed'" aria-hidden="true" />
+        <Icon v-else :name="missing ? 'i-lucide-triangle-alert' : kind === 'image' ? 'i-lucide-image' : 'i-lucide-file'" class="size-4" :class="missing ? 'text-warning' : 'text-dimmed'" aria-hidden="true" />
       </span>
       <span class="grid min-w-0 flex-1">
         <span class="truncate text-sm text-highlighted" :title="reference.pathname">{{ name }}</span>
@@ -134,13 +135,10 @@ const meta = computed(() => {
     <UInput
       v-if="kind === 'image' && picker.updateAlt && !missing"
       v-model="alt"
-      size="sm"
-      variant="ghost"
       class="w-full"
       :disabled="disabled"
       placeholder="Alt text"
       :aria-label="`${label} alt text`"
-      :ui="{ base: 'bg-transparent hover:bg-transparent focus:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) text-xs ps-2.5' }"
       @blur="saveAlt"
       @keydown.enter.prevent="saveAlt"
     />
@@ -148,33 +146,11 @@ const meta = computed(() => {
 </template>
 
 <style>
-.vitehub-media-field__empty {
-  align-items: center;
-  border-radius: 0.375rem;
-  color: var(--ui-text-dimmed);
-  display: flex;
-  font-size: 0.875rem;
-  gap: 0.5rem;
-  height: 2rem;
-  padding-inline: 0.625rem;
-  width: 100%;
-}
-
-.vitehub-media-field__empty:not(:disabled):hover {
-  box-shadow: inset 0 0 0 1px var(--ui-border);
-  color: var(--ui-text-highlighted);
-}
-
-.vitehub-media-field__empty:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--ui-border-accented);
-  outline: none;
-}
-
 .vitehub-media-field__thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: 0.25rem;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 6%, transparent);
   display: inline-flex;
   flex-shrink: 0;
   height: 2.5rem;

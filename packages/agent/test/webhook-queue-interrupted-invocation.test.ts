@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/index.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { agentInvocationId, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -169,7 +168,7 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     fixture.start(exhausted)

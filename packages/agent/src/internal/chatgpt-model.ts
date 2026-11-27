@@ -12,9 +12,12 @@ import type {
 } from "@ai-sdk/provider"
 import type { ChatGPTCredential } from "@vite-hub/connections/agent"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
+import { aiGatewayLanguageModel } from "@vite-hub/gateways/internal"
+import type { AiGatewayLanguageModelRoute } from "@vite-hub/gateways/internal"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentProviderCredentialContext } from "../types.ts"
 import { chatgptProviderError, resolveChatGPTCredential } from "./chatgpt-gateway.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** Request fields that ChatGPT plan usage rejects. History goes in `input`, so `previous_response_id` goes too. */
 const rejectedFields = [
@@ -22,10 +25,6 @@ const rejectedFields = [
   "previous_response_id", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs",
   "top_p", "truncation", "user",
 ]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 const toolNamespace = { name: "functions", description: "The tools of this Agent." }
 
@@ -149,6 +148,7 @@ export async function collectStream(result: LanguageModelV4StreamResult): Promis
       case "tool-input-delta":
       case "tool-input-end":
       case "raw":
+      case "ping":
         break
       case "error": throw part.error
       case "finish":
@@ -210,7 +210,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
       throw planError(error, gateway.connection)
     }
   }
-  return {
+  const model: LanguageModelV4 = {
     specificationVersion: "v4",
     provider: "chatgpt",
     modelId,
@@ -218,4 +218,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
     doStream,
     doGenerate: async options => await collectStream(await doStream(options)),
   }
+  // With VITEHUB_MODELS=emulate, the Agent sends this model to the AI emulator as an OpenAI Responses model.
+  const route: AiGatewayLanguageModelRoute = Object.freeze({ api: "responses", gateway: "chatgpt", modelId })
+  return Object.defineProperty(model, aiGatewayLanguageModel, { value: route })
 }

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
+import { createCommentsClient, replyMessageId, type CommentThread, type CommentUser } from "../src/client.ts"
 import { createMemoryTransport } from "../src/testing.ts"
 
 function deferred<T>() {
@@ -24,6 +24,16 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it("drops the Agent of an earlier resolution in the memory transport", async () => {
+    const seeded = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+    const thread = { ...seeded, status: "resolved" as const, resolvedBy: ana, resolvedActor: { id: "claude", name: "Claude" }, resolvedAt: 1 }
+    const store = createMemoryTransport({ user: ben, threads: [thread] })
+    const byBen = await store.resolve({ threadId: thread.id })
+    expect(byBen.resolvedBy).toEqual(ben)
+    expect(byBen).not.toHaveProperty("resolvedActor")
+    expect(await createMemoryTransport({ user: ben, threads: [thread] }).reopen({ threadId: thread.id })).not.toHaveProperty("resolvedActor")
+  })
+
   it("preserves independent metadata copies in the memory transport", async () => {
     const { store } = setup()
     const metadata = { version: 3, emptyBody: true, category: "feedback" }
@@ -31,7 +41,7 @@ describe("createCommentsClient", () => {
     expect(created.metadata).toEqual(metadata)
     metadata.version = 4
     created.metadata!.category = "changed"
-    const stored = await store.get({ id: created.id })
+    const stored = await store.get({ threadId: created.id })
     expect(stored!.metadata).toEqual({ version: 3, emptyBody: true, category: "feedback" })
     expect((await store.list({}))[0]!.metadata).toEqual(stored!.metadata)
   })
@@ -66,6 +76,38 @@ describe("createCommentsClient", () => {
       expect(message.attachments).toEqual(["attachment"]);
     }
   });
+
+  it("without an outbox, sends picked files with the deferred ones once they arrive", async () => {
+    const { client, store } = setup()
+    const create = vi.spyOn(store, "create")
+    const later = deferred<Blob[]>()
+    const sending = client.create({ subject, anchor, body: "Both", files: [new Blob(["picked"])], deferredFiles: later.promise })
+    await Promise.resolve()
+    expect(create).not.toHaveBeenCalled()
+    later.resolve([new Blob(["later"])])
+    await sending
+    expect(await Promise.all(create.mock.calls[0]![0].files!.map(file => file.text()))).toEqual(["picked", "later"])
+  })
+
+  it("without an outbox, a reply waiting its turn reports a failed deferred file only through its own promise", async () => {
+    const { client } = setup()
+    const thread = await client.create({ subject, anchor, body: "First" })
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const first = deferred<Blob[]>()
+      const earlier = client.reply({ threadId: thread.id, body: "Earlier", deferredFiles: first.promise })
+      const later = client.reply({ threadId: thread.id, body: "Later", deferredFiles: Promise.reject(new Error("no picture")) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      first.resolve([])
+      await earlier
+      await expect(later).rejects.toThrow("no picture")
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
 
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
     const { client } = setup()
@@ -118,7 +160,7 @@ describe("createCommentsClient", () => {
     const thread = await client.create({ subject, anchor, body: "Mine" })
     const replied = await store.as(ben).reply({ threadId: thread.id, body: "Ben's reply" })
     await expect(client.delete({ threadId: thread.id, ...(firstMessage ? { messageId: thread.messages[0]!.id } : {}) })).rejects.toMatchObject({ code: "COMMENTS_R0004" })
-    expect((await store.get({ id: thread.id }))?.messages).toHaveLength(2)
+    expect((await store.get({ threadId: thread.id }))?.messages).toHaveLength(2)
     await store.as(ben).delete({ threadId: thread.id, messageId: replied.messages[1]!.id })
     expect(await client.delete({ threadId: thread.id })).toBeNull()
   })
@@ -583,4 +625,14 @@ it("bounds refresh retries and preserves the cache while pages keep changing", a
   expect(client.status).toBe("ready")
   expect(client.error).toBeUndefined()
   expect(client.threads).toEqual(store.threads.sort((a, b) => a.n - b.n))
+})
+
+describe("replyMessageId", () => {
+  it("exports the id that a reply with a retry key gets, so a waiting copy finds its server copy", async () => {
+    const { client, store } = setup()
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    const replied = await store.reply({ threadId: thread.id, body: "Yearly too", requestId: "draft-1" })
+    expect(replied.messages.at(-1)!.id).toBe(await replyMessageId(thread.id, "draft-1"))
+    expect(await replyMessageId(thread.id, "draft-1")).toMatch(/^message_[0-9a-f]{32}$/)
+  })
 })

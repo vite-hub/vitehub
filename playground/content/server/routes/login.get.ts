@@ -2,20 +2,20 @@ import { defineHandler } from "h3"
 
 import { playgroundPassword, playgroundUsers } from "../roles"
 
-// A sign-in page for the playground users. Each button signs up the user once, then signs in.
 export default defineHandler(() => new Response(`<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <title>Sign in · Content playground</title>
 <style>
+  :root { color-scheme: light dark; }
   body { font: 14px/1.5 system-ui, sans-serif; margin: 4rem auto; max-width: 28rem; padding: 0 1rem; }
   button { display: block; width: 100%; margin: .5rem 0; padding: .6rem; font: inherit; cursor: pointer; }
-  output { color: #b91c1c; }
+  output { display: block; font-weight: 600; }
 </style>
 <h1>Content playground</h1>
 <p>Sign in as one of the playground users, then open the Console.</p>
 ${Object.entries(playgroundUsers).map(([email, role]) => `<button data-email="${email}">Sign in as ${role} (${email})</button>`).join("\n")}
-<output></output>
+<output role="alert"></output>
 <script type="module">
   const password = ${JSON.stringify(playgroundPassword)}
   const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })

@@ -11,11 +11,11 @@ defineProps<{
 </script>
 
 <template>
-  <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
+  <!-- Local storage keeps the sizes of section sidebars across reloads; the cookie storage needs Nuxt to persist. -->
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <!-- Every page has a skip target, including pages without a main landmark or heading. -->
-    <span id="vitehub-console-content" class="sr-only" tabindex="-1" data-skip-target>Page content</span>
+    <span id="vitehub-console-content" class="sr-only" tabindex="-1">Page content</span>
     <slot />
     <!-- Console toasts render here, apart from the toaster of a host app. -->
     <ConsoleToaster />
@@ -24,8 +24,9 @@ defineProps<{
 
 <style>
 .vitehub-console {
-  /* Sidebar and detail headers use the 44px height of the page header, so their titles and hairlines line up. */
-  --ui-header-height: 2.75rem;
+  /* The sidebar brand row, section sidebars, and detail headers use the 52px height of the page header, so their titles
+     and hairlines line up. */
+  --ui-header-height: 3.25rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -33,62 +34,18 @@ defineProps<{
 
 .vitehub-console__nav[data-slot="root"] {
   background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
-}
-
-/* The context panel matches the primitive rail from @vite-hub/ui: the same surface and hairline. */
-.dark .vitehub-console__nav[data-slot="root"] {
-  background: #000;
+  border-inline-end: 1px solid var(--border);
 }
 
 .vitehub-console__nav [data-slot="header"] {
-  min-height: 2.75rem;
+  min-height: var(--ui-header-height);
   padding-inline: 0.5rem;
-}
-
-/* The search entry is a ghost row in every sidebar, like T3 Code's search row. */
-.vitehub-console .vitehub-console__search {
-  justify-content: flex-start !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  color: var(--ui-text-muted) !important;
-  font-size: 0.8125rem !important;
-  font-weight: 500 !important;
-  height: 2rem !important;
-  min-height: 2rem !important;
-  padding-inline: 0.5rem !important;
-}
-
-.vitehub-console .vitehub-console__search:hover {
-  color: var(--ui-text) !important;
-}
-
-/* The shortcut stays visible as quiet monospace text, not as key caps. */
-.vitehub-console .vitehub-console__search [data-slot="trailing"] {
-  gap: 0;
-  opacity: 1;
-}
-
-.vitehub-console .vitehub-console__search [data-slot="trailing"] kbd {
-  background: transparent;
-  box-shadow: none;
-  color: var(--ui-text-dimmed);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  min-width: 0;
-  padding-inline: 0.0625rem;
-  transition: color 150ms ease;
-}
-
-.vitehub-console .vitehub-console__search:hover [data-slot="trailing"] kbd,
-.vitehub-console .vitehub-console__search:focus-visible [data-slot="trailing"] kbd {
-  color: var(--ui-text-muted);
 }
 
 /* A context panel opens with the section title, like the panel headers in Linear and Featurebase. */
 .vitehub-console__panel-title {
   align-items: center;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   display: flex;
   font-size: 0.875rem;
   font-weight: 600;
@@ -114,17 +71,6 @@ defineProps<{
     position: absolute;
   }
 }
-
-/*
- * iOS Safari zooms into a focused field with text under 16px and stays zoomed. Touch screens get 16px field text even when
- * a mouse is the primary pointer. Mouse-only devices keep the dense 14px. Unlayered, so it wins over the size utilities.
- * The body selector also reaches the search dialog and menus, which render outside the frame.
- */
-@media (any-pointer: coarse) {
-  body:has(.vitehub-console) :is(input, select, textarea) {
-    font-size: 1rem;
-  }
-}
 </style>
 
 <style>
@@ -144,7 +90,7 @@ defineProps<{
 .vitehub-console__section-link {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -156,19 +102,14 @@ defineProps<{
 }
 
 .vitehub-console__section-link:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
   color: var(--ui-text);
 }
 
 .vitehub-console__section-link[aria-current="page"],
 .vitehub-console__section-link[aria-current="true"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
-}
-
-.vitehub-console__section-link:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
+  color: var(--foreground);
 }
 
 .vitehub-console__section-nav.is-collapsed .vitehub-console__section-link {
@@ -193,7 +134,7 @@ defineProps<{
 .vitehub-console__collection-mark {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
   display: inline-flex;
   flex-shrink: 0;
   font-family: var(--font-mono);
@@ -207,8 +148,8 @@ defineProps<{
 }
 
 .vitehub-console__section-link[aria-current="page"] .vitehub-console__collection-mark {
-  border-color: var(--ui-text-muted);
-  color: var(--ui-text-highlighted);
+  border-color: var(--muted-foreground);
+  color: var(--foreground);
 }
 
 .vitehub-console__section-heading {
@@ -219,7 +160,7 @@ defineProps<{
 }
 
 .vitehub-console__section-rule {
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   margin: 0.375rem 0.5rem;
 }
 

@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 import { CollectionCursorError, createCollectionCursorCodec } from "./collection-cursor.ts"
 import { parseCollectionSchema } from "./schema.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { CollectionFacets, CollectionFacetValue, ProviderCollectionPage, ProviderCollectionSource } from "./collection.ts"
 
@@ -79,6 +80,15 @@ function compareProtocolStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
+function foldLatinText(value: string): string {
+  return value.replace(/[A-Za-z\u00C0-\u017F\u0300-\u036F\u1E00-\u1EFF\u212A\u212B]+/g, latin =>
+    latin.normalize("NFD").replace(/[\u0300-\u036F]/g, "").toLowerCase())
+}
+
+function compareText(left: string, right: string): number {
+  return compareProtocolStrings(foldLatinText(left), foldLatinText(right)) || compareProtocolStrings(left, right)
+}
+
 const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
   "~standard": {
     version: 1,
@@ -99,11 +109,6 @@ const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
 
 const cursorCodec = createCollectionCursorCodec(arrayCursorSchema)
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
-/** Read a dot path through own properties. Arrays fan out to every element. */
 function collectionValueAt(value: unknown, path: string): unknown {
   const segments = path.split(".").filter(Boolean)
   function visit(current: unknown, remaining: string[]): unknown {
@@ -117,8 +122,6 @@ function collectionValueAt(value: unknown, path: string): unknown {
   return visit(value, segments)
 }
 
-// Validated items often carry Dates (`z.coerce.date()`). Treat a valid Date as its ISO string for filters, search,
-// and facets, and as its timestamp for sorting.
 function dateTime(value: unknown): number | undefined {
   if (Object.prototype.toString.call(value) !== "[object Date]") return
   const time = Date.prototype.getTime.call(value)
@@ -160,7 +163,6 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
   }
 }
 
-// Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
   const normalized: NormalizedQuery = { empty: [], filters: Object.create(null), search: "" }
   for (const [key, value] of Object.entries(query).sort(([a], [b]) => compareProtocolStrings(a, b))) {
@@ -200,7 +202,7 @@ function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined)
   return items.map(item => ({ item, value: firstScalar(collectionValueAt(item, sort.field)) }))
     .sort(({ value: leftValue }, { value: rightValue }) => {
       if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
-      return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
+      return compareText(String(leftValue ?? ""), String(rightValue ?? "")) * direction
     })
     .map(({ item }) => item)
 }
@@ -212,7 +214,7 @@ function buildFacets(items: readonly unknown[], fields: readonly string[], maxVa
       for (const value of new Set(scalarValues(collectionValueAt(item, field)))) counts.set(value, (counts.get(value) ?? 0) + 1)
     }
     const values: CollectionFacetValue[] = [...counts].map(([value, count]) => ({ count, value }))
-      .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value))
+      .sort((left, right) => right.count - left.count || compareText(left.value, right.value))
       .slice(0, maxValues)
     return [field, values]
   }))
@@ -254,12 +256,11 @@ export function array<TItem, const TFilter extends string = never>(
     throw sourceErrorDiagnostics.SOURCE_R0028({ message: "[vitehub] array() sort must name a field." })
   }
   const filters = new Set<string>(options.filters ?? [])
-  // options.filters is the TFilter list, so membership proves the literal type.
   const isFilter = (key: string): key is TFilter => filters.has(key)
   const searchFields = options.search ?? []
   const facetFields = options.facets ?? []
   const maxValues = options.maxLimit ?? defaultMaxLimit
-  const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
+  const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field, text: "latin-fold-v1" } : null })
 
   async function snapshot(signal: AbortSignal | undefined, includeDigest: boolean): Promise<{ digest: string, items: readonly TItem[] }> {
     const result = typeof load === "function" ? await load({ signal }) : load

@@ -17,7 +17,7 @@ const origin = "https://site.test"
 
 function post(body: unknown, init: { headers?: Record<string, string>, type?: string, raw?: string } = {}): Request {
   const type = init.type ?? "application/json"
-  return new Request(`${origin}/api/_vitehub/forms/contact`, {
+  return new Request(`${origin}/_vitehub/forms/contact`, {
     method: "POST",
     headers: { "content-type": type, origin, referer: `${origin}/pricing?plan=pro`, ...init.headers },
     body: init.raw ?? (type === "application/json" ? JSON.stringify(body) : new URLSearchParams(body as Record<string, string>).toString()),
@@ -67,6 +67,22 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toEqual([])
   })
 
+  it("redirects browser forms with non-JSON schema output before hooks or storage", async () => {
+    const onSubmit = vi.fn()
+    const form = defineForm({
+      schema: v.pipe(v.object({ message: v.string() }), v.transform(() => ({ value: new Date("2026-01-01") }))),
+      onSubmit,
+      notify: { email: { to: "owner@example.com" } },
+    })
+    const { store, email, all } = services()
+    const response = await handleFormRequest("contact", form, post({ message: "Hi", _page: "/contact" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/contact?form=contact.error")
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(email).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+  })
+
   it("keeps the page and anchor fields out of the data", async () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Typo", _page: "/docs/intro", _anchor: { selector: "main p", exact: "teh word", prefix: "Fix ", suffix: " here", kind: "text" } }), all)
@@ -80,10 +96,75 @@ describe("handleFormRequest", () => {
     expect((await store.list())[0]?.anchor).toBeNull()
   })
 
+  it("does not keep the result of an earlier post in the page", async () => {
+    const { store, all } = services()
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/contact?plan=pro&form=contact.error` } }), all)
+    expect((await store.list())[0]?.page).toBe("/contact?plan=pro")
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/signup?form=newsletter` } }), all)
+    expect((await store.list())[0]?.page).toBe("/signup?form=newsletter")
+  })
+
   it("does not keep a page of another origin", async () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi", _page: "https://evil.test/x" }), all)
     expect((await store.list())[0]?.page).toBeNull()
+  })
+
+  it("stores a message once for its Idempotency-Key, and runs onSubmit and the email once", async () => {
+    const { store, email, all } = services()
+    const onSubmit = vi.fn()
+    const form = defineForm({ ...contact.options, onSubmit })
+    const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
+    const send = (message: string) => handleFormRequest("contact", form, post({ email: "ada@example.com", message }, { headers: { "idempotency-key": key } }), all)
+    for (const response of [await send("Hello"), await send("Hello")]) {
+      expect(response.status).toBe(201)
+      expect(await response.json()).toEqual({ id: key })
+    }
+    expect((await store.list()).map(row => row.id)).toEqual([key])
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(email).toHaveBeenCalledTimes(1)
+    const other = await send("Something else")
+    expect(other.status).toBe(422)
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it("answers 409 to a retry while the first send of its key still runs, and runs onSubmit once", async () => {
+    const { store, email, all } = services()
+    let release = () => {}
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    const form = defineForm({ ...contact.options, onSubmit })
+    const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
+    const send = () => handleFormRequest("contact", form, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": key } }), all)
+    const first = send()
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect((await send()).status).toBe(409)
+    release()
+    expect((await first).status).toBe(201)
+    expect((await send()).status).toBe(201)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(await store.list()).toHaveLength(1)
+    expect(email).toHaveBeenCalledTimes(1)
+  })
+
+  it("stores one message when two instances race on one key", async () => {
+    const { email, all } = services()
+    const store = createMemoryFormsStore()
+    const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
+    const racing = { ...store, get: vi.fn(store.get).mockResolvedValueOnce(undefined) }
+    await store.insert({ id: key, form: "contact", data: { email: "ada@example.com", message: "Hello" }, page: null, anchor: null, user: null, status: "open", createdAt: 1, updatedAt: 1 })
+    const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": key } }), { ...all, store: racing })
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ id: key })
+    expect(await store.list()).toHaveLength(1)
+    expect(email).not.toHaveBeenCalled()
+  })
+
+  it("rejects an Idempotency-Key that is not a UUID", async () => {
+    const { store, all } = services()
+    const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": "retry-1" } }), all)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ message: "The Idempotency-Key header must be a UUID." })
+    expect(await store.list()).toEqual([])
   })
 
   it("pretends success for a filled honeypot and stores nothing", async () => {
@@ -121,13 +202,42 @@ describe("handleFormRequest", () => {
 
   it("checks authorize with the identified user", async () => {
     const form = defineForm({ schema: v.object({ text: v.string() }), authorize: ({ user }) => user?.id === "ada" })
-    const anonymous = services()
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const anonymous = services({ rateLimit })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), anonymous.all)).status).toBe(401)
+    expect(rateLimit).not.toHaveBeenCalled()
     const grace = services({ identify: () => ({ id: "grace" }) })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), grace.all)).status).toBe(403)
     const ada = services({ identify: () => ({ id: "ada", name: "Ada" }) })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), ada.all)).status).toBe(201)
     expect((await ada.store.list())[0]?.user).toEqual({ id: "ada", name: "Ada" })
+  })
+
+  it.each(["identify", "authorize"])("bounds the body before %s can read it, without using rate budget", async (consumer) => {
+    const read = vi.fn(async (request: Request) => request.text())
+    const form = defineForm({
+      schema: v.object({ text: v.string() }),
+      maxBytes: 2048,
+      authorize: async ({ request }) => {
+        if (consumer === "authorize") await read(request)
+        return false
+      },
+    })
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const { store, all } = services({
+      identify: async (request) => {
+        if (consumer === "identify") await read(request)
+        return null
+      },
+      rateLimit,
+    })
+    expect((await handleFormRequest("issue", form, post({ text: "x".repeat(8192) }), all)).status).toBe(413)
+    expect(read).not.toHaveBeenCalled()
+    expect(rateLimit).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+    expect((await handleFormRequest("issue", form, post({ text: "Hi" }), all)).status).toBe(401)
+    expect(read).toHaveBeenCalledOnce()
+    expect(rateLimit).not.toHaveBeenCalled()
   })
 
   it("answers with the Response that onSubmit returns and stores nothing", async () => {
@@ -167,7 +277,7 @@ describe("handleFormRequest", () => {
     expect(email).not.toHaveBeenCalled()
     const native = await handleFormRequest("contact", plain, post({ message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }))
     expect(native.status).toBe(303)
-    expect(native.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    expect(native.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
 
     const handled = defineForm({ schema, store: false, onSubmit })
     expect((await handleFormRequest("contact", handled, request())).status).toBe(201)
@@ -197,29 +307,61 @@ describe("handleFormRequest", () => {
     const { store, all } = services()
     const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(sent.status).toBe(303)
-    expect(sent.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
+    expect(sent.headers.get("location")).toBe("/pricing?plan=pro&form=contact.sent")
     expect(await store.list()).toHaveLength(1)
     const wrong = await handleFormRequest("contact", contact, post({ email: "x", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
-    expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=error")
-    // Every other failure also goes back to the page, such as the rate limit.
+    expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
     const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
     expect(limited.status).toBe(303)
-    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
+  })
+
+  it.each(["urlencoded", "multipart"])("decodes supported Valibot fields in a native %s post", async (encoding) => {
+    enum Size { Small = 1, Large = 2 }
+    const schema = v.object({
+      count: v.pipe(v.number(), v.minValue(1), v.transform(value => value + 1)),
+      size: v.enum(Size),
+      choice: v.optional(v.picklist([1, 2])),
+      extra: v.optional(v.number()),
+      newsletter: v.boolean(),
+      terms: v.optional(v.boolean()),
+    })
+    const form = defineForm({ schema })
+    const { store, all } = services()
+    const values = { count: "2", size: "2", choice: "1", extra: "", terms: "on" }
+    const body = encoding === "multipart" ? new FormData() : new URLSearchParams()
+    for (const [key, value] of Object.entries(values)) body.set(key, value)
+    const response = await handleFormRequest("contact", form, new Request(`${origin}/_vitehub/forms/contact`, {
+      method: "POST",
+      headers: { origin, referer: `${origin}/pricing?plan=pro`, accept: "text/html" },
+      body,
+    }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=contact.sent")
+    expect((await store.list()).map(row => row.data)).toStrictEqual([{ count: 3, size: 2, choice: 1, newsletter: false, terms: true }])
+  })
+
+  it("keeps JSON input strict and rejects invalid native values", async () => {
+    const form = defineForm({ schema: v.object({ count: v.number(), terms: v.boolean(), choice: v.optional(v.picklist([1, 2])) }) })
+    const { store, all } = services()
+    expect((await handleFormRequest("contact", form, post({ count: "2", terms: "on" }), all)).status).toBe(400)
+    for (const values of [{ count: "nope", terms: "on" }, { count: "", terms: "on" }, { count: "2", terms: "wrong" }, { count: "2", terms: "on", choice: "3" }]) {
+      expect((await handleFormRequest("contact", form, post(values, { type: "application/x-www-form-urlencoded" }), all)).status).toBe(400)
+    }
+    expect(await store.list()).toEqual([])
   })
 
   it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {
     const { all } = services()
-    // The proxy ends TLS, so the server sees `http:` and the browser sends its `https:` origin.
-    const proxied = new Request("http://site.test/api/_vitehub/forms/contact", {
+    const proxied = new Request("http://site.test/_vitehub/forms/contact", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "https://site.test", "x-forwarded-proto": "https" },
       body: JSON.stringify({ email: "ada@example.com", message: "Hi" }),
     })
     expect((await handleFormRequest("contact", contact, proxied, all)).status).toBe(201)
-    // A path with two leading slashes would send the visitor to another site.
     const html = { type: "application/x-www-form-urlencoded", headers: { accept: "text/html", referer: `${origin}//x//evil.test` } }
     const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, html), all)
-    expect(sent.headers.get("location")).toBe("/x//evil.test?form=sent")
+    expect(sent.headers.get("location")).toBe("/x//evil.test?form=contact.sent")
     const broken = post({}, { type: "multipart/form-data", raw: "not multipart" })
     expect((await handleFormRequest("contact", contact, broken, all)).status).toBe(400)
   })

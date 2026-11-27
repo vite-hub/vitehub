@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, workflow } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, agentWorkflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
+import { createMessage } from "../src/messages.ts"
 
 afterEach(() => {
   setAgentWorkflowRuntimeLoaders({
@@ -19,7 +20,7 @@ function runtime() {
 
 async function workflowState() {
   const state = await import("@vite-hub/workflow/runtime/state")
-  return { ...state, getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }
+  return { ...state, getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }
 }
 
 describe("Workflow preparation Invocation journal", () => {
@@ -34,11 +35,11 @@ describe("Workflow preparation Invocation journal", () => {
         createWorkflow: () => {
           if (stage === "definition") throw failure
           // SAFETY: This fixture only creates a handle; invalid input must fail before run.
-          return { run: providerRun } as never
+          return { start: providerRun } as never
         },
       }),
     })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     const result = runAgentWithContext(agent, runtime(), stage === "input" ? { context: { invalid: () => true } } : {})
     if (stage === "input") await expect(result).rejects.toThrow()
     else await expect(result).rejects.toBe(failure)
@@ -56,7 +57,7 @@ describe("Workflow preparation Invocation journal", () => {
       state: async () => { controller.abort(failure); throw failure },
       workflow: () => import("@vite-hub/workflow"),
     })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     await expect(runAgentWithContext(agent, runtime(), { abortSignal: controller.signal })).rejects.toBe(failure)
     await expect(invocations.getByRunId("parent-run", "preflight")).resolves.toMatchObject({ status: "cancelled" })
   })
@@ -65,7 +66,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     await Promise.all([1, 2].map(async () => {
       await expect(startAgentInvocation(agent, runtime(), {})).rejects.toBe(failure)
     }))
@@ -80,7 +81,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     const input = { context: { "vitehub.channelDelivery": {
       channelId: "telegram", deliveryId: "delivery", provider: "telegram", state: "chat",
     } } }
@@ -96,7 +97,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, runtime: agentWorkflow("preflight") })
     await expect(runAgentWithContext(agent, runtime(), {})).rejects.toBe(failure)
     expect(store.create).toHaveBeenCalled()
   })
@@ -136,6 +137,32 @@ describe("Workflow delivery lock portability", () => {
   })
 })
 
+describe("Workflow chat history attachment portability", () => {
+  const context = { "vitehub.channelDelivery": { deliveryId: "delivery-id", provider: "telegram", state: "chat" } }
+  const expired = Object.assign(new Error("Photo not found"), { status: 404 })
+  const photo = { fetchData: async () => { throw expired }, mediaType: "image/jpeg", type: "image" } as const
+  const followUp = createMessage({ id: "follow-up", metadata: { chat: { skippedCount: 1 } }, parts: [{ text: "continue", type: "text" }], role: "user" })
+
+  it("hands off a Telegram text follow-up even when one history photo has expired", async () => {
+    const history = createMessage({ id: "history", parts: [photo, { data: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }, { text: "earlier photos", type: "text" }], role: "user" })
+    const queued = createMessage({ id: "queued", parts: [{ text: "and this", type: "text" }], role: "user" })
+
+    const portable = await portableAgentWorkflowInput({ context, messages: [history, queued, followUp] }, followUp.id)
+
+    expect(portable.messages).toEqual([
+      { ...history, parts: [{ data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" }, { text: "earlier photos", type: "text" }] },
+      queued,
+      followUp,
+    ])
+  })
+
+  it("still rejects failed photo downloads in the current and queued inputs", async () => {
+    const attachment = createMessage({ id: "queued", parts: [photo], role: "user" })
+    await expect(portableAgentWorkflowInput({ context, messages: [attachment] }, attachment.id)).rejects.toBe(expired)
+    await expect(portableAgentWorkflowInput({ context, messages: [attachment, followUp] }, followUp.id)).rejects.toBe(expired)
+  })
+})
+
 it.each(["preparation", "provider-preparation", "provider"] as const)("signals input handoff only when reaching the runtime: %s", async (stage) => {
   const failure = new Error("Startup failed")
   const onInputHandoff = vi.fn()
@@ -156,10 +183,10 @@ it.each(["preparation", "provider-preparation", "provider"] as const)("signals i
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
       // SAFETY: The provider fails before returning a run; no other handle operations are used.
-      createWorkflow: () => ({ run: providerRun }) as never,
+      createWorkflow: () => ({ start: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: workflow("handoff") })
+  const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: agentWorkflow("handoff") })
   await expect(startAgentInvocation(agent, runtime(), {}, { onInputHandoff })).rejects.toBe(failure)
   expect(onInputHandoff).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
   expect(providerRun).toHaveBeenCalledTimes(stage === "preparation" ? 0 : 1)

@@ -1,97 +1,47 @@
-// Exports the landing primitive scenes to standalone SVG files and writes the
-// README primitives table from the same landing data.
-// Run `node docs/scripts/primitive-svgs.mjs` after you change a scene or a primitive.
+// Exports the ViteHub icon of each landing primitive to a standalone SVG file and writes the
+// README primitives table from the same landing data, so the README shows the icons of the docs and the Console.
+// Run `node docs/scripts/primitive-svgs.mjs` after you change an icon or a primitive.
 // `--check` fails when the committed files are out of date.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { landingPrimitives } from "../app/components/landing/content.ts";
-import { primitiveScenes, renderPrimitiveScene } from "../app/components/landing/primitive-scenes.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const componentPath = join(repoRoot, "docs/app/components/landing/PrimitiveMotion.vue");
+const iconDirectory = join(repoRoot, "packages/icons/svg");
 const readmePath = join(repoRoot, "README.md");
 
 export const svgDirectory = ".github/assets/primitives";
 const tableStart = "<!-- primitives:start -->";
 const tableEnd = "<!-- primitives:end -->";
-const columns = 3;
+const columns = 4;
 
-// GitHub's muted text and page background, so the scenes match the README in both themes.
-const themeCss = `svg { color: #59636e; --ui-bg: #ffffff; }
-@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }`;
-
-// Splits the stylesheet into its top-level rules, at-rules included.
-function topLevelRules(css) {
-  const rules = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < css.length; index++) {
-    if (css[index] === "{") depth++;
-    if (css[index] !== "}" || --depth !== 0) continue;
-    rules.push(css.slice(start, index + 1).trim());
-    start = index + 1;
-  }
-  return rules;
-}
-
-// Keeps the rules whose selectors match the scene, and the keyframes that those rules name.
-// The scenes only use class selectors, so a selector matches when the scene has all of its classes.
-function sceneCss(css, scene) {
-  const classes = new Set(["primitive-motion", "is-playing"]);
-  for (const [, value] of scene.matchAll(/ class="([^"]+)"/g)) {
-    for (const name of value.split(" ")) classes.add(name);
-  }
-
-  const rules = topLevelRules(css.replace(/\/\*[\s\S]*?\*\//g, ""));
-  const kept = rules.filter((rule) => {
-    const prelude = rule.slice(0, rule.indexOf("{"));
-    if (prelude.startsWith("@keyframes")) return false;
-    if (prelude.startsWith("@")) return true;
-    return prelude.split(",").some((selector) =>
-      [...selector.matchAll(/\.([\w-]+)/g)].every(([, name]) => classes.has(name)));
-  });
-  const used = kept.join("\n");
-  const keyframes = rules.filter((rule) => {
-    const name = rule.match(/^@keyframes ([\w-]+)/)?.[1];
-    return name !== undefined && used.includes(`animation-name: ${name};`);
-  });
-  return [...kept, ...keyframes].join("\n");
-}
+// GitHub's muted text, so the icons match the README in both themes.
+const themeStyle = `<style>
+svg { color: #59636e; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; } }
+</style>`;
 
 /** Returns the SVG file contents for each primitive, keyed by repository path. */
 export async function renderPrimitiveSvgs() {
-  const source = await readFile(componentPath, "utf8");
-  const css = source.slice(source.indexOf("<style>") + "<style>".length, source.lastIndexOf("</style>"));
   const files = new Map();
-
-  landingPrimitives.forEach((primitive, index) => {
-    const scene = primitiveScenes[primitive.id];
-    if (!scene) throw new Error(`primitive-scenes.ts has no scene for ${primitive.id}`);
-    // Same offset as the landing grid, so neighboring scenes do not move in step.
-    const delay = Math.round(-((index * 0.37) % 1) * scene.cycle);
-    const markup = renderPrimitiveScene(primitive.id, `vh-${primitive.id}`);
+  for (const primitive of landingPrimitives) {
+    const name = primitive.icon.replace(/^i-vitehub-/, "");
+    if (name === primitive.icon) throw new Error(`${primitive.id} needs an i-vitehub-* icon, not ${primitive.icon}`);
+    const source = await readFile(join(iconDirectory, `${name}.svg`), "utf8");
     files.set(
       `${svgDirectory}/${primitive.id}.svg`,
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: ${scene.cycle}ms; --scene-delay: ${delay}ms">
-<style>
-${themeCss}
-${sceneCss(css, markup)}
-</style>
-${markup}
-</svg>
-`,
+      source.replace('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"', `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"`).replace(/>\n/, `>\n${themeStyle}\n`),
     );
-  });
-
+  }
   return files;
 }
 
 /** Returns the README table of primitives, between its start and end markers. */
 export function renderPrimitivesTable() {
   const cells = landingPrimitives.map((primitive) =>
-    `    <td width="33%" valign="top"><a href="https://vitehub.dev${primitive.to}"><img src="${svgDirectory}/${primitive.id}.svg" alt="" height="40"><br><b>${primitive.name}</b></a><br>${primitive.description}</td>`);
+    `    <td width="${100 / columns}%" valign="top"><a href="https://vitehub.dev${primitive.to}"><img src="${svgDirectory}/${primitive.id}.svg" alt="" height="24"><br><b>${primitive.name}</b></a><br>${primitive.description}</td>`);
   const rows = [];
   for (let index = 0; index < cells.length; index += columns) {
     rows.push(`  <tr>\n${cells.slice(index, index + columns).join("\n")}\n  </tr>`);

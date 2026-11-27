@@ -39,7 +39,7 @@ it("parses shell commands with sh-syntax in a Cloudflare Worker", async () => {
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/shell.get.ts"), route)
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "cloudflare" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare" })], root })
     await builder.buildApp()
 
     const server = join(root, ".output/server")

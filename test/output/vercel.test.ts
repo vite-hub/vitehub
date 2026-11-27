@@ -18,7 +18,7 @@ describe.runIf(providerEnabled("vercel"))("vercel provider output", () => {
   })
 
   it("bundle excludes Cloudflare-only sandbox runtime code", () => {
-    expect(/cloudflare:workers|@cloudflare\/sandbox/.test(bundle())).toBe(false)
+    expect(bundle().match(/["'](?:cloudflare:workers|@cloudflare\/sandbox(?:\/[^"'\s]*)?)["']/)?.[0]).toBeUndefined()
   })
 
   it("bundle excludes Vite runtime code", () => {

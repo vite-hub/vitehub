@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { workspaceCommitRequestBytes, workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
@@ -16,11 +16,6 @@ const nonEmpty = (message: string) => v.pipe(v.string(), v.check(value => value 
 function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">, kind: "read" | "write" = "read"): OperationDefinition<Input, Output> {
   // Console section `workspaces` grants these. Only a write reads the signed-in user: the commit records it as the author.
   return defineOperation({ ...definition, kind, section: "workspaces", ...(kind === "read" ? { user: false as const } : {}) })
-}
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function oneLine(value: string | undefined): string {
@@ -96,7 +91,7 @@ const refs = defineWorkspaceOperation<{ workspace: string }, WorkspaceHistoryRef
 })
 
 const show = defineWorkspaceOperation<{ path?: string, target: string, workspace: string }, WorkspaceHistoryDetails>({
-  cli: { command: "show", format: formatShow, namespace: "workspace", positional: ["workspace", "target", "path"] },
+  cli: { command: "get", format: formatShow, namespace: "workspace", positional: ["workspace", "target", "path"] },
   description: "Show one revision of a Workspace by ref or revision id, with its files. With `path`, return that file as it was in the revision.",
   input: v.object({
     path: v.optional(nonEmpty("The path cannot be empty.")),

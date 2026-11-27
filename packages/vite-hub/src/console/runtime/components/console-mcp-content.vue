@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { consoleBytes } from "../client/format";
 import { computed, ref } from "vue";
 
 import type { ConsoleMcpOutcome } from "../mcp-client";
+import Icon from "./console-icon.vue";
 
 /**
  * The answer of one MCP request as the server sent it: text, images, audio, resource links, embedded resources, and
@@ -12,7 +14,12 @@ const props = defineProps<{ outcome: ConsoleMcpOutcome }>();
 
 type Block = Record<string, unknown>;
 
-const raw = ref(false);
+const views = [
+  { label: "Formatted", value: "formatted" },
+  { label: "JSON", value: "json" },
+];
+const view = ref<string | number>("formatted");
+const raw = computed(() => view.value === "json");
 const result = computed(() => props.outcome.result ?? {});
 const json = computed(() => JSON.stringify(props.outcome.error ?? props.outcome.result ?? null, null, 2));
 const toolError = computed(() => result.value.isError === true);
@@ -54,28 +61,18 @@ function mediaSource(block: Block): string | undefined {
 }
 
 function bytes(base64: string): string {
-  const size = Math.floor(base64.length * 3 / 4);
-  return size < 1_024 ? `${size} B` : `${(size / 1_024).toFixed(1)} KB`;
+  return consoleBytes(Math.floor(base64.length * 3 / 4));
 }
 </script>
 
 <template>
   <div class="grid min-w-0 gap-3 text-[13px]">
     <div class="flex items-center gap-2">
-      <UBadge v-if="outcome.error" color="error" variant="subtle" size="sm" label="Protocol error" />
-      <UBadge v-else-if="toolError" color="error" variant="subtle" size="sm" label="Tool error" />
-      <UBadge v-else color="success" variant="subtle" size="sm" label="OK" />
+      <UBadge v-if="outcome.error" color="error" size="sm" label="Protocol error" />
+      <UBadge v-else-if="toolError" color="error" size="sm" label="Tool error" />
+      <UBadge v-else color="success" size="sm" label="OK" />
       <span class="text-xs text-dimmed tabular-nums">{{ outcome.durationMs }} ms</span>
-      <UButton
-        class="ms-auto"
-        color="neutral"
-        size="xs"
-        variant="ghost"
-        :aria-pressed="raw"
-        :label="raw ? 'Formatted' : 'JSON'"
-        :icon="raw ? 'i-lucide-text' : 'i-lucide-braces'"
-        @click="raw = !raw"
-      />
+      <UTabs v-model="view" :items="views" :content="false" aria-label="Result view" class="ms-auto" />
     </div>
 
     <pre v-if="raw" class="vitehub-mcp-code">{{ json }}</pre>
@@ -93,10 +90,10 @@ function bytes(base64: string): string {
         <template v-if="block.type === 'text'">
           <pre :class="pretty(string(block.text)).json ? 'vitehub-mcp-code' : 'vitehub-mcp-text'">{{ pretty(string(block.text)).text }}</pre>
         </template>
-        <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
+        <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-(--border)">
         <audio v-else-if="block.type === 'audio' && mediaSource(block)" :src="mediaSource(block)" controls class="w-full" />
-        <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-md border border-default px-3 py-2">
-          <UIcon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+        <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-lg border border-default px-3 py-2">
+          <Icon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0">
             <span class="block truncate font-medium text-highlighted">{{ string(block.title) || string(block.name) }}</span>
             <span class="block truncate font-mono text-xs text-dimmed">{{ string(block.uri) }}</span>
@@ -125,7 +122,7 @@ function bytes(base64: string): string {
       </div>
 
       <ol v-if="messages.length" class="grid gap-2">
-        <li v-for="(message, index) in messages" :key="`message-${index}`" class="grid gap-1 rounded-md border border-default px-3 py-2">
+        <li v-for="(message, index) in messages" :key="`message-${index}`" class="grid gap-1 rounded-lg border border-default px-3 py-2">
           <span class="text-xs font-medium capitalize text-muted">{{ string(message.role) }}</span>
           <pre class="vitehub-mcp-text">{{ record(message.content)?.type === "text" ? string(record(message.content)!.text) : JSON.stringify(message.content, null, 2) }}</pre>
         </li>
@@ -140,8 +137,8 @@ function bytes(base64: string): string {
 /* Results are read, copied, and compared, so they keep their line breaks and wrap long lines instead of scrolling. */
 .vitehub-mcp-text,
 .vitehub-mcp-code {
-  background: var(--ui-bg-elevated);
-  border-radius: 0.375rem;
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
@@ -153,7 +150,7 @@ function bytes(base64: string): string {
 }
 
 .vitehub-mcp-text {
-  background: color-mix(in oklab, var(--ui-bg-elevated) 50%, transparent);
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
   font-family: var(--font-sans);
   font-size: 0.8125rem;
 }

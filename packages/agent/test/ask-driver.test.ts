@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { cliproxy, cloudflare, typesafe, vercel } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, vercel } from "@vite-hub/gateways"
 
-import { llmGate, llmRoute } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
 import { ask } from "@vite-hub/gateways"
@@ -273,126 +273,6 @@ describe("ask Driver", () => {
 })
 
 describe("Jev decisions", () => {
-  it("records the only route without a Jev decision request", async () => {
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { only: "All requests." }, id: "route" })],
-      driver: {
-        ask: (context) => {
-          expect(context.context.get("route")).toEqual({ choice: "only", confidence: 1, probabilities: { only: 1 } })
-          return { spam: ask.if("Is it spam?") }
-        },
-      },
-      runtime: false,
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
-    expect(askJev).toHaveBeenCalledOnce()
-    expect(askJev.mock.calls[0]?.[1]).toEqual({ spam: { instructions: "Is it spam?", type: "noul" } })
-  })
-
-  it.each(["gate", "route"] as const)("uses request Cloudflare bindings for the %s decision and main Driver", async (kind) => {
-    vi.stubEnv("TYPESAFE_API_KEY", undefined)
-    const agent = defineAgent({
-      capabilities: [kind === "gate"
-        ? llmGate({ allow: { safe: "Normal email." }, id: "gate", reject: { unsafe: "Phishing." } })
-        : llmRoute({ choices: { billing: "Invoices.", support: "Other help." }, id: "route" })],
-      driver: { ask: { spam: ask.if("Is it spam?") } },
-      runtime: false,
-    })
-
-    await expect(runAgentWithContext(agent, {
-      ...runtime(),
-      cloudflare: { env: { TYPESAFE_API_KEY: "request-key" } },
-    }, { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
-    expect(askJev).toHaveBeenCalledTimes(2)
-    for (const call of askJev.mock.calls) {
-      expect(call[2]).toEqual(expect.objectContaining({ apiKey: "request-key" }))
-    }
-  })
-
-  it("routes with one Jev choice when llmRoute has no model", async () => {
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route", prompt: "Route the email." })],
-      driver: {
-        ask: (context) => {
-          expect(context.context.get("route")).toEqual({ choice: "billing", confidence: 0.8, probabilities: { billing: 0.9, support: 0.1 } })
-          return { spam: ask.if("Is it spam?") }
-        },
-      },
-      runtime: false,
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { messages: [createMessage({ role: "user", text: "Invoice 42" })] })).resolves.toEqual({ spam: true })
-    expect(askJev).toHaveBeenCalledTimes(2)
-    const [state, questions, options] = askJev.mock.calls[0]!
-    expect(state).toMatchObject({ groups: [{ infer: true, options: [{ label: "billing" }, { label: "support" }] }], query: "User request:\nInvoice 42" })
-    expect(Object.keys(questions)).toEqual(["g0"])
-    expect(questions.g0).toMatchObject({ criteria: { billing: "Invoices and payments.", support: "Other help." }, type: "choice" })
-    expect(JSON.stringify(questions.g0)).toContain("Select exactly one route for the user request. Route the email.")
-    expect(options).toEqual(expect.objectContaining({ apiKey: "ts-key" }))
-  })
-
-  it("routes with Jev on another Driver when llmRoute sets gateway", async () => {
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, gateway: typesafe(), id: "route" })],
-      driver: { run: context => context.context.get("route") },
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ choice: "billing", confidence: 0.8, probabilities: { billing: 0.9, support: 0.1 } })
-    expect(askJev).toHaveBeenCalledOnce()
-  })
-
-  it("does not ask Jev on another Driver when llmRoute has no gateway", async () => {
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
-      driver: { run: context => context.context.get("route") },
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: "Invoice 42" })).rejects.toThrow(/model/)
-    expect(askJev).not.toHaveBeenCalled()
-  })
-
-  it("keeps the end of non-ASCII request text within the Jev byte budget", async () => {
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, gateway: typesafe(), id: "route" })],
-      driver: { run: context => context.context.get("route") },
-    })
-
-    await runAgentWithContext(agent, runtime(), { prompt: `${"😀".repeat(12_000)}end` })
-    const [state] = askJev.mock.calls[0]!
-    const query = (state as { query: string }).query
-    expect(new TextEncoder().encode(JSON.stringify(query)).byteLength).toBeLessThanOrEqual(16_002)
-    expect(query.endsWith("😀end")).toBe(true)
-    expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
-  })
-
-  it.each(["a", "😀"])("fits 255 choices and a long %s query in the Jev budget", async (point) => {
-    const choices = Object.fromEntries(Array.from({ length: 255 }, (_, index) => [`route${String(index).padStart(11, "0")}`, `Category ${index}.`]))
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices, gateway: typesafe(), id: "route" })],
-      driver: { run: context => context.context.get("route") },
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: `${point.repeat(16_000)}end` })).resolves.toMatchObject({ choice: Object.keys(choices)[0] })
-    const [state, questions] = askJev.mock.calls[0]!
-    const query = (state as { query: string }).query
-    expect(query.endsWith(`${point}end`)).toBe(true)
-    expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
-    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
-    expect(bytes(state) + bytes({ g0: questions.g0 }) + 2048 + 128).toBeLessThanOrEqual(30_000)
-  })
-
-  it("rejects choices whose envelope alone exceeds the Jev budget before dispatch", async () => {
-    const choices = Object.fromEntries(Array.from({ length: 255 }, (_, index) => [`route${String(index).padStart(67, "0")}`, "A category."]))
-    const agent = defineAgent({
-      capabilities: [llmRoute({ choices, gateway: typesafe() })],
-      driver: { run: () => "should not run" },
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: "Help" })).rejects.toThrow(/choices.*Jev.*budget/)
-    expect(askJev).not.toHaveBeenCalled()
-  })
-
   it("splits large question sets into bounded requests and preserves key order", async () => {
     const questions = Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
       `question-${index}`,
@@ -425,27 +305,5 @@ describe("Jev decisions", () => {
 
     askJev.mockResolvedValueOnce({ answer: { choice: "yes", probabilities: { yes: 1, no: 0 } } })
     await expect(askRuntime.askJev({}, "state", { answer: ask.choice("Answer?", ["yes", "no"]) })).rejects.toThrow("valid probability distribution")
-  })
-
-  it("rejects with a Jev gate decision", async () => {
-    askJev.mockResolvedValueOnce({ g0: { choice: "unsafe", confidence: 0.6, probabilities: { safe: 0.2, unsafe: 0.8 }, type: "choice" } })
-    const agent = defineAgent({
-      capabilities: [llmGate({ allow: { safe: "Normal email." }, history: true, id: "gate", reject: { unsafe: "Phishing." } })],
-      driver: { ask: { spam: ask.if("Is it spam?") } },
-      runtime: false,
-    })
-
-    await expect(runAgentWithContext(agent, runtime(), { prompt: "Reset your password here" })).rejects.toMatchObject({
-      code: "LLM_GATE_REJECTED",
-      details: { capabilityId: "gate", category: "unsafe", confidence: 0.6 },
-    })
-    expect(askJev).toHaveBeenCalledOnce()
-    expect(askJev.mock.calls[0]?.[1]).toMatchObject({
-      g0: {
-        criteria: { safe: "ALLOW: Normal email.", unsafe: "REJECT: Phishing." },
-        instructions: expect.stringContaining("Classify whether the user request is allowed before the main agent runs."),
-        type: "choice",
-      },
-    })
   })
 })

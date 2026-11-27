@@ -5,9 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build } from "esbuild"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
+import { sharedRuntimeKey } from "../src/runtime/shared-runtime.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -19,7 +20,7 @@ describe("Nuxt production Node Database runtime", () => {
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
       await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
-      await hubDb()(undefined, {
+      await hubDatabase()(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -47,7 +48,7 @@ describe("Nuxt production Node Database runtime", () => {
 
   it.each(["default", "orders"])("queries the configured %s SQLite database through the generated host alias", async (name) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-node-"))
-    const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+    const definition = join(root, "server/databases", name, "index.ts")
     const databaseUrl = `file:${join(root, "data", `${name}.sqlite`)}`
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
@@ -62,9 +63,9 @@ describe("Nuxt production Node Database runtime", () => {
         '  schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) },',
         "})",
       ].join("\n"))
-      await hubDb({
+      await hubDatabase({
         connection: { url: name === "default" ? databaseUrl : "file:unused.sqlite" },
-        ...(name === "orders" ? { driver: "d1", databaseId: "content-id", databaseName: "content-db" } as const : {}),
+        ...(name === "orders" ? { driver: "cloudflare", databaseId: "content-id", databaseName: "content-db" } as const : {}),
       })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
@@ -74,14 +75,14 @@ describe("Nuxt production Node Database runtime", () => {
       const config = { alias: {} as Record<string, string>, exportConditions: ["node"] }
       for (const hook of hooks) await hook(config)
       expect(config.exportConditions).toEqual(["node"])
-      const runtime = config.alias["@vite-hub/database/drizzle"]
+      const runtime = config.alias["@vite-hub/database/runtime/registry"]
       // Nuxt CLI clears buildDir after ready() and nitro:config, before compiling.
       await rm(join(root, ".nuxt"), { recursive: true, force: true })
-      await expect(readFile(runtime!, "utf8")).resolves.toContain("export function useDatabase")
+      await expect(readFile(runtime!, "utf8")).resolves.toContain("return createUseDatabase(databases, Object.keys(configured()))(name)")
 
       const entry = join(root, "server.mjs")
       await writeFile(entry, [
-        'import { useDatabase } from "@vite-hub/database/drizzle"',
+        'import { useDatabase } from "@vite-hub/database"',
         `const { db, schema } = useDatabase(${JSON.stringify(name)})`,
         'if (process.argv[2] === "seed") {',
         '  await db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")',
@@ -119,4 +120,61 @@ describe("Nuxt production Node Database runtime", () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+})
+
+it("shares the Databases with the Node-loaded registry at Nitro dev startup", async () => {
+  const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-dev-"))
+  const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+  try {
+    await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
+    await mkdir(join(root, "server/databases"), { recursive: true })
+    await writeFile(join(root, "server/databases/default.ts"), [
+      'import { defineDatabase } from "@vite-hub/database"',
+      'import { integer, sqliteTable } from "drizzle-orm/sqlite-core"',
+      'export default defineDatabase({ schema: { notes: sqliteTable("notes", { id: integer("id").primaryKey() }) } })',
+    ].join("\n"))
+    await hubDatabase({ connection: { url: `file:${join(root, "data/default.sqlite")}` } })(undefined, {
+      hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+        if (event === "nitro:config") hooks.push(callback)
+      },
+      options: { buildDir: join(root, ".nuxt"), dev: true, nitro: { preset: "node-server" }, rootDir: root, vite: {} },
+    })
+    const config = { alias: {} as Record<string, string>, plugins: [] as string[] }
+    for (const hook of hooks) await hook(config)
+    const output = join(root, "startup.output.mjs")
+    await build({
+      alias: { ...config.alias, "@vite-hub/database": join(packageRoot, "src/index.ts") },
+      bundle: true,
+      format: "esm",
+      outfile: output,
+      packages: "external",
+      platform: "node",
+      plugins: [{
+        name: "node-file-imports",
+        setup(plugin) {
+          plugin.onResolve({ filter: /^file:\/\// }, args => plugin.resolve(fileURLToPath(args.path), { kind: args.kind, resolveDir: args.resolveDir }))
+        },
+      }],
+      stdin: {
+        contents: [
+          ...config.plugins.map((file, index) => `import plugin${index} from ${JSON.stringify(file)}`),
+          ...config.plugins.map((_, index) => `await plugin${index}()`),
+        ].join("\n"),
+        resolveDir: root,
+      },
+    })
+    await import(pathToFileURL(output).href)
+
+    vi.resetModules()
+    vi.doMock("#vitehub/database/databases", () => import("../src/runtime/virtual-databases.ts"))
+    const nodeCopy = await import("../src/runtime/registry.ts")
+    // SAFETY: The test app has no generated registry types, so look the Database up by its runtime name, as Workspace does.
+    const useDatabase = nodeCopy.useDatabase as unknown as (name: string) => { schema: Record<string, unknown> }
+    expect(Object.keys(useDatabase("default").schema)).toEqual(["notes"])
+  }
+  finally {
+    vi.doUnmock("#vitehub/database/databases")
+    Reflect.deleteProperty(globalThis, sharedRuntimeKey)
+    await rm(root, { recursive: true, force: true })
+  }
 })

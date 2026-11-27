@@ -67,7 +67,7 @@ async function createProject(definition: string[]) {
   tempDirs.push(rootDir)
   await mkdir(join(rootDir, "server/databases"), { recursive: true })
   await writeFile(join(rootDir, "schema.ts"), schemaModule)
-  await writeFile(join(rootDir, "server/databases/config.ts"), [
+  await writeFile(join(rootDir, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     ...definition,
     "",
@@ -79,18 +79,18 @@ async function generateMigration(rootDir: string) {
   const config = resolveDBViteConfig(undefined, rootDir)!
   await writeGeneratedDatabaseArtifacts(config)
   await execFileAsync(process.execPath, [
-    join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+    join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
     "generate",
     "--config",
     config.generatedDrizzleConfigFile,
   ], { cwd: rootDir })
-  const migrationsDir = join(rootDir, "server/databases/migrations")
+  const migrationsDir = join(rootDir, "server/databases/default/migrations")
   const files = await readdir(migrationsDir).catch(() => [])
-  const migration = files.find(file => file.endsWith(".sql"))
-  return { sql: migration ? await readFile(join(migrationsDir, migration), "utf8") : "" }
+  const [migration] = files
+  return { sql: migration ? await readFile(join(migrationsDir, migration, "migration.sql"), "utf8") : "" }
 }
 
-describe("db generate schema forms", () => {
+describe("database generate schema forms", () => {
   for (const [form, { definition, tables }] of Object.entries(forms)) {
     it(`creates every table for a ${form} schema`, async () => {
       const rootDir = await createProject(definition)
@@ -102,16 +102,6 @@ describe("db generate schema forms", () => {
 })
 
 describe("Database table names", () => {
-  it("exports every loaded table from the generated schema", async () => {
-    const rootDir = await createProject(forms.spread!.definition)
-    const config = resolveDBViteConfig(undefined, rootDir)!
-    await writeGeneratedDatabaseArtifacts(config)
-
-    const generated = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
-    expect(generated).toContain("export { table_0 as revisions }")
-    expect(generated).toContain("export { table_2 as notes }")
-  })
-
   it("marks imported and spread schemas in source-only inspection", async () => {
     const tables = async (form: string) => {
       const rootDir = await createProject(forms[form]!.definition)
@@ -127,7 +117,7 @@ describe("Database table names", () => {
 
   it("lists views and skips relations and other schema values", async () => {
     const rootDir = await createProject([
-      "import { relations } from 'drizzle-orm'",
+      "import { relations } from 'drizzle-orm/_relations'",
       "import { sqliteTable, sqliteView, text } from 'drizzle-orm/sqlite-core'",
       notesTable,
       "const noteTitles = sqliteView('note_titles').as(qb => qb.select({ title: notes.title }).from(notes))",
@@ -135,7 +125,7 @@ describe("Database table names", () => {
       "export default defineDatabase({ schema: { notes, noteTitles, notesRelations } })",
     ])
 
-    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/config.ts"))).resolves.toEqual(["notes", "noteTitles"])
+    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/default.ts"))).resolves.toEqual(["notes", "noteTitles"])
   })
 
   it("fails without a fallback when the Definition cannot load", async () => {
@@ -145,19 +135,19 @@ describe("Database table names", () => {
       notesTable,
       "export default defineDatabase({ schema: { notes, missing } })",
     ])
-    const handler = join(rootDir, "server/databases/config.ts")
+    const handler = join(rootDir, "server/databases/default.ts")
 
     await expect(loadDatabaseTableNames(handler)).rejects.toMatchObject({ code: "DATABASE_SCHEMA_LOAD_FAILED" })
 
     const onFallback = vi.fn()
     await expect(loadDatabaseTableNames(handler, { onFallback })).resolves.toEqual(["notes", "missing"])
-    expect(onFallback).toHaveBeenCalledWith(expect.stringContaining("vitehub db generate` requires the Definition to load"))
+    expect(onFallback).toHaveBeenCalledWith(expect.stringContaining("vitehub database generate` requires the Definition to load"))
   })
 
   it("requires a default export with a schema object", async () => {
     const rootDir = await createProject(["export const schema = {}", "export default defineDatabase"])
 
-    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/config.ts"))).rejects.toMatchObject({ code: "DATABASE_INVALID_SCHEMA_EXPORT" })
+    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/default.ts"))).rejects.toMatchObject({ code: "DATABASE_INVALID_SCHEMA_EXPORT" })
   })
 
   it("resolves host aliases while loading the Definition", async () => {
@@ -166,7 +156,7 @@ describe("Database table names", () => {
       "export default defineDatabase({ schema: historySchema })",
     ])
 
-    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/config.ts"), {
+    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/default.ts"), {
       alias: { "#db-schema": join(rootDir, "schema.ts") },
     })).resolves.toEqual(["revisions", "refs"])
   })

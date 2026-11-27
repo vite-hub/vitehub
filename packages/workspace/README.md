@@ -1,9 +1,9 @@
 # @vite-hub/workspace
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -35,7 +35,7 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
 
-Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`, stop every process using that Workspace. Call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` with the Local Store's root, then restart the processes after recovery succeeds. Prevent changes to the Store and its ancestor directories throughout recovery. The `offline: true` flag confirms exclusive offline access; it does not stop other processes. See [Local Store recovery](../../docs/content/docs/workspace/limits-and-errors.md#recover-a-local-store-after-a-crash) for the procedure.
+Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`, stop every process using that Workspace. Call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` with the Local Store's root, then restart the processes after recovery succeeds. Prevent changes to the Store and its ancestor directories throughout recovery. The `offline: true` flag confirms exclusive offline access; it does not stop other processes. See [Local Store recovery](https://vitehub.dev/docs/workspace/limits-and-errors#recover-a-local-store-after-a-crash) for the procedure.
 
 Set `locks: "process"` on a local Store when one process owns its root, for example a disposable checkout that one worker uses. The Store then keeps the same per-path read and write locks in memory. It creates no `.vitehub/locks` directory, does not poll lock markers, and lists entries in parallel. Keep the default `locks: "filesystem"` when more than one process can access the root.
 
@@ -59,7 +59,7 @@ import { defineWorkspace, file, github } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "local",
+    driver: "local",
     root: ".vitehub/workspaces/docs",
   },
   sources: {
@@ -67,12 +67,10 @@ export default defineWorkspace({
     vitehubDocs: github({
       repo: "vite-hub/vitehub",
       root: "docs/content/docs",
-      instructions: "Use this source for public ViteHub documentation.",
     }),
     guide: file({
       workspacePath: "guide.md",
       content: "# Guide\n",
-      instructions: "Use this source for local guide notes.",
     }),
   },
 })
@@ -120,12 +118,26 @@ Serve a constrained Workspace subtree without custom route plumbing:
 import { defineWorkspaceFileHandler } from "@vite-hub/workspace/server"
 
 export default defineWorkspaceFileHandler({
+  base: "/api/data/",
   workspace: "docs",
   root: "data",
   allow: ["data/**/*.json", "data/**/*.md"],
   cacheControl: "public, max-age=60",
 })
 ```
+
+The handler is a Fetchable route, `{ fetch(request) }`. `base` is the route path. The
+rest of the URL path is the file path, percent-decoded: `/api/data/my%20file.json`
+serves `my file.json`. A missing file, a
+path outside `root` or `allow`, or a path with `..` gets a `404` JSON Response. A path
+that is not valid percent-encoding gets a `400` JSON Response. `readWorkspaceFileResponse({ workspace,
+path })` returns the same Responses for a route that finds the path itself.
+
+When Nitro has a non-root `baseURL`, pass the same value as the handler's `baseURL`.
+For example, `{ baseURL: "/api/data/", base: "/api/data/", workspace: "docs" }`
+serves `a.json` at `/api/data/api/data/a.json`. This also works with `base: "/"`.
+With `baseURL` set, the full prefix must match the start of the request path.
+The Request alone cannot distinguish overlapping application and route bases.
 
 ## Retained folder history
 
@@ -136,15 +148,54 @@ Definition, apply its migrations, and pass
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
+`blob` names a Blob store and `database` names a Database. The Store looks
+them up on first use, because the build loads the Workspace Definition without
+the app's Databases. `blob` also takes a `BlobStorage` object, and `database`
+takes a Drizzle database or a function that returns one. Do not pass the
+Database Definition: it holds options only.
+
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from "@vite-hub/database"
+import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+
+export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
+```
+
+```ts [server/workspaces/notes.ts]
+import { defineWorkspace } from "@vite-hub/workspace"
+import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
+
+export default defineWorkspace({
+  store: createBlobDatabaseWorkspaceStore({
+    blob: "workspace-history",
+    database: "history",
+    workspace: "notes-123",
+  }),
+})
+```
+
+On Postgres, import `workspaceHistorySchema` from
+`@vite-hub/workspace/blob-database/postgres` and set `dialect: "postgresql"`.
+If the Database uses Cloudflare Hyperdrive, disable query caching so all instances
+read the current head.
+
+Instances that use the same Blob store, Database, and workspace identity share
+one Workspace. The Database decides which commit wins: a commit from a stale
+head fails with `WORKSPACE_CONFLICT` on every instance. Postgres runs each
+commit in one transaction that locks the Workspace row. SQLite, libSQL, and D1
+run it as one batch of conditional statements. With names, the durability
+report shows the Store as `shared` only when the Blob store and the Database
+are both shared. With objects, it trusts them, as it does a custom Store.
+
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
-const workspace = useWorkspace("drop", { mode: "write" })
+const workspace = useWorkspace("notes", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
   files: { "index.html": "<h1>Hello</h1>" },
   message: "Publish",
-  metadata: { author: "maxi" },
+  metadata: { author: "ada" },
 })
 const version = await workspace.history.open(revision.id)
 await version.readFile("index.html")
@@ -155,7 +206,7 @@ await workspace.history.usage()
 Commits publish the complete desired file set with an atomic head comparison.
 Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
 from the new revision; earlier versions retain their bytes. Read mode exposes
-`head`, `list`, `refs`, `open`, and `usage`. Stores without retained history
+`head`, `list`, `refs`, `open`, `diff`, and `usage`. Stores without retained history
 throw `WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
 
 History has named refs. Calls without `ref` use `main`. Each ref has its own head
@@ -172,6 +223,38 @@ await workspace.history.commit({
 await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head }]
 ```
 
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
+before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
+
+`history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
+does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
+working ref:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
+Blob + Database checks `ifHead` atomically with ref deletion and also removes the
+ref's revisions and bytes that no other revision uses. GitHub only deletes the
+branch, so commits and bytes may still be readable by SHA. Its `ifHead` check
+happens before a separate, unconditional delete request.
+
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define. In a history commit, each hook gets
@@ -179,7 +262,7 @@ Workspace your package does not define. In a history commit, each hook gets
 that the commit changes. A hook can check all paths at once, and read the intent of
 the caller from the metadata, as Content reads `lease: "override"`.
 
-File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>-<generation>` Blob keys. Existing digest-only keys remain readable.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
 history object.
 Identical bytes share one object within a workspace. Database stores immutable
@@ -191,7 +274,8 @@ Normal file writes stage changes in instance memory until checkpoint or snapshot
 which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
-objects outside retained usage accounting until deletion. Pruning is not supported.
+objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
+one ref and the objects that no other revision uses.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
@@ -203,8 +287,8 @@ runtime of the dev server, or of a deployed app with `--url`, and never write:
 vitehub workspace history content            # revisions on every ref, newest first
 vitehub workspace history content --ref draft
 vitehub workspace refs content                # each ref and its head revision
-vitehub workspace show content draft          # one revision and its files
-vitehub workspace show content draft posts/hello.md
+vitehub workspace get content draft          # one revision and its files
+vitehub workspace get content draft posts/hello.md
 ```
 
 Add `--json` for machine-readable output. A Store without retained history
@@ -260,8 +344,9 @@ Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
 On the GitHub Store, revision ids are commit shas. An instance keeps a ref head for up to
-5 seconds, so a pull can miss a newer commit for that time. The revision `author` is the
-GitHub account of the token, and the signed-in user is only in the commit trailer. Files
+5 seconds, so a pull can miss a newer commit for that time. The signed-in user is the Git
+author of the commit when the user has a name and an email; the account of the token is
+the committer. Without them, the account of the token is the author. Files
 keep only their Git mode. The first push to a new ref starts it from the published or
 default branch and then pulls the copied files. A pull reads one blob per changed file
 (two when it also needs the old version), which counts against the GitHub rate limit.
@@ -278,72 +363,17 @@ in Markdown frontmatter (`.md`, `.markdown`, `.mdx`), YAML, or JSON. `vitehub st
 also prints the source digest to write back as `derivedFrom.digest`. `@vite-hub/workspace/lineage` has the same checks.
 See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
 
-## JSON Collections
-
-Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
-
-```ts
-// server/collections/articles.ts
-import { defineCollection } from "@vite-hub/source"
-import { workspaceFile } from "@vite-hub/workspace"
-import * as v from "valibot"
-
-export const articles = defineCollection({
-  source: workspaceFile({
-    facets: ["category"],
-    filters: ["category", "authors.name"],
-    key: "slug",
-    maxLimit: 100,
-    path: "data/articles.json",
-    schema: v.object({ category: v.string(), slug: v.string(), title: v.string() }),
-    search: ["title", "summary"],
-    sort: { field: "title", direction: "asc" },
-    workspace: "content",
-  }),
-  transform: article => ({ category: article.category, slug: article.slug, title: article.title }),
-})
-```
-
-ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
-
-```ts fragment
-const { items, total, facets, loadMore } = useCollection("articles", {
-  limit: 25,
-  filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
-})
-```
-
-Use `?empty=<field>` to match records without a scalar value at a declared filter. The file's Workspace digest binds every cursor, so a write to the file makes older cursors stale (`409`). Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full array in memory.
-
-```ts
-// nitro.config.ts
-import { createWorkspaceNitroConfig } from "@vite-hub/workspace/nitro"
-
-export default createWorkspaceNitroConfig()
-```
-
-```ts
-// vite.config.ts
-import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-})
-```
-
 ## Reuse a Source definition
 
 Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { glob, useSource } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
-const reader = createSource(docs)
+const reader = useSource(docs)
 await reader.read("intro.md")
 
 export default defineWorkspace({
@@ -355,6 +385,14 @@ export default defineWorkspace({
 
 The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
+
+Without a `mount` path, the Source kind picks the mount, not the import. A file
+Source (`file()` or `markdown()` from either package, or the `"README.md"` and
+`{ path }` shorthands) puts its one file at its own key, so
+`readme: file("README.md")` appears at `README.md`. `url()` also puts its one
+file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
+`readme: { source: file("README.md"), mount: "docs" }` appears at
+`docs/README.md`.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
 
@@ -379,7 +417,7 @@ navigation, query, cache, and ranked full-text search.
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
-GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
+GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API. A hosted Session exposes that initial retained revision as `session.revision` when its Store provides one. Stores with retained history but no revision materializer, such as Blob Database, expose the retained head only when its file manifest matches the files copied to the host. Draft changes or unavailable history leave the revision unset and do not prevent the Session from opening.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
@@ -390,41 +428,6 @@ Use `startSession({ disposableTarget: true, host, target })` only when the calle
 Basic Sessions started without a host also honor `writeBack: false`. Their private overlay remains writable, while `diff()` and `commit()` are unavailable.
 
 Custom `WorkspaceSessionHost` implementations copy Workspace files serially by default. A host can set `materializationConcurrency` to a positive integer when it supports that many independent file reads and writes safely. ViteHub's local Node host uses `8`.
-
-## MountX projection
-
-Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
-
-Install MountX directly before importing its transport entry points:
-
-```bash
-pnpm add mountx@0.0.2
-```
-
-```ts fragment
-import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
-import { mount } from "mountx/auto"
-
-const session = await workspace.startSession()
-
-try {
-  const mounted = await mount(createWorkspaceDriver(session), "/tmp/vitehub-docs")
-
-  try {
-    // Programs can now use /tmp/vitehub-docs as an ordinary directory.
-  }
-  finally {
-    await mounted.unmount()
-  }
-
-  await session.commit({ message: "accept projected changes" })
-}
-finally {
-  await session.close()
-}
-```
-
-The same driver works with MountX's 9P and NFSv4.1 servers for Linux guests, or its S3 gateway for S3-compatible clients. Use `{ readOnly: true }` when the consumer only needs inspection. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is still alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
 Built-in coding Agent Drivers use Workspace Sessions to materialize the selected Workspace Scope into their provider working directory. Workspace owns source materialization and write-mode sync through Workspace rules; the Agent Package owns provider execution and lifecycle events.
 
@@ -459,8 +462,8 @@ export default defineNuxtConfig({
   vitehub: {
     workspace: {
       store: {
-        provider: "github",
-        repository: "owner/repo",
+        driver: "github",
+        repo: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
       },
@@ -477,7 +480,7 @@ import { configureCloudflareWorkspaceRuntime } from "@vite-hub/workspace/cloudfl
 configureCloudflareWorkspaceRuntime()
 ```
 
-`useWorkspace()` will then resolve `cloudflare-artifacts` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
+`useWorkspace()` will then resolve `cloudflare` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
 
 Select Cloudflare Artifacts explicitly when a Cloudflare Worker needs durable, versioned Workspace state:
 
@@ -487,29 +490,28 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
+  plugins: [hubWorkspace({
     store: {
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
-  },
+  })],
 })
 ```
 
-The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. It reads a definition's `store` by loading the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store whose `driver` is not `cloudflare`; set the store in the `workspace` config then. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
 ## Vercel Blob persistence
 
-The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The `vercel` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
 The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
 
-Without a `store`, a production build selects `vercel-blob` when the project has
+Without a `store`, a production build selects `vercel` when the project has
 `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`. With `BLOB_STORE_ID`, the store uses
 Vercel OIDC, as `@vite-hub/blob` does. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`.
 
@@ -524,15 +526,15 @@ import { defineWorkspace } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "github",
-    repository: "owner/repo",
+    driver: "github",
+    repo: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",
   },
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, `history.open(id).preload(paths)` reads many files from one archive, and `history.open(id).lastChanged(paths)` finds the last commit of 100 paths per request. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot moves the changes onto the new head and commits once more. A path that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`; `details.paths` names the paths. A Store without staged writes reads the branch head again when it loaded it more than 5 seconds ago, so one cached Store serves many requests without `resetWorkspaceStoreCache()`. The Cloudflare Artifacts Store does the same. Writes stay staged until `snapshot()`. When a request, a Schedule run, or a Queue job throws, a Store that holds only its staged writes drops them and loads the branch again on its next call, so a later snapshot cannot commit them. This holds for every writer of the Store, Source materialization included, and for Workspaces that live longer than one request. Requests that overlap in one instance share one Store, so their staged writes stay until one of them snapshots.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 
@@ -540,9 +542,13 @@ GitHub-backed Stores also expose the retained history reader. Repository branche
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
 includes the commit author and a `url` that opens the commit on GitHub. Revision file
 views read the configured Workspace root from the commit tree and fetch file bytes from
-that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
+that commit. The `vitehub workspace history`, `refs`, and `get` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
+
+`lastChanged(paths)` returns only changes it can confirm on the first-parent history,
+including deletions. A `null` value means no change. A missing key means the Store
+could not confirm an answer.
 
 The GitHub Store also writes history. `history.commit()` creates one commit, checks `ifHead` and
 `ifHeads` against the branch heads, and starts a missing branch from the `refs.published` branch when it is set, else from the default branch. `startFrom` names the revision a missing ref starts from. Options:
@@ -550,13 +556,11 @@ The GitHub Store also writes history. `history.commit()` creates one commit, che
 of the `published` and `draft` history refs and reports revisions with those names. `database` is
 carried on the store target and not used by the Store. `history.digest(bytes)` and every revision
 view use Git blob shas as digests. Commit `metadata` is kept in the commit message as a
-`Vitehub-Metadata: {...}` line, and `history.list({ path })` returns the commits that changed that
+`Vitehub-Metadata: {...}` line, a `metadata.author` with a `name` and an `email` is the Git author of the commit, and `history.list({ path })` returns the commits that changed that
 path. `history.head()` keeps a branch head for 5 seconds. The Store reads the repository and token on
 first use, so a missing one throws `WORKSPACE_R0072` then, not when the definition loads.
 
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
-
-Learn more at [vitehub.dev](https://vitehub.dev).
 
 Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Cleanup also preserves files without a recorded Workspace owner, including files from legacy snapshots. Shared paths still contain the most recent write.
 
@@ -573,3 +577,5 @@ File metadata must be a JSON-safe plain object containing only plain objects, de
 Custom Stores can implement `removeEmptyDirectory(path)` to support build directory cleanup. The operation must check the path inside the Store mutation boundary, preserve files and missing paths, and reject nonempty directories. Stores without this method retain generated directories. The local, memory, and Cloudflare Artifacts Stores implement it.
 
 Writable facade wrappers that replace `fs` and omit symbol properties must forward internal Source Sync routing explicitly. After creating a wrapper, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime`. This preserves durable sync metadata and enclosing Source guards without exposing internal setters or passing capabilities to the wrapper's public `setMeta` method. Public metadata writes still reject reserved keys.
+
+Learn more at [vitehub.dev](https://vitehub.dev).

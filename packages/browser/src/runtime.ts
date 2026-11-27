@@ -2,12 +2,9 @@ import { withBrowserTimeout } from "./internal/timeout.ts"
 import browserRegistry from "#vitehub/browser/registry"
 import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
-import {
-  browserDefinitionNotFoundError,
-  browserProviderError,
-  toBrowserError,
-} from "./errors.ts"
-import { toResponse } from "@vite-hub/runtime"
+import { browserProviderError, browserSessionStateError } from "./errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { browserRunErrors } from "./run-errors.ts"
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
 import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
@@ -29,7 +26,7 @@ import type {
   BrowserDefinitionHandler,
   BrowserPage,
   BrowserPageSession,
-  BrowserProviderOpenOptions,
+  BrowserDriverOpenOptions,
   BrowserSession,
 } from "./types.ts"
 import type { CDPClient } from "./controllers/cdp.ts"
@@ -37,8 +34,11 @@ import type { PlaywrightBrowserConnection } from "./internal/connections.ts"
 import type {
   BrowserDefinitionInputArgs,
   BrowserDefinitionName,
+  BrowserDefinitionOutput,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
+import type { BrowserRunErrorCode } from "./run-errors.ts"
+import type { Result } from "@vite-hub/runtime"
 import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 async function boundedCleanup(cleanup: Promise<void>, operation = "close the browser after setup failure"): Promise<void> {
@@ -106,23 +106,35 @@ interface BrowserDefinitionRuntimeOptions {
 
 class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   private readonly sessions: Array<ManagedBrowserPageSession<PlaywrightBrowserConnection>> = []
+  private ended = false
 
   constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
 
   async content(input: BrowserActionInput): Promise<string> {
-    return await runBrowserContent(input)
+    const [error, content] = await runBrowserContent(input)
+    if (error) throw error
+    return content
   }
 
   async run(action: BrowserAction, input: BrowserActionInput): Promise<Response> {
     return await runBrowserAction(action, input)
   }
 
-  async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
+  open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    const opening = this.openSession(options)
+    void opening.catch(() => {})
+    return opening
+  }
+
+  private async openSession(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    this.throwIfEnded()
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
+      this.throwIfEnded()
       control = await withBrowserTimeout(providerSession.attach(this.options.controller ?? cdp()), () => browserProviderError("cdp", "attach the browser controller"))
       const { page } = await attachCDPPage(control.client)
+      this.throwIfEnded()
       const session = new ManagedBrowserPageSession(providerSession, control, page)
       this.sessions.push(session)
       return session
@@ -150,7 +162,12 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     }
   }
 
+  private throwIfEnded() {
+    if (this.ended) throw browserSessionStateError("open", "closed")
+  }
+
   async close(): Promise<void> {
+    this.ended = true
     const errors: unknown[] = []
     for (const session of [...this.sessions].reverse()) {
       try {
@@ -168,11 +185,11 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
-  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare") throw browserUnavailableError()
+  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare") throw browserUnavailableError()
   const configuredLoader = loadCloudflarePlaywright
     ?? (() => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"))
   configuredClient = createBrowser({
-    provider: createCloudflareBrowser(
+    driver: createCloudflareBrowser(
       {
         binding: runtimeConfig.binding,
         engine: runtimeConfig.engine,
@@ -190,10 +207,7 @@ function isBrowserDefinition(value: unknown): value is BrowserDefinition {
     && typeof (value as { run?: unknown }).run === "function"
 }
 
-async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition> {
-  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
-  if (!entry) throw browserDefinitionNotFoundError(name)
-  const loaded = typeof entry === "function" ? await entry() : entry
+function readBrowserDefinition(name: string, loaded: unknown): BrowserDefinition {
   const definition = loaded
     && (typeof loaded === "object" || typeof loaded === "function")
     && "default" in loaded
@@ -241,21 +255,38 @@ export async function executeBrowserDefinition<TInput, TResult>(
   return result
 }
 
+/**
+ * Run a Browser Definition by its name. `data` is the value that the handler returned, such as a string or a `Response`.
+ * An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`; an import, handler, or provider failure returns `BROWSER_RUN_FAILED`.
+ * A build without Browser and a file that does not default-export `defineBrowser()` throw.
+ */
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
   ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>
-): Promise<Response>
+): Promise<Result<BrowserDefinitionOutput<BrowserRegistryDefinition<TName>>, BrowserRunErrorCode>>
 export function runBrowser<TName extends string>(
   name: string extends TName ? TName : never,
   input?: unknown,
-): Promise<Response>
-export async function runBrowser(name: string, input?: unknown): Promise<Response> {
+): Promise<Result<unknown, BrowserRunErrorCode>>
+export async function runBrowser(name: string, input?: unknown): Promise<Result<unknown, BrowserRunErrorCode>> {
+  if (!isBrowserAvailable()) throw browserUnavailableError()
+  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
+  if (!entry) return [browserRunErrors.BROWSER_DEFINITION_NOT_FOUND({ name }), undefined]
+
+  let loaded: unknown
   try {
-    const definition = await resolveBrowserDefinition(name)
-    return toResponse(await executeBrowserDefinition(definition, input))
+    loaded = typeof entry === "function" ? await entry() : entry
+  }
+  catch (cause) {
+    return [browserRunErrors.BROWSER_RUN_FAILED({ name, cause }), undefined]
+  }
+
+  const definition = readBrowserDefinition(name, loaded)
+  try {
+    return [undefined, await executeBrowserDefinition(definition, input)]
   }
   catch (error) {
-    const normalized = toBrowserError(error)
-    return Response.json({ error: { code: normalized.code, message: normalized.message, details: normalized.details } }, { status: 500 })
+    if (getViteHubErrorShape(error)?.code === "BROWSER_UNAVAILABLE") throw error
+    return [browserRunErrors.BROWSER_RUN_FAILED({ name, cause: error }), undefined]
   }
 }

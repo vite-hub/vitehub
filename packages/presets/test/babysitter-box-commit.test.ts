@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
 import { resolveSandbox } from "@vite-hub/sandbox";
 import { importSandboxCommit } from "../src/babysitter/box-commit.ts";
-import { commitGitHubPullRequestWorkspace } from "../../agent/src/server/github-repair.ts";
+import { commitGitHubPullRequestWorkspace } from "../src/github/repair.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "../src/babysitter/box-repair.ts";
 import { createProviderHeadReader } from "../src/babysitter/checkout-watch.ts";
 import { chmod, lstat, mkdir, symlink } from "node:fs/promises";

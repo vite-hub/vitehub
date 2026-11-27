@@ -2,8 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { APIError } from "better-auth"
 import { createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, sensitiveSessionMiddleware } from "better-auth/api"
 import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from "better-auth"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
-import type { AuthDevice, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
+import { forwardSignIns } from "./forward-sign-ins.ts"
+import { authRequestEvent } from "./request.ts"
+import { authRequestLog, currentAuthEvent } from "./request-log.ts"
+import type { AuthDevice, AuthEvent, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {}
@@ -11,7 +16,8 @@ function record(value: unknown): Record<string, unknown> {
 function identifier(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= 256 ? value : undefined
 }
-function actor(ctx: GenericEndpointContext | null, fallback?: string): AuthEventActor {
+function actor(ctx: GenericEndpointContext | null, fallback?: string | null): AuthEventActor {
+  if (fallback === null) return "system"
   const session = ctx?.context.session
   const id = identifier(session?.session.impersonatedBy) ?? session?.user.id ?? fallback
   return id ? `user:${id}` : "system"
@@ -48,21 +54,60 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const wrappedAdapters = new WeakSet<object>()
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
-  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string): Promise<boolean> {
+  const forwardSessions = new WeakSet<object>()
+  const forwardedByRequest = new WeakMap<object, NonNullable<GenericEndpointContext["context"]["newSession"]>["session"]>()
+  const expiredLookups = new WeakMap<object, Set<string>>()
+  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string | null): Promise<boolean> {
+    const event: AuthEvent = { id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata }
     try {
-      await options.store.append({ id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata })
-      return true
+      await options.store.append(event)
     }
     catch {
       // Auth mutations may already be committed. Do not turn a completed sign-in into a retry.
       // The message has no provider error, body, URL, headers, or credentials.
-      console.warn("[vitehub] AUTH_EVENT_WRITE_FAILED: Could not record an auth event.")
+      const message = "AUTH_EVENT_WRITE_FAILED: Could not record an auth event."
+      const log = authRequestLog(ctx)
+      if (log) log.warn(`[vitehub] ${message}`, { authEvent: { type } })
+      else console.warn(`[vitehub] ${message}`)
       return false
     }
+    if (options.onEvent) await notify(options.onEvent, event, ctx)
+    return true
   }
-  async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
-    const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"
-    await append(type, session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined))
+  /** Hand the callback to the host `waitUntil()` when it has one, so it does not delay the response. Else wait for it. */
+  async function notify(onEvent: NonNullable<AuthEventsConfiguration["onEvent"]>, event: AuthEvent, ctx: GenericEndpointContext | null): Promise<void> {
+    const request = currentAuthEvent() ?? (ctx?.request ? authRequestEvent(ctx.request) : undefined)
+    const waitUntil = request ? getStandardContext(request).waitUntil : undefined
+    // A task after the response can end after the request's wide event, so only a task before it writes there.
+    const log = waitUntil ? undefined : authRequestLog(ctx)
+    const task = (async () => {
+      try {
+        await onEvent(event)
+      }
+      catch (error) {
+        if (log) log.error("AUTH_EVENT_CALLBACK_FAILED: Auth event callback failed.", { authEvent: { type: event.type } })
+        else console.error(authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: event.type, cause: error }))
+      }
+    })()
+    if (waitUntil) {
+      try {
+        waitUntil(task)
+        return
+      }
+      catch {
+        // A host that refuses the task still gets the callback, before the response.
+      }
+    }
+    await task
+  }
+  async function deleted(session: { userId: string, id: string, token?: unknown, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
+    if (ctx && forwardedByRequest.get(ctx.context)?.id === session.id) forwardedByRequest.delete(ctx.context)
+    const expired = typeof session.token === "string" && ctx?.context !== undefined && expiredLookups.get(ctx.context)?.has(session.token) === true
+    const type = ctx?.path === "/sign-out" ? "user.signed_out"
+      : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped"
+        : expired ? "session.expired" : "session.revoked"
+    const fallback = type === "session.expired" ? null : identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined)
+    await append(type, session.userId, ctx, { sessionId: session.id }, fallback)
   }
   return {
     id: "vitehub-auth-events",
@@ -82,7 +127,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           const session = record(record(parsed).session)
           const id = identifier(session.id)
           const userId = identifier(session.userId)
-          if (id && userId && session.token === key) await deleted({ id, userId, impersonatedBy: session.impersonatedBy }, deletionContext.getStore() ?? null)
+          if (id && userId && session.token === key) await deleted({ id, userId, token: key, impersonatedBy: session.impersonatedBy }, deletionContext.getStore() ?? null)
         },
       }
     },
@@ -94,7 +139,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     init: () => ({ options: { databaseHooks: {
       user: {
         create: { async after(user, ctx) {
-          await append("user.signed_up", user.id, ctx, { method: method(ctx) }, !ctx || ctx.path?.startsWith("/admin/") ? undefined : user.id)
+          await append("user.signed_up", user.id, ctx, { method: forwardSignIns.getStore() ? "forward" : method(ctx) }, !ctx || ctx.path?.startsWith("/admin/") ? undefined : user.id)
         } },
         update: { async after(user, ctx) {
           const path = ctx?.path
@@ -114,6 +159,10 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       session: {
         create: { async after(session, ctx) {
           createdSessions.add(session)
+          if (forwardSignIns.getStore()) {
+            forwardSessions.add(session)
+            if (ctx) forwardedByRequest.set(ctx.context, session)
+          }
           if (session.impersonatedBy || ctx?.path === "/admin/impersonate-user") {
             if (await append("impersonation.started", session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy))) return
             // An impersonation without a record must not start. Better Auth sets no cookie when this hook throws.
@@ -124,7 +173,8 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             })
           }
           else if (!ctx) {
-            await append("user.signed_in", session.userId, ctx, { method: method(ctx), device: "unknown", sessionId: session.id })
+            recordedSessions.add(session)
+            await append("user.signed_in", session.userId, ctx, { method: forwardSessions.has(session) ? "forward" : method(ctx), device: "unknown", sessionId: session.id })
           }
         } },
         delete: { async after(session, ctx) {
@@ -136,19 +186,31 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       before: [{
         matcher: () => true,
         handler: createAuthMiddleware(async (ctx) => {
+          const adapter = ctx.context.internalAdapter
+          const findSession: typeof adapter.findSession = async (...args) => {
+            const found = await adapter.findSession(...args)
+            if (found && new Date(found.session.expiresAt).getTime() <= Date.now()
+              && await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret) === found.session.token) {
+              const tokens = expiredLookups.get(ctx.context) ?? new Set()
+              expiredLookups.set(ctx.context, tokens.add(found.session.token))
+            }
+            return found
+          }
+          // Carry request attribution to the atomic secondary-storage deletion.
+          const storageOnly = ctx.context.options.secondaryStorage && !ctx.context.options.session?.storeSessionInDatabase
+          ctx.context.internalAdapter = {
+            ...adapter,
+            findSession,
+            ...storageOnly ? {
+              deleteSession: (token: string) => deletionContext.run(ctx, () => adapter.deleteSession(token)),
+              deleteSessions: (tokens: string[]) => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
+              deleteUserSessions: (userId: string) => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
+            } : {},
+          }
           if (ctx.path?.startsWith("/two-factor/verify-") && !await getSessionFromCtx(ctx, { disableRefresh: true })) {
             const cookie = ctx.context.createAuthCookie("two_factor")
             const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
-            if (token && await ctx.context.internalAdapter.findVerificationValue(token)) challenges.add(ctx.context)
-          }
-          // Carry request attribution to the atomic secondary-storage deletion.
-          if (!ctx.context.options.secondaryStorage || ctx.context.options.session?.storeSessionInDatabase) return
-          const adapter = ctx.context.internalAdapter
-          ctx.context.internalAdapter = {
-            ...adapter,
-            deleteSession: token => deletionContext.run(ctx, () => adapter.deleteSession(token)),
-            deleteSessions: tokens => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
-            deleteUserSessions: userId => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
+            if (token && await adapter.findVerificationValue(token)) challenges.add(ctx.context)
           }
         }),
       }, {
@@ -192,14 +254,14 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           const path = ctx.path ?? ""
           const outcome = outcomes.get(ctx.context)
           const value = record(outcome)
-          const signedIn = ctx.context.newSession
-          // Better Auth clears newSession when the first factor still needs 2FA.
-          // This plugin runs after the app plugins, so only completed sign-ins count.
-          if (signedIn && createdSessions.has(signedIn.session) && !signedIn.session.impersonatedBy && path !== "/admin/impersonate-user" && !recordedSessions.has(signedIn.session)) {
-            recordedSessions.add(signedIn.session)
-            await append("user.signed_in", signedIn.user.id, ctx, { method: method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
+          const signedIn = ctx.context.newSession?.session
+          const forwarded = forwardedByRequest.get(ctx.context)
+          for (const session of [forwarded, signedIn]) {
+            if (!session || !createdSessions.has(session) || session.impersonatedBy || path === "/admin/impersonate-user" || recordedSessions.has(session)) continue
+            recordedSessions.add(session)
+            await append("user.signed_in", session.userId, ctx, { method: forwardSessions.has(session) ? "forward" : method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: session.id }, session.userId)
           }
-          if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
+          if ((!signedIn || forwardSessions.has(signedIn)) && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
             await append("sign_in.failed", null, ctx, { method: method(ctx) })
           }
           if (outcome instanceof APIError) return
@@ -226,7 +288,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     endpoints: options.authorize ? {
       vitehubAuthEvents: createAuthEndpoint("/vitehub/events", { method: "GET", use: [sensitiveSessionMiddleware] }, async (ctx) => {
         if (!ctx.request) throw new APIError("FORBIDDEN")
-        const authorization = await options.authorize!({ request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
+        const authorization = await options.authorize!({ event: currentAuthEvent() ?? authRequestEvent(ctx.request), request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
         if (authorization instanceof Response) return authorization
         if (authorization !== true) throw new APIError("FORBIDDEN")
         ctx.setHeader("cache-control", "no-store")

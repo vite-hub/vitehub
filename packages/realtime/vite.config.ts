@@ -1,32 +1,45 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { browserTarget, normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
-  pack: {
-    tsconfig: "tsconfig.build.json",
-    deps: {
-      // Editor dependencies must share their ProseMirror and Yjs constructors.
-      alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
-      neverBundle: [/^#vitehub\/realtime\//, "vite", /^prosemirror-(?:model|state|transform|view)$/],
-      onlyBundle: false,
+  pack: [
+    {
+      ...packDefaults,
+      deps: {
+        alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
+        neverBundle: [/^#vitehub\/realtime\//, "vite", /^prosemirror-(?:model|state|transform|view)$/],
+        onlyBundle: false,
+      },
+      entry: [
+        "src/agent.ts",
+        "src/bus.ts",
+        "src/client.ts",
+        "src/durability.ts",
+        "src/index.ts",
+        "src/internal/runtime/unavailable.ts",
+        "src/internal/server.ts",
+        "src/server.ts",
+        "src/vite.ts",
+        "src/vue.ts",
+      ],
+      exports: {
+        ...packDefaults.exports,
+        customExports: exports => ({
+          ...normalizePackageExports(exports),
+          "./client/browser.js": { types: "./dist/client.d.ts", default: "./dist/client/browser.js" },
+        }),
+      },
     },
-    entry: [
-      "src/client.ts",
-      "src/index.ts",
-      "src/internal/runtime/unavailable.ts",
-      "src/server.ts",
-      "src/vite.ts",
-      "src/vue.ts",
-    ],
-    exports: {
-      customExports: normalizePackageExports,
-      inlinedDependencies: false,
+    {
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "client/browser": "src/client.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      target: browserTarget,
+      tsconfig: "tsconfig.build.json",
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
-  },
+  ],
 })

@@ -19,7 +19,6 @@ const LIVE_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 interface Route {
   fixture: string
   status?: number
-  /** Changes the recorded body, such as to put in the commit of a temp repository. */
   edit?: (text: string) => string
 }
 
@@ -33,7 +32,6 @@ async function fixture(name: string): Promise<string> {
   return await readFile(join(import.meta.dirname, "fixtures/host-api", name), "utf8")
 }
 
-/** A fetch that answers `METHOD url` (without the query) from a recorded response, and records each request. */
 function hostApi(routes: Record<string, Route>): { fetch: typeof fetch, requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = []
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -89,7 +87,7 @@ function projectFiles(host: Host, linked = true): Record<string, string> {
   return {
     ".gitignore": ".vitehub\n",
     "package.json": JSON.stringify({ name: "my-app", type: "module" }),
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ preset: "${host}" })] })\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ host: "${host}" })] })\n`,
     ...(linked ? { ".vitehub/link.json": JSON.stringify(links[host]) } : {}),
   }
 }
@@ -105,7 +103,6 @@ function git(root: string, args: string[]): string {
   return execFileSync("git", ["-c", "user.name=ViteHub", "-c", "user.email=test@vitehub.dev", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8", env: gitEnv }).trim()
 }
 
-/** A project in a temp git repository under /dev/shm, with `commits` commits. Returns the root and each commit sha. */
 async function gitProject(host: Host, commits: number): Promise<{ root: string, shas: string[] }> {
   const root = await mkdtemp(join(process.platform === "linux" ? "/dev/shm" : (process.env.TMPDIR ?? "/tmp"), "vitehub-deployments-"))
   gitDirs.push(root)
@@ -124,7 +121,6 @@ async function gitProject(host: Host, commits: number): Promise<{ root: string, 
   return { root, shas }
 }
 
-/** The Cloudflare versions fixture with the live version marked with `sha`. */
 function liveCommit(sha: string): (text: string) => string {
   return text => text.replaceAll(LIVE_SHA, sha)
 }
@@ -354,6 +350,29 @@ describe("vitehub deployments", () => {
     expect(json.rerun).toBe("vitehub link")
   })
 
+  it("reads the target of --host, and needs it when several hosts are linked without a default", async () => {
+    const target = ({ host: _host, schemaVersion: _version, ...rest }: (typeof links)[Host]) => rest
+    const root = await createProject({
+      ...projectFiles("cloudflare", false),
+      ".vitehub/link.json": JSON.stringify({ schemaVersion: 2, targets: { cloudflare: target(links.cloudflare), vercel: target(links.vercel) } }),
+    })
+    const env = { ...credentials.cloudflare, ...credentials.vercel }
+
+    const ambiguous = await runSetup<{ error: SetupError, missing: SetupMissing[], rerun: string }>(["deployments", "--json"], root, env)
+    expect(ambiguous.exitCode).toBe(2)
+    expect(ambiguous.json.error.code).toBe("SETUP_LINK_HOST_REQUIRED")
+    expect(ambiguous.json.error.fix).toContain("vitehub deployments --host <host>")
+
+    const vercel = await runSetup<SetupDeploymentsOutput>(["deployments", "--host", "vercel", "--json"], root, env, { fetch: hostApi(vercelRoutes).fetch })
+    expect(vercel.exitCode, vercel.stderr).toBe(0)
+    expect(vercel.json).toMatchObject({ host: "vercel", project: { id: PROJECT } })
+
+    const netlify = await runSetup<{ error: SetupError, rerun: string }>(["deployments", "--host", "netlify", "--json"], root, env)
+    expect(netlify.exitCode).toBe(2)
+    expect(netlify.json.error.code).toBe("SETUP_DEPLOYMENTS_NOT_LINKED")
+    expect(netlify.json.rerun).toBe("vitehub link --host netlify")
+  })
+
   it("exits with 2 and the credential fix when no credentials resolve", async () => {
     const root = await createProject(projectFiles("vercel"))
 
@@ -555,7 +574,6 @@ describe("vitehub status live", () => {
     expect(down.exitCode).toBe(0)
     expect(down.json).toMatchObject({ live: null, liveReason: "host-error" })
 
-    // A host that never answers until the request is aborted.
     const hang: typeof fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal!.reason))
     })

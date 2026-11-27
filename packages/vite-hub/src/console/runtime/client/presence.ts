@@ -12,7 +12,7 @@ interface PageEvents {
 }
 
 // The Console helpers compile without DOM types, so the page is read through the few members presence uses.
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The Console runs in a browser, where `window` and `document` have these members.
+// SAFETY: The Console runs in a browser, where `window` and `document` have these members.
 const page = globalThis as unknown as PageEvents & { document: PageEvents & { visibilityState: string } }
 
 function hidden(): boolean {
@@ -337,19 +337,6 @@ export function useConsoleDocumentSessions(options: { client: ConsoleDocumentsCl
       return open.filter(session => session === live || !(session.kind === "view" && names.has(session.user.name))).sort((left, right) => rank(left) - rank(right))
     },
   }
-}
-
-/** Initials for an avatar without an image, such as `AL` for Ada Lovelace. */
-export function consoleInitials(name: string): string {
-  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean)
-  return (parts.length > 1 ? `${parts[0]![0]}${parts.at(-1)![0]}` : (parts[0] ?? "?").slice(0, 2)).toUpperCase()
-}
-
-/** A clock time such as `10:42`, for "Editing since 10:42" and "Your changes up to 10:42 are saved". */
-export function consoleClockTime(value: string | null | undefined): string {
-  if (!value) return ""
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })
 }
 
 /** The names in a live session row, such as `Ana, Ben`. */

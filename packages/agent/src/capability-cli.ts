@@ -1,4 +1,5 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { defineInternalTool } from "./capabilities/internal.ts"
 
@@ -36,10 +37,6 @@ interface ResolvedCliCommand<TRuntimeConfig extends AgentRuntimeConfig, Name ext
 
 const stableCliName = /^[A-Za-z][A-Za-z0-9_-]*$/
 const stableCommandName = /^[A-Za-z0-9_.-]+$/
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
 
 function isStandardSchema<T = unknown>(value: unknown): value is AgentCapabilityCliStandardSchemaV1<T> {
   return isRecord(value)

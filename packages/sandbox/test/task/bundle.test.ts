@@ -26,7 +26,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
       "import { promisify } from 'node:util'",
       "const exec = promisify(execFile)",
       "async function inspect(path) { await access(path, constants.F_OK) }",
-      "export default { run: async () => {",
+      "export default { handler: async () => {",
       "  const workspace = await mkdtemp(join(tmpdir(), 'analysis-'))",
       "  await mkdir(join(workspace, 'repo'))",
       "  await inspect(workspace)",
@@ -61,7 +61,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
 
     const bundle = await bundleSandboxTaskDefinition(
-      "export default { run: async () => 'forced' }\n",
+      "export default { handler: async () => 'forced' }\n",
       "/fixture/run.sandbox-task.ts",
       { execution: "definition", includeProject: true, project },
     )
@@ -77,7 +77,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
       install: { args: ["install"], command: "pnpm", cwd: "." },
       packagePath: ".",
     }
-    const source = "export default { run: async name => await import(name) }\n"
+    const source = "export default { handler: async name => await import(name) }\n"
 
     await expect(bundleSandboxTaskDefinition(source, "/fixture/run.sandbox-task.ts", {
       execution: "definition",
@@ -89,35 +89,35 @@ describe("bundleSandboxTaskDefinition assets", () => {
   it.each([
     [
       "child process executable",
-      "import { execFile } from 'node:child_process'\nexport default { run: async () => execFile('./scripts/task.sh') }\n",
+      "import { execFile } from 'node:child_process'\nexport default { handler: async () => execFile('./scripts/task.sh') }\n",
     ],
     [
       "wrapped child process executable",
-      "import { execFile } from 'node:child_process'\nimport { promisify } from 'node:util'\nconst run = promisify(execFile)\nexport default { run: async () => await run('./scripts/task.sh') }\n",
+      "import { execFile } from 'node:child_process'\nimport { promisify } from 'node:util'\nconst run = promisify(execFile)\nexport default { handler: async () => await run('./scripts/task.sh') }\n",
     ],
     [
       "child process shell command",
-      "import { exec } from 'node:child_process'\nexport default { run: async () => exec('./scripts/task.sh --flag') }\n",
+      "import { exec } from 'node:child_process'\nexport default { handler: async () => exec('./scripts/task.sh --flag') }\n",
     ],
     [
       "synchronous child process shell command",
-      "import { execSync } from 'node:child_process'\nexport default { run: async () => execSync('./scripts/task.sh --flag') }\n",
+      "import { execSync } from 'node:child_process'\nexport default { handler: async () => execSync('./scripts/task.sh --flag') }\n",
     ],
     [
       "child process argument",
-      "import { spawn } from 'node:child_process'\nexport default { run: async () => spawn('node', ['./scripts/task.sh']) }\n",
+      "import { spawn } from 'node:child_process'\nexport default { handler: async () => spawn('node', ['./scripts/task.sh']) }\n",
     ],
     [
       "aliased filesystem namespace",
-      "import * as fs from 'node:fs'\nconst io = fs\nexport default { run: async () => io.readFileSync('./data/app.db') }\n",
+      "import * as fs from 'node:fs'\nconst io = fs\nexport default { handler: async () => io.readFileSync('./data/app.db') }\n",
     ],
     [
       "SQLite database",
-      "import { DatabaseSync } from 'node:sqlite'\nexport default { run: async () => new DatabaseSync('./data/app.db').close() }\n",
+      "import { DatabaseSync } from 'node:sqlite'\nexport default { handler: async () => new DatabaseSync('./data/app.db').close() }\n",
     ],
     [
       "Worker entry file",
-      "import { Worker } from 'node:worker_threads'\nexport default { run: async () => new Worker('./scripts/task.sh') }\n",
+      "import { Worker } from 'node:worker_threads'\nexport default { handler: async () => new Worker('./scripts/task.sh') }\n",
     ],
   ])("keeps project assets used as a %s", async (_name, source) => {
     const project: SandboxTaskProject = {
@@ -157,7 +157,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "import { readFile } from 'node:fs/promises'",
-      "export default { run: async () => await readFile('./prompt.md', 'utf8') }",
+      "export default { handler: async () => await readFile('./prompt.md', 'utf8') }",
       "",
     ].join("\n")
 
@@ -172,8 +172,8 @@ describe("bundleSandboxTaskDefinition assets", () => {
   })
 
   it.each([
-    ["object", "const ops = { readFile }\nexport default { run: async () => await ops.readFile('./prompt.md', 'utf8') }"],
-    ["array", "const ops = [readFile]\nexport default { run: async () => await ops[0]('./prompt.md', 'utf8') }"],
+    ["object", "const ops = { readFile }\nexport default { handler: async () => await ops.readFile('./prompt.md', 'utf8') }"],
+    ["array", "const ops = [readFile]\nexport default { handler: async () => await ops[0]('./prompt.md', 'utf8') }"],
   ])("keeps the project when a filesystem binding escapes into an %s", async (_name, usage) => {
     const project: SandboxTaskProject = {
       digest: "escaped-filesystem-binding-fixture",
@@ -213,7 +213,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
       "import { readFile } from 'node:fs/promises'",
       "import { join } from 'node:path'",
       "const prompt = join('prompts', 'system.md')",
-      "export default { run: async () => await readFile(prompt, 'utf8') }",
+      "export default { handler: async () => await readFile(prompt, 'utf8') }",
       "",
     ].join("\n")
 
@@ -242,7 +242,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
       "import { createRequire as makeRequire } from 'node:module'",
       "const localRequire = makeRequire(import.meta.url)",
       "const { readFileSync } = localRequire('node:fs')",
-      "export default { run: async () => readFileSync('./prompt.md', 'utf8') }",
+      "export default { handler: async () => readFileSync('./prompt.md', 'utf8') }",
       "",
     ].join("\n")
 
@@ -269,7 +269,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "const { readFile } = process.getBuiltinModule('node:fs/promises')",
-      "export default { run: async () => await readFile('./prompt.md', 'utf8') }",
+      "export default { handler: async () => await readFile('./prompt.md', 'utf8') }",
       "",
     ].join("\n")
 
@@ -296,7 +296,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "import { promises as fs } from 'node:fs'",
-      "export default { run: async () => await fs.readFile('./prompt.md', 'utf8') }",
+      "export default { handler: async () => await fs.readFile('./prompt.md', 'utf8') }",
       "",
     ].join("\n")
 
@@ -323,7 +323,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "export default {",
-      "  run: async () => {",
+      "  handler: async () => {",
       "    const fs = await import('node:fs/promises')",
       "    return await fs.readFile('./prompt.md', 'utf8')",
       "  },",
@@ -344,12 +344,12 @@ describe("bundleSandboxTaskDefinition assets", () => {
     [
       "CommonJS require",
       "/fixture/run.sandbox-task.cjs",
-      "const { readFile } = require('node:fs/promises')\nmodule.exports = { run: async () => await readFile('./prompt.md', 'utf8') }\n",
+      "const { readFile } = require('node:fs/promises')\nmodule.exports = { handler: async () => await readFile('./prompt.md', 'utf8') }\n",
     ],
     [
       "TypeScript import equals",
       "/fixture/run.sandbox-task.cts",
-      "import fs = require('node:fs/promises')\nexport default { run: async () => await fs.readFile('./prompt.md', 'utf8') }\n",
+      "import fs = require('node:fs/promises')\nexport default { handler: async () => await fs.readFile('./prompt.md', 'utf8') }\n",
     ],
   ])("keeps project assets used through %s filesystem bindings", async (_name, id, source) => {
     const project: SandboxTaskProject = {
@@ -387,7 +387,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "import { readdir } from 'node:fs/promises'",
-      "export default { run: async () => await readdir('./prompts') }",
+      "export default { handler: async () => await readdir('./prompts') }",
       "",
     ].join("\n")
 
@@ -418,7 +418,7 @@ describe("bundleSandboxTaskDefinition assets", () => {
     }
     const source = [
       "import * as fs from 'node:fs/promises'",
-      "export default { run: async () => await fs.readFile(new URL('./prompt.md', import.meta.url), 'utf8') }",
+      "export default { handler: async () => await fs.readFile(new URL('./prompt.md', import.meta.url), 'utf8') }",
       "",
     ].join("\n")
 

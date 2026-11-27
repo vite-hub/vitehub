@@ -1,0 +1,36 @@
+/* The stylesheet of the comment attachments page: Tailwind, Nuxt UI, the ViteHub theme, and the styles of the parts. */
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../theme.css";
+@import "../../../styles.css";
+@source "../../../src/theme.ts";
+@source "./attachments.ts";
+
+body {
+  margin: 0;
+}
+
+.page {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding: 160px 32px 32px;
+}
+
+.card {
+  background: var(--vh-bg);
+  border: 1px solid var(--vh-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px -10px rgb(0 0 0 / 0.16);
+  padding: 8px 12px;
+  width: 340px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  left: 32px;
+  position: fixed;
+  top: 16px;
+}

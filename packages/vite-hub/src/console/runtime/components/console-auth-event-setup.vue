@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import ConsoleSetupHint from "./console-setup-hint.vue";
+import ConsoleSection from "./console-section.vue";
 // Vite's dependency scan reads a line of a Vue script that starts with `import … from "…"` as an import, even inside a
 // string, so the example is joined from lines.
 const snippet = [
   "import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'",
-  "import { useDatabase } from 'vite-hub/database/drizzle'",
+  "import { useDatabase } from 'vite-hub/database'",
   "",
   "export default defineAuth(() => {",
   "  const { db } = useDatabase('auth')",
@@ -17,8 +18,7 @@ const snippet = [
 </script>
 
 <template>
-  <section class="space-y-3 p-4 text-sm" aria-label="Auth event setup">
-    <h2 class="font-medium text-highlighted">Record auth events</h2>
+  <ConsoleSection title="Record auth events" class="p-4 text-sm">
     <p class="max-w-2xl text-muted">
       <ConsoleSetupHint
         :hint="{
@@ -35,5 +35,5 @@ const snippet = [
     <pre
       class="overflow-x-auto rounded-md bg-elevated p-3 text-xs leading-relaxed text-toned"
     ><code>{{ snippet }}</code></pre>
-  </section>
+  </ConsoleSection>
 </template>

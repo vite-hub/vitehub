@@ -8,7 +8,7 @@
       "@vite-hub/sandbox": [
         "../../packages/sandbox/src/index.ts"
       ],
-      "@vite-hub/sandbox/_internal/toolchain": [
+      "@vite-hub/sandbox/internal/toolchain": [
         "../../packages/sandbox/src/internal/host-toolchain.ts"
       ],
       "#vitehub/agent/registry": [
@@ -43,6 +43,9 @@
       ],
       "@vite-hub/agent": [
         "../../packages/agent/src/index.ts"
+      ],
+      "@vite-hub/agent/invocations": [
+        "../../packages/agent/src/invocations/index.ts"
       ],
       "@vite-hub/agent/*": [
         "../../packages/agent/src/*"

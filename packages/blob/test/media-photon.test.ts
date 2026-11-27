@@ -3,7 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import * as photon from "@cf-wasm/photon"
-import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -187,11 +186,26 @@ describe("photon transformer in Blob storage", () => {
     const record = ok(await storage.media.put("meals/lunch.jpg", await fixture("orientation-6.jpg")))
     expect(record).toMatchObject({ color: expect.stringMatching(/^#[0-9a-f]{6}$/), height: 48, width: 32 })
 
-    const event = new H3Event(new Request("https://example.test/meals/lunch.jpg"))
-    const [error, body] = await storage.serve(event, "meals/lunch.jpg", { variant: { format: "jpeg", width: 16 } })
-    expect(error).toBeUndefined()
-    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 24, width: 16 })
+    const response = await storage.serve(new Request("https://example.test/meals/lunch.jpg"), "meals/lunch.jpg", { variant: { format: "jpeg", width: 16 } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("image/jpeg")
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 24, width: 16 })
     expect(ok(await storage.media.variants("meals/lunch.jpg"))[0]!.key).toContain("engine=photon")
+  })
+
+  it("decodes sources up to blob.images.maxPixels", async () => {
+    // 3000 × 2000 is 6 megapixels: over the default limit of 4,000,000 pixels.
+    const photo = await sharp({ create: { background: "#4a7", channels: 3, height: 2000, width: 3000 } }).jpeg().toBuffer()
+    const variant = { format: "jpeg", width: 384 } as const
+    const request = () => new Request("https://example.test/meals/dinner.jpg")
+
+    const capped = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default", { images: { transformer: "photon" } })
+    await capped.put("meals/dinner.jpg", photo, { contentType: "image/jpeg" })
+    await expect(capped.serve(request(), "meals/dinner.jpg", { variant })).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
+
+    const raised = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default", { images: { maxPixels: 6_000_000, transformer: "photon" } })
+    const response = await raised.serve(request(), "meals/dinner.jpg", { variant })
+    expect(response.status).toBe(200)
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 256, width: 384 })
   })
 })

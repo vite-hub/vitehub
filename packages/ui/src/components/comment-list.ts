@@ -1,10 +1,14 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
+import { RollNumber } from "./motion.ts";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
+import { deliveryAttributes } from "../internal/comment-status.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
+import { MotionList } from "./motion-list.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
 const commentsProp = { type: Object as PropType<CommentsState> };
@@ -26,11 +30,12 @@ export const CommentFilters = defineComponent({
             "data-slot": "comment-filter",
             "data-state": comments.filters[key] ? "on" : "off",
             key,
-            label: count === undefined ? label : `${label} ${count}`,
+            label: count === undefined ? label : undefined,
             onClick: () => (comments.filters[key] = !comments.filters[key]),
             size: "xs",
             variant: comments.filters[key] ? "soft" : "ghost",
           },
+          count === undefined ? undefined : { default: () => [`${label} `, h(RollNumber, { value: count })] },
         );
       return h("div", { "aria-label": "Filter comments", "data-slot": "comment-filters", role: "group" }, [
         button("open", "Open", comments.counts.value.open),
@@ -97,9 +102,9 @@ export const CommentList = defineComponent({
                   : "No comments here.",
             )
           : h(
-              "ol",
-              { "data-slot": "comment-list-items" },
-              rows.map((thread) => {
+              MotionList,
+              { "data-slot": "comment-list-items", tag: "ol" },
+              () => rows.map((thread) => {
                 const detached = comments.positions.value.get(thread.id)?.detached === true;
                 return h("li", { key: thread.id }, [
                   h(
@@ -107,8 +112,10 @@ export const CommentList = defineComponent({
                     {
                       "aria-current": comments.openId.value === thread.id ? "true" : undefined,
                       "data-detached": detached ? "true" : undefined,
+                      "data-focus-inset": "",
                       "data-slot": "comment-list-item",
                       "data-status": thread.status,
+                      ...deliveryAttributes(thread.delivery),
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
@@ -132,6 +139,7 @@ export const CommentToolbar = defineComponent({
   },
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
+    const icons = useViteHubUIIcons();
     const comments = useCommentsContext(props.comments);
     return () => {
       const open = comments.pageThreads.value.length;
@@ -142,7 +150,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.active.value),
           color: "neutral",
           "data-slot": "comment-toolbar-mode",
-          icon: "i-ph-chat-circle",
+          icon: icons.value.comment,
           onClick: comments.toggle,
           size: "sm",
           title: "Comment (C)",
@@ -153,7 +161,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.listOpen.value),
           color: "neutral",
           "data-slot": "comment-toolbar-list",
-          icon: "i-ph-list-bullets",
+          icon: icons.value.commentList,
           label: String(open),
           onClick: () => (comments.listOpen.value = !comments.listOpen.value),
           size: "sm",
@@ -164,7 +172,7 @@ export const CommentToolbar = defineComponent({
           "aria-label": "Comment on page",
           color: "neutral",
           "data-slot": "comment-toolbar-page",
-          icon: "i-ph-note-pencil",
+          icon: icons.value.commentPage,
           onClick: () => {
             comments.startDraft("page");
           },

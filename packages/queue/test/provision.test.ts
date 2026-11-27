@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { discoverQueueDefinitions } from "../src/discovery.ts"
 import { createQueueProvisionStep } from "../src/provision.ts"
 import { getCloudflareQueueName } from "../src/internal/cloudflare-resource-name.ts"
 
@@ -23,6 +24,10 @@ async function createTempDir() {
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
+}
+
+function provisionStep(rootDir: string, resolveNamePrefix?: () => string) {
+  return createQueueProvisionStep(() => discoverQueueDefinitions({ rootDir }), resolveNamePrefix)
 }
 
 function provisionContext(fetchImpl: typeof globalThis.fetch): ProvisionContext {
@@ -47,7 +52,7 @@ describe("queue provision step", () => {
       throw new Error("must not create existing queue")
     }) as unknown as typeof globalThis.fetch
 
-    const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+    const actions = await provisionStep(rootDir).plan(provisionContext(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
 
@@ -70,7 +75,7 @@ describe("queue provision step", () => {
         : jsonResponse({ success: true, result: [{ queue_name: "other" }], result_info: { page: 1, per_page: 1, total_count: 2, total_pages: 2 } })
     }) as unknown as typeof globalThis.fetch
 
-    const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+    const actions = await provisionStep(rootDir).plan(provisionContext(fetchImpl))
 
     expect(pages).toEqual(["1", "2"])
     expect(actions.map(({ exists, name }) => ({ exists, name }))).toEqual([{ exists: true, name: existing }])
@@ -90,7 +95,7 @@ describe("queue provision step", () => {
       return jsonResponse({ success: true, result: [] })
     }) as unknown as typeof globalThis.fetch
 
-    const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+    const actions = await provisionStep(rootDir).plan(provisionContext(fetchImpl))
     expect(actions[0]!.exists).toBe(false)
     await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { queue: { welcome: expectedName } } } })
     expect(posted).toEqual([{ queue_name: expectedName }])
@@ -100,7 +105,7 @@ describe("queue provision step", () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
 
-    const [category] = createQueueProvisionStep(() => rootDir, () => "preview-").recordedState?.({ env: {} }) ?? []
+    const [category] = provisionStep(rootDir, () => "preview-").recordedState?.({ env: {} }) ?? []
     expect(category).toMatchObject({ category: "queue", declared: ["welcome"] })
     expect(category?.declaredResourceIdentity?.("welcome")).toBe(getCloudflareQueueName("welcome", "preview-"))
     expect(category?.declaredResourceIdentity?.("removed")).toBeUndefined()
@@ -116,7 +121,7 @@ describe("queue provision step", () => {
     await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
     const fetchImpl = vi.fn(async () => jsonResponse({ success: true, result })) as unknown as typeof globalThis.fetch
 
-    await expect(createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl)))
+    await expect(provisionStep(rootDir).plan(provisionContext(fetchImpl)))
       .rejects.toMatchObject({ code: "QUEUE_PROVISION_FAILED" })
   })
 
@@ -127,7 +132,7 @@ describe("queue provision step", () => {
     const json = vi.spyOn(response, "json").mockResolvedValue({ success: true, result: sparseQueueList })
     const fetchImpl: typeof globalThis.fetch = async () => response
 
-    await expect(createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl)))
+    await expect(provisionStep(rootDir).plan(provisionContext(fetchImpl)))
       .rejects.toMatchObject({ code: "QUEUE_PROVISION_FAILED" })
     expect(json).toHaveBeenCalledOnce()
     expect(Object.hasOwn(sparseQueueList, 0)).toBe(false)
@@ -147,7 +152,7 @@ describe("queue provision step", () => {
       return jsonResponse({ success: true, result: [] })
     }) as unknown as typeof globalThis.fetch
 
-    const actions = await createQueueProvisionStep(() => rootDir, () => "preview-").plan(provisionContext(fetchImpl))
+    const actions = await provisionStep(rootDir, () => "preview-").plan(provisionContext(fetchImpl))
     expect(actions[0]!.name).toBe(expectedName)
     await actions[0]!.apply()
     expect(posted).toEqual([{ queue_name: expectedName }])
@@ -164,7 +169,7 @@ describe("queue provision step", () => {
       throw new Error("must not create a replacement queue")
     }) as unknown as typeof globalThis.fetch
 
-    const actions = await createQueueProvisionStep(() => rootDir, () => namePrefix).plan(provisionContext(fetchImpl))
+    const actions = await provisionStep(rootDir, () => namePrefix).plan(provisionContext(fetchImpl))
     expect(actions).toMatchObject([{ exists: true, name: existing }])
 
     await actions[0]!.apply()
@@ -175,7 +180,7 @@ describe("queue provision step", () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
     const warn = vi.fn()
-    const actions = await createQueueProvisionStep(() => rootDir).plan({
+    const actions = await provisionStep(rootDir).plan({
       env: {},
       fetch: globalThis.fetch,
       logger: { log: () => {}, warn },

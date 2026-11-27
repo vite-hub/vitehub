@@ -3,7 +3,9 @@ import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import type { CloudflareSandboxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
+import type { ContainerSandboxCredential, ContainerSandboxEgress, ContainerSandboxOptions } from "./internal/container.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
+import type { SandboxNetworkPolicy } from "./internal/network-policy.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
 import type {
   VercelSandboxNetworkPolicy,
@@ -21,7 +23,11 @@ export type {
   CloudflareSandboxOptions,
   CloudflareDurableObjectNamespace,
   CloudflareSandboxStub,
+  ContainerSandboxCredential,
+  ContainerSandboxEgress,
+  ContainerSandboxOptions,
   CrabboxOptions,
+  SandboxNetworkPolicy,
   TrustedHostOptions,
   VercelSandboxNetworkPolicy,
   VercelSandboxOptions,
@@ -147,6 +153,7 @@ export type BuiltInSandboxRuntime =
   | ({ kind: "crabbox" } & CrabboxOptions)
   | ({ kind: "trusted-host" } & TrustedHostOptions)
   | ({ kind: "cloudflare" } & CloudflareSandboxOptions)
+  | ({ kind: "container" } & ContainerSandboxOptions)
   | ({ kind: "vercel" } & VercelSandboxOptions);
 
 export type SandboxRuntimeDefinition = BuiltInSandboxRuntime | SandboxRuntime;
@@ -183,6 +190,7 @@ export interface SandboxSpawnOptions extends SandboxExecOptions {
   /**
    * Keep process input open and expose it as `SandboxProcess.stdin`.
    * The `vercel` and `cloudflare` runtimes forward input only when this is set, because a command that reads stdin then waits for the caller to close it.
+   * The `container` runtime also forwards input only when this is set.
    * `trusted-host` and `crabbox` always forward input.
    */
   stdin?: boolean;
@@ -319,8 +327,6 @@ export interface SandboxResolvedRequirement {
 }
 
 export interface SandboxPlan {
-  /** Configured trusted-host command limits. Absent on runtimes without this contract. */
-  readonly resources?: TrustedHostOptions["resources"];
   readonly cache: {
     readonly state: "disposable";
   };
@@ -358,10 +364,15 @@ export interface ResolveSandboxOptions {
 
 const reservedRuntimeNames = new Set([
   "cloudflare",
+  "container",
   "crabbox",
   "trusted-host",
   "vercel",
 ]);
+
+function withoutKind<T extends { kind: string }>({ kind: _kind, ...options }: T): Omit<T, "kind"> {
+  return options;
+}
 
 async function resolveSandboxRuntime(value: unknown): Promise<SandboxRuntime> {
   if (isSandboxRuntime(value)) {
@@ -389,24 +400,35 @@ async function resolveSandboxRuntime(value: unknown): Promise<SandboxRuntime> {
     throw sandboxErrorDiagnostics.SANDBOX_R0032({ message: "[vitehub] Sandbox requires an explicit built-in runtime value or custom runtime object." });
   }
 
-  const { kind, ...options } = value as Record<string, unknown>;
-  if (kind === "crabbox") {
+  // SAFETY: The only objects left are tagged built-in configurations, and an unknown `kind` throws below.
+  const config = value as Exclude<BuiltInSandboxRuntime, string>;
+  const kind: unknown = config.kind;
+  if (config.kind === "crabbox") {
+    const options = withoutKind(config);
     const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
-    return createCrabboxRuntime(options as CrabboxOptions);
+    return createCrabboxRuntime(options);
   }
-  if (kind === "trusted-host") {
+  if (config.kind === "trusted-host") {
+    const options = withoutKind(config);
     const { createTrustedHostRuntime } = await import("./internal/trusted-host.ts");
-    return createTrustedHostRuntime(options as TrustedHostOptions);
+    return createTrustedHostRuntime(options);
   }
-  if (kind === "cloudflare") {
+  if (config.kind === "cloudflare") {
+    const options = withoutKind(config);
     const { createCloudflareRuntime } = await import("./cloudflare.ts");
-    return createCloudflareRuntime(options as unknown as CloudflareSandboxOptions);
+    return createCloudflareRuntime(options);
   }
-  if (kind === "vercel") {
+  if (config.kind === "vercel") {
+    const options = withoutKind(config);
     const { createVercelRuntime } = await import("./vercel.ts");
-    return createVercelRuntime(options as VercelSandboxOptions);
+    return createVercelRuntime(options);
   }
-  throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Unknown Sandbox runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", or "vercel".` });
+  if (config.kind === "container") {
+    const options = withoutKind(config);
+    const { createContainerRuntime } = await import("./internal/container.ts");
+    return createContainerRuntime(options);
+  }
+  throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Unknown Sandbox runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", "container", or "vercel".` });
 }
 
 function isSandboxRuntime(value: unknown): value is SandboxRuntime {
@@ -517,13 +539,11 @@ export async function resolveSandbox<Context>(
   });
 }
 
-/** Read toolchain pins now unless they come from a checkout that exists only after open. */
 async function resolveToolchain(
   declaration: SandboxToolchain | undefined,
   projectRoot: string | undefined,
 ): Promise<SandboxToolchainInput | undefined> {
   if (declaration === undefined) return;
-  // Sandboxes without a toolchain do not load the provisioner or its Node.js dependencies.
   const [{ normalizeToolchain, readToolchainPins, toolchainReadsProject }, { readHostProjectFiles }] = await Promise.all([
     import("./internal/toolchain.ts"),
     import("./internal/host-toolchain.ts"),

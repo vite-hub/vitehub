@@ -7,12 +7,8 @@ export interface AiGatewayEnvField {
   secret?: true
 }
 
-/**
- * The variables that each preset reads, keyed by preset and then by field. ViteHub declares the presets that Agent files
- * use in Server Env as `env.server.<preset>.<field>`.
- */
 /** The presets that read the environment. */
-export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
+export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "emulate" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
 
 export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<string, AiGatewayEnvField>>>> = {
   anthropic: { apiKey: { names: ["ANTHROPIC_API_KEY"], secret: true } },
@@ -26,6 +22,7 @@ export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<s
     typesafeApiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
   },
   cloudflareAccess: { clientId: { names: ["CF_ACCESS_CLIENT_ID"], secret: true }, clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], secret: true } },
+  emulate: { url: { names: ["VITEHUB_EMULATE_URL"] } },
   litellm: { apiKey: { names: ["LITELLM_API_KEY"], secret: true }, url: { names: ["LITELLM_URL"] } },
   ollama: { apiKey: { names: ["OLLAMA_API_KEY"], secret: true }, url: { names: ["OLLAMA_URL"] } },
   openai: { apiKey: { names: ["OPENAI_API_KEY"], secret: true } },

@@ -12,7 +12,7 @@ import { assertWorkspaceDigest, workspaceConflictError, workspaceError } from ".
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -773,7 +773,7 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
-  [workspaceStoreTarget]() {
+  #storeTarget() {
     return {
       provider: "local",
       containsPath: async (ancestor: string, path: string) => {
@@ -809,6 +809,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     this.#processLocks = options.locks === "process"
     this.#fileMetadataRoot = `${root}/.vitehub/file-metadata`
     this.#metaPath = `${root}.meta.json`
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget())
   }
 
   async #pathLock<T>(root: string, path: string, operation: () => Promise<T>, readOnly = false): Promise<T> {
@@ -990,7 +991,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
   }
 
-  async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+  async #writeFile(path: string, file: WorkspaceFile, createOnly = false): Promise<void> {
     file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
     const absolute = resolveInside(this.root, path)
@@ -1003,6 +1004,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
     const existing = await this.#stat(normalized)
+    if (createOnly && existing) throw workspaceError(`[vitehub] Cannot create a Workspace file over an existing path: ${normalized}.`)
     if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
     if (existing?.type === "file" && existing.digest === digest) {
       await this.#writeFileMetadata(normalized, {
@@ -1346,11 +1348,23 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
+    await this.#setMetaEntries({ [key]: value })
+  }
+
+  async #setMetaEntries(entries: Readonly<Record<string, unknown>>): Promise<void> {
     await this.#pathLock(this.root, ".vitehub/metadata", async () => {
       const metadata = new Map(await this.#readMeta())
-      metadata.set(key, value)
+      for (const [key, value] of Object.entries(entries)) metadata.set(key, value)
       await this.#writeMeta(metadata)
     })
+  }
+
+  async writeFiles(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>, onWrite?: (path: string) => void): Promise<void> {
+    for (const file of files) {
+      await this.#pathLock(this.root, file.path, () => this.#writeFile(file.path, file, true))
+      onWrite?.(file.path)
+    }
+    if (meta && Object.keys(meta).length) await this.#setMetaEntries(meta)
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {

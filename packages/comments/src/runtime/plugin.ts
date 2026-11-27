@@ -1,29 +1,33 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installViteHubPageTools, installViteHubSiteVisitor, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
+import { commentsRoleGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
-import { normalizeCommentPage } from "../page.ts"
-import { commentsMcpTools } from "./mcp.ts"
-import { resolveCommentsIdentity } from "./session.ts"
+import { commentsTableNames } from "../table-names.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
-import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
+import type { ViteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import type { InstallCommentsOptions } from "../install.ts"
 import type { CommentsRuntime } from "../operations-core/service.ts"
 import type { CommentsDatabase } from "../operations-core/store.ts"
+import type { CommentsRequestEvent } from "../types.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 export interface CommentsPluginOptions extends CommentsSessionOptions {
+  siteVisitor?: ViteHubSiteVisitorReader
   comments: Comments
   /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
   githubLogin?: CommentsGitHubLogin
   /** The Database of `defineComments({ database })`, or undefined when the app has none. The first Comments call reads it. */
   database: () => CommentsDatabase | undefined | Promise<CommentsDatabase | undefined>
   /**
-   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * Path of the overlay script below the app base, such as `/_vitehub/comments/assets/overlay.js`. The page tools
    * loader imports it for people that may read comments.
    */
   overlay: string | false
@@ -37,11 +41,19 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   users?: InstallCommentsOptions["users"]
   /** The Blob store for attachments, when the app has Blob. */
   attachments?: InstallCommentsOptions["attachments"]
+  /** `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. */
+  rateLimit?: InstallCommentsOptions["rateLimit"]
   /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
   schema?: InstallCommentsOptions["schema"]
   /** The tables of a Postgres Database. Default: the SQLite tables. */
   tables?: InstallCommentsOptions["tables"]
   dialect?: InstallCommentsOptions["dialect"]
+  /** Loads `@vite-hub/webhooks`, when `defineComments({ send })` is on. */
+  webhooks?: InstallCommentsOptions["webhooks"]
+  /** Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. */
+  realtime?: InstallCommentsOptions["realtime"]
+  /** Install more segments of the pill, such as the **Console** segment of `vite-hub`. Only with the overlay on. */
+  pillSegments?: ReadonlyArray<(nitroApp: unknown, context: { base?: string, development: boolean }) => void>
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.installed")
@@ -78,6 +90,9 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.dialect ? { dialect: options.dialect } : {}),
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
+        ...(options.webhooks ? { webhooks: options.webhooks } : {}),
+        ...(options.realtime ? { realtime: options.realtime } : {}),
       })
     })().catch((error: unknown) => {
       building = undefined
@@ -86,9 +101,18 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     runtimeBuilds.set(options.comments, build)
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
-    // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
+    // Auth `deleteAccount` deletes the messages of the user. An app without a Comments Database has none.
+    registerViteHubUserData(nitroApp, {
+      owner: "comments",
+      tables: [commentsTableNames.vitehubCommentThreads, commentsTableNames.vitehubCommentMessages],
+      async delete(userId) {
+        if (!await options.database()) return
+        const runtime = await build()
+        for (const threadId of await runtime.store.deleteUser(userId)) runtime.forge?.changed(threadId)
+      },
+    })
 
+    if (options.siteVisitor) installViteHubSiteVisitor(options.siteVisitor)
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
     const script = options.overlay
@@ -97,20 +121,26 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       label: "Comments",
       icon: "i-lucide-message-square-text",
       script,
-      lazy: true,
+      // Not lazy for readers: as in Drop, selected text gets the Comment bar and comments show on the page as soon as it
+      // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
-      async allowed({ event, request }) {
-        // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
-        const identity = await resolveCommentsIdentity(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
-        if (identity === false) return false
-        const { user, gate } = identity
+      grants: commentsRoleGrants,
+      async allowed({ request }) {
+        // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
+        installRequestStandardContext(request)
+        // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
+        const event = request as Request & CommentsRequestEvent
+        const { user, gate } = await resolveCommentsIdentity(options.comments, event, options)
         const page = new URL(request.url).searchParams.get("page")
-        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
-        return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
-          || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
+        const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
+        if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true
+        // Someone who may only sign in, or switch accounts, gets the button. The overlay loads when they press it.
+        return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
-    installViteHubPageTools(nitroApp, { base: options.base })
+    for (const install of options.pillSegments ?? []) install(nitroApp, { base: options.base, development: options.development === true })
+    // A build shows the overlay only on the origins of `vitehub({ publicUrl })`. A development server shows it on every origin.
+    installViteHubPageTools(nitroApp, { base: options.base, origins: options.development === true ? [] : configuredPublicOrigins() })
   }
 }

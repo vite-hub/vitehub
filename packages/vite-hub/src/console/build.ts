@@ -6,6 +6,8 @@ import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
+import { servedSkillsConsoleSection } from "../skills/console.ts"
+import { findServedSkillsEntry } from "../skills/vite.ts"
 
 import type { CollectedOperationContribution } from "@vite-hub/internal/operations"
 import type { ConsoleSectionDiscoveryContext } from "./contributions.ts"
@@ -49,15 +51,15 @@ export function withConsoleDocumentEditorSections(sections: readonly ConsoleSect
  * and checked again when the app starts.
  */
 export async function assertUniqueOperationNames(contributions: readonly CollectedOperationContribution[]): Promise<void> {
-  const { consoleOperations } = await import("./runtime/server/operations.ts")
-  const sources: Array<{ operations: ReturnType<typeof operationsOf>, plugin: string }> = [{ operations: [...consoleOperations], plugin: "vite-hub" }]
+  const { loadConsoleOperations } = await import("./operation-modules.ts")
+  const sources: Array<{ operations: ReturnType<typeof operationsOf>, plugin: string }> = [{ operations: await loadConsoleOperations(), plugin: "vite-hub" }]
   for (const contribution of contributions) {
     try {
       const exported = contribution.load ? await contribution.load() : Reflect.get(Object(await import(/* @vite-ignore */ contribution.module)), contribution.export)
       sources.push({ operations: operationsOf(exported), plugin: contribution.plugin })
     }
     catch {
-      // The app resolves its own modules. The generated plugin imports them and checks again at start.
+      // The app resolves its own modules. The generated Console app module imports them and checks again when it loads.
     }
   }
   createOperationRegistry(sources)
@@ -128,6 +130,45 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   if (commentsVite && (sections.includes("comments") || commentsVite.findCommentsEntry({ projectRoot, serverDirs }))) {
     content.comments = await readViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection, undefined)
     sectionOverrides.comments = describeViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection)
+  }
+  // The Workspaces section browses the files of each Workspace through `workspaces.files`, not only its Definition.
+  const workspaceVite = ownerModules.workspaceVite
+  if (workspaceVite && sections.includes("workspaces")) {
+    const workspaces = describeViteHubConsoleSection(workspaceVite.workspaceConsoleSection)
+    sectionOverrides.workspaces = {
+      ...workspaces,
+      view: { kind: "workspace-browser", notice: "Files, refs, and revisions come from the Workspace Store when you open them. Without retained history, the browser shows the mounted files." },
+    }
+  }
+  // `connections` runs the Connections operations, so the Console section lists and connects them through them.
+  const connectionsVite = ownerModules.connectionsVite
+  if (connectionsVite && sections.includes("connections")) {
+    content.connections = await readViteHubConsoleSection(connectionsVite.connectionsConsoleSection, undefined)
+    sectionOverrides.connections = describeViteHubConsoleSection(connectionsVite.connectionsConsoleSection)
+  }
+  // `server/forms/` runs the forms operations, so the Console section lists submissions through them.
+  const formsVite = ownerModules.formsVite
+  if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content.forms = await readViteHubConsoleSection(formsVite.formsConsoleSection, undefined)
+    sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
+    // No section registers Forms, so the folder turns it on here.
+    if (!entries.includes("forms")) entries.push("forms")
+  }
+  // `server/webhooks/` and member endpoints run the webhooks operations, so the Console section lists webhooks, member
+  // endpoints, and deliveries through them. A plugin such as Comments with `send: true` turns on member endpoints.
+  const webhooksVite = ownerModules.webhooksVite
+  const webhooksContext = { projectRoot, ...(serverDirs ? { serverDirs } : {}) }
+  if (webhooksVite && (webhooksVite.usesWebhooks(webhooksContext) || (await webhooksVite.collectWebhooksUses(options.plugins, { ...webhooksContext, root: projectRoot })).length > 0)) {
+    content.webhooks = await readViteHubConsoleSection(webhooksVite.webhooksConsoleSection, undefined)
+    sectionOverrides.webhooks = describeViteHubConsoleSection(webhooksVite.webhooksConsoleSection)
+    // No section registers Webhooks, so the folder turns it on here.
+    if (!entries.includes("webhooks")) entries.push("webhooks")
+  }
+  // `server/skills.ts` runs the served skill operations, so the Console section lists the skills with a switch each.
+  if (findServedSkillsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content["served-skills"] = await readViteHubConsoleSection(servedSkillsConsoleSection, undefined)
+    sectionOverrides["served-skills"] = describeViteHubConsoleSection(servedSkillsConsoleSection)
+    if (!entries.includes("served-skills")) entries.push("served-skills")
   }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)

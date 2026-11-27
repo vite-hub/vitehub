@@ -1,3 +1,7 @@
+import { pagePathOf } from "./operations-core/path.ts"
+
+import type { CommentSubject } from "./operations-core/types.ts"
+
 /**
  * The numbering scope of page threads: subjects of kind `page`, which the overlay pins on the app's pages. Threads on
  * subjects of your own, such as `drop`, take the scope that their subject definition gives.
@@ -6,9 +10,10 @@ export const commentsPageScope = "site"
 
 /** Name of the Realtime Definition that holds one presence room per page. */
 export const commentsRealtimeDefinition = "comments"
+export const commentsNoticeDefinition = "comments-notices"
 
 /** The route prefix of the Comments API, below the app base. */
-export const commentsRoute = "/api/_vitehub/comments"
+export const commentsRoute = "/_vitehub/comments"
 
 /** Mount Comments under the application path, ignoring Vite asset URLs such as a CDN origin. */
 export function mountedCommentsRoute(base = "/"): string {
@@ -24,10 +29,11 @@ export function commentsApiRoute(overlayURL: string): string {
 
 /**
  * The key of a page: its pathname without query or hash, and without a trailing slash except for `/`. Threads and
- * presence rooms belong to a page key.
+ * presence rooms belong to a page key. A full URL of the page, such as `https://site.test/pricing/`, gives the key of
+ * its path, `/pricing`.
  */
 export function normalizeCommentPage(path: string): string {
-  let pathname = path.split(/[?#]/, 1)[0] ?? ""
+  let pathname = pagePathOf(path).split(/[?#]/, 1)[0] ?? ""
   if (!pathname.startsWith("/")) pathname = `/${pathname}`
   pathname = pathname.replace(/\/{2,}/g, "/")
   if (pathname.length > 1) pathname = pathname.replace(/\/+$/, "")
@@ -45,4 +51,8 @@ export function commentRoom(page: string): string {
     b = Math.imul(b ^ code, 0x01000193 + 0x9E3779B9) >>> 0
   }
   return `pages/${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`
+}
+
+export function commentNoticeRoom(subject: CommentSubject): string {
+  return `subjects/${encodeURIComponent(JSON.stringify([subject.kind, subject.id]))}`
 }

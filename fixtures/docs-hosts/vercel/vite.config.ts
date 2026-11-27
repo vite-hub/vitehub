@@ -4,7 +4,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: true,
       queue: true,
     }),

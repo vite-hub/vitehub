@@ -5,7 +5,8 @@ import type { SecretEnv } from "./secret.ts"
 export type EnvDiagnostics = "off" | "summary" | "trace"
 export type EnvMode = "build" | "runtime"
 
-export interface EnvIntegrationOptions {
+/** Options of `vitehub({ env })` and `hubEnv()`: the Env declarations and how ViteHub resolves them. */
+export interface EnvOptions extends EnvDeclarations {
   diagnostics?: EnvDiagnostics
   /**
    * Prefix of canonical variable names. Every env-backed declaration first reads the prefix plus its
@@ -28,10 +29,11 @@ export interface EnvSourceContext {
   }
   env: Record<string, string | undefined>
   git: {
+    /** Reads `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. */
     branch: () => Promise<string>
+    /** Reads `GIT_SHA`, then `GITHUB_SHA`, then local Git. */
     commit: (options?: { short?: boolean }) => Promise<string>
-    ref: () => Promise<string>
-    sha: (options?: { short?: boolean }) => Promise<string>
+    /** Reads `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. */
     tag: () => Promise<string | undefined>
   }
   mode: EnvMode
@@ -55,8 +57,6 @@ export type EnvSource =
     names?: string[]
     /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
     canonical?: string | false
-    /** Treat empty host values as missing when reading the ordered names. */
-    skipEmpty?: boolean
     serializable: true
   }
   | {
@@ -67,17 +67,6 @@ export type EnvSource =
   | {
     kind: "git-commit"
     label: "git:commit"
-    serializable: true
-    short?: boolean
-  }
-  | {
-    kind: "git-ref"
-    label: "git:ref"
-    serializable: true
-  }
-  | {
-    kind: "git-sha"
-    label: "git:sha"
     serializable: true
     short?: boolean
   }
@@ -116,21 +105,26 @@ export interface EnvVariableDeclaration {
   type?: string
 }
 
-export interface EnvVariableOptions {
-  default?: unknown
+interface EnvVariableBaseOptions {
   mode?: EnvMode
-  optional?: boolean
-  required?: boolean
   schema?: unknown
   secret?: boolean
   source?: EnvSource | EnvSourceResolver
   type?: string
 }
 
-/** Options for `env.boolean()`, `env.number()`, and `env.enum()`. The helper owns the parser and type. */
-export interface EnvTypedVariableOptions<TValue> extends Omit<EnvVariableOptions, "default" | "schema" | "type"> {
-  default?: TValue
-}
+/**
+ * A value is required by default. `optional: true` lets it be missing.
+ * A `default` makes the value always present, so it cannot be combined with `optional: true`.
+ */
+export type EnvRequirednessOptions<TValue> =
+  | { default?: TValue, optional?: false }
+  | { default?: never, optional: true }
+
+export type EnvVariableOptions = EnvVariableBaseOptions & EnvRequirednessOptions<unknown>
+
+/** Options for `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, and `env.json()`. The helper owns the parser and type. */
+export type EnvTypedVariableOptions<TValue> = Omit<EnvVariableBaseOptions, "schema" | "type"> & EnvRequirednessOptions<TValue>
 
 /** Serializable parser for one Server Env value. Host and provider values are strings before parsing. */
 export type EnvValueSchema =
@@ -141,6 +135,24 @@ export type EnvValueSchema =
   | { kind: "url" }
   | { kind: "array", items?: EnvValueSchema }
   | { kind: "object", properties?: Record<string, EnvValueSchema> }
+  /** Items from `env.list()`, separated by commas or line breaks. Each item is trimmed, and empty items are dropped. */
+  | { kind: "list", items?: EnvValueSchema }
+  /** Any JSON value from `env.json()`. */
+  | { kind: "json" }
+
+/**
+ * A Standard Schema that the server build imports from a module. Server Env runs it on the raw value when it resolves,
+ * so refinements and transforms work. Create it with `env.schemaFrom()`.
+ */
+export interface EnvSchemaModuleReference {
+  kind: "schema-module"
+  /** Module specifier. A relative path resolves from the project root, like `hubEnv({ providers })`. */
+  module: string
+  /** Name of the export that holds the schema. */
+  export: string
+  /** `json` parses a string value as JSON before the schema runs. `env.json()` sets it. */
+  input?: "json"
+}
 
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
 
@@ -150,9 +162,13 @@ export interface EnvBuildConfigOptions {
   [key: string]: EnvBuildConfigValue
 }
 
-export interface EnvViteConfigOptions {
+/** Declarations of Public Env, Server Env, and build-time replacements. */
+export interface EnvDeclarations {
+  /** Values that replace identifiers at build time. */
   define?: Record<string, EnvBuildConfigValue>
+  /** Public Env, resolved at build time and readable in browser code. Each declaration uses `mode: "build"`. */
   public?: Record<string, EnvVariableDeclaration>
+  /** Server Env, resolved at runtime and readable only in server code. */
   server?: EnvRuntimeConfigOptions
 }
 
@@ -164,11 +180,6 @@ export interface EnvRuntimeConfigOptions {
   [key: string]: EnvRuntimeConfigValue
 }
 
-export type EnvConfigOptions = EnvViteConfigOptions
-
-export interface EnvViteUserConfig {
-  env?: EnvViteConfigOptions
-}
 
 export interface EnvDiagnosticEntry {
   exposed: string
@@ -193,6 +204,7 @@ interface EnvRegistryEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: Extract<EnvSource, { kind: "env" | "provider" }>
 }
@@ -211,10 +223,11 @@ export interface EnvRuntimeRegistry<TServerEnv extends Record<string, unknown> =
   readonly [serverEnvType]?: (value: TServerEnv) => void
 }
 
-export interface ServerEnv {
-  [key: string]: unknown
-}
-export type PublicEnv = Record<string, unknown>
+/** Server Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface ServerEnv {}
+/** Public Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface PublicEnv {}
+export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
 
 export interface EnvProviderContext<TEnv extends Record<string, unknown> = Record<string, unknown>> {
   env: DeepReadonly<TEnv>
@@ -250,6 +263,10 @@ export type ServerEnvInspectionStatus = "available" | "defaulted" | "error" | "i
 export interface ServerEnvInspectionEntry {
   /** The declaration is secret. Inspection never returns values. */
   masked: boolean
+  /** The host variable names of an env declaration, in read order. See `ServerEnvDescriptionEntry.names`. */
+  names?: readonly string[]
+  /** The host variable name that supplied the value, one of `names`. Omitted when no name is set. */
+  name?: string
   path?: string
   /** Provider alias for provider-backed declarations. */
   provider?: string
@@ -264,8 +281,12 @@ export interface ServerEnvInspectionEntry {
 
 export interface ServerEnvDescriptionEntry {
   path?: string
-  /** The canonical variable name of an env declaration, such as `VITEHUB_CLIPROXY_API_KEY`. It is read first. */
-  canonicalName?: string
+  /**
+   * The host variable names of an env declaration, in read order: the canonical name such as `VITEHUB_CLIPROXY_API_KEY`
+   * first, unless `canonical: false` or `prefix: false` disables it, then the `env.source()` names or the unprefixed path
+   * name. The first name that is set supplies the value. Omitted for literal and provider declarations.
+   */
+  names?: readonly string[]
   source: "env" | "literal" | "provider"
   provider?: string
   secret: boolean

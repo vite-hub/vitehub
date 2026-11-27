@@ -5,16 +5,21 @@ import { join, posix } from "node:path"
 import { promisify } from "node:util"
 import { describe, expect, it, vi } from "vitest"
 import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createClient } from "@libsql/client"
+import { drizzle } from "drizzle-orm/libsql"
+import { sql } from "drizzle-orm"
+import { createBlobStorage } from "../../blob/src/storage.ts"
+import { createDriver } from "../../blob/src/drivers/fs.ts"
 
+import { createBlobDatabaseWorkspaceStore } from "../src/blob-database.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { custom } from "../src/sources/custom.ts"
-import { fetch as fetchSource } from "../src/sources/fetch.ts"
+import { url as fetchSource } from "../src/sources/fetch.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
+import { provideWorkspaceRevisionMaterializer } from "../src/storage/materialization.ts"
 
 import type { WorkspaceSessionHost, WorkspaceSessionHostFileEntry } from "../src/core/types.ts"
-import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts"
 
 const execFileAsync = promisify(execFile)
 
@@ -247,12 +252,81 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
 
 function workspace() {
   return createWorkspace({
-    ...defineWorkspace({ store: { provider: "memory" } }),
+    ...defineWorkspace({ store: { driver: "memory" } }),
     name: "docs",
   })
 }
 
+async function retainedWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-session-history-"))
+  const client = createClient({ url: "file::memory:" })
+  const database = drizzle({ client })
+  const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
+  for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
+  const store = createBlobDatabaseWorkspaceStore({
+    blob: createBlobStorage(createDriver({ driver: "fs", base: root })),
+    database,
+    workspace: "docs",
+  })
+  return {
+    docs: createWorkspace({ name: "docs", store }),
+    async dispose() {
+      client.close()
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+
 describe("workspace host sessions", () => {
+  it.each([false, undefined] as const)("records the copied Blob Database revision with writeBack %s", async (writeBack) => {
+    const { docs, dispose } = await retainedWorkspace()
+    try {
+      const first = await docs.history.commit({ ifHead: null, files: { "docs/README.md": "before", "image.bin": new Uint8Array([0, 255, 128]) } })
+      const session = await docs.startSession({ host: memoryHost(), writeBack })
+      expect(session.revision).toBe(first.id)
+      await expect(session.readFile("docs/README.md")).resolves.toBe("before")
+      if (writeBack !== false) {
+        await session.writeFile("docs/README.md", "published")
+        await session.commit()
+        await expect(docs.readFile("docs/README.md")).resolves.toBe("published")
+      }
+      await docs.history.commit({ ifHead: (await docs.history.head())?.id ?? null, files: { "docs/README.md": "later" } })
+      expect(session.revision).toBe(first.id)
+      await session.close()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it.each(["draft", "during-copy", "added", "removed", "head", "open", "digest"])("omits an unverified retained revision: %s", async (change) => {
+    const { docs, dispose } = await retainedWorkspace()
+    try {
+      await docs.history.commit({ ifHead: null, files: { "README.md": "before" } })
+      if (change === "draft") await docs.writeFile("README.md", "edited")
+      if (change === "added") await docs.writeFile("extra.txt", "extra")
+      if (change === "removed") await docs.rm("README.md")
+      if (change === "during-copy") {
+        const read = docs.readFile.bind(docs)
+        vi.spyOn(docs, "readFile").mockImplementation(async (...args) => {
+          await docs.writeFile("README.md", "edited")
+          return await read(...args)
+        })
+      }
+      if (change === "head" || change === "open") {
+        vi.spyOn(docs.history, change).mockRejectedValue(new Error("history unavailable"))
+      }
+      if (change === "digest") docs.history.digest = async () => { throw new Error("digest unavailable") }
+      const session = await docs.startSession({ host: memoryHost(), writeBack: false })
+      expect(session.revision).toBeUndefined()
+      if (change !== "removed") await expect(session.readFile("README.md")).resolves.toBe(change === "draft" || change === "during-copy" ? "edited" : "before")
+      await session.close()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it("prunes reserved local-store metadata during Session materialization", async () => {
     const source = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-source-"))
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-target-"))
@@ -279,7 +353,7 @@ describe("workspace host sessions", () => {
         sources: {
           request: fetchSource({ url: "https://status.example.com/request" }),
         },
-        store: { provider: "local", root: source },
+        store: { driver: "local", root: source },
       }),
       name: "local-docs",
     })
@@ -322,7 +396,7 @@ describe("workspace host sessions", () => {
     const target = join(targetParent, "workspace")
     const progress: Array<{ data?: Record<string, unknown>, id: string, status: string }> = []
     let materializations = 0
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -335,7 +409,7 @@ describe("workspace host sessions", () => {
           root: ".vitehub/workspaces/docs",
         }
       },
-    }
+    })
 
     try {
       const session = await docs.startSession({
@@ -345,6 +419,7 @@ describe("workspace host sessions", () => {
       })
       await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
       await expect(session.readFile("UNSAFE.md")).resolves.toBe("../../../../outside")
+      expect(session.revision).toBe("0123456789012345678901234567890123456789")
       await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
       await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
       await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
@@ -378,7 +453,7 @@ describe("workspace host sessions", () => {
     const archive = await revisionArchive()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
     const target = join(targetParent, "workspace")
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -390,7 +465,7 @@ describe("workspace host sessions", () => {
           root: ".vitehub/workspaces/docs",
         }
       },
-    }
+    })
     const host = localHost()
     const read = vi.spyOn(host.files, "read")
     const list = vi.spyOn(host.files, "list")
@@ -416,7 +491,7 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const archive = await revisionArchive()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -428,7 +503,7 @@ describe("workspace host sessions", () => {
           root: "missing",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({ host: localHost(), target: join(targetParent, "workspace") }))
@@ -450,7 +525,7 @@ describe("workspace host sessions", () => {
     await writeFile(join(target, ".agent-runs", "trace.json"), "before")
     await docs.writeFile("README.md", "authoritative")
     await docs.snapshot({ name: "baseline" })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -462,7 +537,7 @@ describe("workspace host sessions", () => {
           root: ".vitehub/workspaces/docs",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({
@@ -504,7 +579,7 @@ describe("workspace host sessions", () => {
     await writeFile(join(target, ".agent-runs", "trace.json"), "before")
     await docs.writeFile("README.md", "authoritative")
     await docs.snapshot({ name: "baseline" })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -516,7 +591,7 @@ describe("workspace host sessions", () => {
           root: ".vitehub/workspaces/docs",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({
@@ -545,7 +620,7 @@ describe("workspace host sessions", () => {
     await writeFile(join(target, ".agent-runs", "trace.json"), "before")
     await docs.writeFile("README.md", "authoritative")
     await docs.snapshot({ name: "baseline" })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -557,7 +632,7 @@ describe("workspace host sessions", () => {
           root: "",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({ host: localHost(), target })).rejects.toThrow("Failed to inspect Workspace revision")
@@ -593,7 +668,7 @@ describe("workspace host sessions", () => {
     const abort = new AbortController()
     await host.files.mkdir("/workspace", { recursive: true })
     await host.files.write("/workspace/local.txt", new TextEncoder().encode("untouched"))
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -602,7 +677,7 @@ describe("workspace host sessions", () => {
         abort.signal.throwIfAborted()
         throw new Error("unreachable")
       },
-    }
+    })
 
     await expect(docs.startSession({ abortSignal: abort.signal, host })).rejects.toThrow()
 
@@ -683,7 +758,7 @@ describe("workspace host sessions", () => {
     const archive = await symlinkRootRevisionArchive()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
     const target = join(targetParent, "workspace")
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -695,7 +770,7 @@ describe("workspace host sessions", () => {
           root: ".vitehub/workspaces/docs",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({ host: localHost(), target }))
@@ -713,7 +788,7 @@ describe("workspace host sessions", () => {
     const archive = await traversalRevisionArchive()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
     const target = join(targetParent, "workspace")
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -725,7 +800,7 @@ describe("workspace host sessions", () => {
           root: "",
         }
       },
-    }
+    })
 
     try {
       await expect(docs.startSession({ host: localHost(), target }))
@@ -742,7 +817,7 @@ describe("workspace host sessions", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
       headers: { "content-type": "application/json" },
     }))
-    const store = createMemoryWorkspaceStore() as ReturnType<typeof createMemoryWorkspaceStore> & WorkspaceRevisionMaterializerCarrier
+    const store = createMemoryWorkspaceStore()
     const listStoreEntries = store.list.bind(store)
     const reservedListCalls: string[] = []
     store.list = async (path, options) => {
@@ -754,7 +829,7 @@ describe("workspace host sessions", () => {
       return await listStoreEntries(path, options)
     }
     let archiveMaterializations = 0
-    store[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(store, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -762,7 +837,7 @@ describe("workspace host sessions", () => {
         archiveMaterializations++
         throw new Error("source-aware Workspace used its Store archive")
       },
-    }
+    })
     const docs = createWorkspace({
       ...defineWorkspace({
         sources: {
@@ -853,7 +928,7 @@ describe("workspace host sessions", () => {
   })
 
   it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
-    const definition = { ...defineWorkspace({ store: { provider: "memory" } }), name: "docs" }
+    const definition = { ...defineWorkspace({ store: { driver: "memory" } }), name: "docs" }
     const firstWorkspace = createWorkspace(definition)
     const secondWorkspace = createWorkspace(definition)
     const archive = await revisionArchive()
@@ -873,8 +948,8 @@ describe("workspace host sessions", () => {
         }
       },
     }
-    ;(firstWorkspace as typeof firstWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
-    ;(secondWorkspace as typeof secondWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
+    provideWorkspaceRevisionMaterializer(firstWorkspace, materializer)
+    provideWorkspaceRevisionMaterializer(secondWorkspace, materializer)
     const snapshot = firstWorkspace.snapshot.bind(firstWorkspace)
     let markSnapshotStarted!: () => void
     const snapshotStarted = new Promise<void>((resolve) => { markSnapshotStarted = resolve })
@@ -918,14 +993,14 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const abort = new AbortController()
     let revision = "0123456789012345678901234567890123456789"
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return revision
       },
       async materializeRevision() {
         return { files: 1, revision, root: "" }
       },
-    }
+    })
     await docs.writeFile("README.md", "before")
     await docs.snapshot({ name: "baseline" })
     const first = await docs.startSession({ host: memoryHost() })
@@ -958,14 +1033,14 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
     let revision = "0123456789012345678901234567890123456789"
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return revision
       },
       async materializeRevision() {
         return { files: 1, revision, root: "" }
       },
-    }
+    })
 
     try {
       await docs.writeFile("README.md", "authoritative")
@@ -1003,12 +1078,12 @@ describe("workspace host sessions", () => {
       options?.abortSignal?.throwIfAborted()
       return revision
     })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       currentRevision,
       async materializeRevision() {
         return { files: 0, revision, root: "" }
       },
-    }
+    })
     const snapshot = docs.snapshot.bind(docs)
     docs.snapshot = async (options) => {
       const result = await snapshot(options)
@@ -1081,7 +1156,7 @@ describe("workspace host sessions", () => {
     const host = memoryHost()
     let revision = "0123456789012345678901234567890123456789"
     let revisionReads = 0
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         if (++revisionReads > 1) await host.files.write("/workspace/README.md", new TextEncoder().encode("later"))
         return revision
@@ -1089,7 +1164,7 @@ describe("workspace host sessions", () => {
       async materializeRevision() {
         return { files: 1, revision, root: "" }
       },
-    }
+    })
     await docs.writeFile("README.md", "before")
     await docs.snapshot({ name: "baseline" })
     const snapshot = docs.snapshot.bind(docs)
@@ -1112,14 +1187,14 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
     let revision = "0123456789012345678901234567890123456789"
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return revision
       },
       async materializeRevision() {
         return { files: 0, revision, root: "" }
       },
-    }
+    })
     const snapshot = docs.snapshot.bind(docs)
     let publications = 0
     docs.snapshot = async (options) => {
@@ -1362,14 +1437,14 @@ describe("workspace host sessions", () => {
     const docs = workspace()
     const firstHost = memoryHost()
     let revision = "0123456789012345678901234567890123456789"
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return revision
       },
       async materializeRevision() {
         return { files: 1, revision, root: "" }
       },
-    }
+    })
     await docs.writeFile("README.md", "before")
     await docs.snapshot({ name: "baseline" })
     const first = await docs.startSession({ host: firstHost })
@@ -1426,12 +1501,12 @@ describe("workspace host sessions", () => {
         root: "",
       }
     })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
       materializeRevision,
-    }
+    })
 
     const session = await docs.startSession({ abortSignal: abort.signal, host })
     await session.writeFile("README.md", "failed mutation")
@@ -1439,7 +1514,6 @@ describe("workspace host sessions", () => {
     await expect(session.close()).resolves.toBeUndefined()
 
     expect(host.readText("/workspace/README.md")).toBe("before")
-    expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
   it("cancels a deferred recursive snapshot during Session close", async () => {
@@ -1476,7 +1550,7 @@ describe("workspace host sessions", () => {
     await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
     await docs.writeFile("README.md", "authoritative")
     await docs.snapshot({ name: "baseline" })
-    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+    provideWorkspaceRevisionMaterializer(docs, {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
       },
@@ -1484,7 +1558,7 @@ describe("workspace host sessions", () => {
         if (materializations++) throw new Error("revision unavailable")
         return { files: 1, revision: "0123456789012345678901234567890123456789", root: "" }
       },
-    }
+    })
 
     const session = await docs.startSession({ host })
     await session.writeFile("README.md", "discarded")

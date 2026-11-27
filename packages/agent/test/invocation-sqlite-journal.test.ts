@@ -1,11 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import type { Client, InStatement, Transaction, TransactionMode } from "@libsql/client"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { createMemoryAgentInvocationStore, observationLimits } from "../src/invocations.ts"
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationStoreUpdateInput } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -31,8 +30,8 @@ const step = (sequence: number, attributes: Record<string, unknown> = {}) => ({
 })
 
 function statementSql(statement: unknown): string {
-  if (hasRuntimeType(statement, "string")) return statement
-  return statement !== null && hasRuntimeType(statement, "object") && "sql" in statement && hasRuntimeType(statement.sql, "string") ? statement.sql : ""
+  if (typeof statement === "string") return statement
+  return statement !== null && typeof statement === "object" && "sql" in statement && typeof statement.sql === "string" ? statement.sql : ""
 }
 
 /** Records the SQL and arguments that the store sends through the client and its transactions. */
@@ -44,7 +43,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
   const wrapTransaction = (transaction: Transaction) => new Proxy(transaction, {
     get(target, property) {
       const value = Reflect.get(target, property)
-      if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+      if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
       return async (statement: InStatement) => {
         record(statement)
         return await target.execute(statement)
@@ -62,6 +61,12 @@ function recordingClient(client: Client, protocol = client.protocol) {
           return await target.execute(statement)
         }
       }
+      if (property === "executeMultiple") {
+        return async (sql: string) => {
+          record(sql)
+          return await target.executeMultiple(sql)
+        }
+      }
       if (property === "batch") {
         return async (batch: InStatement[], mode?: TransactionMode) => {
           batch.forEach(record)
@@ -71,7 +76,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
       if (property === "transaction") {
         return async (mode?: TransactionMode) => wrapTransaction(await target.transaction(mode))
       }
-      return hasRuntimeType(value, "function") ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   }) as Client
   return { client: proxy, statements }
@@ -111,7 +116,7 @@ describe("SQLite invocation journal", () => {
     const readerClient = new Proxy(client, {
       get(target, property) {
         const value = Reflect.get(target, property)
-        if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+        if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
         return async (statement: InStatement) => {
           const result = await target.execute(statement)
           const sql = statementSql(statement)
@@ -163,18 +168,112 @@ describe("SQLite invocation journal", () => {
     expect((await store.list({ search: "null-search" })).invocations.map(record => record.id)).toEqual(["null-search"])
   })
 
-  it("uses WAL with synchronous NORMAL for local database files", async () => {
+  it("uses WAL with synchronous NORMAL and a WAL size limit for local database files", async () => {
     const recording = recordingClient(client)
     const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
-    // synchronous is per connection, so every write sets it on the connection it borrows.
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;\nBEGIN IMMEDIATE;\nCREATE TABLE")))
+      .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
-    expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL")
+    expect(recording.statements.map(statementSql).slice(0, 2)).toEqual(["PRAGMA synchronous = NORMAL;", "PRAGMA journal_size_limit = 67108864"])
     expect((await client.execute("PRAGMA synchronous")).rows[0]?.synchronous).toBe(1)
+  })
+
+  it.each(["update", "prune"] as const)("limits WAL reuse on a different pooled connection during %s", async (operation) => {
+    const limit = 64 * 1024 * 1024
+    const wal = join(directory, "invocations.sqlite-wal")
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    await store.create(invocation("run", { status: operation === "prune" ? "completed" : "running" }))
+    await client.execute("CREATE TABLE wal_burst (payload BLOB)")
+    await client.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    const reader = await client.transaction("read")
+    try {
+      await reader.execute("SELECT count(*) FROM wal_burst")
+      await client.execute(`INSERT INTO wal_burst VALUES (zeroblob(${limit + 1024 * 1024}))`)
+    }
+    finally {
+      await reader.rollback()
+    }
+    const checkpoint = (await client.execute("PRAGMA wal_checkpoint(PASSIVE)")).rows[0]
+    expect(checkpoint?.checkpointed).toBe(checkpoint?.log)
+    expect((await stat(wal)).size).toBeGreaterThan(limit)
+
+    const held: Transaction[] = []
+    const borrowIdle = async () => { held.push(await client.transaction("read")) }
+    const executeMultiple = client.executeMultiple.bind(client)
+    client.executeMultiple = async (sql) => {
+      await executeMultiple(sql)
+      if (sql.startsWith("PRAGMA synchronous")) await borrowIdle()
+    }
+    try {
+      await borrowIdle()
+      await borrowIdle()
+      if (operation === "update") {
+        expect((await store.update("run", { observation: step(1), timestamp: at(1) }))?.observations).toEqual([step(1)])
+      }
+      else {
+        expect((await store.prune({ updatedBefore: at(1) })).ids).toEqual(["run"])
+      }
+      expect((await stat(wal)).size).toBe(limit)
+    }
+    finally {
+      for (const transaction of held) await transaction.rollback()
+    }
+  })
+
+  it.each([false, true])("uses NORMAL on each borrowed schema connection (legacy: %s)", async (legacy) => {
+    await client.execute("CREATE TABLE schema_modes (mode INTEGER NOT NULL)")
+    if (legacy) {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, record TEXT NOT NULL
+      )`)
+      await client.execute(`CREATE TABLE vitehub_agent_invocations_claims (
+        id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, expires_at INTEGER NOT NULL
+      )`)
+    }
+    const recordMode = "INSERT INTO schema_modes SELECT synchronous FROM pragma_synchronous"
+    const onBorrowedConnection = async <T>(operation: () => Promise<T>) => {
+      // Hold the idle connection so schema creation must borrow another one. Reset that connection to its default.
+      const held = await client.transaction("read")
+      try {
+        await client.execute("PRAGMA synchronous = FULL")
+        return await operation()
+      }
+      finally {
+        await held.rollback()
+      }
+    }
+    const pooled = new Proxy(client, {
+      get(target, property) {
+        if (property === "execute") {
+          return async (statement: InStatement) => {
+            if (!/^\s*(CREATE|ALTER|DROP)\b/.test(statementSql(statement))) return await target.execute(statement)
+            return await onBorrowedConnection(async () => {
+              await target.execute(recordMode)
+              return await target.execute(statement)
+            })
+          }
+        }
+        if (property === "executeMultiple") {
+          return async (sql: string) => await onBorrowedConnection(async () => {
+            // Read the effective setting in the same call and on the same connection as the schema statement.
+            await target.executeMultiple(`${sql}; ${recordMode}`)
+          })
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const store = createLibsqlAgentInvocationStore({ client: pooled, maxAge: false, maxRecords: false })
+    await store.create(invocation("run"))
+    const modes = (await client.execute("SELECT mode FROM schema_modes")).rows.map(row => row.mode)
+    expect(modes.length).toBeGreaterThanOrEqual(3)
+    expect(modes).toEqual(modes.map(() => 1))
+    expect((await store.get("run"))?.id).toBe("run")
   })
 
   it.each(["http", "https", "ws", "wss"])("does not set journal pragmas for remote %s databases", async (protocol) => {
@@ -184,21 +283,21 @@ describe("SQLite invocation journal", () => {
       const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
-      expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA journal_mode") || sql.startsWith("PRAGMA synchronous"))).toEqual([])
+      expect(recording.statements.map(statementSql).filter(sql => /PRAGMA (journal_mode|synchronous|journal_size_limit)/.test(sql))).toEqual([])
     }
     finally {
       memory.close()
     }
   })
 
-  it("does not set synchronous NORMAL for in-memory databases", async () => {
+  it("does not set WAL write pragmas for in-memory databases", async () => {
     const memory = createClient({ url: ":memory:" })
     try {
       const recording = recordingClient(memory)
       const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
-      expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA synchronous"))).toEqual([])
+      expect(recording.statements.map(statementSql).filter(sql => /PRAGMA (synchronous|journal_size_limit)/.test(sql))).toEqual([])
     }
     finally {
       memory.close()
@@ -238,7 +337,7 @@ describe("SQLite invocation journal", () => {
     await store.create(invocation("run", { observations: [step(1)] }))
     for (let sequence = 2; sequence <= 5; sequence++) await store.update("run", { observation: step(sequence), timestamp: at(sequence) })
     await store.update("run", { status: "completed", timestamp: at(6) })
-    // Readers of the record column, such as the Console usage index, see the complete record.
+    // Readers of the record column, such as readAgentUsage(), see the complete record.
     const row = (await client.execute(`SELECT status, json_array_length(record, '$.observations') AS count,
       (SELECT count(*) FROM vitehub_agent_invocations_observations) AS rows FROM vitehub_agent_invocations WHERE id = 'run'`)).rows[0]
     expect(row).toMatchObject({ count: 5, rows: 0, status: "completed" })
@@ -281,7 +380,7 @@ describe("SQLite invocation journal", () => {
     const query = recording.statements.map(statementSql).find(sql => sql.startsWith("SELECT position, observation FROM"))
     if (!query) throw new Error("Expected an observation read")
     const plan = await client.execute({ args: ["run", JSON.stringify(["agent.invocation.finish"])], sql: `EXPLAIN QUERY PLAN ${query}` })
-    expect(plan.rows.some(row => hasRuntimeType(row.detail, "string") && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
+    expect(plan.rows.some(row => typeof row.detail === "string" && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
     expect((await store.get("run"))?.observations.map(entry => entry.sequence)).toEqual([1, 2, 3])
   })
 

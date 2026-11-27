@@ -1,12 +1,28 @@
+import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { parse } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "./public-package-exports"
-import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
+import { listWorkspacePackageInfos } from "../packages/internal/src/workspace-inventory.ts"
+import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot, toRepoPath, walkFiles } from "./utils/repo"
 
 describe("public package export contracts", () => {
+  it("limits Content's Tiptap peers to the editor and Realtime exports", () => {
+    const tiptapPeers = Object.keys(readPackageManifest("content").peerDependencies || {})
+      .filter(peer => peer.startsWith("@tiptap/"))
+
+    expect(tiptapPeers.length).toBeGreaterThan(0)
+    for (const contract of publicPackageExportContracts.filter(entry => entry.packageName === "@vite-hub/content")) {
+      const usesEditor = contract.subpath === "./editor" || contract.subpath === "./realtime"
+      const expected = usesEditor ? tiptapPeers.toSorted() : []
+      expect(contract.optionalRuntimePeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+      expect(contract.optionalDeclarationPeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+    }
+  })
+
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
     for (const specifier of ["@vite-hub/auth/mcp", "vite-hub/auth/mcp"]) {
       const contract = publicPackageExportContracts.find(entry => entry.specifier === specifier)
@@ -26,12 +42,24 @@ describe("public package export contracts", () => {
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
-    expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
-    expect(content).toContain("fetch(input: Request | URL | string): Promise<Response>")
-    expect(server).toContain("(event: unknown): Promise<unknown>")
-    expect(content).toContain("(event: unknown): Promise<unknown>")
+    expect(server).toContain("fetch(request: Request): Promise<Response>")
+    expect(content).toContain("fetch(request: Request): Promise<Response>")
+    expect(server).not.toContain('from "h3"')
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
+    expect(content).not.toContain('from "h3"')
+  })
+
+  it("publishes exactly the checked-in subpaths of each package", () => {
+    for (const info of packageInfos) {
+      const path = `packages/${info.name}/package.json`
+      const subpaths = Object.keys(readPackageManifest(info.name).exports || {})
+      const checkedIn = parse(packageManifestSchema, JSON.parse(execFileSync("git", ["show", `:${path}`], { cwd: repoRoot, encoding: "utf8" })))
+      expect(subpaths, `the build rewrote the exports of ${path}`).toEqual(Object.keys(checkedIn.exports || {}))
+      expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
+      expect(subpaths.filter(subpath => /(?:^|\/)_internal(?:\/|$)/.test(subpath)), `${path} exports an _internal subpath`).toEqual([])
+    }
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -62,15 +90,24 @@ describe("public package export contracts", () => {
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/database/nuxt", "vite"],
       ["@vite-hub/database/vite", "vite"],
+      ["@vite-hub/mcp/eval", "@ai-sdk/mcp"],
       ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/schedule/vite", "vite"],
       ["@vite-hub/source/client", "vue"],
+      ["@vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/forge", "@vite-hub/forge"],
+      ["vite-hub/i18n", "@vite-hub/i18n"],
+      ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
+      ["vite-hub/i18n/server", "@vite-hub/i18n"],
+      ["vite-hub/i18n/vue", "@vite-hub/i18n"],
+      ["vite-hub/mcp/eval", "@ai-sdk/mcp"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
+      ["vite-hub/source/mcp", "@modelcontextprotocol/sdk"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
       ["vite-hub/ui/vite", "vite"],
@@ -82,12 +119,14 @@ describe("public package export contracts", () => {
     }
   })
 
-  it("keeps Comments dependencies installed and classifies its optional Vite peer", () => {
+  it("keeps Comments database peers required and classifies its optional Vite peer", () => {
     const manifest = readPackageManifest("comments")
-    expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["drizzle-orm"]).toBeUndefined()
+    expect(manifest.peerDependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["drizzle-orm"]?.optional).not.toBe(true)
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
-    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+    for (const subpath of ["database", "database/postgres", "server"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
       expect(contract?.optionalRuntimePeers).toEqual([])
       expect(contract?.optionalDeclarationPeers).toEqual([])
@@ -106,7 +145,11 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("ui")
     const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
     for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
-      expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      if (peer === "@tiptap/extension-drag-handle" || peer === "@tiptap/extension-drag-handle-vue-3") {
+        expect(contract?.optionalRuntimePeers).not.toContain(peer)
+      } else {
+        expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      }
       expect(contract?.optionalDeclarationPeers, `${peer} is needed to typecheck the editor`).toContain(peer)
     }
   })
@@ -130,7 +173,7 @@ describe("public package export contracts", () => {
 
   it("classifies the Logs Evlog boundary for isolated consumers", () => {
     for (const [specifier, declarations, runtime] of [
-      ["vite-hub/logs", ["evlog"], ["evlog"]],
+      ["vite-hub/logs", ["evlog"], []],
       ["vite-hub/logs/memory", ["evlog"], []],
       ["vite-hub/logs/source", [], []],
       ["vite-hub/logs/host", [], []],
@@ -144,19 +187,13 @@ describe("public package export contracts", () => {
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],
-      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium", "playwright-core"],
-      ["@vite-hub/browser/internal/chromium.workerd", "playwright-core"],
       ["@vite-hub/browser/vite", "vite"],
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/task/vite", "vite"],
-      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
-      ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
-      ["@vite-hub/workspace/nitro", "vite"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])
@@ -194,37 +231,47 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
-    expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
-    expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
-    for (const dependency of ["@tiptap/core", "@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
+    for (const dependency of ["@tiptap/core", "@tiptap/pm", "yjs"]) {
+      expect(manifest.peerDependencies?.[dependency], `realtime should take ${dependency} from the app`).toEqual(expect.any(String))
+      expect(manifest.dependencies?.[dependency]).toBeUndefined()
+    }
+    for (const dependency of ["@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }
-    // @tiptap/y-tiptap imports prosemirror-transform without declaring it.
-    // Keep this runtime closure self-contained for isolated consumers while
-    // leaving the shared ProseMirror and Yjs peer constructors external.
     expect(packConfig).toContain("/^@tiptap\\/(?:extension-collaboration|y-tiptap)/")
     expect(packConfig).toContain("prosemirror-(?:model|state|transform|view)")
   })
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
-    for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {
-      expect(manifest.dependencies?.[dependency], `auth should install ${dependency}`).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@types/node"], "auth should install @types/node").toEqual(expect.any(String))
+    for (const dependency of ["@cloudflare/workers-types", "bun-types"]) {
+      expect(manifest.dependencies?.[dependency], `auth should not install ${dependency}`).toBeUndefined()
     }
     const hostDeclarations = readFileSync(join(packageDir("auth"), "src/host-declarations.d.ts"), "utf8")
+    expect(hostDeclarations).toContain('/// <reference path="./bun-sqlite.d.ts" />')
     expect(hostDeclarations).toContain("interface Timer")
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
 
-  it("keeps Blob declarations independent from H3 host declarations", () => {
+  it("keeps Cloudflare Worker declarations out of the vite-hub install", () => {
+    const manifest = readPackageManifest("vite-hub")
+    expect(manifest.dependencies?.["@cloudflare/workers-types"], "vite-hub should not install @cloudflare/workers-types").toBeUndefined()
+    expect(manifest.peerDependencies?.["@cloudflare/workers-types"]).toBe(">=4")
+    expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
+  })
+
+  it("declares H3 for Blob serve authorization callbacks", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
-    expect(source).not.toMatch(/from ["']h3["']/)
+    expect(readPackageManifest("blob").dependencies?.h3).toBeDefined()
+    expect(source).toContain("export type BlobServeAuthorize = AccessAuthorize<H3Event>")
+    expect(source).toContain("export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>")
   })
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
-    const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
-    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
+    const source = readFileSync(join(packageDir("realtime"), "src/internal/server.ts"), "utf8")
+    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry, options: RealtimeHandlerOptions = \{\}\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 
@@ -232,6 +279,15 @@ describe("public package export contracts", () => {
     const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/event: ViteHubContext/)
     expect(source).toContain("getStandardContext(event).req.json()")
+  })
+
+  it("bundles private workspace packages into every published dist", () => {
+    const privateNames = listWorkspacePackageInfos(repoRoot).filter(info => info.private).map(info => info.packageName.replace("/", "\\/"))
+    const privateImport = new RegExp(`(?:\\bfrom|\\bimport|\\brequire\\s*\\()\\s*["'](${privateNames.join("|")})(?:\\/[^"']*)?["']`, "g")
+    const found = packageInfos.flatMap(info => walkFiles(join(packageDir(info.name), "dist"), { extensions: new Set(["cjs", "js", "mjs", "ts", "mts", "cts", "vue"]) })
+      .flatMap(file => [...readFileSync(file, "utf8").matchAll(privateImport)].map(match => `${toRepoPath(file)} imports ${match[1]}`)))
+
+    expect(found).toEqual([])
   })
 
   it("points every contract at a built artifact", () => {

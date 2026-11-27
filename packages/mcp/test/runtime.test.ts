@@ -1,0 +1,473 @@
+import { HTTPError } from "h3"
+import { describe, expect, it, vi } from "vitest"
+import { z } from "zod"
+
+import { defineMcpTool } from "../src/index.ts"
+import { createMcpHandler, toMcpToolResult } from "../src/runtime.ts"
+
+import type { H3Event } from "h3"
+import type { McpPromptDefinition, McpResourceDefinition, McpToolCaller } from "../src/index.ts"
+import type { McpHandlerOptions } from "../src/runtime.ts"
+
+const add = defineMcpTool({
+  title: "Add",
+  description: "Add two numbers.",
+  input: z.object({ a: z.number(), b: z.number() }),
+  annotations: { readOnlyHint: true },
+  handler: ({ a, b }) => ({ sum: a + b }),
+})
+
+const whoami = defineMcpTool({
+  description: "Who calls.",
+  handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello stranger",
+})
+
+function event(body: unknown, headers: Record<string, string> = {}): H3Event {
+  const req = new Request("https://app.example.com/mcp", { body: JSON.stringify(body), headers: { "content-type": "application/json", ...headers }, method: "POST" })
+  // SAFETY: The handler reads only `req` and passes the event to the tools.
+  return { req, url: new URL(req.url) } as unknown as H3Event
+}
+
+interface Answer {
+  code?: string
+  error?: { code: number, data?: unknown, message: string }
+  result: {
+    capabilities?: unknown
+    content: Array<{ text: string, type: string }>
+    contents?: unknown
+    instructions?: string
+    isError: boolean
+    _meta?: Record<string, string[]>
+    messages?: unknown
+    prompts?: unknown
+    resourceTemplates?: unknown
+    resources?: unknown
+    serverInfo?: unknown
+    tools: unknown[]
+  }
+}
+
+async function rpc(options: Partial<McpHandlerOptions>, method: string, params?: unknown, headers?: Record<string, string>) {
+  const handler = createMcpHandler({ name: "fixture", route: "/mcp", tools: { add, whoami }, ...options })
+  const response = await handler(event({ id: 1, jsonrpc: "2.0", method, ...(params ? { params } : {}) }, headers))
+  // SAFETY: The tests read the fields of the answer that they assert.
+  return { body: await response.json() as Answer, response }
+}
+
+describe("app MCP server", () => {
+  it("lists each tool with the JSON Schema of its input", async () => {
+    const { body } = await rpc({}, "tools/list")
+    expect(body.result.tools).toEqual([
+      {
+        annotations: { readOnlyHint: true },
+        description: "Add two numbers.",
+        inputSchema: expect.objectContaining({ properties: { a: { type: "number" }, b: { type: "number" } }, required: ["a", "b"], type: "object" }),
+        name: "add",
+        title: "Add",
+      },
+      { description: "Who calls.", inputSchema: { type: "object" }, name: "whoami" },
+    ])
+  })
+
+  it("calls a tool with checked input and returns data as JSON and structured content", async () => {
+    const { body } = await rpc({}, "tools/call", { arguments: { a: 2, b: 3 }, name: "add" })
+    expect(body.result).toEqual({ content: [{ text: "{\"sum\":5}", type: "text" }], isError: false, structuredContent: { sum: 5 } })
+  })
+
+  it("answers invalid input with a tool error that names the field", async () => {
+    const { body } = await rpc({}, "tools/call", { arguments: { a: "2", b: 3 }, name: "add" }, { "mcp-protocol-version": "2025-11-25" })
+    expect(body.result.isError).toBe(true)
+    expect(body.result.content[0].text).toMatch(/^Invalid arguments for add: a: /)
+  })
+
+  it("returns a protocol error for invalid arguments from a legacy client", async () => {
+    const handler = vi.fn(() => "valid")
+    const tools = { add: defineMcpTool({ ...add, handler }) }
+    const { body } = await rpc({ tools }, "tools/call", { arguments: { a: "2", b: 3 }, name: "add" }, { "mcp-protocol-version": "2025-06-18" })
+    expect(body.error).toMatchObject({ code: -32602, message: expect.stringMatching(/^Invalid arguments for add: a: /) })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("validates asynchronous schemas once and passes their transformed output", async () => {
+    const validate = vi.fn(async () => ({ value: { a: 4, b: 5 } }))
+    const tools = { add: defineMcpTool({ ...add, input: { ...add.input!, "~standard": { ...add.input!["~standard"], validate } } }) }
+    const { body } = await rpc({ tools }, "tools/call", { arguments: { a: 1, b: 2 }, name: "add" })
+    expect(body.result.content).toEqual([{ text: '{"sum":9}', type: "text" }])
+    expect(validate).toHaveBeenCalledOnce()
+  })
+
+  it("advertises the mounted resource path in the OAuth challenge", async () => {
+    const verify = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "Missing token." }, undefined] as const
+    const { response } = await rpc({ route: "/portal/mcp", verify }, "tools/list")
+    expect(response.headers.get("www-authenticate")).toBe('Bearer resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/portal/mcp"')
+  })
+
+  it("turns a 4xx error into a tool error and hides other errors", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const tools = {
+      missing: defineMcpTool({ description: "Not found.", handler: () => { throw new HTTPError({ message: "No drop 42.", status: 404 }) } }),
+      broken: defineMcpTool({ description: "Broken.", handler: () => { throw new Error("database password is wrong") } }),
+      statusCodeOnly: defineMcpTool({ description: "H3 1 shape.", handler: () => { throw Object.assign(new Error("database host is down"), { statusCode: 404 }) } }),
+    }
+    expect((await rpc({ tools }, "tools/call", { name: "missing" })).body.result).toEqual({ content: [{ text: "No drop 42.", type: "text" }], isError: true })
+    expect((await rpc({ tools }, "tools/call", { name: "broken" })).body.result).toEqual({ content: [{ text: "broken failed on the server.", type: "text" }], isError: true })
+    expect((await rpc({ tools }, "tools/call", { name: "statusCodeOnly" })).body.result).toEqual({ content: [{ text: "statusCodeOnly failed on the server.", type: "text" }], isError: true })
+    expect(error).toHaveBeenCalledTimes(2)
+    error.mockRestore()
+  })
+
+  it("rejects a request without a valid token with a 401 that names the resource metadata", async () => {
+    const verify = vi.fn(async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const)
+    const { body, response } = await rpc({ verify }, "tools/list")
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe("Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\"")
+    expect(body).toMatchObject({ code: "AUTH_MCP_TOKEN_MISSING" })
+
+    const invalid = vi.fn(async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: \"exp\" claim failed" }, undefined] as const)
+    const rejected = await rpc({ verify: invalid }, "tools/list", undefined, { authorization: "Bearer old" })
+    expect(rejected.response.headers.get("www-authenticate")).toBe("Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"The access token is not valid: 'exp' claim failed\"")
+  })
+
+  it("rejects a tool that sets access when the server has no publicRoute", () => {
+    const secret = { add, secret: defineMcpTool({ description: "Secret.", access: "public", handler: () => "secret" }) }
+    expect(() => createMcpHandler({ name: "fixture", route: "/mcp", tools: secret })).toThrow(expect.objectContaining({ name: "MCP_R0001" }))
+    const tools = { search: defineMcpTool({ description: "Search.", access: "public", handler: () => "results" }) }
+    expect(() => createMcpHandler({ name: "fixture", publicRoute: "/mcp", route: "/mcp/account", tools })).not.toThrow()
+  })
+
+  it("passes the signed-in caller to the tools", async () => {
+    const caller = { clientId: "client", clientName: "Claude Code", scopes: ["openid"], user: { id: "u1", name: "Ada" } }
+    const { body } = await rpc({ verify: async () => [undefined, caller] }, "tools/call", { name: "whoami" })
+    expect(body.result.content).toEqual([{ text: "Hello Ada", type: "text" }])
+  })
+})
+
+describe("app MCP prompts, resources, and server info", () => {
+  const reviewInput = z.object({ number: z.string().describe("The pull request number."), focus: z.string().optional() })
+  const review: McpPromptDefinition<typeof reviewInput> = {
+    title: "Review",
+    description: "Review a pull request.",
+    input: reviewInput,
+    handler: ({ number, focus }, { caller }) => `Review pull request ${number}${focus ? ` for ${focus}` : ""} as ${caller?.user.name ?? "anyone"}.`,
+  }
+  const changelog = { uri: "docs://changelog", title: "Changelog", mimeType: "text/markdown", handler: () => "# Changelog" } satisfies McpResourceDefinition
+  const files: Record<string, string> = { "drop/SKILL.md": "# Drop", "drop/references/api.md": "# API" }
+  const skillFile = {
+    uriTemplate: "skill://{name}/{+path}",
+    description: "A file of a skill.",
+    mimeType: "text/markdown",
+    list: () => Object.keys(files).map(file => ({ uri: `skill://${file}` })),
+    handler: (_uri, { variables }) => files[`${variables.name}/${variables.path}`],
+  } satisfies McpResourceDefinition
+  const logo = { uri: "assets://logo", mimeType: "image/png", handler: () => new Uint8Array([137, 80, 78, 71]) } satisfies McpResourceDefinition
+  const options = { prompts: { review }, resources: { changelog, logo, skill_file: skillFile } }
+
+  it("advertises prompts and resources only when the app has them", async () => {
+    expect((await rpc({}, "initialize")).body.result.capabilities).toEqual({ tools: { listChanged: false } })
+    expect((await rpc(options, "initialize")).body.result.capabilities).toEqual({
+      prompts: { listChanged: false },
+      resources: { listChanged: false, subscribe: false },
+      tools: { listChanged: false },
+    })
+    expect((await rpc({}, "prompts/list")).body.error?.code).toBe(-32601)
+  })
+
+  it("sends the configured instructions and server info, with icons on the request origin", async () => {
+    const serverInfo = {
+      name: "drop",
+      title: "Drop",
+      version: "0.1.0",
+      description: "Publish docs for review.",
+      websiteUrl: "/",
+      icons: [{ mimeType: "image/svg+xml", sizes: ["any"], src: "/favicon.svg" }, { src: "https://cdn.example.com/icon.png" }],
+    }
+    const { body } = await rpc({ instructions: "Read the drop skill first.", serverInfo }, "initialize")
+    expect(body.result.instructions).toBe("Read the drop skill first.")
+    expect(body.result.serverInfo).toEqual({
+      ...serverInfo,
+      websiteUrl: "https://app.example.com/",
+      icons: [{ mimeType: "image/svg+xml", sizes: ["any"], src: "https://app.example.com/favicon.svg" }, { src: "https://cdn.example.com/icon.png" }],
+    })
+    expect((await rpc({}, "initialize")).body.result.serverInfo).toEqual({ name: "fixture", title: "fixture", version: "1" })
+  })
+
+  it("lists each prompt with the fields of its input as arguments", async () => {
+    const { body } = await rpc(options, "prompts/list")
+    expect(body.result.prompts).toEqual([{
+      arguments: [{ description: "The pull request number.", name: "number", required: true }, { name: "focus", required: false }],
+      description: "Review a pull request.",
+      name: "review",
+      title: "Review",
+    }])
+  })
+
+  it("gets a prompt with checked arguments and the caller", async () => {
+    const caller = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
+    const { body } = await rpc({ ...options, verify: async () => [undefined, caller] }, "prompts/get", { arguments: { focus: "bugs", number: "12" }, name: "review" })
+    expect(body.result).toEqual({ messages: [{ content: { text: "Review pull request 12 for bugs as Ada.", type: "text" }, role: "user" }] })
+    const invalid = await rpc(options, "prompts/get", { arguments: {}, name: "review" })
+    expect(invalid.body.error).toMatchObject({ code: -32602, message: expect.stringMatching(/^Invalid arguments for review: number: /) })
+    expect((await rpc(options, "prompts/get", { name: "missing" })).body.error?.code).toBe(-32602)
+  })
+
+  it("lists fixed resources, the resources of a template, and the templates", async () => {
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([
+      { mimeType: "text/markdown", name: "changelog", title: "Changelog", uri: "docs://changelog" },
+      { mimeType: "image/png", name: "logo", uri: "assets://logo" },
+      { name: "skill://drop/SKILL.md", uri: "skill://drop/SKILL.md" },
+      { name: "skill://drop/references/api.md", uri: "skill://drop/references/api.md" },
+    ])
+    expect((await rpc(options, "resources/templates/list")).body.result.resourceTemplates).toEqual([
+      { description: "A file of a skill.", mimeType: "text/markdown", name: "skill_file", uriTemplate: "skill://{name}/{+path}" },
+    ])
+  })
+
+  it("reads text, bytes, and template resources, and answers -32002 for an unknown URI", async () => {
+    expect((await rpc(options, "resources/read", { uri: "docs://changelog" })).body.result.contents).toEqual([{ mimeType: "text/markdown", text: "# Changelog", uri: "docs://changelog" }])
+    expect((await rpc(options, "resources/read", { uri: "assets://logo" })).body.result.contents).toEqual([{ blob: "iVBORw==", mimeType: "image/png", uri: "assets://logo" }])
+    expect((await rpc(options, "resources/read", { uri: "skill://drop/references/api.md" })).body.result.contents).toEqual([{ mimeType: "text/markdown", text: "# API", uri: "skill://drop/references/api.md" }])
+    expect((await rpc(options, "resources/read", { uri: "skill://drop/missing.md" })).body.error).toMatchObject({ code: -32002, data: { uri: "skill://drop/missing.md" } })
+  })
+
+  it("matches empty values and percent-encoded literals of a URI template", async () => {
+    const manual = {
+      uriTemplate: "docs://café/{+page}",
+      handler: (_uri: string, { variables }: { variables: Record<string, string> }) => `page "${variables.page}"`,
+    } satisfies McpResourceDefinition
+    const read = async (uri: string) => (await rpc({ resources: { manual } }, "resources/read", { uri })).body.result.contents
+    expect(await read("docs://caf%C3%A9/intro")).toEqual([{ text: "page \"intro\"", uri: "docs://caf%C3%A9/intro" }])
+    expect(await read("docs://café/")).toEqual([{ text: "page \"\"", uri: "docs://café/" }])
+  })
+
+  it("turns a 4xx error of a resource into its message and hides other errors", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const resources = {
+      denied: { uri: "a://denied", handler: () => { throw new HTTPError({ message: "Sign in to read it.", status: 403 }) } },
+      broken: { uri: "a://broken", handler: () => { throw new Error("database password is wrong") } },
+    }
+    expect((await rpc({ resources }, "resources/read", { uri: "a://denied" })).body.error).toMatchObject({ code: -32602, message: "Sign in to read it." })
+    expect((await rpc({ resources }, "resources/read", { uri: "a://broken" })).body.error).toMatchObject({ code: -32603, message: "broken failed on the server." })
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+  })
+})
+
+describe("MCP Apps metadata", () => {
+  const playerUri = "ui://lessons/player.html"
+  const html = "<!doctype html><title>Player</title>"
+  const showLesson = defineMcpTool({
+    description: "Play a lesson.",
+    input: z.object({ id: z.string() }),
+    _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } },
+    handler: ({ id }) => ({ content: [{ text: `Playing ${id}.`, type: "text" }], structuredContent: { id }, _meta: { audio: `/audio/${id}.mp3` } }),
+  })
+  const player = {
+    uri: playerUri,
+    mimeType: "text/html;profile=mcp-app",
+    _meta: { ui: { csp: { connectDomains: ["https://app.example.com"] }, prefersBorder: false } },
+    handler: () => html,
+  } satisfies McpResourceDefinition
+  const options = { resources: { player }, tools: { show_lesson: showLesson } }
+
+  it("lists the _meta of a tool, so the client knows which UI shows its result", async () => {
+    const { body } = await rpc(options, "tools/list")
+    expect(body.result.tools).toEqual([expect.objectContaining({ _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } }, name: "show_lesson" })])
+  })
+
+  it("sends the _meta of a tool result to the client", async () => {
+    const { body } = await rpc(options, "tools/call", { arguments: { id: "l1" }, name: "show_lesson" })
+    expect(body.result).toEqual({ _meta: { audio: "/audio/l1.mp3" }, content: [{ text: "Playing l1.", type: "text" }], isError: false, structuredContent: { id: "l1" } })
+  })
+
+  it("lists and reads the HTML resource with its _meta", async () => {
+    const meta = player._meta
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", name: "player", uri: playerUri }])
+    expect((await rpc(options, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+
+  it("sends the _meta of contents that a handler returns", async () => {
+    const domains = { uri: playerUri, handler: (uri: string) => ({ contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: html, _meta: { ui: { domain: "https://app.example.com" } } }] }) } satisfies McpResourceDefinition
+    expect((await rpc({ resources: { player: domains } }, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: { ui: { domain: "https://app.example.com" } }, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+})
+
+describe("optional sign-in on one route", () => {
+  const missing = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+  const signedIn = { clientId: "client", clientName: "ChatGPT", scopes: ["lessons:read"], user: { id: "u1", name: "Ada" } }
+  const showLesson = defineMcpTool({ description: "Play a lesson.", access: "public", scopes: ["lessons:read"], handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello guest" })
+  const createHandler = vi.fn(() => "created")
+  const createLesson = defineMcpTool({ description: "Create a lesson.", input: z.object({ title: z.string() }), scopes: ["lessons:write"], handler: createHandler })
+  const player = { uri: "ui://lessons/player.html", access: "public", handler: () => "<html>" } satisfies McpResourceDefinition
+  const notes = { uri: "notes://mine", handler: () => "private" } satisfies McpResourceDefinition
+  const options = { optional: true, resources: { notes, player }, tools: { create_lesson: createLesson, show_lesson: showLesson }, verify: missing }
+
+  it("lists every tool without a token, with the securitySchemes that say which need sign-in", async () => {
+    const { body, response } = await rpc(options, "tools/list")
+    expect(response.status).toBe(200)
+    const oauth = (scopes: string[]) => ({ scopes, type: "oauth2" })
+    expect(body.result.tools).toEqual([
+      expect.objectContaining({ _meta: { securitySchemes: [oauth(["lessons:write"])] }, name: "create_lesson", securitySchemes: [oauth(["lessons:write"])] }),
+      expect.objectContaining({ _meta: { securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }, name: "show_lesson", securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }),
+    ])
+  })
+
+  it("runs a public tool without a token and asks for sign-in before any other tool runs", async () => {
+    expect((await rpc(options, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    const { body } = await rpc(options, "tools/call", { arguments: {}, name: "create_lesson" })
+    expect(body.result).toEqual({
+      _meta: { "mcp/www_authenticate": ["Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"insufficient_scope\", error_description=\"Sign in to call create_lesson. Ask the user to connect their account.\", scope=\"lessons:write\""] },
+      content: [{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }],
+      isError: true,
+    })
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("serves only public resources without a token", async () => {
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect((await rpc(options, "resources/read", { uri: "notes://mine" })).body.error?.code).toBe(-32002)
+  })
+
+  it("rejects an invalid token with a 401", async () => {
+    const invalid = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: expired" }, undefined] as const
+    expect((await rpc({ ...options, verify: invalid }, "tools/list")).response.status).toBe(401)
+  })
+
+  it("asks a signed-in caller without the scopes of a tool to approve them, in a tool result", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    expect((await rpc({ ...options, verify }, "tools/list")).body.result.tools).toHaveLength(2)
+    expect((await rpc({ ...options, verify }, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello Ada", type: "text" }])
+    const { body, response } = await rpc({ ...options, verify }, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(200)
+    expect(body.result).toMatchObject({ content: [{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }], isError: true })
+    expect(body.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("hides a tool from a caller without its scopes and answers a call with 403 when sign-in is required", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    const required = { tools: { create_lesson: createLesson }, verify }
+    expect((await rpc(required, "tools/list")).body.result.tools).toEqual([])
+    const { body, response } = await rpc(required, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(403)
+    expect(body.error?.code).toBe(-32001)
+    expect(response.headers.get("www-authenticate")).toContain("scope=\"lessons:write\"")
+  })
+
+  it("leaves a request without a token anonymous and accepts another bearer token through verifyToken", async () => {
+    const notOAuth = async (request: Request) => request.headers.has("authorization")
+      ? [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+      : [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Lesson script", scopes: ["lessons:read"], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "key_valid" ? keyCaller : undefined)
+    const keyed = { ...options, hooks: { verifyToken }, verify: notOAuth }
+
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })).body.result.content).toEqual([{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }])
+    expect((await rpc(keyed, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect(verifyToken).not.toHaveBeenCalled()
+
+    const key = { authorization: "Bearer key_valid" }
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" }, key)).body.result.content).toEqual([{ text: "Hello Grace", type: "text" }])
+    expect((await rpc(keyed, "resources/list", undefined, key)).body.result.resources).toHaveLength(2)
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" }, key)).body.result.content).toEqual([{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "key_valid" })
+
+    const revoked = await rpc(keyed, "tools/list", undefined, { authorization: "Bearer key_revoked" })
+    expect(revoked.response.status).toBe(401)
+    expect(revoked.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("still answers 401 without a token when sign-in is required", async () => {
+    expect((await rpc({ ...options, optional: false, tools: { create_lesson: createLesson } }, "tools/list")).response.status).toBe(401)
+  })
+})
+
+describe("app MCP hooks", () => {
+  const signedIn = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
+  const verify = async () => [undefined, signedIn] as const
+  // SAFETY: These tests pass `resolveCaller` without the generated registry, so `caller` is typed as the OAuth caller.
+  const teamOf = (caller: unknown) => (caller as { team: string }).team
+  const team = defineMcpTool({ description: "The team of the caller.", handler: (_input, { caller }) => `Team ${teamOf(caller)}` })
+  const brief: McpPromptDefinition<undefined> = { handler: (_input, { caller }) => `Brief for ${teamOf(caller)}` }
+  const members: McpResourceDefinition = { uri: "team://members", handler: (_uri, { caller }) => `Members of ${teamOf(caller)}` }
+
+  it("passes what resolveCaller returns to tools, prompts, and resources, once per request", async () => {
+    const resolveCaller = vi.fn(async ({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller }, prompts: { brief }, resources: { members }, tools: { team }, verify }
+    expect((await rpc(options, "tools/call", { name: "team" })).body.result.content).toEqual([{ text: "Team team-of-u1", type: "text" }])
+    expect((await rpc(options, "prompts/get", { name: "brief" })).body.result.messages).toEqual([{ content: { text: "Brief for team-of-u1", type: "text" }, role: "user" }])
+    expect((await rpc(options, "resources/read", { uri: "team://members" })).body.result.contents).toEqual([{ text: "Members of team-of-u1", uri: "team://members" }])
+    expect(resolveCaller).toHaveBeenCalledTimes(3)
+    expect(resolveCaller).toHaveBeenCalledWith({ caller: signedIn, event: expect.objectContaining({ req: expect.any(Request) }) })
+
+    await rpc(options, "initialize")
+    await rpc(options, "tools/list")
+    expect(resolveCaller).toHaveBeenCalledTimes(3)
+  })
+
+  it("accepts another bearer token through verifyToken and gives its caller to resolveCaller", async () => {
+    const notOAuth = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Budget script", scopes: [], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "fin_valid" ? keyCaller : undefined)
+    const resolveCaller = vi.fn(({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller, verifyToken }, tools: { team }, verify: notOAuth }
+
+    const { body } = await rpc(options, "tools/call", { name: "team" }, { authorization: "Bearer fin_valid" })
+    expect(body.result.content).toEqual([{ text: "Team team-of-u2", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "fin_valid" })
+    expect(resolveCaller).toHaveBeenCalledWith(expect.objectContaining({ caller: keyCaller }))
+
+    const refused = await rpc(options, "tools/list", undefined, { authorization: "Bearer fin_revoked" })
+    expect(refused.response.status).toBe(401)
+    expect(refused.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+
+    expect((await rpc({ ...options, verify: async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "No token." }, undefined] as const }, "tools/list")).response.status).toBe(401)
+    expect((await rpc({ ...options, verify }, "tools/list", undefined, { authorization: "Bearer jwt" })).response.status).toBe(200)
+    expect(verifyToken).toHaveBeenCalledTimes(2)
+  })
+
+  it("refuses the call with the message of a 4xx error from resolveCaller", async () => {
+    const handler = vi.fn(() => "never")
+    const resolveCaller = () => { throw new HTTPError({ message: "Join a team first.", status: 403 }) }
+    const { body } = await rpc({ hooks: { resolveCaller }, tools: { team: { description: "Team.", handler } }, verify }, "tools/call", { name: "team" })
+    expect(body.result).toEqual({ content: [{ text: "Join a team first.", type: "text" }], isError: true })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("calls onToolCall with the name, input, caller, duration, and result of each call", async () => {
+    const onToolCall = vi.fn()
+    const hooks = { onToolCall, resolveCaller: () => ({ team: "core" }) }
+    await rpc({ hooks, verify }, "tools/call", { arguments: { a: 2, b: 3 }, name: "add" })
+    expect(onToolCall).toHaveBeenCalledWith({
+      caller: { team: "core" },
+      durationMs: expect.any(Number),
+      event: expect.objectContaining({ req: expect.any(Request) }),
+      input: { a: 2, b: 3 },
+      name: "add",
+      result: { content: [{ text: "{\"sum\":5}", type: "text" }], isError: false, structuredContent: { sum: 5 } },
+    })
+    expect(onToolCall.mock.calls[0]?.[0]).not.toHaveProperty("error")
+  })
+
+  it("gives onToolCall the thrown error, and logs an error of onToolCall without changing the result", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const thrown = new Error("database password is wrong")
+    const onToolCall = vi.fn(() => { throw new Error("log sink is down") })
+    const tools = { broken: defineMcpTool({ description: "Broken.", handler: () => { throw thrown } }) }
+    const { body } = await rpc({ hooks: { onToolCall }, tools }, "tools/call", { name: "broken" })
+    expect(body.result).toEqual({ content: [{ text: "broken failed on the server.", type: "text" }], isError: true })
+    expect(onToolCall).toHaveBeenCalledWith(expect.objectContaining({ caller: undefined, error: thrown, name: "broken", result: body.result }))
+    expect(log).toHaveBeenCalledWith("[vitehub] onToolCall failed for MCP tool broken:", expect.any(Error))
+    log.mockRestore()
+  })
+})
+
+describe("toMcpToolResult", () => {
+  it("sends a string as text and keeps a result that has content blocks", () => {
+    expect(toMcpToolResult("hi")).toEqual({ content: [{ text: "hi", type: "text" }], isError: false })
+    const image = { content: [{ data: "AAAA", mimeType: "image/png", type: "image" }], isError: false }
+    expect(toMcpToolResult(image)).toEqual(image)
+    expect(toMcpToolResult([1, 2])).toEqual({ content: [{ text: "[1,2]", type: "text" }], isError: false })
+  })
+})

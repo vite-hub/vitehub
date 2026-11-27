@@ -1,12 +1,21 @@
 <script setup lang="ts">
+import { docsPanelOf, docsPanelPages } from "#docs/navigation"
+
 // `::page-list` lists the pages of a section under their sidebar groups, each with its icon and description, so an
-// Overview can link every page without keeping a list by hand. Its own content is the list agents read in the
-// Markdown copy; the site leaves it out.
+// Overview can link every page without keeping a list by hand. On a panel Overview it lists the pages of the panel.
+// Its own content is the list agents read in the Markdown copy; the site leaves it out.
 const props = defineProps<{
   /** The section to list, by id. Defaults to the section of the page. */
   section?: string
+  /** One sidebar group to list, such as `Runtime errors`. */
+  group?: string
   /** Sidebar groups to leave out, comma-separated, such as `Start`. */
   exclude?: string
+  /**
+   * One line per page without icons, for long lists such as one page per error code. It renders a tenth of the markup
+   * of a Markdown table, so a list of a thousand pages stays far below the 2 MB that crawlers read.
+   */
+  compact?: boolean
 }>()
 
 const manifest = useDocsManifest()
@@ -16,10 +25,14 @@ const icons = useDocsIcons()
 const groups = computed(() => {
   const section = props.section ? manifest.sections.find(candidate => candidate.id === props.section) : current.value
   const exclude = new Set((props.exclude ?? "").split(",").map(name => name.trim()).filter(Boolean))
+  // Pages in the panel of the current page, or outside every panel: the section sidebar links each panel once.
+  const panel = section && !props.section && page.value ? docsPanelOf(section, page.value.page) : null
   const grouped = new Map<string, NonNullable<typeof section>["pages"]>()
-  for (const candidate of section?.pages ?? []) {
+  const pages = !section ? [] : panel ? docsPanelPages(section, panel) : section.pages.filter(candidate => candidate.panel || !docsPanelOf(section, candidate))
+  for (const candidate of pages) {
     const label = candidate.group?.trim() ?? ""
     if (candidate.navigation === false || candidate.path === page.value?.page.path || exclude.has(label)) continue
+    if (props.group !== undefined && label !== props.group) continue
     grouped.set(label, [...(grouped.get(label) ?? []), candidate])
   }
   return [...grouped].map(([label, pages]) => ({ label, pages }))
@@ -27,7 +40,18 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div class="vh-page-list">
+  <div v-if="compact" class="vh-page-list">
+    <section v-for="group in groups" :key="group.label">
+      <h3 v-if="group.label && group.label !== props.group" class="vh-page-list-group">{{ group.label }}</h3>
+      <ul class="vh-page-list-compact">
+        <li v-for="item in group.pages" :key="item.path">
+          <NuxtLink :to="item.path">{{ item.title }}</NuxtLink>
+          <span v-if="item.description">{{ item.description }}</span>
+        </li>
+      </ul>
+    </section>
+  </div>
+  <div v-else class="vh-page-list">
     <section v-for="group in groups" :key="group.label">
       <h3 v-if="group.label" class="vh-page-list-group">{{ group.label }}</h3>
       <ul>
@@ -77,6 +101,42 @@ const groups = computed(() => {
   border-top: 1px solid var(--ui-border);
 }
 
+/* Plain elements under one class: a list of a thousand rows must not repeat a class on each element. */
+.vh-page-list-compact li {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  padding-block: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5rem;
+}
+
+.vh-page-list-compact a {
+  overflow-wrap: anywhere;
+  color: var(--ui-text-highlighted);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-decoration-color: var(--ui-border);
+  text-underline-offset: 0.2em;
+}
+
+.vh-page-list-compact span {
+  color: var(--ui-text-muted);
+}
+
+@media (hover: hover) {
+  .vh-page-list-compact a:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+@media (max-width: 40rem) {
+  .vh-page-list-compact li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .vh-page-list-link {
   display: flex;
   align-items: center;
@@ -87,10 +147,6 @@ const groups = computed(() => {
   transition: background-color 150ms ease;
 }
 
-.vh-page-list-link:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
 
 .vh-page-list-icon {
   display: grid;
@@ -130,7 +186,7 @@ const groups = computed(() => {
 .vh-page-list-arrow {
   flex: none;
   color: var(--ui-text-dimmed);
-  transition: transform 150ms ease, color 150ms ease;
+  transition: color 150ms ease;
 }
 
 @media (hover: hover) {
@@ -141,10 +197,6 @@ const groups = computed(() => {
   .vh-page-list-link:hover .vh-page-list-icon,
   .vh-page-list-link:hover .vh-page-list-arrow {
     color: var(--ui-text-highlighted);
-  }
-
-  .vh-page-list-link:hover .vh-page-list-arrow {
-    transform: translateX(2px);
   }
 }
 </style>

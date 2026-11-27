@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/index.ts"
+import { hostedConsoleUrl } from "../src/index.ts"
+import { configuredConsoleOrigin, normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/internal/console.ts"
 
 describe("hosted Console links", () => {
   it("builds an /open URL with the project and the Console path", () => {
@@ -28,6 +29,18 @@ describe("hosted Console links", () => {
     expect(hostedConsoleUrl("http://localhost:3000", "/kv", "http://127.0.0.1:4871")).toBe("http://127.0.0.1:4871/open?project=http%3A%2F%2Flocalhost%3A3000&path=%2Fkv")
   })
 
+  it("uses the Console origin that vitehub({ console: { url } }) builds in", () => {
+    vi.stubGlobal("__VITEHUB_CONSOLE_URL__", "https://console.example.com")
+    try {
+      expect(configuredConsoleOrigin()).toBe("https://console.example.com")
+      expect(new URL(hostedConsoleUrl("https://app.example.com", "/kv")).origin).toBe("https://console.example.com")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+    expect(configuredConsoleOrigin()).toBe("https://console.vitehub.dev")
+  })
+
   it("keeps the query and the fragment of the Console path", () => {
     expect(normalizeConsolePath("/kv?key=a b#value")).toBe("/kv?key=a%20b#value")
     expect(normalizeConsolePath("/agents/~0062/invocations/a%2Fb")).toBe("/agents/~0062/invocations/a%2Fb")
@@ -53,9 +66,8 @@ describe("hosted Console links", () => {
       "/_vitehub//example.com",
     ]) {
       expect(normalizeConsolePath(path), path).toBeUndefined()
-      expect(() => hostedConsoleUrl("https://app.example.com", path), path).toThrow(TypeError)
+      expect(() => hostedConsoleUrl("https://app.example.com", path), path).toThrowError(expect.objectContaining({ code: "RUNTIME_CONSOLE_PATH_INVALID" }))
     }
-    // A dot segment stays inside the Console.
     expect(normalizeConsolePath("/../../kv")).toBe("/kv")
   })
 
@@ -64,7 +76,7 @@ describe("hosted Console links", () => {
     expect(normalizeConsoleProjectUrl("http://[::1]:3000/app")).toBe("http://[::1]:3000/app")
     for (const project of ["http://app.example.com", "ftp://app.example.com", "javascript:alert(1)", "app.example.com", "https://user:secret@app.example.com"]) {
       expect(normalizeConsoleProjectUrl(project), project).toBeUndefined()
-      expect(() => hostedConsoleUrl(project, "/kv"), project).toThrow(TypeError)
+      expect(() => hostedConsoleUrl(project, "/kv"), project).toThrowError(expect.objectContaining({ code: "RUNTIME_CONSOLE_PROJECT_URL_INVALID" }))
     }
   })
 })

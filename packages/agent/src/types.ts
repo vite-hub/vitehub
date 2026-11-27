@@ -1,16 +1,18 @@
 import type { ChannelDefinition } from "@vite-hub/channels"
+import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
+import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
-import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
-import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, CardElement, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
 import type {
+  Duration,
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
@@ -59,7 +61,6 @@ export interface AgentWorkflowRuntimeBinding {
   name?: string
 }
 export type AgentWaitUntil = RuntimeWaitUntil
-export type AgentIntegrationOption = "auto" | boolean
 export interface AgentHealthDescriptor {
   handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
 }
@@ -121,8 +122,6 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
   meta?: TMeta
 }
 
-export type AgentActor<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
-export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
 export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = string> {
   all: boolean
@@ -144,8 +143,10 @@ declare global {
     "agent.output.progressSummary": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
-    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.channelState": { adapterName?: string, keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
+    /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
+    page: { id: string }
     "vitehub.channel.final-output": boolean
     "vitehub.title.response-fallback": boolean
     "workspace.sourceResolution.definition": WorkspaceDefinition
@@ -156,7 +157,6 @@ declare global {
 
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
-  actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
   "agent.inspection.configurationUpdated": () => Promise<void>
@@ -170,7 +170,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
 
 type AgentInvocationCallbackContextKey = {
   [Key in keyof ViteHubAgentInvocationContextValues]: Key extends string
-    ? Key extends "actor" | "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
+    ? Key extends "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
       ? never
       : Key
     : never
@@ -199,7 +199,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
 export interface AgentInvokerResolveContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore<TContextValues>
@@ -213,7 +213,7 @@ export interface AgentInvokerResolveContext<
 export interface AgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > {
   profiles?: readonly TProfile[]
@@ -399,6 +399,8 @@ export interface AgentTelemetryConfiguration {
   driver: {
     kind: AgentDriverKind
     model?: {
+      /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+      gateway?: string
       id?: string
       provider?: string
     }
@@ -414,6 +416,9 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
+    /** Retained Workspace head resolved before the Driver starts. */
+    revision?: string
+    ref?: string
     sources?: Array<string | { id: string, repository?: string }>
   }
 }
@@ -430,6 +435,7 @@ export interface AgentChannelDelivery {
 
 export type AgentChannelDeliveryEventType =
   | "accepted"
+  | "acknowledged"
   | "completed"
   | "duplicate"
   | "failed"
@@ -443,15 +449,52 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "steer.deferred"
   | "superseded"
+  | "trigger.completed"
+  | "trigger.failed"
+  | "trigger.started"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
   error?: string
   messageId?: string
+  /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
+  outcome?: "input" | "response"
+  /**
+   * A `rejected` chat message has one of `AgentChannelDeliveryRejection`. A trigger's answer has its own reason, such
+   * as `ignored(reason)`. On `steer.deferred`, this is why the message could not steer the active run `runId`, such as
+   * `attachments` or `not-invoker`.
+   */
+  reason?: AgentChannelDeliveryRejection | (string & {})
   runId?: string
+  /** The HTTP status of a trigger's answer, or of the answer that acknowledged the webhook. */
+  status?: number
+  /** The trigger that the `trigger.*` event is about. */
+  trigger?: string
   type: AgentChannelDeliveryEventType
 }
+
+/**
+ * Why a chat message started no work:
+ * - `not-addressed`: a group message that does not mention the Agent, in a thread it does not follow.
+ * - `bot-author`: another bot wrote it, and the Channel does not set `allowBots`.
+ * - `unauthorized`: the Channel's access rules refused its author.
+ * - `empty`: it has no text or attachment for the Agent.
+ * - `filtered`: the Channel's `filter` returned false.
+ * - `edit-without-mention`, `edit-already-mentioned`, `edit-in-direct-message`: an edit that does not add the first mention.
+ * - `unhandled`: Chat acknowledged the webhook but called no message handler, such as for an activity that is not a message.
+ */
+export type AgentChannelDeliveryRejection =
+  | "bot-author"
+  | "edit-already-mentioned"
+  | "edit-in-direct-message"
+  | "edit-without-mention"
+  | "empty"
+  | "filtered"
+  | "not-addressed"
+  | "unauthorized"
+  | "unhandled"
 
 export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInput {
   at: string
@@ -459,10 +502,13 @@ export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInpu
   id: string
 }
 
-export type AgentChannelDeliveryStatus = "accepted" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
+/** `acknowledged`: the provider got its answer, and the outcome of the message comes later. */
+export type AgentChannelDeliveryStatus = "accepted" | "acknowledged" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
 
 export interface AgentChannelDeliveryInspection extends AgentChannelDelivery {
   events: AgentChannelDeliveryEvent[]
+  /** The Invocation that the delivery started or steered, when it reached one. */
+  invocationId?: string
   status: AgentChannelDeliveryStatus
 }
 
@@ -502,6 +548,8 @@ export interface AgentChannelDeliveryEffectIntentOptions {
 export interface AgentChannelDeliveryReplyPayload {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   body?: string
+  /** A Chat SDK card, such as a card with buttons. Chat Channels post it, with the text as the fallback text. */
+  card?: CardElement
   markdown?: string
 }
 
@@ -666,12 +714,14 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
   | Response
 
 /**
- * A static secret, a callback, or an object with its own `resolve` method.
- * Inherited `resolve` methods, including class prototype methods, are rejected.
- * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
+ * The secret of a webhook registration. A string is the name of the server variable that holds the secret, such as
+ * `"GITHUB_WEBHOOK_SECRET"`, as in Webhooks and Channels. A callback, or an object with its own `resolve` method,
+ * returns the secret for each request. Inherited `resolve` methods, including class prototype methods, are rejected.
+ * Use an object literal or a class field such as `resolve = (context) => secret`. Resolvers must return a string, a
+ * sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`. `false` accepts unsigned
+ * requests on purpose.
  */
-export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+export type AgentWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -704,32 +754,33 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   path?: string
   provider: string
   /**
-   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
-   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
-   */
-  /**
    * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
    * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
    * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
    * registrations with the same scope share one queue and one Channel State.
    */
   stateScope?: string
-  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * How the request proves that the provider sent it. The names follow `defineWebhook({ signature })`. `"bearer"`
+   * compares `Authorization: Bearer <secret>` in constant time, and `secretHeader` defaults to `"authorization"`.
+   * Without `signature`, `secretHeader` carries the secret itself.
+   */
+  signature?: "bearer" | "github" | "stripe" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
-     * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
+     * `"github"` is `{ type: "hmac-sha256", prefix: "sha256=" }`.
      */
-    preset: "hmac-sha256"
+    type: "hmac-sha256"
     /** Digest encoding in the header. Defaults to `"hex"`, compared case-insensitively. */
     encoding?: "hex" | "base64"
     /** Text before the digest, such as `"sha256="`. Defaults to no prefix. */
     prefix?: string
-    /** How `secretToken` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
+    /** How `secret` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
     secretEncoding?: "utf8" | "base64"
   } | {
-    preset: "stripe-sha256"
-    /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
-    toleranceSeconds?: number
+    type: "stripe"
+    /** Maximum age of the signed `t` timestamp, such as `"10m"`. Defaults to `"5m"`. Future timestamps pass the age check. */
+    tolerance?: Duration
   } | {
     verify: (input: {
       context?: AgentCallbackContext<TRuntimeConfig>
@@ -740,7 +791,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
     }) => boolean | Promise<boolean>
   }
   secretHeader?: string
-  secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
+  /**
+   * The name of the server variable that holds the secret, or a function that returns the secret. A secret that
+   * resolves to nothing is a configuration error (HTTP 500) that names the Channel.
+   */
+  secret?: AgentWebhookSecret<TRuntimeConfig>
   url?: string
 }
 
@@ -751,7 +806,7 @@ export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor?: AgentActor
+  invoker?: AgentInvoker
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   trigger: {
     capabilityId: string
@@ -893,9 +948,12 @@ export interface AgentChannelPullResult<TCursor extends string | number = string
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  /** The accepted Invocation when a durable webhook delivery is replayed for rehydration. */
-  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { agentName?: string }
-  actor?: AgentActor
+  /**
+   * The accepted Invocation when a durable webhook delivery is replayed for rehydration.
+   * `acceptedAt` is when the queue accepted the delivery, in milliseconds since the epoch.
+   */
+  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { acceptedAt?: number, agentName?: string }
+  invoker?: AgentInvoker
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
@@ -979,9 +1037,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.
@@ -1083,7 +1142,6 @@ export interface AgentRunCallbackContext<
   TContextValues extends object = AgentInvocationContextValues,
   TData = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData>
   invoker: AgentInvoker
@@ -1156,7 +1214,6 @@ export interface AgentFinishEvent<
   TOutput = unknown,
   TData = unknown,
 > {
-  actor: AgentActor
   error?: unknown
   errorMessage?: string
   extensions: AgentFinishExtensions
@@ -1276,7 +1333,6 @@ export interface AgentRunContext<
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
@@ -1308,7 +1364,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "ask" | "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "external" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -1590,7 +1646,6 @@ export type AgentCapabilityInput<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
-type AgentExtensionMount = object
 declare const agentStaticCapabilitiesListBrand: unique symbol
 
 export type AgentCapabilitiesList<
@@ -1601,7 +1656,7 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+> = readonly AgentCapabilityInput<TRuntimeConfig, Name>[] & {
   readonly [agentStaticCapabilitiesListBrand]?: true
 }
 
@@ -1651,6 +1706,13 @@ export type AgentAdapterInstructions<
     mode: "replace"
     value: AgentInstructionsContent<TRuntimeConfig, Name>
   }
+  | {
+    /**
+     * Receive the inherited instructions as one document and return the new document.
+     * Without a parent, `inherited` is an empty string.
+     */
+    extend: (inherited: string) => string
+  }
 
 export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1690,7 +1752,6 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore
   invoker: AgentInvoker
   model: unknown
@@ -1704,7 +1765,6 @@ export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
@@ -1811,6 +1871,13 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /**
+   * Set when `VITEHUB_MODELS=emulate` is on and the Driver of this Agent runs on the AI emulator. Under the switch, the
+   * check reads no credentials. A Driver that the emulator cannot run is `unavailable` with a `code` instead.
+   */
+  emulated?: { url: string }
+  /** The diagnostic code that an Invocation fails with, when the check knows it, such as `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. */
+  code?: string
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
@@ -1878,10 +1945,9 @@ export type AgentProviderCredentialValue = string | AgentProviderSealedCredentia
 
 export interface AgentProviderCredentialContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "actor" | "invoker" | "workspace" | "fs"> {
-  /** Inspection has no invocation, actor, or mounted Workspace. */
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "invoker" | "workspace" | "fs"> {
+  /** Inspection has no invocation, Invoker, or mounted Workspace. */
   purpose?: "invocation" | "inspection"
-  actor?: AgentAdapterMetadataContext<TRuntimeConfig>["actor"]
   invoker?: AgentAdapterMetadataContext<TRuntimeConfig>["invoker"]
   workspace?: AgentAdapterMetadataContext<TRuntimeConfig>["workspace"]
   fs?: AgentAdapterMetadataContext<TRuntimeConfig>["fs"]
@@ -1904,6 +1970,8 @@ export interface AgentProviderExitContext {
 }
 
 export interface AgentProviderLaunchCommand {
+  /** Prepare the transport before inspection or launch. Runs outside provider probe deadlines; honor cancellation. */
+  prepare?: (context: { abortSignal?: AbortSignal }) => MaybePromise<void>
   /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection or auxiliary runs. */
   onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
@@ -1936,6 +2004,21 @@ type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" 
 export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
 export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
+/**
+ * Access that Codex's `workspace-write` sandbox adds for `permissions: "allow-edits"` and `"allow-edits-unattended"`.
+ * Without it, sandboxed commands have no network and can write only inside the working directory.
+ */
+export interface CodexWorkspaceWriteAccess {
+  /** Let sandboxed commands use the network, for example to download packages. Defaults to `false`. */
+  network?: boolean
+  /**
+   * Let sandboxed commands write the package manager store and caches where the provider runs:
+   * `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`,
+   * `~/.cache/node/corepack`, and `~/.npm`. ViteHub creates missing directories. Defaults to `false`.
+   */
+  packageCaches?: boolean
+}
+
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
@@ -1945,13 +2028,8 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /**
-   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
-   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
-   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
-   * It runs in the background on the first invocation, then at most every 10 minutes.
-   */
-  retention?: AgentRetentionPolicy
+  /** Network and package cache access for Codex's `workspace-write` sandbox. Other permissions ignore it. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -2011,9 +2089,9 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2042,9 +2120,9 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -2078,7 +2156,7 @@ export type AgentAskQuestionsResolver<
  * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
  * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`, and adds one call (`model`, `provider`, `usage`) to the
  * Invocation usage record. `usage.record` on `agent.invocation.finish` and `event.invocation.usage` sum these calls, so
- * usage indexes count ask runs, and `usage({ pricing })` prices them. The shared state is `input.data` (or the prompt) on
+ * usage summaries count ask runs, and `usage({ pricing })` prices them. The shared state is `input.data` (or the prompt) on
  * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
  * No credentials or request headers are recorded.
  */
@@ -2106,13 +2184,30 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
-  retention?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
   workDir?: never
+}
+
+/**
+ * The options of an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner:
+ * `defineAgent({ driver: "external" })`. The Agent has a description, a Workspace, and a journal for the sessions that
+ * you import with `importAgentSession()`, but ViteHub never runs it: `runAgent()`, `streamAgent()`, and
+ * `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN`.
+ */
+export interface ExternalAgentOptions {
+  description?: string
+  driver: "external"
+  invocations?: AgentInvocationsSetting
+  name?: string
+  /** An external Agent has no runtime. */
+  runtime?: false
+  version?: string
+  workspace?: WorkspaceAgentWorkspaceConfig
 }
 
 export type AgentDriver<
@@ -2169,20 +2264,10 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
-/**
- * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
- * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
- * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
- */
-export interface AgentInvocationsHostSettings {}
-
-/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
-export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
-
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2196,7 +2281,11 @@ type AgentSharedSettings<
   budget?: AgentBudgetOptions
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
-  channels?: AgentChannelInputs<TRuntimeConfig>
+  /**
+   * The Channels whose messages this Agent answers: names of Channels in `server/channels`, such as `['slack']`, or
+   * Channels defined inline by name, such as `{ slack: defineChannel({ adapter: slack() }) }`.
+   */
+  channels?: AgentChannelInputs<TRuntimeConfig> | readonly string[]
   cli?: AgentDefinitionCliOptions
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>
@@ -2205,7 +2294,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocationsInput
+  invocations?: AgentInvocationsSetting
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -2218,7 +2307,7 @@ type AgentSharedSettings<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2257,7 +2346,7 @@ export interface AgentInterceptOutputCarrier<TOutput = unknown> {
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
   TDataInput = unknown,
@@ -2299,7 +2388,7 @@ export type AgentInput<
   TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
   TOutput = unknown,
   CALL_OPTIONS = any,
-  TInvokerProfile extends AgentInvokerProfile = any,
+  TInvokerProfile extends AgentInvoker = any,
 > = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput, unknown, TOutput, unknown, unknown>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
@@ -2309,34 +2398,41 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentStateProviderOptions {
-  authToken?: string
+/** Agent State in libSQL. `auto` also selects Cloudflare state on Cloudflare when no `url` is set. */
+export interface AgentSqlStateProviderOptions {
+  /**
+   * The libSQL auth token. Declare where it comes from, so the token stays out of the server bundle:
+   * `env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })`. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+   */
+  authToken?: EnvVariableDeclaration
+  driver?: "auto" | "libsql" | "sqlite"
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
+/** Agent State in a Cloudflare Durable Object. */
+export interface AgentCloudflareStateProviderOptions {
+  driver: "cloudflare"
+}
+
+/** Agent State in process memory. It does not survive a restart. */
+export interface AgentMemoryStateProviderOptions {
+  driver: "memory"
+}
+
+export type AgentStateProviderOptions =
+  | AgentSqlStateProviderOptions
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
+
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
-
-export interface AgentSchedulerProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
-}
-
-export interface AgentSandboxProviderOptions {
-  provider?: "auto" | "cloudflare" | "vercel" | (string & {})
-}
-
-export interface AgentIntegrationsOptions {
-  sandbox?: AgentIntegrationOption
-  workflow?: AgentIntegrationOption
-}
+  | (Omit<AgentSqlStateProviderOptions, "driver"> & { driver: NonNullable<AgentSqlStateProviderOptions["driver"]> })
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
 
 export interface AgentProvidersOptions {
-  sandbox?: AgentSandboxProviderOptions
-  scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
 }
 
@@ -2381,7 +2477,7 @@ export interface AgentPreparationOptions {
   workspace: string
   requireNonEmpty?: boolean
   retryDelayMs?: number
-  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  /** Readiness probe path. Defaults to /_vitehub/ready. */
   route?: string
 }
 
@@ -2403,15 +2499,40 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
-export interface AgentModuleOptions {
+/**
+ * The `ai` seed of the AI emulator. The emulator validates it when `vite dev` starts, and a seed that it rejects fails
+ * with `AGENT_EMULATOR_RULES_INVALID`. This type does not import the optional `@emulators/ai` package, so the config
+ * types work without it. `EmulatedModelSeed` from `@vite-hub/agent/test/emulate-models` is the full upstream type.
+ */
+export interface AgentModelsEmulateSeed {
+  /** Scripted rules. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. */
+  rules?: readonly object[]
+  /** When `true`, a request that no rule matches fails with the missing rule. */
+  strict?: boolean
+  timing?: object
+  random?: { seed?: number }
+  models?: readonly string[]
+}
+
+export interface AgentModelsOptions {
+  /**
+   * In `vite dev`, start the AI emulator (`@emulators/ai`) on a free loopback port and run every model Driver Agent on
+   * it with no AI key. `true` uses the default answers; a seed object sets the rules.
+   * The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` in `vite dev` only. A build does not start the
+   * emulator. It needs the optional packages `@emulators/core` and `@emulators/ai`.
+   */
+  emulate?: boolean | AgentModelsEmulateSeed
+}
+
+export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
+  models?: AgentModelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
   imports?: boolean
-  integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
@@ -2427,10 +2548,7 @@ export interface ResolvedAgentModuleOptions {
   execution: AgentExecution
   shutdown: false | AgentShutdownOptions
   imports: boolean
-  integrations: Required<AgentIntegrationsOptions>
   providers: {
-    sandbox: Required<AgentSandboxProviderOptions>
-    scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
   routes: ResolvedAgentRoutesOptions
@@ -2478,7 +2596,7 @@ export interface AgentChatAgentBindingOptions {
 
 export type AgentChatTriggerHistory = "none" | {
   maxAgeMs?: number
-  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 4 for Codex and Claude Code Drivers, and to 0 for other Drivers. */
   maxImages?: number
   maxMessages: number
   source: "thread"
@@ -2554,8 +2672,9 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+/** A resolver that returns undefined gives the conversation an in-memory State. */
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentChatStateContext<TRuntimeConfig>>
 
 export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
@@ -2567,8 +2686,9 @@ export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeCon
   }
 }
 
+/** A resolver that returns undefined gives the webhook no queue, and its conversation uses the chat State. */
 export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentWebhookStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentWebhookStateContext<TRuntimeConfig>>
 
 export type AgentChatMessage =
   | AdapterPostableMessage
@@ -2925,7 +3045,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
-/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/channels/adapters`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 
@@ -3053,6 +3173,8 @@ export interface AgentInspectionCapabilityMetadata {
 
 export interface AgentInspectionModelMetadata {
   dynamic?: boolean
+  /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+  gateway?: string
   id?: string
   provider?: string
   transport?: string
@@ -3083,8 +3205,6 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
-  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
-  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }
@@ -3114,7 +3234,7 @@ export interface AgentInspectionMetadata {
   config?: AgentInspectionConfigMetadata
   files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
-  invokerProfiles?: AgentInvokerProfile[]
+  invokerProfiles?: AgentInvoker[]
   name?: string
   tools?: AgentInspectionToolDefinition[]
   version?: string
@@ -3237,7 +3357,6 @@ export interface AgentAdapterMetadataContext<
 > extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
   /** Present after a provider Workspace is prepared; omitted during static inspection. */
   sourceProvenance?: readonly AgentSourceProvenance[]
-  actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {
     kind: AgentDriverKind
@@ -3252,7 +3371,6 @@ export interface AgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */

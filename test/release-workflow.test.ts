@@ -9,7 +9,13 @@ import viteConfig from "../vite.config.ts"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
-const previewWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
+const verifier = readFileSync(resolve(repoRoot, ".github/actions/verify-release/action.yml"), "utf8")
+const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
+const previewWorkflow = ciWorkflow.slice(ciWorkflow.indexOf("  publish-preview:\n"))
+
+function pinned(action: string) {
+  return new RegExp(`uses: ${action}@[0-9a-f]{40} # v\\d+\\.\\d+\\.\\d+\\n`)
+}
 
 function job(name: string) {
   const start = workflow.indexOf(`  ${name}:\n`)
@@ -73,7 +79,6 @@ describe("release workflow authority", () => {
     expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
-    expect(publishNpm).toContain("voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0")
     expect(publishNpm).toContain(
       'node-version: "24"\n          working-directory: trusted-source\n          run-install: false\n          cache: false',
     )
@@ -84,9 +89,12 @@ describe("release workflow authority", () => {
   })
 
   it("publishes only from a tag, including a tag dispatch", () => {
-    expect(verify).toContain("Dry-run npm package publish")
-    expect(verify).not.toContain("Publish packages to npm")
-    expect(verify).not.toContain("gh release create")
+    expect(verify).toContain("uses: ./.github/actions/verify-release")
+    expect(verifier).toContain("Dry-run npm package publish")
+    for (const verifying of [verify, verifier]) {
+      expect(verifying).not.toContain("Publish packages to npm")
+      expect(verifying).not.toContain("gh release create")
+    }
 
     const publishGate = "if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
     expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
@@ -96,15 +104,17 @@ describe("release workflow authority", () => {
     expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
     expect(releaseMetadata("workflow_dispatch", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
     expect(releaseMetadata("push", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
-    expect(verify).toContain('root.version !== process.env.RELEASE_VERSION')
-    expect(verify).toContain('manifest.version !== process.env.RELEASE_VERSION')
+    expect(verify).toContain("exact: ${{ steps.release.outputs.publish }}")
+    expect(verifier).toContain('root.version !== process.env.RELEASE_VERSION')
+    expect(verifier).toContain('manifest.version !== process.env.RELEASE_VERSION')
   })
 })
 
 describe("release workflow artifact handoff", () => {
   it("uploads one bounded immutable tarball set after verification", () => {
-    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
-    expect(verify).toContain("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2")
+    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("uses: ./.github/actions/verify-release"))
+    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Write release metadata"))
+    expect(verify).toMatch(pinned("actions/upload-artifact"))
     expect(verify).toContain('artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"')
     expect(verify).toContain(".release/release-metadata.json")
     expect(verify).toContain(".release/npm")
@@ -129,7 +139,7 @@ describe("release workflow artifact handoff", () => {
 
     expect(uploadRoot).toBe(".release")
     for (const downstream of [publishNpm, githubRelease]) {
-      expect(downstream).toContain("actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2")
+      expect(downstream).toMatch(pinned("actions/download-artifact"))
       expect(downstream).toContain("name: ${{ needs.verify.outputs.artifact_name }}")
       expect(downstream).toContain("EXPECTED_ARTIFACT_DIGEST: ${{ needs.verify.outputs.artifact_digest }}")
     }
@@ -138,7 +148,7 @@ describe("release workflow artifact handoff", () => {
     expect(githubRelease).toContain("needs: [verify, publish-npm]")
     expect(githubRelease).not.toContain("actions/checkout@")
     expect(publishNpm).toContain("Checkout trusted release verifier")
-    expect(publishNpm).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1")
+    expect(publishNpm).toMatch(pinned("actions/checkout"))
     expect(publishNpm).toContain("persist-credentials: false")
     expect(publishNpm).toContain("ref: ${{ github.sha }}")
     expect(publishNpm).toContain('test "$(git -C trusted-source rev-parse HEAD)" = "$GITHUB_SHA"')
@@ -149,7 +159,6 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain('readFileSync("release-metadata.json", "utf8")')
     expect(publishNpm).not.toContain("release-data/.github/scripts")
     expect(publishNpm).not.toContain("vp install")
-    expect(publishNpm).not.toContain("package-release-order.mjs")
     expect(publishNpm).not.toContain("vp pm publish")
     expect(publishNpm).toContain("timeout-minutes: 360")
     expect(githubRelease).toContain(`metadata=${downloadedPath(".release/release-metadata.json").replace("release-data/", "")}`)
@@ -165,6 +174,7 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("release-packages.mjs publish")
     expect(githubRelease).toContain('gh release view "$release_tag"')
     expect(githubRelease).toContain('gh release create "$release_tag"')
+    expect(githubRelease).toContain('--title "$release_tag"')
     expect(githubRelease).not.toContain("--generate-notes")
     expect(githubRelease).toContain("releases/generate-notes")
     expect(githubRelease).toContain("(( ${#notes} > 120000 ))")
@@ -173,29 +183,29 @@ describe("release workflow artifact handoff", () => {
   })
 
   it("validates and dry-runs the exact packed files before upload", () => {
-    expect(verify).toContain("const releaseNames = new Set")
-    expect(verify).toContain('["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]')
-    expect(verify).toContain("manifest[section][name] = process.env.RELEASE_VERSION")
-    expect(verify.indexOf("Pin release dependency versions")).toBeGreaterThan(verify.indexOf('- run: vp run --no-cache --filter "./packages/*" build'))
-    expect(verify.indexOf("Restore workspace dependency ranges")).toBeGreaterThan(verify.indexOf("Pack immutable release tarballs"))
-    expect(verify.indexOf("Restore workspace dependency ranges")).toBeLessThan(verify.indexOf("vp run test:contracts"))
-    expect(verify).toContain("--verify-reproducible")
-    expect(verify).toContain("release-packages.mjs verify")
-    expect(verify).toContain('vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict')
-    expect(verify).toContain("VITEHUB_RELEASE_MANIFEST")
-    expect(verify).toContain("release-packages.mjs publish")
-    expect(verify).toContain("--dry-run")
-    expect(verify).not.toContain("vp pm publish")
-    expect(verify).not.toContain("package-release-order.mjs")
+    expect(verifier).toContain("const releaseNames = new Set")
+    expect(verifier).toContain('["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]')
+    expect(verifier).toContain("manifest[section][name] = process.env.RELEASE_VERSION")
+    expect(verifier.indexOf("Pin release dependency versions")).toBeGreaterThan(verifier.indexOf('run: vp run --no-cache --filter "./packages/*" build'))
+    expect(verifier.indexOf("Restore checked-in manifests")).toBeGreaterThan(verifier.indexOf("Pack immutable release tarballs"))
+    expect(verifier.indexOf("Restore checked-in manifests")).toBeLessThan(verifier.indexOf("vp run test:contracts"))
+    expect(verifier).toContain("--verify-reproducible")
+    expect(verifier).toContain("release-packages.mjs verify")
+    expect(verifier).toContain('--workspace-version "$RELEASE_VERSION"')
+    expect(verifier).toContain('vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict')
+    expect(verifier).toContain("VITEHUB_RELEASE_MANIFEST")
+    expect(verifier).toContain("release-packages.mjs publish")
+    expect(verifier).toContain("--dry-run")
+    expect(verifier).not.toContain("vp pm publish")
   })
 
   it("publishes packages from a fresh build of the root build selection", () => {
     const packageSelection = '--filter "./packages/*" build'
     expect(viteConfig.run?.tasks?.build).toEqual({ cache: false, command: `vp run --cache ${packageSelection}` })
-    for (const publishing of [verify, previewWorkflow]) {
-      expect(publishing).toContain(`- run: vp run --no-cache ${packageSelection}\n`)
-      expect(publishing).not.toContain("- run: vp run build\n")
-    }
+    expect(verifier).toContain(`      run: vp run --no-cache ${packageSelection}\n`)
+    expect(verifier).not.toContain("run: vp run build\n")
+    expect(previewWorkflow).toContain(`- run: vp run --no-cache ${packageSelection}\n`)
+    expect(previewWorkflow).not.toContain("- run: vp run build\n")
   })
 
   it("pins every external action in the OIDC job", () => {

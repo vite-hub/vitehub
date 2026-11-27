@@ -2,9 +2,11 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAuth } from "../src/definition.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
+import { requireCaller } from "../src/server.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 import type { H3Event } from "h3"
+import type { McpTokenInvalidData } from "../src/mcp.ts"
 import type { AuthFor } from "../src/types.ts"
 
 it("returns the codes that each MCP helper can fail with", async () => {
@@ -50,4 +52,38 @@ describe("the typed Auth of a Definition with mcpOAuth()", () => {
     await deleteUnusedMcpClients({ auth })
     await verifyMcpRequest(request, { auth: {} as AuthFor<typeof object> })
   })
+})
+
+it("narrows the caller of requireCaller() by kind", async () => {
+  const event = {} as H3Event
+  const [error, caller] = await requireCaller(event)
+  if (error) {
+    expectTypeOf(error.code).toEqualTypeOf<"AUTH_MCP_TOKEN_INVALID" | "AUTH_SIGNED_OUT">()
+    return
+  }
+  expectTypeOf(caller.user.id).toEqualTypeOf<string>()
+  expectTypeOf(caller.user.email).toEqualTypeOf<string>()
+  if (caller.kind === "agent") {
+    expectTypeOf(caller.client.name).toEqualTypeOf<string | undefined>()
+    expectTypeOf(caller.scopes).toEqualTypeOf<string[]>()
+  }
+  else {
+    // @ts-expect-error Only an agent caller has a client.
+    void caller.client
+  }
+})
+
+it("narrows the data of a refused MCP token by its code", async () => {
+  const event = {} as H3Event
+  const [verifyError] = await verifyMcpRequest(event.req)
+  if (verifyError?.code === "AUTH_MCP_TOKEN_INVALID") {
+    expectTypeOf(verifyError.data).toEqualTypeOf<McpTokenInvalidData>()
+    expectTypeOf(verifyError.data.reason).toEqualTypeOf<McpTokenInvalidData["reason"]>()
+    expectTypeOf(verifyError.data.clientId).toEqualTypeOf<string | undefined>()
+  }
+  if (verifyError?.code === "AUTH_MCP_TOKEN_MISSING") expectTypeOf(verifyError.data).toEqualTypeOf<undefined>()
+
+  const [callerError] = await requireCaller(event)
+  if (callerError?.code === "AUTH_MCP_TOKEN_INVALID") expectTypeOf(callerError.data).toEqualTypeOf<McpTokenInvalidData>()
+  if (callerError?.code === "AUTH_SIGNED_OUT") expectTypeOf(callerError.data).toEqualTypeOf<undefined>()
 })

@@ -5,7 +5,7 @@ import { analyzeShellCommand } from "../command/analyze.ts"
 
 import type {
   ShellBoundary,
-  ShellExecutionProvider,
+  ShellDriver,
   ShellObservation,
   ShellRuntimeExecOptions,
 } from "../runtime/types.ts"
@@ -18,7 +18,7 @@ export interface JustBashFileSystem extends IFileSystem {
 export type JustBashExecutionLimits = NonNullable<BashOptions["executionLimits"]>
 export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLimitProfile"]>
 
-export interface JustBashProviderOptions {
+export interface JustBashDriverOptions {
   commands?: string[]
   cwd?: string
   /**
@@ -47,7 +47,7 @@ export interface ShellNetworkRequestResult {
   content: string | Uint8Array
 }
 
-export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
+export function createJustBashDriver(options: JustBashDriverOptions): ShellDriver {
   const commands = options.commands?.slice()
   const networkGrants = options.networkGrants
   const executionLimits = options.executionLimits && { ...options.executionLimits }
@@ -86,10 +86,9 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
-      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
+      const result = await withDriverTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
         const { Bash, defineCommand } = await import("just-bash/browser")
         let policyDenied = false
-        // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
         const curl = defineCommand("curl", async (args, ctx) => {
           const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: ctx.signal ?? runOptions.signal })
           policyDenied ||= curlResult.policyDenied
@@ -166,9 +165,6 @@ async function runControlledCurl(
       signal: options.signal,
       url: parsed.url,
     }
-    // Keep the cancellation signal on the request without changing the
-    // enumerable request shape used by Source descriptor matching and
-    // existing integrations.
     if (options.signal) Object.defineProperty(request, "signal", {
       configurable: true,
       enumerable: false,
@@ -214,76 +210,74 @@ function parseControlledCurlArgs(words: string[]): ParsedControlledCurl {
   let method: "GET" | "HEAD" | "POST" | undefined
   let url: string | undefined
 
-  try {
-    for (let index = 0; index < words.length; index += 1) {
-      const word = words[index]!
-      if (word === "-s" || word === "-S" || word === "-sS" || word === "--silent" || word === "--show-error" || word === "-L" || word === "--location") {
-        continue
-      }
-      if (word === "-X" || word === "--request") {
-        const value = words[++index]
-        if (!value) return parseFailure(`${word} requires a method.`)
-        method = parseCurlMethod(value)
-        if (!method) return parseFailure(`Unsupported curl request method: ${value}.`)
-        continue
-      }
-      if (word.startsWith("--request=")) {
-        method = parseCurlMethod(word.slice("--request=".length))
-        if (!method) return parseFailure(`Unsupported curl request method: ${word.slice("--request=".length)}.`)
-        continue
-      }
-      if (word === "--url") {
-        const value = words[++index]
-        if (!value) return parseFailure("--url requires a URL.")
-        url = setCurlUrl(url, value)
-        continue
-      }
-      if (word.startsWith("--url=")) {
-        url = setCurlUrl(url, word.slice("--url=".length))
-        continue
-      }
-      if (word === "--json") {
-        const value = words[++index]
-        if (!value) return parseFailure("--json requires a JSON body.")
-        const [error, parsedBody] = parseJsonCurlBody(value)
-        if (error) return [error, undefined]
-        body = parsedBody
-        method ??= "POST"
-        continue
-      }
-      if (word.startsWith("--json=")) {
-        const [error, parsedBody] = parseJsonCurlBody(word.slice("--json=".length))
-        if (error) return [error, undefined]
-        body = parsedBody
-        method ??= "POST"
-        continue
-      }
-      if (word === "-d" || word === "--data" || word === "--data-raw" || word === "--data-binary") {
-        const value = words[++index]
-        if (value === undefined) return parseFailure(`${word} requires a body.`)
-        body = parseCurlDataBody(value)
-        method ??= "POST"
-        continue
-      }
-      if (word.startsWith("-d") && word !== "-d") {
-        body = parseCurlDataBody(word.slice(2))
-        method ??= "POST"
-        continue
-      }
-      if (word.startsWith("--data=") || word.startsWith("--data-raw=") || word.startsWith("--data-binary=")) {
-        body = parseCurlDataBody(word.slice(word.indexOf("=") + 1))
-        method ??= "POST"
-        continue
-      }
-      if (word === "-H" || word === "--header" || word === "-b" || word === "--cookie" || word.startsWith("--header=") || word.startsWith("--cookie=")) {
-        return parseFailure("Controlled curl injects Source credentials itself; do not pass headers or cookies in the command.")
-      }
-      if (word.startsWith("-")) return parseFailure(`Unsupported curl flag: ${word}.`)
-      url = setCurlUrl(url, word)
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!
+    if (word === "-s" || word === "-S" || word === "-sS" || word === "--silent" || word === "--show-error" || word === "-L" || word === "--location") {
+      continue
     }
-  }
-  catch (error) {
-    return [error instanceof Error ? error : shellErrorDiagnostics.SHELL_R0006({ message: String(error) }), undefined]
+    if (word === "-X" || word === "--request") {
+      const value = words[++index]
+      if (!value) return parseFailure(`${word} requires a method.`)
+      method = parseCurlMethod(value)
+      if (!method) return parseFailure(`Unsupported curl request method: ${value}.`)
+      continue
+    }
+    if (word.startsWith("--request=")) {
+      method = parseCurlMethod(word.slice("--request=".length))
+      if (!method) return parseFailure(`Unsupported curl request method: ${word.slice("--request=".length)}.`)
+      continue
+    }
+    if (word === "--url") {
+      const value = words[++index]
+      if (!value) return parseFailure("--url requires a URL.")
+      if (url) return multipleCurlUrls()
+      url = value
+      continue
+    }
+    if (word.startsWith("--url=")) {
+      if (url) return multipleCurlUrls()
+      url = word.slice("--url=".length)
+      continue
+    }
+    if (word === "--json") {
+      const value = words[++index]
+      if (!value) return parseFailure("--json requires a JSON body.")
+      const [error, parsedBody] = parseJsonCurlBody(value)
+      if (error) return [error, undefined]
+      body = parsedBody
+      method ??= "POST"
+      continue
+    }
+    if (word.startsWith("--json=")) {
+      const [error, parsedBody] = parseJsonCurlBody(word.slice("--json=".length))
+      if (error) return [error, undefined]
+      body = parsedBody
+      method ??= "POST"
+      continue
+    }
+    if (word === "-d" || word === "--data" || word === "--data-raw" || word === "--data-binary") {
+      const value = words[++index]
+      if (value === undefined) return parseFailure(`${word} requires a body.`)
+      body = parseCurlDataBody(value)
+      method ??= "POST"
+      continue
+    }
+    if (word.startsWith("-d") && word !== "-d") {
+      body = parseCurlDataBody(word.slice(2))
+      method ??= "POST"
+      continue
+    }
+    if (word.startsWith("--data=") || word.startsWith("--data-raw=") || word.startsWith("--data-binary=")) {
+      body = parseCurlDataBody(word.slice(word.indexOf("=") + 1))
+      method ??= "POST"
+      continue
+    }
+    if (word === "-H" || word === "--header" || word === "-b" || word === "--cookie" || word.startsWith("--header=") || word.startsWith("--cookie=")) {
+      return parseFailure("Controlled curl injects Source credentials itself; do not pass headers or cookies in the command.")
+    }
+    if (word.startsWith("-")) return parseFailure(`Unsupported curl flag: ${word}.`)
+    if (url) return multipleCurlUrls()
+    url = word
   }
 
   if (!url) return parseFailure("Controlled curl requires a URL.")
@@ -320,9 +314,8 @@ function parseJsonCurlBody(value: string): ParsedValue<unknown> {
   }
 }
 
-function setCurlUrl(current: string | undefined, next: string): string {
-  if (current) throw shellErrorDiagnostics.SHELL_R0007({ message: "Controlled curl accepts exactly one URL." })
-  return next
+function multipleCurlUrls<T>(): ParsedValue<T> {
+  return [shellErrorDiagnostics.SHELL_R0007({ message: "Controlled curl accepts exactly one URL." }), undefined]
 }
 
 function policyDeniedCurl(message: string): ControlledCurlResult {
@@ -337,7 +330,7 @@ function policyDeniedCurl(message: string): ControlledCurlResult {
   }
 }
 
-async function withProviderTimeout(
+async function withDriverTimeout(
   command: string,
   options: ShellRuntimeExecOptions,
   run: (options: ShellRuntimeExecOptions) => Promise<ShellObservation>,
@@ -346,7 +339,6 @@ async function withProviderTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
-  // Just Bash creates a cancellable command context only when exec receives a signal.
   const runOptions = { ...options, signal: controller.signal }
   let timeout: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
@@ -377,10 +369,6 @@ async function withProviderTimeout(
             stdout: "",
             timedOut: true,
           })
-          // Resolve the structured timeout observation before aborting the
-          // provider. Some providers reject their running promise when the
-          // signal is aborted; resolving first ensures that rejection cannot
-          // win the race and replace the documented timeout result.
           controller.abort(new Error("Shell command timed out."))
         }, options.timeout)
       }))

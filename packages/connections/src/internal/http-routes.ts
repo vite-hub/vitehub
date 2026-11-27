@@ -6,11 +6,12 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
 import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
 import { connectionsErrorDiagnostics } from "../error-diagnostics.ts";
-import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
+import { connectionNameSchema } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 import { managementErrorBody } from "./http-diagnostics.ts";
 import { page, readCookie, requestReturnPath, RETURN_COOKIE } from "./http-page.ts";
 
+import { isConsoleState } from "../runtime.ts";
 import type { ConnectionsRuntime } from "../runtime.ts";
 import type { ConnectionsAccess } from "./http-access.ts";
 
@@ -18,9 +19,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 const STATE_COOKIE = "vitehub_connection_state";
 const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
-// Discovery preserves filesystem-valid characters, including symbols such as `+`.
-// Keep management validation in step with the generated registry.
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
+const name = connectionNameSchema;
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
   v.object({ action: v.literal("list") }),
@@ -34,6 +33,7 @@ const actionSchema = v.variant("action", [
     state: id,
   }),
   v.object({ action: v.literal("revoke"), name }),
+  v.object({ action: v.literal("rotate-key") }),
   v.object({ action: v.literal("chatgpt-export"), name }),
   v.object({ action: v.literal("chatgpt-import"), name, credential: v.unknown() }),
   v.object({ action: v.literal("chatgpt-models"), name }),
@@ -67,7 +67,6 @@ export function json(body: unknown, status = 200, headers: Record<string, string
   });
 }
 
-/** HTTP status of a Connections failure. */
 const errorStatuses: Partial<Record<ConnectionsCatalogCode, number>> = {
   CONNECTIONS_APPROVAL_REQUIRED: 409,
   CONNECTIONS_DENIED: 403,
@@ -90,14 +89,11 @@ export function errorResponse(error: unknown): Response {
   return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 
-/**
- * The same-origin check of the action route. It accepts the public origin from `vitehub({ publicUrl })`
- * and the origin of the request URL that the server sees, when its host is the public host. Behind a TLS-terminating proxy without a public
- * URL, the server can see `http:` while the browser sends an `https:` Origin.
- */
+const unknownHostMessage = "The request host is not an origin of vitehub({ publicUrl }).";
+
 function originRejection(request: Request, agentName?: string): Response | undefined {
-  // The configured URL of the Agent binds the check, so another request host cannot widen it.
-  const expected = (agentName ? resolvePublicUrl({ agentName }) : undefined) ?? resolvePublicUrl({ agentName, request });
+  const expected = resolvePublicUrl({ agentName, request });
+  if (!expected) return json({ error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", unknownHostMessage) }, 403);
   const origin = request.headers.get("origin");
   const requestOrigin = new URL(request.url).origin;
   const requestHostMatchesPublic = new URL(expected).host === new URL(request.url).host;
@@ -165,7 +161,6 @@ const connect: ConnectionsRoute = {
     const returnTo = requestReturnPath(request);
     const failure = (message: string, status: number, code?: string) =>
       page({ code, message, outcome: "error", returnTo, status, title: "Connection failed" });
-    // A foreign page must not start a flow in the name of the signed-in manager.
     if (request.headers.get("sec-fetch-site") === "cross-site")
       return failure("Start the connection from this application.", 403);
     let connectionName: string;
@@ -176,8 +171,8 @@ const connect: ConnectionsRoute = {
     }
     const connection = v.safeParse(name, connectionName);
     if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
-    // The provider redirects the browser, so the callback uses the public origin, not the one behind a proxy.
     const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
+    if (!publicOrigin) return failure(unknownHostMessage, 403, "CONNECTIONS_ORIGIN_REJECTED");
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
@@ -186,7 +181,6 @@ const connect: ConnectionsRoute = {
     const secure = publicOrigin.startsWith("https:") ? "; Secure" : "";
     const headers = new Headers({ "cache-control": "no-store", location: authorization.url });
     headers.append("set-cookie", `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
-    // The callback page returns to the Console page that started the flow.
     headers.append(
       "set-cookie",
       returnTo
@@ -210,8 +204,6 @@ const callback: ConnectionsRoute = {
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
     const providerError = url.searchParams.get("error");
-    // The state must come from a start request in this browser, by the same manager.
-    // `complete()` consumes the state and checks the manager that started the flow.
     if (!state || (!code && !providerError) || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
       return failure(
         "Connection failed",
@@ -238,6 +230,35 @@ const callback: ConnectionsRoute = {
     return response;
   },
 };
+
+/**
+ * The callback of a flow that the Console started with `authorize({ via: "console" })`. The Console page and the app
+ * have different origins, so the browser carries no state cookie and no app session here. The signed Console call that
+ * started the flow checked the manager, and `complete()` finishes it as that manager: the `state` works once, for
+ * 10 minutes, and the PKCE verifier never leaves the server.
+ */
+export async function completeConsoleCallback(request: Request, runtime: () => ConnectionsRuntime): Promise<Response | undefined> {
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state");
+  if (request.method !== "GET" || !state || !isConsoleState(state)) return undefined;
+  const code = url.searchParams.get("code");
+  const providerError = url.searchParams.get("error");
+  if (!code && !providerError)
+    return page({ code: "CONNECTIONS_STATE_MISMATCH", message: "The authorization response has no code.", outcome: "error", status: 400, title: "Connection failed" });
+  let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
+  try {
+    result = await runtime().complete({ code: code ?? undefined, error: providerError ?? undefined, state });
+  } catch (error) {
+    if (!isConnectionError(error)) throw error;
+    return page({ code: error.code, fix: error.fix, message: error.message, outcome: "error", status: errorStatus(error), title: error.code === "CONNECTIONS_AUTHORIZATION_CANCELLED" ? "Connection cancelled" : "Connection failed" });
+  }
+  return page({
+    message: `${result.name} is connected${result.account?.email ? ` as ${result.account.email}` : ""}.`,
+    outcome: "success",
+    status: 200,
+    title: "Connected",
+  });
+}
 
 type ApprovalPage = Awaited<ReturnType<ConnectionsRuntime["approvals"]>>;
 
@@ -284,7 +305,9 @@ const action: ConnectionsRoute = {
         });
       case "chatgpt-export":
       case "chatgpt-import": {
-        const url = new URL(resolvePublicUrl({ agentName: access.agentName, request }));
+        const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
+        if (!publicOrigin) return json({ error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", unknownHostMessage) }, 403);
+        const url = new URL(publicOrigin);
         const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
         if (url.protocol !== "https:" && !loopback) {
           return json({ error: managementErrorBody("CONNECTIONS_FORBIDDEN", "Credential transfer requires HTTPS or a loopback host.") }, 403);
@@ -298,6 +321,8 @@ const action: ConnectionsRoute = {
         return json({ models: await chatgptTransfers(connections).models({ actor, name: input.name }) });
       case "revoke":
         return json({ connection: await connections.revoke({ actor, name: input.name }) });
+      case "rotate-key":
+        return json({ rotation: await connections.rotateKey() });
       case "set-key":
         return json({
           connection: await connections.setKey({ actor, key: input.key, name: input.name }),

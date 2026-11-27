@@ -1,0 +1,65 @@
+---
+title: Forge configuration
+description: Set the env of a GitHub App, a token, GitLab, Forgejo, or Gitea, and see which ViteHub parts read the same names.
+navigation.title: Configure
+navigation.order: 3
+icon: i-lucide-sliders-horizontal
+---
+
+Forge has no `vitehub()` option. It reads its credentials from the env when you call `useForge()`.
+
+## Set the env
+
+| Variable | Use |
+| --- | --- |
+| `VITEHUB_GITHUB_APP_ID` | The App ID or the Client ID of the GitHub App. |
+| `VITEHUB_GITHUB_PRIVATE_KEY` | The App private key in PEM. An escaped `\n` becomes a new line. |
+| `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | A private PEM file that is available at runtime. On Cloudflare, use a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding instead. |
+| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional. The installation of `VITEHUB_GITHUB_APP_OWNER`, which it needs. |
+| `VITEHUB_GITHUB_APP_OWNER` | The repository owner of `VITEHUB_GITHUB_INSTALLATION_ID`, such as `acme`. |
+| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional. A JSON object that maps repository owners to installation IDs, such as `{"acme":123,"other":456}`. |
+| `VITEHUB_GITHUB_TOKEN` | A token to use when there is no App, such as `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions. |
+| `VITEHUB_GITLAB_TOKEN`, `VITEHUB_GITLAB_BASE_URL` | GitLab. |
+| `VITEHUB_FORGEJO_TOKEN`, `VITEHUB_FORGEJO_BASE_URL` | Forgejo. Without a base URL, Codeberg. |
+| `VITEHUB_GITEA_TOKEN`, `VITEHUB_GITEA_BASE_URL` | Gitea. Without a base URL, gitea.com. |
+
+When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. Otherwise it uses `VITEHUB_GITHUB_TOKEN`. `GH_TOKEN` and `GITHUB_TOKEN` are not read.
+
+### Installations
+
+An App installation belongs to one repository owner. For each repository, ViteHub uses the first match:
+
+1. The owner in `VITEHUB_GITHUB_APP_INSTALLATIONS`.
+2. `VITEHUB_GITHUB_INSTALLATION_ID`, when the owner is `VITEHUB_GITHUB_APP_OWNER`.
+3. The installation that GitHub finds for the repository.
+
+A call without `repository` uses `VITEHUB_GITHUB_INSTALLATION_ID`. `VITEHUB_GITHUB_INSTALLATION_ID` without `VITEHUB_GITHUB_APP_OWNER` fails with `FORGE_INVALID_ENV`. Owner names are not case-sensitive. `useForge()`, the `forge()` Capability, the `github()` Channel, Comments, and the Babysitter use this rule.
+
+`useForge()` reads the bindings of the active Cloudflare request, then `process.env`. To read another source, pass `env`, for example `useForge({ env: process.env })`.
+
+## Server Env
+
+Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the [`forges`](https://forges.link) library reads. `forgeEnv` from `vite-hub/forge` is this table.
+
+| Field | Names |
+| --- | --- |
+| `github.token` | `VITEHUB_GITHUB_TOKEN`, `FORGES_GITHUB_TOKEN` |
+| `github.appId` | `VITEHUB_GITHUB_APP_ID`, `FORGES_GITHUB_APP_ID` |
+| `github.privateKey` | `VITEHUB_GITHUB_PRIVATE_KEY`, `FORGES_GITHUB_PRIVATE_KEY` |
+| `github.privateKeyPath` | `VITEHUB_GITHUB_PRIVATE_KEY_PATH` |
+| `github.installationId` | `VITEHUB_GITHUB_INSTALLATION_ID`, `FORGES_GITHUB_INSTALLATION_ID` |
+| `github.appOwner` | `VITEHUB_GITHUB_APP_OWNER` |
+| `github.appInstallations` | `VITEHUB_GITHUB_APP_INSTALLATIONS` |
+| `github.webhookSecret` | `VITEHUB_GITHUB_WEBHOOK_SECRET`, `FORGES_GITHUB_WEBHOOK_SECRET` |
+| `gitlab.baseUrl`, `gitlab.token`, `gitlab.webhookSecret` | `VITEHUB_GITLAB_*`, `FORGES_GITLAB_*` |
+| `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
+| `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
+
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
+
+## Who reads the same names
+
+- `useForge()` and the GitHub Channel read the same App credentials. See [Forge access for Git and Drivers](/docs/agents/channels#forge-access-for-git-and-drivers).
+- The [`forge()` Capability](/docs/agents/capabilities/forge) and the [GitLab and Forgejo Channels](/docs/agents/forge-channels) read the same names. They do not support Gitea yet. Use `useForge({ forge: 'gitea' })` from server code.
+- The Workspace GitHub store uses an explicit `token` first. Without one, it mints App installation tokens through `useForge()` when `VITEHUB_GITHUB_APP_ID` or `FORGES_GITHUB_APP_ID` is set. If neither App ID is set, it reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`.
+- When `auth` is omitted, GitHub Sources read `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not mint App installation tokens. For private repositories, set an env token or pass `auth` as a token or a callback that returns one.

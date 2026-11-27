@@ -9,6 +9,12 @@ export const messageWorkspaceChange = 4
 /** Server-to-client JSON control frame: the room session on open, or a reset before closing. */
 export const messageRealtimeControl = 5
 export const messageAwareness = 1
+/**
+ * A JSON request from the server to the one browser in a room, that browser's answer, or a notice from the server to
+ * every browser in a room. Requests go only to rooms of a presence Definition with `requests: true`; notices go to rooms
+ * of any presence Definition. `kind` tells which one it is.
+ */
+export const messageRealtimeRequest = 6
 export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
 /**
@@ -19,10 +25,11 @@ export const realtimeKeepalivePing = "ping"
 export const realtimeKeepalivePong = "pong"
 export const maxAwarenessClients = 1024
 export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
-export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"
 export const realtimeSourceChangedCode = "REALTIME_SOURCE_CHANGED"
 /** A save or checkpoint asked a room whose codec cannot edit the stored document without loss. */
 export const realtimeReadOnlyCode = "REALTIME_READ_ONLY"
+/** A save found that the room body does not fit the editor schema, so writing it would lose content. */
+export const realtimeInvalidDocumentCode = "REALTIME_INVALID_DOCUMENT"
 /** Close code sent after a reset control frame. The client must drop its Y.Doc. */
 export const realtimeResetCloseCode = 4409
 /** Close code for updates a peer may not write: read-only access or the server-written status. */
@@ -30,10 +37,6 @@ export const realtimeForbiddenWriteCloseCode = 4403
 
 export function isRetryableRealtimeRequestCode(value: unknown): boolean {
   return value === realtimeSyncPendingCode
-}
-
-export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
-  return value === realtimeSyncPendingCode || value === realtimeCheckpointRejectedCode
 }
 
 export type RealtimeControlMessage =
@@ -53,7 +56,7 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
     if (!value || typeof value !== "object" || !("epoch" in value) || !("type" in value)) return
     if (typeof value.epoch !== "string" || !value.epoch) return
     if (value.type === "session" && "access" in value && (value.access === "read" || value.access === "write")) {
-      if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document")) {
+      if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document" || value.reason === "version")) {
         return { type: "session", access: value.access, epoch: value.epoch, reason: value.reason }
       }
       return { type: "session", access: value.access, epoch: value.epoch }
@@ -114,4 +117,32 @@ export function readAwarenessClientIds(update: Uint8Array): number[] {
     decoding.readVarString(decoder)
   }
   return clients
+}
+
+export type RealtimeRequestFrame =
+  | { kind: "notice", body: unknown }
+  | { kind: "request", id: string, body: unknown }
+  | { kind: "answer", id: string, ok: true, body: unknown }
+  | { kind: "answer", id: string, ok: false, why: string }
+
+export function encodeRealtimeRequestFrame(frame: RealtimeRequestFrame): Uint8Array {
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, messageRealtimeRequest)
+  encoding.writeVarString(encoder, JSON.stringify(frame))
+  return encoding.toUint8Array(encoder)
+}
+
+/** Reads a request frame after its message type, or `undefined` when it is not one. */
+export function decodeRealtimeRequestFramePayload(decoder: decoding.Decoder): RealtimeRequestFrame | undefined {
+  try {
+    const value: unknown = JSON.parse(decoding.readVarString(decoder))
+    if (value && typeof value === "object" && "kind" in value && value.kind === "notice") return { kind: "notice", body: "body" in value ? value.body : undefined }
+    if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string" || !value.id || value.id.length > 128) return
+    if (!("kind" in value)) return
+    if (value.kind === "request") return { kind: "request", id: value.id, body: "body" in value ? value.body : undefined }
+    if (value.kind !== "answer" || !("ok" in value)) return
+    if (value.ok === true) return { kind: "answer", id: value.id, ok: true, body: "body" in value ? value.body : undefined }
+    if (value.ok === false && "why" in value && typeof value.why === "string") return { kind: "answer", id: value.id, ok: false, why: value.why }
+  }
+  catch {}
 }

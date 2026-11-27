@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   dynamic,
+  exportNames,
   findCalls,
   findDefaultExportCall,
   findProperty,
@@ -95,6 +96,13 @@ describe("maskLiterals", () => {
 })
 
 describe("moduleTokens", () => {
+  it("keeps source offsets before decoding escaped identifiers", () => {
+    const source = "// note\nconst \\u0061b = 'text'; ab()"
+    const { starts, tokens } = moduleTokens(scanModule(source))
+    expect(starts.map(start => source.slice(start, start + 2))).toEqual(["co", "\\u", "= ", "'t", "; ", "ab", "()", ")"])
+    expect(tokens[1]).toBe("ab")
+  })
+
   it("keeps literals whole and splits division from regular expressions", () => {
     const { lineBreaks, tokens } = moduleTokens(scanModule("const a = b / c / d\nconst r = /x\\/y/g // note\nconst t = `a${`b${c}`}`\nconst \\u0061b = 1"))
     expect(tokens).toEqual([
@@ -108,5 +116,31 @@ describe("moduleTokens", () => {
 
   it("lists template substitutions without their delimiters", () => {
     expect(templateExpressionSources("`a${ b }c${`d${e}`}`")).toEqual([" b ", "`d${e}`"])
+  })
+})
+
+describe("exportNames", () => {
+  it("lists value exports and leaves out type-only exports", () => {
+    const source = [
+      "export const posts = 1, { a, b: [c] } = value",
+      "export function authorize() {}",
+      "export class Store {}",
+      "const local = 1",
+      "export { local as renamed, local as \"quoted name\" }",
+      "export * as helpers from \"./helpers\"",
+      "export * from \"./all\"",
+      "export type Post = { id: string }",
+      "export interface Shape {}",
+      "export type { Other } from \"./other\"",
+      "export default posts",
+    ].join("\n")
+    expect(exportNames(source, "server/collections/posts.ts")).toEqual([
+      "posts", "a", "c", "authorize", "Store", "renamed", "quoted name", "helpers", "default",
+    ])
+  })
+
+  it("reads JavaScript files and finds no names in CommonJS", () => {
+    expect(exportNames("export async function authorize() {}", "server/blob.mjs")).toEqual(["authorize"])
+    expect(exportNames("exports.authorize = () => true", "server/blob.cjs")).toEqual([])
   })
 })

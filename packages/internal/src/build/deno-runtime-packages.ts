@@ -1,18 +1,23 @@
 import { createRuntimePackageResolver } from "./runtime-package-resolution.ts"
 import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
-import { builtinModules, createRequire } from "node:module"
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { builtinModules, createRequire, findPackageJSON } from "node:module"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { resolveImports, type PathConditionsMap } from "resolve-pkg-maps"
 
-import type { Plugin } from "esbuild"
-import { satisfies, validRange } from "semver"
+import type { Rolldown } from "vite"
 
-import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
+import type { ViteAlias } from "./bundle-options.ts"
+import { bundleEsmEntry } from "./rolldown.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { copyRuntimePackageFiles } from "./runtime-package-files.ts"
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
+import { isPlainObject } from "../object.ts"
+import { denoDeployRunnerSource } from "./deno-deploy-runner.injected.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
 
@@ -362,7 +367,7 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
+    invariant(escape !== undefined, "the import specifiers of bundler output are complete JavaScript module strings, so each escape sequence ends")
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -380,14 +385,14 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+        throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
+      invariant(/^[\dA-Fa-f]{2}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each hexadecimal escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -398,19 +403,19 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
+          throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
+      invariant(/^[\dA-Fa-f]{4}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+    invariant(!/[1-9]/.test(escape), "the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
     cooked += escape
   }
   return cooked
@@ -508,54 +513,49 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
   return output.join("")
 }
 
-function packageImportPlugin(): Plugin {
-  const resolvingPackageImport = "vitehubResolvingPackageImport"
-  return {
-    name: "vitehub-package-imports",
-    setup(build) {
-      build.onResolve({ filter: /^#/ }, async (args) => {
-        if (args.pluginData?.[resolvingPackageImport]) return
-        const result = await build.resolve(args.path, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          pluginData: { ...args.pluginData, [resolvingPackageImport]: true },
-          resolveDir: args.resolveDir,
-          with: args.with,
-        })
-        const pluginData = Object.assign({}, result.pluginData)
-        Reflect.deleteProperty(pluginData, resolvingPackageImport)
-        return { ...result, pluginData }
-      })
-    },
-  }
-}
-
 function runtimePackageResolutionPlugin(
   rootDir: string,
   aliases: ViteAlias[] | undefined,
+  conditions: string[] | undefined,
   packageJsonPaths: Map<string, string>,
   packages: Map<string, RuntimePackage>,
-): Plugin {
+): Rolldown.Plugin {
   return {
     name: "vitehub-deno-runtime-packages",
-    setup(build) {
-      build.onResolve({ filter: /.*/ }, async (args) => {
-        const name = packageNameFromSpecifier(args.path)
-        if (!name || aliases?.some((alias) => {
-          if (!(alias.find instanceof RegExp)) return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
-          alias.find.lastIndex = 0
-          const matches = alias.find.test(args.path)
-          alias.find.lastIndex = 0
-          return matches
-        })) return
-        const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
-        const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
-        const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
-        const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
-        if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
-        addRuntimePackage(packages, { name, optional: args.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
-      })
+    async resolveId(source, importer, extra) {
+      if (aliases?.some((alias) => {
+        if (!(alias.find instanceof RegExp)) return source === alias.find || source.startsWith(`${alias.find}/`)
+        alias.find.lastIndex = 0
+        const matches = alias.find.test(source)
+        alias.find.lastIndex = 0
+        return matches
+      })) return
+      if (source.startsWith("#") && importer && isAbsolute(importer)) {
+        const packageJsonPath = findPackageJSON(".", pathToFileURL(importer))
+        if (!packageJsonPath || basename(packageJsonPath) !== "package.json") return
+        const manifest: unknown = JSON.parse(await readFile(packageJsonPath, "utf8"))
+        if (!isPlainObject(manifest) || !isPlainObject(manifest.imports)) return
+        let target: string | undefined
+        try {
+          const kind = extra.kind === "require-call" ? "require" : "import"
+          // SAFETY: Package imports are parsed from JSON and the resolver checks each selected target's shape.
+          target = resolveImports(manifest.imports as PathConditionsMap, source, [kind, ...(conditions ?? [])])[0]
+        }
+        catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return
+          throw error
+        }
+        if (!target || (!packageNameFromSpecifier(target) && !/^(npm|jsr):/.test(target))) return
+        return this.resolve(target, importer, { custom: extra.custom, kind: extra.kind, skipSelf: false })
+      }
+      const name = packageNameFromSpecifier(source)
+      if (!name) return
+      const fromDir = importer && isAbsolute(importer) ? dirname(importer) : rootDir
+      const resolver = createRequire(importer && isAbsolute(importer) ? importer : join(fromDir, "package.json"))
+      const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+      const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
+      if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+      addRuntimePackage(packages, { name, optional: extra.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
     },
   }
 }
@@ -687,7 +687,17 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
   }
 }
 
-function normalizePeerRange(range: string): string | null {
+// Only Deno output copies runtime packages, so other builds and dev servers do not load semver. The `semver` entry loads
+// every one of its 47 modules. These two load a handful.
+async function loadSemver() {
+  const [{ default: satisfies }, { default: validRange }] = await Promise.all([
+    import("semver/functions/satisfies.js"),
+    import("semver/ranges/valid.js"),
+  ])
+  return { satisfies, validRange }
+}
+
+function normalizePeerRange(range: string, validRange: (range: string) => string | null): string | null {
   if (validRange(range)) return range
   if (range === "workspace:" || range === "workspace:*") return "*"
   const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
@@ -749,8 +759,9 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (outputNodeModules === rootOutputNodeModules) {
+    const { satisfies, validRange } = await loadSemver()
     const existingPath = rootPackagePaths.get(name)
-    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange)] : [])]
+    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange, validRange)] : [])]
     const satisfiesPeerRanges = (version: string): boolean => peerRanges.every(range => range !== null && satisfies(version, range))
     if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
       if (existingPath.version && satisfiesPeerRanges(existingPath.version)) {
@@ -778,11 +789,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   copied.add(packageKey)
   if (resolve(packageDir) !== resolve(targetDir)) {
     await rm(targetDir, { force: true, recursive: true })
-    await cp(packageDir, targetDir, {
-      dereference: true,
-      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
-      recursive: true,
-    })
+    await copyRuntimePackageFiles(packageDir, targetDir)
   }
   staged.add(stagedKey)
   stagedTargets.add(targetDir)
@@ -906,98 +913,6 @@ function hasRelocatableStaticImport(source: string, specifier: string): boolean 
   ]
   return patterns.some(pattern => [...executableSource.matchAll(pattern)]
     .some(match => cookImportSpecifier(match[1]!) === specifier))
-}
-
-function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
-  return `import { spawn } from "node:child_process"
-import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-
-const organization = process.env.DENO_DEPLOY_ORG
-const app = process.env.DENO_DEPLOY_APP || ${JSON.stringify(deploymentName)}
-const region = process.env.DENO_DEPLOY_REGION || "global"
-const entrypoint = ${JSON.stringify(entrypoint)}
-
-if (!organization || !app) {
-  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
-}
-
-let activeChild
-
-function run(args, cwd) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("deno", args, { cwd, stdio: "inherit" })
-    activeChild = child
-    child.on("error", reject)
-    child.on("exit", (code, signal) => {
-      activeChild = undefined
-      resolve({ code, signal })
-    })
-  })
-}
-
-async function enclosingGitRoot(path) {
-  let current = resolve(path)
-  while (true) {
-    try {
-      await access(join(current, ".git"))
-      return current
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error
-    }
-    const parent = dirname(current)
-    if (parent === current) return
-    current = parent
-  }
-}
-
-function contains(parent, child) {
-  const path = relative(parent, child)
-  return path === "" || (!path.startsWith("..") && !isAbsolute(path))
-}
-
-const sourceRoot = await realpath(fileURLToPath(new URL(".", import.meta.url)))
-const uploadRoot = await realpath(await mkdtemp(join(tmpdir(), "vitehub-deno-deploy-")))
-const signals = ["SIGINT", "SIGTERM"]
-let interrupted = false
-const handleSignal = (signal) => {
-  interrupted = true
-  activeChild?.kill(signal)
-  void rm(uploadRoot, { force: true, recursive: true }).finally(() => {
-    process.kill(process.pid, signal)
-  })
-}
-for (const signal of signals) process.once(signal, handleSignal)
-
-try {
-  if (contains(sourceRoot, uploadRoot) || await enclosingGitRoot(uploadRoot)) {
-    throw new Error("Deno deployment staging must be outside the generated output and any enclosing Git repository. Set TMPDIR to an external directory.")
-  }
-  await cp(sourceRoot, uploadRoot, { recursive: true })
-
-  if (!interrupted) {
-    const common = ["--allow-node-modules", "--org", organization, "--app", app]
-    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
-    if (creation.signal != null && !interrupted) {
-      throw new Error("deno deploy create exited with " + creation.signal)
-    }
-    if (!interrupted && creation.code !== 0) {
-      const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
-      if (deployment.code !== 0) {
-        throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
-      }
-    }
-  }
-} finally {
-  try {
-    await rm(uploadRoot, { force: true, recursive: true })
-  } finally {
-    for (const signal of signals) process.off(signal, handleSignal)
-  }
-}
-`
 }
 
 export async function finalizeDenoDeploymentOutput(
@@ -1131,6 +1046,13 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
   await Promise.all(recoveries.map(entry => rm(entry.stageRoot, { force: true, recursive: true })))
 }
 
+const defaultDenoApplicationEntry = [
+  "// Generated by ViteHub. Add a project-root main.ts to replace it.",
+  'import "./schedule/deno-cron.mjs"',
+  'import "./server/index.mjs"',
+  "",
+].join("\n")
+
 async function finalizeStagedDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
@@ -1143,14 +1065,15 @@ async function finalizeStagedDenoDeploymentOutput(
   await addServerRuntimePackages(options.serverPackages, options.rootDir, resolvedPackageJsonPaths, runtimePackages)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
+  // Schedule output from an earlier build without the Schedule integration is stale. `access()` below then fails with ENOENT, which means "no Schedule output".
+  if (options.hasScheduleIntegration === false) await rm(scheduleSource, { force: true })
   try {
     await access(scheduleSource)
-    if (options.hasScheduleIntegration === false) {
-      await rm(scheduleSource, { force: true })
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
-    }
     hasSchedule = true
-    await access(applicationEntrySource)
+    const hasApplicationEntry = await access(applicationEntrySource).then(() => true, (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false
+      throw error
+    })
     await mkdir(join(outputDir, "schedule"), { recursive: true })
     const scheduleOutput = join(outputDir, "schedule", "deno-cron.mjs")
     const temporaryScheduleOutput = `${scheduleOutput}.vitehub-tmp`
@@ -1165,7 +1088,7 @@ async function finalizeStagedDenoDeploymentOutput(
       platform: "neutral",
       preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
-      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+      plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
@@ -1181,22 +1104,28 @@ async function finalizeStagedDenoDeploymentOutput(
     const applicationOutput = join(outputDir, "main.ts")
     const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
     try {
-      await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
-        external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
-        alias: options.alias,
-        banner: "// @ts-nocheck -- generated JavaScript is emitted with a .ts entrypoint for Deno Deploy",
-        conditions: options.conditions,
-        define: options.define,
-        extensions: options.extensions,
-        format: "esm",
-        packages: "external",
-        platform: "neutral",
-        preserveSymlinks: options.preserveSymlinks,
-        mainFields: options.mainFields,
-        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
-        rootDir: options.rootDir,
-        workingDir: options.rootDir,
-      })
+      if (hasApplicationEntry) {
+        await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
+          external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
+          alias: options.alias,
+          banner: "// @ts-nocheck -- generated JavaScript is emitted with a .ts entrypoint for Deno Deploy",
+          conditions: options.conditions,
+          define: options.define,
+          extensions: options.extensions,
+          format: "esm",
+          packages: "external",
+          platform: "neutral",
+          preserveSymlinks: options.preserveSymlinks,
+          mainFields: options.mainFields,
+          plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
+          rootDir: options.rootDir,
+          workingDir: options.rootDir,
+        })
+      }
+      else {
+        // Without a project-root `main.ts`, register the Schedules before the server starts.
+        await writeFile(temporaryApplicationOutput, defaultDenoApplicationEntry, "utf8")
+      }
       const applicationBundle = await readFile(temporaryApplicationOutput, "utf8")
       assertSupportedRelocatedImports(
         applicationBundle,
@@ -1222,10 +1151,8 @@ async function finalizeStagedDenoDeploymentOutput(
   }
   catch (error) {
     // SAFETY: filesystem access and cleanup failures expose Node's optional error code.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    if (hasSchedule) {
-      throw internalErrorDiagnostics.INTERNAL_B0033({ message: 'Deno Schedule output requires a project-root "main.ts" application entrypoint.', cause: error })
-    }
+    // ENOENT before the Schedule output is found means that the build has no Schedules.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || hasSchedule) throw error
   }
   const nodeTypesPackageJson = await resolvePackageJson(
     "@types/node",

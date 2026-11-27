@@ -1,7 +1,9 @@
 import { validateAgentStaticRoute } from "../src/internal/routes.ts"
 import { describe, expect, it, vi } from "vitest"
 
-import { normalizeAgentOptions } from "../src/config.ts"
+import { env } from "@vite-hub/env"
+
+import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "../src/config.ts"
 
 describe("agent config", () => {
   it("defaults Agent Definitions to workflows with an inline opt-out", async () => {
@@ -15,19 +17,13 @@ describe("agent config", () => {
     expect(normalizeAgentOptions(undefined)).toEqual({
       execution: "inline",
       imports: true,
-      integrations: {
-        sandbox: "auto",
-        workflow: "auto",
-      },
       providers: {
-        sandbox: { provider: "auto" },
-        scheduler: { provider: "auto" },
-        state: { provider: "auto" },
+        state: { driver: "auto" },
       },
       routes: {
         discordGateway: false,
         inspection: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "auto",
       shutdown: {},
@@ -43,45 +39,63 @@ describe("agent config", () => {
 
   it("preserves provider options", () => {
     expect(normalizeAgentOptions({
-      integrations: { sandbox: false },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       runtime: "cloudflare-agents",
     })).toMatchObject({
-      integrations: { sandbox: false, workflow: "auto" },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,
         inspection: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "cloudflare-agents",
     })
   })
 
+  it("accepts only the State drivers and keys that ViteHub reads", () => {
+    const authToken = env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })
+    expect(normalizeAgentOptions({ providers: { state: { driver: "libsql", authToken, url: "libsql://state.example.com" } } })).toMatchObject({
+      providers: { state: { authToken, driver: "libsql", url: "libsql://state.example.com" } },
+    })
+    expect(normalizeAgentOptions({ providers: { state: { driver: "memory" } } })).toMatchObject({ providers: { state: { driver: "memory" } } })
+    expect(agentStateAuthTokenEnvNames(env({ secret: true, source: env.source(["TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN"]) }))).toEqual(["TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN"])
+
+    // Untyped JS config can still pass these shapes. Each one used to select in-memory state or drop the token without a word.
+    const untyped = (state: Record<string, unknown>) => () => normalizeAgentOptions({ providers: { state } } as never)
+    expect(untyped({ driver: "postgres" })).toThrow(/AGENT_B0005|driver "postgres" is not a State driver/)
+    expect(untyped({ driver: "cloudflare-agents" })).toThrow(/Use one of: auto, cloudflare, libsql, memory, sqlite/)
+    expect(untyped({ driver: "memory", url: "libsql://state.example.com" })).toThrow(/driver "memory" does not read url/)
+    expect(untyped({ driver: "cloudflare", tablePrefix: "state_" })).toThrow(/driver "cloudflare" does not read tablePrefix/)
+    expect(untyped({ driver: "libsql", token: "secret" })).toThrow(/driver "libsql" does not read token/)
+    expect(untyped({ driver: "libsql", journalMode: "truncate" })).toThrow(/journalMode must be "wal" or "delete"/)
+    expect(untyped({ driver: "libsql", authToken: "secret-token" })).toThrow(/authToken must be an env\(\) declaration/)
+    expect(untyped({ driver: "libsql", authToken: env({ secret: true, default: "secret-token", source: env.source("TURSO_AUTH_TOKEN") }) })).toThrow(/has no default/)
+  })
+
   it("normalizes the optional Discord Gateway route with the required webhook route", () => {
     expect(normalizeAgentOptions({ routes: { discordGateway: true } })).toMatchObject({
       routes: {
-        discordGateway: "/api/_vitehub/agents/[agent]/discord/gateway",
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        discordGateway: "/_vitehub/agents/[agent]/discord/gateway",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
     expect(normalizeAgentOptions({ routes: { discordGateway: "/discord/gateway" } })).toMatchObject({
       routes: {
         discordGateway: "/discord/gateway",
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
     expect(normalizeAgentOptions({ routes: { discordGateway: false } })).toMatchObject({
       routes: {
         discordGateway: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
   })
 
   it("normalizes the optional inspection route", () => {
     expect(normalizeAgentOptions({ routes: { inspection: true } })).toMatchObject({
-      routes: { inspection: "/api/_vitehub/agents/[agent]/inspection" },
+      routes: { inspection: "/_vitehub/agents/[agent]/inspection" },
     })
     expect(normalizeAgentOptions({ routes: { inspection: "/internal/agents/[agent]" } })).toMatchObject({
       routes: { inspection: "/internal/agents/[agent]" },
@@ -124,7 +138,6 @@ describe("agent config", () => {
       expect(agent.defineAgent({
         driver: { run: async () => "ok", },
       }).run).toBeTypeOf("function")
-      expect(agent).not.toHaveProperty("withAgentDefaults")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -144,9 +157,6 @@ describe("agent config", () => {
       const publicServer = await import("../src/server.ts")
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
-      expect(publicServer).not.toHaveProperty("createGitHubHost")
-      const githubServer = await import("../src/server/github.ts")
-      expect(githubServer.createGitHubHost).toBeTypeOf("function")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
@@ -198,7 +208,7 @@ describe("agent config", () => {
           } },
       }) as never)
 
-      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "thread",
           messages: [{
@@ -284,8 +294,8 @@ it("rejects readiness overlaps with static, parameterized, and catch-all handler
 it("treats catch-all handlers above a reserved namespace as fallbacks", () => {
   const route = "/_vitehub/agent/invocations/dev"
   // The Console page and an application fallback match only after the static route.
-  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }], "development invocation", "/_vitehub/agent")).toBe(route)
-  for (const handler of ["/[...path]", "/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
+  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }, { route: "/[...path]" }], "development invocation", "/_vitehub/agent")).toBe(route)
+  for (const handler of ["/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
     expect(() => validateAgentStaticRoute(route, [{ route: handler }], "development invocation", "/_vitehub/agent")).toThrow("development invocation route conflicts")
   }
   expect(() => validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }], "development invocation")).toThrow("development invocation route conflicts")

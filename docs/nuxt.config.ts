@@ -1,12 +1,33 @@
 import { defineNuxtConfig } from "nuxt/config";
 import { fileURLToPath } from "node:url";
-import { docsIcons } from "./app/utils/docs-sidebar-icons";
-import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
+import { docsIcons } from "./app/utils/docs-sidebar-icons.ts";
+import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references.ts";
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
-  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "nuxt-schema-org", "vite-hub/nuxt"],
+  // The site serves /_vitehub/rpc so that a ViteHub Console can link it. Only calls that the Console signs with the key
+  // in a VITEHUB_CONSOLE_KEY_<NAME> secret pass. Site access in that Console signs the team in to comment on pages
+  // (server/auth.ts).
+  vitehub: {
+    host: "cloudflare",
+    auth: true,
+    database: true,
+    // Comments without attachments: no R2 bucket, KV namespace, or Workspace for the docs.
+    blob: false,
+    kv: false,
+    workspace: false,
+    console: true,
+    publicUrl: "https://vitehub.dev",
+  },
+  // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
+  sourcemap: { server: false },
   docs: {
+    runnable: {
+      fixtures: "../fixtures/tutorials",
+      start: "/docs/getting-started/installation",
+      pnpmWorkspace: "..",
+    },
     site: {
       name: "ViteHub",
       url: "https://vitehub.dev",
@@ -19,16 +40,14 @@ export default defineNuxtConfig({
     start: {
       section: "getting-started",
       links: [
-        { label: "All docs", to: "/docs", icon: "i-ph-squares-four-light" },
-        { label: "Learn", to: "/learn", icon: "i-ph-graduation-cap-light" },
-        { label: "Playground", to: "/playground", icon: "i-ph-code-light" },
-        { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
-        { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
-        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
-        { label: "Console", to: "https://console.vitehub.dev", icon: "i-ph-monitor-light" },
+        { label: "All docs", to: "/docs", icon: "i-lucide-layout-grid" },
+        { label: "Learn", to: "/learn", icon: "i-lucide-graduation-cap" },
+        { label: "Playground", to: "/playground", icon: "i-lucide-code" },
+        { label: "Projects", to: "/projects", icon: "i-lucide-folder" },
+        { label: "Templates", to: "/templates", icon: "i-lucide-layout-template" },
       ],
     },
-    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://chat.vitehub.dev" }],
+    socials: [{ label: "ViteHub on Discord", icon: "i-simple-icons-discord", to: "https://chat.vitehub.dev" }],
     footer: [
       { label: "About", to: "/about" },
       { label: "Examples", to: "/examples" },
@@ -38,12 +57,89 @@ export default defineNuxtConfig({
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
-    mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
-    sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
+    mcp: { name: "vitehub", guide: "/docs/console/mcp" },
+    sitemap: ["/learn", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
+    // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
+    llms: {
+      details: [
+        "Rules for coding agents:",
+        [
+          "- Read the installed package exports and types before you write imports or options. When the installed packages, these docs, and remembered syntax disagree, follow the installed packages.",
+          "- Prefer the `vite-hub` distribution: register `vitehub()` from `vite-hub` in the Vite config and import Runtime Helpers from feature subpaths such as `vite-hub/kv`. Some pages use owner packages such as `@vite-hub/kv`; follow the style that the project already uses.",
+          "- Keep provider and host selection in the Vite config. Application code calls the same Runtime Helper on every host.",
+          "- Give an Agent authority only through Capabilities, Workspaces, Sources, or Channels. Do not pass application secrets or broad access to an Agent implicitly.",
+          "- Open the raw page for one feature, such as `https://vitehub.dev/raw/docs/kv.md`, before you write code. Raw pages contain agent-only details that the rendered site does not show. Do not load llms-full.txt for one task.",
+          "- Prove the change: run the Runtime Helper, Agent Invocation, webhook, or schedule, and inspect the generated `.vitehub/` state or provider output.",
+          "- Install the ViteHub skill for routed guidance: `npx skills add https://vitehub.dev --skill vitehub`.",
+        ].join("\n"),
+      ].join("\n\n"),
+      sections: [
+        {
+          title: "When to use ViteHub",
+          description: "Use ViteHub when a Vite application needs portable server storage, queues, workflows, schedules, sandboxes, or other Server Primitives; when it needs inspectable Agent Definitions with explicit Capabilities and Workspaces; or when the same runtime behavior must deploy across supported hosts without leaking provider APIs into application code.",
+          links: [
+            {
+              title: "Choose a ViteHub layer",
+              description: "Decide whether the job needs a Server Primitive, an Agent, or both.",
+              href: "https://vitehub.dev/raw/docs/getting-started.md",
+            },
+            {
+              title: "Install ViteHub",
+              description: "Install the framework distribution or a focused owner package.",
+              href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
+            },
+            {
+              title: "Compare ViteHub",
+              description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
+              href: "https://vitehub.dev/raw/docs/compare.md",
+            },
+            {
+              title: "Agent harness",
+              description: "See how ViteHub runs Codex, Claude Code, or a model loop with Capabilities, Workspaces, Sandboxes, and approvals.",
+              href: "https://vitehub.dev/raw/docs/agents/harness.md",
+            },
+          ],
+        },
+        {
+          title: "ViteHub developer resources",
+          description: "Use these named machine interfaces to inspect ViteHub before reading the full documentation set. ViteHub is installed into your application and does not expose a shared hosted runtime API.",
+          links: [
+            {
+              title: "ViteHub OpenAPI document",
+              description: "Discover the public machine-readable resources served by vitehub.dev.",
+              href: "https://vitehub.dev/openapi.json",
+            },
+            {
+              title: "ViteHub Agent Skill",
+              description: "Install or inspect the coding-agent instructions and routed references.",
+              href: "https://vitehub.dev/.well-known/skills/vitehub/SKILL.md",
+            },
+            {
+              title: "ViteHub MCP server",
+              description: "Connect an MCP client to the Streamable HTTP documentation endpoint.",
+              href: "https://vitehub.dev/mcp",
+            },
+            {
+              title: "ViteHub CLI on npm",
+              description: "Install the official CLI included with the vite-hub package.",
+              href: "https://www.npmjs.com/package/vite-hub",
+            },
+          ],
+        },
+        {
+          title: "Project and trust information",
+          links: [
+            { title: "About ViteHub", href: "https://vitehub.dev/raw/about.md" },
+            { title: "Contact ViteHub", href: "https://vitehub.dev/raw/contact.md" },
+            { title: "ViteHub privacy", href: "https://vitehub.dev/raw/privacy.md" },
+          ],
+        },
+      ],
+    },
   },
   site: {
     description: "Portable Agents for Vite, built on Server Primitives.",
@@ -59,85 +155,6 @@ export default defineNuxtConfig({
         { href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json", title: "OpenAPI document: every route this site serves to agents", anchor: "/" },
       ],
     },
-    llms: {
-      // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
-      details: [
-        "Rules for coding agents:",
-        [
-          "- Read the installed package exports and types before you write imports or options. When the installed packages, these docs, and remembered syntax disagree, follow the installed packages.",
-          "- Prefer the `vite-hub` distribution: register `vitehub()` from `vite-hub` in the Vite config and import Runtime Helpers from feature subpaths such as `vite-hub/kv`. Some pages use owner packages such as `@vite-hub/kv`; follow the style that the project already uses.",
-          "- Keep provider and host selection in the Vite config. Application code calls the same Runtime Helper on every host.",
-          "- Give an Agent authority only through Capabilities, Workspaces, Sources, or Channels. Do not pass application secrets or broad access to an Agent implicitly.",
-          "- Open the raw page for one feature, such as `https://vitehub.dev/raw/docs/kv.md`, before you write code. Raw pages contain agent-only details that the rendered site does not show. Do not load llms-full.txt for one task.",
-          "- Prove the change: run the Runtime Helper, Agent Invocation, webhook, or schedule, and inspect the generated `.vitehub/` state or provider output.",
-          "- Install the ViteHub skill for routed guidance: `npx skills add https://vitehub.dev --skill vitehub`.",
-        ].join("\n"),
-      ],
-    },
-  },
-  llms: {
-    sections: [
-      {
-        title: "When to use ViteHub",
-        description: "Use ViteHub when a Vite application needs portable server storage, queues, workflows, schedules, sandboxes, or other Server Primitives; when it needs inspectable Agent Definitions with explicit Capabilities and Workspaces; or when the same runtime behavior must deploy across supported hosts without leaking provider APIs into application code.",
-        links: [
-          {
-            title: "Choose a ViteHub layer",
-            description: "Decide whether the job needs a Server Primitive, an Agent, or both.",
-            href: "https://vitehub.dev/raw/docs/getting-started.md",
-          },
-          {
-            title: "Install ViteHub",
-            description: "Install the framework distribution or a focused owner package.",
-            href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
-          },
-          {
-            title: "Compare ViteHub",
-            description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
-            href: "https://vitehub.dev/raw/docs/compare.md",
-          },
-          {
-            title: "Agent harness",
-            description: "See how ViteHub runs Codex, Claude Code, or a model loop with Capabilities, Workspaces, Sandboxes, and approvals.",
-            href: "https://vitehub.dev/raw/docs/agents/harness.md",
-          },
-        ],
-      },
-      {
-        title: "ViteHub developer resources",
-        description: "Use these named machine interfaces to inspect ViteHub before reading the full documentation set. ViteHub is installed into your application and does not expose a shared hosted runtime API.",
-        links: [
-          {
-            title: "ViteHub OpenAPI document",
-            description: "Discover the public machine-readable resources served by vitehub.dev.",
-            href: "https://vitehub.dev/openapi.json",
-          },
-          {
-            title: "ViteHub Agent Skill",
-            description: "Install or inspect the coding-agent instructions and routed references.",
-            href: "https://vitehub.dev/.well-known/skills/vitehub/SKILL.md",
-          },
-          {
-            title: "ViteHub MCP server",
-            description: "Connect an MCP client to the Streamable HTTP documentation endpoint.",
-            href: "https://vitehub.dev/mcp",
-          },
-          {
-            title: "ViteHub CLI on npm",
-            description: "Install the official CLI included with the vite-hub package.",
-            href: "https://www.npmjs.com/package/vite-hub",
-          },
-        ],
-      },
-      {
-        title: "Project and trust information",
-        links: [
-          { title: "About ViteHub", href: "https://vitehub.dev/raw/about.md" },
-          { title: "Contact ViteHub", href: "https://vitehub.dev/raw/contact.md" },
-          { title: "ViteHub privacy", href: "https://vitehub.dev/raw/privacy.md" },
-        ],
-      },
-    ],
   },
   app: {
     head: {
@@ -162,20 +179,12 @@ export default defineNuxtConfig({
   css: ["~/assets/main.css"],
   postcss: {
     plugins: {
-      cssnano: {
-        // postcss-calc 10.1.1 rejects comark-chat's valid nested calc() fallback. Let browsers evaluate it.
-        preset: ["default", { calc: false }],
-      },
+      cssnano: {},
     },
   },
   vite: {
     resolve: {
       alias: [
-        // Keep Shiki's WebAssembly in the Worker bundle; Cloudflare deployments do not ship node_modules.
-        // `shiki/wasm` resolves to onig.wasm under the `unwasm` condition of the Cloudflare server build.
-        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
         { find: "debug", replacement: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)) },
         { find: "extend", replacement: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)) },
       ],
@@ -191,112 +200,33 @@ export default defineNuxtConfig({
       },
     ],
     serverBundle: {
-      collections: ["lucide", "ph", "simple-icons", "vscode-icons"],
+      collections: ["lucide", "simple-icons", "vscode-icons"],
     },
-    // Server-rendered icons come with their CSS. Icons that appear only in the browser and are not listed here load from
-    // the server bundle on first use, so the client bundle stays small instead of holding every icon in the source.
+    // Every icon that the site draws is in the client bundle, so no page waits for the `/api/_nuxt_icon` endpoint.
+    // @vite-hub/docs adds the icons that pages name, the scan adds the icons in app files, and the list names the icons
+    // that other packages draw.
     clientBundle: {
+      scan: { globInclude: ["app/**/*.{vue,ts}"] },
       icons: [
-        "lucide:brain",
+        "lucide:calendar-check",
         "lucide:calendar-plus",
         "lucide:calendar-x",
-        "lucide:check",
-        "lucide:chevron-down",
-        "lucide:chevron-right",
-        "lucide:chevron-up",
-        "lucide:code-2",
-        "lucide:copy",
-        "lucide:git-compare",
-        "lucide:hash",
+        "lucide:circle-play",
+        "lucide:clipboard-list",
+        "lucide:door-open",
+        "lucide:folder-plus",
+        "lucide:graduation-cap",
         "lucide:hard-drive-download",
         "lucide:hard-drive-upload",
-        "lucide:library",
-        "lucide:lightbulb",
+        "lucide:id-card",
         "lucide:menu",
-        "lucide:paperclip",
+        "lucide:message-circle-code",
         "lucide:moon",
-        "lucide:search",
+        "lucide:square-terminal",
         "lucide:sun",
-        "lucide:terminal",
-        "lucide:text-align-start",
-        "lucide:x",
-        "ph:activity-light",
-        "ph:arrows-split-light",
-        "ph:book-bookmark-light",
-        "ph:book-open-light",
-        "ph:brain-light",
-        "ph:broadcast-light",
-        "ph:browser-light",
-        "ph:calendar-check-light",
-        "ph:caret-down-light",
-        "ph:chart-bar-light",
-        "ph:chat-circle-text-light",
-        "ph:chat-text-light",
-        "ph:chats-circle-light",
-        "ph:clipboard-text-light",
-        "ph:cloud-arrow-up-light",
-        "ph:cloud-light",
-        "ph:code-light",
-        "ph:cpu-light",
-        "ph:cube-light",
-        "ph:database-light",
-        "ph:door-open-light",
-        "ph:download-simple-light",
-        "ph:file-code-light",
-        "ph:file-light",
-        "ph:file-magnifying-glass-light",
-        "ph:file-text-light",
-        "ph:files-light",
-        "ph:folder-light",
-        "ph:folder-notch-open-light",
-        "ph:folder-plus-light",
-        "ph:folder-simple-light",
-        "ph:gauge-light",
-        "ph:git-branch-light",
-        "ph:git-pull-request-light",
-        "ph:graduation-cap-light",
-        "ph:hard-drives-light",
-        "ph:identification-card-light",
-        "ph:key-light",
-        "ph:layout-light",
-        "ph:lightning-light",
-        "ph:list-bullets-light",
-        "ph:list-checks-light",
-        "ph:list-numbers-light",
-        "ph:magnifying-glass-light",
-        "ph:map-trifold-light",
-        "ph:markdown-logo-light",
-        "ph:package-light",
-        "ph:paper-plane-tilt-light",
-        "ph:paperclip-light",
-        "ph:path-light",
-        "ph:play-circle-light",
-        "ph:plug-light",
-        "ph:robot-light",
-        "ph:rocket-launch-light",
-        "ph:scroll-light",
-        "ph:seal-check-light",
-        "ph:shield-check-light",
-        "ph:shield-warning-light",
-        "ph:sliders-horizontal-light",
-        "ph:squares-four-light",
-        "ph:stethoscope-light",
-        "ph:terminal-light",
-        "ph:terminal-window-light",
-        "ph:text-h-light",
-        "ph:tree-structure-light",
-        "ph:triangle-light",
-        "ph:user-check-light",
-        "ph:users-three-light",
-        "ph:warning-circle-light",
-        "ph:waveform-light",
-        "ph:wrench-light",
-        "simple-icons:cloudflare",
-        "simple-icons:discord",
-        "simple-icons:vercel",
         "vscode-icons:file-type-js-official",
-        "vscode-icons:file-type-toml",
         "vscode-icons:file-type-text",
+        "vscode-icons:file-type-toml",
         "vscode-icons:file-type-typescript",
         "vscode-icons:file-type-yaml",
       ],
@@ -307,21 +237,19 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: "cloudflare_module",
+    // Minify Nitro's emitted modules; its Wrangler config disables a second bundle.
+    minify: true,
     cloudflare: {
       deployConfig: true,
       nodeCompat: true,
       wrangler: {
         name: "vitehub-docs",
+        // Minify the final upload, including the icon collections and server-rendered Markdown dependencies.
+        minify: true,
         compatibility_date: "2026-07-19",
         workers_dev: false,
         preview_urls: true,
-        d1_databases: [
-          {
-            binding: "DB",
-            database_id: "4a8731af-1899-4d41-ac8b-6870167ead95",
-            database_name: "vitehub-docs",
-          },
-        ],
+        upload_source_maps: false,
         routes: [
           {
             pattern: "vitehub.dev",
@@ -349,9 +277,6 @@ export default defineNuxtConfig({
       // The docs module adds every content page. These are app routes.
       routes: ["/openapi.json", "/robots.txt"],
     },
-  },
-  future: {
-    compatibilityVersion: 4,
   },
   compatibilityDate: "2026-05-30",
   experimental: {

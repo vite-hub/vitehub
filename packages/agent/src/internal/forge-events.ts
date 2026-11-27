@@ -2,8 +2,8 @@ import type { Comment, ForgeEvent, ForgeProvider, Thread, WebhookDelivery } from
 import type { GitHubIssueCommentPayload } from "../channels.ts"
 import type { ForgeTarget } from "./forge-channel.ts"
 import { forgePullRequest, forgePullRequestMetadata } from "./forge-channel.ts"
-import { AgentHttpError } from "../http-error.ts"
-import { hasRuntimeType, isRuntimeRecord as isRecord } from "./runtime-type.ts"
+import { agentHttpError } from "../http-error.ts"
+import { isRuntimeRecord as isRecord } from "./runtime-type.ts"
 
 function record(value: unknown): Record<string, unknown> { return isRecord(value) ? value : {} }
 
@@ -25,7 +25,7 @@ export async function forgeChannelPullRequest(provider: ForgeProvider, target: F
   const raw = record(value.raw)
   if (!value.model) return raw
   const payload: ReturnType<typeof threadPayload> & { fork?: boolean } = threadPayload(value.model)
-  if (provider.forge === "gitlab" && hasRuntimeType(raw.source_project_id, "number") && hasRuntimeType(raw.target_project_id, "number")) {
+  if (provider.forge === "gitlab" && typeof raw.source_project_id === "number" && typeof raw.target_project_id === "number") {
     payload.fork = raw.source_project_id !== raw.target_project_id
   }
   return payload
@@ -59,8 +59,8 @@ export function forgeActivityComment(comment: Comment): unknown {
 export async function forgeIngest(provider: ForgeProvider, delivery: WebhookDelivery): Promise<ForgeEvent[]> {
   try { return await provider.webhooks.ingest(delivery) }
   catch (error) {
-    if (error instanceof Error && error.name === "WebhookVerificationError") throw new AgentHttpError(401, "[vitehub] Webhook signature verification failed.")
-    if (error instanceof SyntaxError) throw new AgentHttpError(400, "[vitehub] Invalid Forge webhook body.")
+    if (error instanceof Error && error.name === "WebhookVerificationError") throw agentHttpError(401, "[vitehub] Webhook signature verification failed.")
+    if (error instanceof SyntaxError) throw agentHttpError(400, "[vitehub] Invalid Forge webhook body.")
     throw error
   }
 }
@@ -98,7 +98,7 @@ export async function forgeWebhookInput(provider: ForgeProvider, delivery: Webho
       comment: { body, id, user: actor, html_url: nativeComment.html_url || attributes.url, created_at: event.occurredAt.toISOString() },
       issue: { number, title: rawPullRequest.title, body: rawPullRequest.description || rawPullRequest.body,
         user: { login: record(rawPullRequest.author || rawPullRequest.user).username || record(rawPullRequest.user).login },
-        labels: Array.isArray(rawPullRequest.labels) ? rawPullRequest.labels.map(label => hasRuntimeType(label, "string") ? { name: label } : { name: record(label).name || record(label).title }) : undefined,
+        labels: Array.isArray(rawPullRequest.labels) ? rawPullRequest.labels.map(label => typeof label === "string" ? { name: label } : { name: record(label).name || record(label).title }) : undefined,
         pull_request: { html_url: url, url: provider.forge === "gitlab"
           ? `${provider.baseUrl}/projects/${encodeURIComponent(repository)}/merge_requests/${number}`
           : `${provider.baseUrl}/repos/${repository}/pulls/${number}` }, html_url: url },

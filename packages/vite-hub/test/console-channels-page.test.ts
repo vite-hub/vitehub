@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import type { HTMLElement, Window } from "happy-dom"
-import { createApp, defineComponent, h } from "vue"
+import { createApp, defineComponent, h, nextTick } from "vue"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { decodeAgentRouteParam } from "../src/console/runtime/console-route"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", async importOriginal => ({
@@ -17,6 +18,10 @@ vi.mock("@vite-hub/ui", async () => {
       props: { message: { required: true, type: Object } },
       setup: (props, { slots }) => () => h("div", { "data-slot": "message" }, [slots.header?.(), (props.message as { parts: Array<{ text: string }> }).parts[0]!.text, slots.actions?.()]),
     }),
+    Status: defineComponent({
+      props: { label: String, tone: String },
+      setup: props => () => h("span", { "data-status": props.tone }, props.label),
+    }),
   }
 })
 vi.mock("../src/console/runtime/components/console-frame.vue", async () => {
@@ -28,10 +33,6 @@ vi.mock("../src/console/runtime/components/console-search.vue", async () => {
   return { default: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.()]) }) }
 })
 vi.mock("../src/console/runtime/components/console-page-header.vue", async () => {
-  const { defineComponent, h } = await import("vue")
-  return { default: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.()]) }) }
-})
-vi.mock("../src/console/runtime/components/console-status.vue", async () => {
   const { defineComponent, h } = await import("vue")
   return { default: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.()]) }) }
 })
@@ -72,6 +73,12 @@ const page = () => globalThis as unknown as Pick<Window, "document" | "history">
 
 const unmounts: Array<() => void> = []
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 const passthrough = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.(), slots.body?.()]) })
 const button = defineComponent({
   props: { href: String, label: String, onClick: Function, target: String },
@@ -111,7 +118,7 @@ afterEach(() => {
 describe("Channels page", () => {
   it.each(["", "/portal"])("marks a simulated Channel and opens the Agent's chat page under mount '%s'", async mount => {
     page().history.replaceState({}, "", `${mount}/_vitehub/channels`)
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [
       { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route },
       { agent: "support", channel: "telegram", conversations: true, provider: "telegram", retention, simulated: false },
@@ -146,7 +153,7 @@ describe("Channels page", () => {
   })
 
   it("shows the simulated chat page edge to edge and keeps it while a thread is open", async () => {
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [{ agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route }]
     const threads = vi.fn(async () => ({ threads: [{ invocationCount: 1, participants: ["learner"], thread: "slack:learner:1" }] }))
     mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : path === "/api/c/channels/threads" ? await threads() : answers[path])
@@ -182,6 +189,71 @@ describe("Channels page", () => {
     await router.push({ path: "/channels", query: { agent: "support", channel: "slack" } })
     await vi.waitFor(() => expect(frame.style.display).toBe(""))
     expect(host.querySelector("iframe")).toBe(frame)
+  })
+
+  it("lists what happened to each received message while no thread is open", async () => {
+    const deliveries = [
+      { events: [], id: "d3", invocationId: "sha256_run", receivedAt: "2026-11-18T10:02:00.000Z", sourceId: "1763460002", status: "completed" },
+      { events: [], id: "d2", reason: "not-addressed", receivedAt: "2026-11-18T10:01:00.000Z", sourceId: "1763460001", status: "rejected" },
+      { error: "Teams disconnected", events: [], id: "d1", receivedAt: "2026-11-18T10:00:00.000Z", sourceId: "1763460000", status: "failed" },
+    ]
+    mocks.request.mockImplementation(async (path: string, options?: { query?: Record<string, string> }) => {
+      if (path === "/api/c/channels/deliveries") {
+        expect(options?.query).toEqual({ agent: "support", channel: "telegram" })
+        return { agent: "support", channel: "telegram", deliveries }
+      }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "support", channel: "telegram" }, "[aria-label='Received messages']")
+    const rows = [...host.querySelectorAll(".vitehub-console__delivery")]
+    expect(rows.map(row => row.querySelector("[data-status]")?.textContent)).toEqual(["completed", "rejected: not-addressed", "failed: Teams disconnected"])
+    expect(rows.map(row => row.querySelector("[data-status]")?.getAttribute("data-status"))).toEqual(["success", "neutral", "error"])
+    expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe(router.resolve({ name: "vitehub-console-invocation", params: { agent: "support", invocation: "sha256_run" } }).href)
+    expect(rows[1]?.querySelector("a")).toBeNull()
+    // A thread shows its conversation in place of the list.
+    await router.push({ path: "/channels", query: { agent: "support", channel: "telegram", thread: "telegram:1" } })
+    await vi.waitFor(() => expect(host.querySelector("[data-slot=message]")).not.toBeNull())
+    expect(host.querySelector("[aria-label='Received messages']")).toBeNull()
+  })
+
+  it("opens a delivery run for a namespaced Agent", async () => {
+    mocks.request.mockImplementation(async (path: string) => {
+      if (path === "/api/c/channels") return { channels: [{ agent: "team/support", channel: "telegram" }] }
+      if (path === "/api/c/channels/deliveries") return { deliveries: [{ id: "delivery", invocationId: "run", status: "completed" }] }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "team/support", channel: "telegram" }, ".vitehub-console__delivery a")
+    const target = router.resolve(host.querySelector(".vitehub-console__delivery a")!.getAttribute("href")!)
+    expect(decodeAgentRouteParam(target.params.agent)).toBe("team/support")
+    expect(target.params.invocation).toBe("run")
+  })
+
+  it("does not show deliveries from another selection while loading or after a late response", async () => {
+    const telegram = deferred<{ deliveries: { id: string; sourceId: string }[] }>()
+    const teams = deferred<{ deliveries: { id: string; sourceId: string }[] }>()
+    let telegramRequests = 0
+    mocks.request.mockImplementation(async (path: string, options?: { query?: Record<string, string> }) => {
+      if (path === "/api/c/channels") return { channels: [{ agent: "support", channel: "telegram" }, { agent: "billing", channel: "teams" }] }
+      if (path === "/api/c/channels/deliveries") {
+        if (options?.query?.agent === "billing") return teams.promise
+        if (++telegramRequests > 1) return telegram.promise
+        return { deliveries: [{ id: "original", sourceId: "Telegram original", invocationId: "run" }] }
+      }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "support", channel: "telegram" }, ".vitehub-console__delivery")
+    const refresh = host.querySelector("[aria-label='Refresh']") as HTMLElement | null
+    refresh?.click()
+    await vi.waitFor(() => expect(telegramRequests).toBe(2))
+    expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Telegram original")
+    await router.push({ path: "/channels", query: { agent: "billing", channel: "teams" } })
+    await nextTick()
+    expect(host.querySelector(".vitehub-console__delivery")).toBeNull()
+    teams.resolve({ deliveries: [{ id: "new", sourceId: "Teams new" }] })
+    await vi.waitFor(() => expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Teams new"))
+    telegram.resolve({ deliveries: [{ id: "late", sourceId: "Telegram late" }] })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Teams new")
   })
 
   it("links only http(s) attachments", async () => {

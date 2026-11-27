@@ -3,23 +3,26 @@ import { createExecutionContext, createRuntimeContext } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
 import { channelsConsoleHost } from "./channels-console-host.ts"
-import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem } from "./index.ts"
+// The root entry installs the internal Agent runners and Channel item reservation.
+import "./index.ts"
+import { reserveAgentChannelItem } from "./internal/channel-item-reservation.ts"
 import { runAgentWithContext } from "./internal/agent-run.ts"
-import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
+import { exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { getAgentChannelStatusDefinition, type AgentChannelStatusDefinition } from "./internal/channel-status.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { readWorkflowJournalName, setWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
-import { agentChannelOptions, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
+import { agentChannelOptions } from "./internal/agent-definition-options.ts"
+import { isResolvedAgentTriggerHandledInvocation, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
 
 import type {
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
   AgentChannelHistory,
   AgentChannelHistoryQuery,
-  AgentActor,
+  AgentInvoker,
   AgentInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -29,8 +32,8 @@ import type {
 export { channelMessageRunId }
 
 export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  /** Actor supplied by a verified host entry point. */
-  actor?: AgentActor
+  /** Invoker supplied by a verified host entry point. */
+  invoker?: AgentInvoker
   /** Continue from the `nextCursor` of an earlier replay. */
   cursor?: string
   /** Record Channel message writes in the trace instead of calling the provider. */
@@ -59,6 +62,11 @@ export interface ReplayChannelItem {
   /** Journal status when the item was skipped because its Invocation already exists. */
   invocationStatus?: AgentInvocationRecordStatus
   key: string
+  /**
+   * What the Agent returned for a `completed` item, such as the structured result of `driver.ask`.
+   * Only `replayChannel()` and `context.dispatch()` callers get it; the replay HTTP route leaves it out.
+   */
+  output?: unknown
   /**
    * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
    * already queued, or its `order.version` was not newer than the last one admitted for its `order.key`.
@@ -99,11 +107,11 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
   const channels = agentChannelOptions(agent)
   const definition = Object.hasOwn(channels, channel) ? channels[channel] : undefined
   if (!definition) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Agent has no Channel "${channel}".` })
+    throw agentDiagnostics.AGENT_CHANNEL_NOT_FOUND({ channel })
   }
   const history = definition.history
   if (!history) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no history. Add history to its defineChannel() options.` })
+    throw agentDiagnostics.AGENT_CHANNEL_HISTORY_MISSING({ channel })
   }
   const triggerNames = Object.keys(definition.triggers || {})
   const triggerName = history.trigger
@@ -111,8 +119,8 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
     if (triggerNames.length !== 1) throw agentDiagnostics.AGENT_R0933({ message: `[vitehub] Channel "${channel}" history requires an explicit trigger when the Channel has ${triggerNames.length} triggers.` })
     return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerNames[0]}`, triggerName: triggerNames[0]! }
   }
-  if (!hasRuntimeType(triggerName, "string") || !triggerNames.includes(triggerName)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] Channel "${channel}" history trigger must name one of the Channel triggers: ${triggerNames.join(", ") || "none"}.` })
+  if (typeof triggerName !== "string" || !triggerNames.includes(triggerName)) {
+    throw agentDiagnostics.AGENT_CHANNEL_HISTORY_TRIGGER_UNKNOWN({ channel, triggers: triggerNames.join(", ") || "none" })
   }
   return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerName}`, triggerName }
 }
@@ -163,13 +171,13 @@ async function clearSkippedChannelItems<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 function assertReplayOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: ReplayChannelOptions<TRuntimeConfig>): void {
-  if (options.label !== undefined && (!hasRuntimeType(options.label, "string") || !options.label.trim() || options.label.length > 512)) {
+  if (options.label !== undefined && (typeof options.label !== "string" || !options.label.trim() || options.label.length > 512)) {
     throw agentDiagnostics.AGENT_R0934({ message: "[vitehub] replayChannel() label must be a non-empty string of at most 512 characters." })
   }
   if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1)) {
     throw agentDiagnostics.AGENT_R0934({ message: "[vitehub] replayChannel() limit must be a positive integer." })
   }
-  if (options.cursor !== undefined && (!hasRuntimeType(options.cursor, "string") || !options.cursor)) {
+  if (options.cursor !== undefined && (typeof options.cursor !== "string" || !options.cursor)) {
     throw agentDiagnostics.AGENT_R0934({ message: "[vitehub] replayChannel() cursor must be a non-empty string." })
   }
   if (options.query !== undefined && !isRuntimeRecord(options.query)) {
@@ -178,7 +186,7 @@ function assertReplayOptions<TRuntimeConfig extends AgentRuntimeConfig>(options:
 }
 
 function assertItemKey(key: unknown, channel: string, source: string): string {
-  if (!hasRuntimeType(key, "string") || !key.trim() || key.length > 512) {
+  if (typeof key !== "string" || !key.trim() || key.length > 512) {
     throw agentDiagnostics.AGENT_R0933({ message: `[vitehub] Channel "${channel}" ${source} must be a non-empty string of at most 512 characters.` })
   }
   return key
@@ -195,11 +203,11 @@ function createMemo(): AgentRuntimeContext["memo"] {
 
 /** A Workflow runtime returns its run handle instead of the Agent output. */
 function isWorkflowRun(value: unknown): boolean {
-  return isRuntimeRecord(value) && hasRuntimeType(value.id, "string") && hasRuntimeType(value.provider, "string") && hasRuntimeType(value.status, "string")
+  return isRuntimeRecord(value) && typeof value.id === "string" && typeof value.provider === "string" && typeof value.status === "string"
 }
 
 interface ChannelItemRun<TRuntimeConfig extends AgentRuntimeConfig> {
-  actor?: AgentActor
+  invoker?: AgentInvoker
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>
   agentName?: string
   channel: string
@@ -260,7 +268,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     const resolved = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
     // Replay records each item in the replaying Agent's Invocation journal, so it cannot start another Agent's Invocation.
     if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.agent && resolved.agent !== run.agent) {
-      throw new Error(`Task "${resolved.task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`)
+      throw agentDiagnostics.AGENT_REPLAY_TASK_OTHER_AGENT({ task: resolved.task })
     }
     // Preparation and task callbacks must use the same run ID as execution.
     const replayInvocation = isResolvedAgentTriggerHandledInvocation(resolved)
@@ -274,20 +282,20 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
       ...(run.label !== undefined ? { triggeredBy: run.label } : {}),
     } }
     if (reservation && !await reservation.setRunMetadata({ ...runMetadata, annotations: pendingAgentInvocationAnnotations(runMetadata.annotations) })) {
-      throw new Error("Could not persist the claimed Invocation run metadata.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the claimed Invocation run metadata" })
     }
     const token = await reservation?.handoffClaim()
-    if (reservation && !token) throw new Error("Could not transfer the Invocation execution claim.")
+    if (reservation && !token) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "transfer the Invocation execution claim" })
     const output = await runAgentWithContext(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
       ...invocation.input,
-      ...(run.actor ? { context: { ...invocation.input.context, actor: run.actor } } : {}),
+      ...(run.invoker ? { context: { ...invocation.input.context, invoker: run.invoker } } : {}),
       ...(run.dryRun ? { dryRun: true } : {}),
     })
-    return { id, key, status: isWorkflowRun(output) ? "started" : "completed" }
+    return isWorkflowRun(output) ? { id, key, status: "started" } : { id, key, output, status: "completed" }
   }
   catch (error) {
     await reservation?.releaseClaim()
-    if (error instanceof AgentInvocationClaimConflict) {
+    if (isRuntimeRecord(error) && error.code === "AGENT_INVOCATION_CLAIM_CONFLICT") {
       const conflicting = await run.invocations?.getByRunId(id, run.agentName)
       if (conflicting && !(conflicting.status === "pending" && conflicting.annotations?.[pendingAgentInvocationAnnotation] === true)) {
         return { id, invocationStatus: conflicting.status, key, reason: "existing", status: "skipped" }
@@ -335,7 +343,7 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
   let remaining = options.limit ?? Number.POSITIVE_INFINITY
   const seenCursors = new Set<string>(cursor ? [cursor] : [])
 
-  const replay = { actor: options.actor, agent, agentName, channel, dryRun: options.dryRun, force: options.force, label: options.label, verifyWebhook: false as const, invocations, runtime, triggerId }
+  const replay = { invoker: options.invoker, agent, agentName, channel, dryRun: options.dryRun, force: options.force, label: options.label, verifyWebhook: false as const, invocations, runtime, triggerId }
 
   try {
     while (remaining > 0 && !options.signal?.aborted) {
@@ -349,7 +357,8 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
         })
       }
       catch (error) {
-        if (cursor && isRuntimeRecord(error) && error.name === "CollectionCursorError") {
+        // A Source collection names its cursor error `CollectionCursorError`. The Gmail history raises AGENT_R0936 without the Channel name.
+        if (cursor && isRuntimeRecord(error) && (error.name === "CollectionCursorError" || error.code === "AGENT_R0936")) {
           throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Invalid Channel "${channel}" history cursor.` })
         }
         throw error
@@ -396,7 +405,7 @@ export async function dispatchChannelItems<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<ReplayChannelResult> {
   const definition = agentChannelOptions(agent)[channel]
   if (!definition?.triggers || !Object.hasOwn(definition.triggers, options.trigger)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no trigger "${options.trigger}" to dispatch to.` })
+    throw agentDiagnostics.AGENT_DISPATCH_TRIGGER_UNKNOWN({ channel, trigger: options.trigger })
   }
   // Items do not inherit the webhook request, its delivery record, or its run.
   const base: AgentRuntimeContext<TRuntimeConfig> = {
@@ -432,8 +441,8 @@ export async function dispatchChannelItems<TRuntimeConfig extends AgentRuntimeCo
 }
 
 export interface ChannelReplayRequestOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  /** Actor supplied by a verified host entry point. */
-  actor?: AgentActor
+  /** Invoker supplied by a verified host entry point. */
+  invoker?: AgentInvoker
   /** Upper bound for `limit` in one request. Keeps one request within host time limits. */
   maxLimit?: number
   runtime?: AgentRuntimeContext<TRuntimeConfig>
@@ -442,7 +451,9 @@ export interface ChannelReplayRequestOptions<TRuntimeConfig extends AgentRuntime
 
 const replayRequestKeys = new Set(["channel", "cursor", "describe", "dryRun", "force", "label", "limit", "query"])
 const replayErrorStatus: Record<string, number> = {
-  AGENT_R0931: 404,
+  AGENT_CHANNEL_HISTORY_MISSING: 404,
+  AGENT_CHANNEL_NOT_FOUND: 404,
+  AGENT_DISPATCH_TRIGGER_UNKNOWN: 404,
   AGENT_R0932: 409,
   AGENT_R0934: 400,
   AGENT_R0935: 400,
@@ -455,8 +466,8 @@ function replayJson(value: unknown, status = 200): Response {
 
 function isHistoryQuery(value: unknown): value is AgentChannelHistoryQuery {
   return isRuntimeRecord(value) && Object.values(value).every(entry => entry === undefined
-    || hasRuntimeType(entry, "string")
-    || (Array.isArray(entry) && entry.every(item => hasRuntimeType(item, "string"))))
+    || typeof entry === "string"
+    || (Array.isArray(entry) && entry.every(item => typeof item === "string")))
 }
 
 /**
@@ -472,31 +483,33 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
   const unsupported = Object.keys(body).find(key => !replayRequestKeys.has(key))
   if (unsupported) return replayJson({ message: `Unsupported Channel replay field: ${unsupported}.` }, 400)
   const { channel, cursor, describe, dryRun, force, label, limit, query } = body
-  if (!hasRuntimeType(channel, "string") || !channel) return replayJson({ message: "Channel replay requires a Channel name." }, 400)
-  if ([describe, dryRun, force].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
+  if (typeof channel !== "string" || !channel) return replayJson({ message: "Channel replay requires a Channel name." }, 400)
+  if ([describe, dryRun, force].some(value => value !== undefined && typeof value !== "boolean")) {
     return replayJson({ message: "describe, dryRun, and force must be booleans." }, 400)
   }
-  if (cursor !== undefined && !hasRuntimeType(cursor, "string")) return replayJson({ message: "cursor must be a string." }, 400)
-  if (label !== undefined && (!hasRuntimeType(label, "string") || !label.trim() || label.length > 512)) return replayJson({ message: "label must be a non-empty string of at most 512 characters." }, 400)
-  if (limit !== undefined && !hasRuntimeType(limit, "number")) return replayJson({ message: "limit must be a number." }, 400)
+  if (cursor !== undefined && typeof cursor !== "string") return replayJson({ message: "cursor must be a string." }, 400)
+  if (label !== undefined && (typeof label !== "string" || !label.trim() || label.length > 512)) return replayJson({ message: "label must be a non-empty string of at most 512 characters." }, 400)
+  if (limit !== undefined && typeof limit !== "number") return replayJson({ message: "limit must be a number." }, 400)
   if (query !== undefined && !isHistoryQuery(query)) return replayJson({ message: "query values must be strings or string arrays." }, 400)
   const maxLimit = options.maxLimit ?? Number.POSITIVE_INFINITY
   try {
     if (describe === true) return replayJson(describeChannelHistory(agent, channel))
-    return replayJson(await replayChannel(agent, channel, {
+    const result = await replayChannel(agent, channel, {
       ...(cursor ? { cursor } : {}),
       ...(dryRun === true ? { dryRun: true } : {}),
       ...(force === true ? { force: true } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(limit !== undefined || Number.isFinite(maxLimit) ? { limit: Math.min(limit ?? maxLimit, maxLimit) } : {}),
       ...(query ? { query } : {}),
-      ...(options.actor ? { actor: options.actor } : {}),
+      ...(options.invoker ? { invoker: options.invoker } : {}),
       ...(options.runtime ? { runtime: options.runtime } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
-    }))
+    })
+    // Agent output can quote the private data of an item. The CLI prints only IDs and statuses.
+    return replayJson({ ...result, items: result.items.map(({ output: _output, ...item }) => item) })
   }
   catch (error) {
-    const code = isRuntimeRecord(error) && hasRuntimeType(error.code, "string") ? error.code : undefined
+    const code = isRuntimeRecord(error) && typeof error.code === "string" ? error.code : undefined
     const status = code ? replayErrorStatus[code] : undefined
     if (status) return replayJson({ code, message: agentErrorMessage(error) }, status)
     console.error(error)

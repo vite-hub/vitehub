@@ -31,9 +31,9 @@ describe("mounted page tools", () => {
       const hook = plugin.config
       if (!hook) throw new Error("Expected a config hook")
       await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
-      const sessionRoute = config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/session"))!.route
+      const sessionRoute = config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/tools"))!.route
       const asset = config.nitro!.publicAssets.find(asset => asset.baseURL?.endsWith("/_vitehub/page/assets"))!
-      expect(sessionRoute).toBe(`${mount}/_vitehub/page/session`)
+      expect(sessionRoute).toBe(`${mount}/_vitehub/page/tools`)
       expect(asset.baseURL).toBe(`${mount}/_vitehub/page/assets`)
       // Deny access so the real browser loader stops after the visitor check, without needing an overlay DOM.
       const authorize = vi.fn(() => false)
@@ -41,11 +41,11 @@ describe("mounted page tools", () => {
         .get(sessionRoute, viteHubPageSessionHandler)
         .get(`${asset.baseURL}/loader.js`, async () => new Response(await readFile(join(asset.dir, "loader.js"), "utf8")))
         .get(`${mount}/guide`, () => new Response("<body>Guide</body>", { headers: { "content-type": "text/html; charset=utf-8" } }))
-      defineCommentsPlugin({ comments: defineComments({ authorize }), database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js", base: mount })(app)
+      defineCommentsPlugin({ comments: defineComments({ authorize }), database: () => undefined, overlay: "/_vitehub/comments/assets/overlay.js", base: mount })(app)
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()
       const src = /src="([^"]+)"/.exec(html)?.[1]
-      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=19`)
+      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=22`)
       const fetch = vi.fn(async (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, pageURL), init)))
       const executeLoader = async (url: string) => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))

@@ -3,7 +3,7 @@ title: Markdown Editor
 description: "Edit Markdown with comark-ui's editor and Nuxt UI's menus. Pasted, dropped, and picked files upload to Blob with a placeholder that shows the percentage."
 navigation.order: 36
 navigation.group: Collaboration
-icon: i-ph-note-pencil
+icon: i-lucide-notebook-pen
 ---
 
 `MarkdownEditor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/). Comark syntax stays intact on save. A document it can't save unchanged opens read-only. Nuxt UI adds the bubble toolbar, "/" menu, and drag handle. The text uses the [Markdown](/docs/ui/markdown) typeset, so editing looks like reading.
@@ -15,10 +15,10 @@ icon: i-ph-note-pencil
 
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. Also install the Tiptap packages of Nuxt UI's editor, at 3.31.4 or a later 3.x: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`.
 
-Import the component from its own entry. It is not in `@vite-hub/ui`, so pages that only render Markdown don't load Tiptap:
+Import the component from its own entry. It is not in `vite-hub/ui`, so pages that only render Markdown don't load Tiptap:
 
 ```ts
-import { MarkdownEditor } from "@vite-hub/ui/markdown-editor";
+import { MarkdownEditor } from "vite-hub/ui/markdown-editor";
 ```
 
 ## Usage
@@ -28,7 +28,7 @@ Bind the Markdown with `v-model`. Pass `upload` to accept files. A string is a r
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { MarkdownEditor } from "@vite-hub/ui/markdown-editor";
+import { MarkdownEditor } from "vite-hub/ui/markdown-editor";
 
 const markdown = ref("# Release notes\n");
 </script>

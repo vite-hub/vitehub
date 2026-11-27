@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   composeInstructionDocument,
@@ -6,6 +6,19 @@ import {
 } from "../src/instruction-composition.ts"
 
 describe("instruction composition", () => {
+  it("keeps plain URLs as text without the once-per-process Comark deprecation warning, before other tests parse Markdown", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(composeInstructionDocument("Use https://example.com\n\n{{{ context.customInstructions }}}", {
+        context: { customInstructions: "See https://example.org" },
+      })).resolves.toBe("Use https://example.com\n\nSee https://example.org")
+      expect(warn).not.toHaveBeenCalled()
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
   it("injects trusted custom instructions only through an authored slot", async () => {
     await expect(composeInstructionDocument("Base", { context: { customInstructions: "Injected" } }))
       .rejects.toThrow("requires a {{{ context.customInstructions }}} slot")

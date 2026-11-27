@@ -6,12 +6,14 @@ import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search
 import comarkUi from "comark-ui/html"
 import { setTimeout as delay } from "node:timers/promises"
 import { runInNewContext } from "node:vm"
-import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
+import { defineSource, github, useSource } from "@vite-hub/source"
+import { clearSources, registerSourceLoaders, registerSources } from "@vite-hub/source/internal/registry"
 import type { SourceName } from "@vite-hub/source"
 
 import { contentSource, defineContent, defineContentHandler, renderContentHtml } from "../src/index.ts"
+import type { ContentAuthorize } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -21,15 +23,9 @@ it("accepts Web Requests from another realm", async () => {
     body: "hello",
   })`, { Request }) as Request
   const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  const response = await handler({ req: request } as never) as Response
+  const response = await handler.fetch(request)
   expect(response.status).toBe(200)
   await expect(response.text()).resolves.toBe("hello")
-})
-
-it("rejects spoofed Web Requests", async () => {
-  const request = { get [Symbol.toStringTag]() { return "Request" } }
-  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
-  await expect(handler({ req: request } as never)).rejects.toMatchObject({ code: "CONTENT_R0005" })
 })
 
 function deferred() {
@@ -107,6 +103,20 @@ describe("contentSource", () => {
       markdown: { plugins: [{ name: "alert", post: state => { state.tree.nodes = [["p", {}, "Custom callout"]] } }] },
     })
     expect((await custom.get("/"))?.nodes).toEqual(expect.arrayContaining([["p", {}, "Custom callout"]]))
+  })
+
+  it("parses with the caller's plugins alone when the preset is off", async () => {
+    const markdown = "A [link](https://example.com).\n"
+    const source = { keys: () => ["index.md"], getItem: () => markdown, getItemRaw: () => markdown }
+    const preset = defineContent({ source })
+    const own = defineContent({ source, markdown: { preset: false, plugins: [] } })
+    try {
+      expect(JSON.stringify((await preset.get("/"))?.nodes)).toContain("chip")
+      expect((await own.get("/"))?.nodes).toEqual([["p", {}, "A ", ["a", { href: "https://example.com" }, "link"], "."]])
+    } finally {
+      await preset.dispose()
+      await own.dispose()
+    }
   })
 
   it("leaves HTML-only quiz processing opt-in for a custom renderer", async () => {
@@ -213,8 +223,8 @@ describe("contentSource", () => {
       },
     })
     registerSources({ docs })
-    const source = input === "definition" ? docs : input === "name" ? "docs" : () => createSource(docs)
-    const content = defineContent({ sources: { live: source } })
+    const source = input === "definition" ? docs : input === "name" ? "docs" : () => useSource(docs)
+    const content = defineContent({ access: "public", sources: { live: source } })
     const initial = await content.get("/", { fresh: true })
     expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
 
@@ -227,6 +237,61 @@ describe("contentSource", () => {
     expect(prepared.at(-1)).toBe("2")
   })
 
+  it("loads a Source file of a name on the first read", async () => {
+    let loads = 0
+    registerSourceLoaders({
+      docs: async () => {
+        loads++
+        return { default: defineSource({ name: "docs", getKeys: async () => ["index.md"], getItem: async key => ({ key, content: "# Lazy docs" }) }) }
+      },
+    })
+    const content = defineContent({ access: "public", sources: { docs: "docs" } })
+    expect(loads).toBe(0)
+
+    expect(JSON.stringify((await content.get("/", { fresh: true }))?.nodes)).toContain("Lazy docs")
+    await content.cache.refresh("docs")
+    expect(loads).toBe(1)
+  })
+
+  it("reads one known document on get instead of every Source item", async () => {
+    const files = new Map(Array.from({ length: 50 }, (_, index) => [`page-${index}.md`, `# Page ${index}\n`]))
+    const reads: string[] = []
+    let listings = 0
+    const docs = defineSource({
+      name: "docs",
+      async getKeys() {
+        listings++
+        return [...files.keys()]
+      },
+      async getItem(key) {
+        reads.push(key)
+        const content = files.get(key)
+        if (content === undefined) throw new Error(`missing ${key}`)
+        return { content, key, path: key }
+      },
+    })
+    const content = defineContent({ sources: { docs } })
+
+    await expect(content.list("docs")).resolves.toHaveLength(50)
+    reads.length = 0
+    listings = 0
+    files.set("page-1.md", "# Edited\n")
+    expect((await content.get("/page-1"))?.nodes).toEqual(expect.arrayContaining([expect.arrayContaining(["h1"])]))
+    expect(JSON.stringify((await content.get("/page-1"))?.nodes)).toContain("Edited")
+    await content.get("/page-2")
+    expect(reads).toEqual(["page-1.md", "page-2.md"])
+    expect(listings).toBe(0)
+
+    files.set("page-new.md", "# New\n")
+    files.delete("page-3.md")
+    await content.cache.refresh("docs")
+    const paths = (await content.list("docs")).map(document => document.path)
+    expect(paths).toContain("/page-new")
+    expect(paths).not.toContain("/page-3")
+    await expect(content.get("/page-new")).resolves.toEqual(expect.objectContaining({ path: "/page-new" }))
+    await content.dispose()
+  })
+
   it("keeps separate Content instances on their own adapted Source loads", async () => {
     let revision = 0
     const source = contentSource(() => ({
@@ -234,8 +299,8 @@ describe("contentSource", () => {
         return [{ content: `---\ntitle: Revision ${++revision}\n---\n# Content`, key: "index.md" }]
       },
     }), { prefix: "/docs" })
-    const first = defineContent({ source })
-    const second = defineContent({ source })
+    const first = defineContent({ access: "public", source })
+    const second = defineContent({ access: "public", source })
 
     await first.init()
     await second.init()
@@ -280,6 +345,7 @@ describe("contentSource", () => {
     })
 
     const content = defineContent({
+      access: "public",
       plugins: [testPlugin("async-init", (content) => {
         content.addParser([".slow"], async ({ partial, read }) => {
           await delay(10)
@@ -323,6 +389,7 @@ describe("contentSource", () => {
     let expectedBlockedParsers = 2
     let parsersStarted = deferred()
     const content = defineContent({
+      access: "public",
       plugins: [testPlugin("overlap", (content) => {
         content.addParser([".slow"], async ({ partial, read }) => {
           const firstText = await read()
@@ -417,6 +484,7 @@ describe("contentSource", () => {
     const lateParserFinished = deferred()
     const parsed: string[] = []
     const content = defineContent({
+      access: "public",
       logger: false,
       onError: "throw",
       plugins: [testPlugin("load-error", (content) => {
@@ -476,7 +544,7 @@ describe("contentSource", () => {
         return { content: `revision ${ctx.revision?.id}`, key }
       },
     })
-    const reader = createSource(definition)
+    const reader = useSource(definition)
     const source = contentSource({ items: () => reader.items() })
     await source.keys()
     await expect(source.getItem("index.md")).resolves.toBe("revision 1")
@@ -496,7 +564,7 @@ describe("contentSource", () => {
         return { key, data: { theme: "dark" as const } }
       },
     })
-    const reader = createSource(settings)
+    const reader = useSource(settings)
     expectTypeOf(await reader.get("settings.json")).toMatchTypeOf<{ data: { theme: "dark" } }>()
     const content = defineContent({ plugins: [json()], source: settings })
     await expect(content.get("/settings")).resolves.toEqual(expect.objectContaining({ data: { theme: "dark" } }))
@@ -517,6 +585,7 @@ describe("contentSource", () => {
     })
 
     const content = defineContent({
+      access: "public",
       plugins: [media()],
       sources: { media: "media" as any },
     })
@@ -655,6 +724,7 @@ describe("contentSource", () => {
     const adapted = contentSource(input, { prefix: "/base", schema, url: "/:id" })
     const source = contentSource(adapted, { prefix: "/docs" })
     const content = defineContent({
+      access: "public",
       sources: {
         docs: source,
         overridden: contentSource(adapted, { prefix: "/other", url: ({ id }) => `/custom/${id}` }),
@@ -685,13 +755,13 @@ describe("contentSource", () => {
   it("rejects Comark parse plugins in plugins", () => {
     const knap = { name: "knap", pre() {} }
     expect(() => defineContent({ plugins: [knap], source: "source" as SourceName })).toThrow(expect.objectContaining({
-      code: "CONTENT_R0006",
+      code: "CONTENT_PLUGINS_PARSE_PLUGIN",
       message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
     }))
 
     const mixed = { name: "mixed", setup() {}, post() {} }
     expect(() => defineContent({ plugins: [mixed], source: "source" as SourceName })).toThrow(expect.objectContaining({
-      code: "CONTENT_R0006",
+      code: "CONTENT_PLUGINS_PARSE_PLUGIN",
       message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
     }))
   })
@@ -979,74 +1049,78 @@ describe("defineContentHandler", () => {
     expect(await content.get("/guide")).toMatchObject({ path: "/guide" })
   })
 
-  it("preserves repeated Node header values from another realm", async () => {
-    let received: string | null = null
-    const handler = defineContentHandler({
-      async handler(request) {
-        received = (request as Request).headers.get("x-test")
-        return new Response("ok")
-      },
-    })
-    const nodeHeaders = runInNewContext("['first', 'second']") as string[]
-    const nodeRequest = {
-      aborted: false,
-      headers: { "x-test": nodeHeaders },
-      method: "GET",
-      url: "/headers",
-      [Symbol.asyncIterator]() {
-        return { next: async () => ({ done: true as const, value: undefined }) }
-      },
-      once() {},
-    }
+  const guide = { async items() { return [{ key: "guide", path: "guide.md", content: "# Guide" }] } }
+  const request = () => new Request("https://example.test/api/content/get/guide")
 
-    await handler({ method: "GET", node: { req: nodeRequest }, req: nodeRequest } as never)
-    expect(received).toBe("first, second")
-  })
-  it("copies ArrayBuffer Node body chunks from another realm", async () => {
-    let received: Uint8Array | undefined
-    const handler = defineContentHandler({
-      async handler(request) {
-        received = new Uint8Array(await (request as Request).arrayBuffer())
-        return new Response("ok")
-      },
-    })
-    const chunk = runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer
-    const nodeRequest = {
-      aborted: false,
-      headers: {},
-      method: "POST",
-      url: "/body",
-      [Symbol.asyncIterator]() {
-        return (async function* () {
-          yield chunk as unknown as Uint8Array
-        })()
-      },
-      once() {},
-    }
-
-    await handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never)
-    expect(received).toEqual(Uint8Array.of(1, 2, 3))
+  it("asks authorize for read before it serves a request", async () => {
+    const policy = vi.fn<ContentAuthorize>(({ user, action }) => action === "read" && user?.id === "ana")
+    const content = defineContent({ source: guide, authorize: policy })
+    expect((await defineContentHandler(content).fetch(request())).status).toBe(401)
+    expect((await defineContentHandler(content, { user: () => ({ id: "ben" }) }).fetch(request())).status).toBe(403)
+    const allowed = await defineContentHandler(content, { user: () => ({ id: "ana" }) }).fetch(request())
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toMatchObject({ path: "/guide" })
+    expect(policy).toHaveBeenLastCalledWith({ user: { id: "ana" }, action: "read" })
   })
 
-  it.each([
-    { name: "a forged ArrayBuffer", value: { [Symbol.toStringTag]: "ArrayBuffer" } },
-    { name: "an invalid chunk", value: { bytes: [1, 2, 3] } },
-  ])("rejects $name with CONTENT_R0005", async ({ value }) => {
-    const handler = defineContentHandler({ handler: async () => new Response("ok") })
-    const nodeRequest = {
-      aborted: false,
-      headers: {},
-      method: "POST",
-      url: "/body",
-      [Symbol.asyncIterator]() {
-        return (async function* () {
-          yield value as unknown as Uint8Array
-        })()
-      },
-      once() {},
-    }
+  it("serves everyone without authorize for read when access is public", async () => {
+    const policy = vi.fn<ContentAuthorize>(() => false)
+    const content = defineContent({ source: guide, authorize: policy, access: "public" })
+    expect((await defineContentHandler(content).fetch(request())).status).toBe(200)
+    expect(policy).not.toHaveBeenCalled()
+    // The readers skip authorize, but content.can() still asks it.
+    expect(await content.can({ user: { id: "ana" }, action: "read" })).toBe(false)
+    expect(policy).toHaveBeenCalledOnce()
+  })
 
-    await expect(handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never))
-      .rejects.toThrow(expect.objectContaining({ code: "CONTENT_R0005" }))
+  it("requires a decision before it serves a github() Source", () => {
+    const handbook = github({ repo: "acme/private" })
+    expect(() => defineContent({ sources: { handbook } })).toThrow(/access: "public"/)
+    expect(() => defineContent({ sources: { handbook }, route: true })).toThrow(/authorize/)
+    expect(defineContent({ sources: { handbook }, access: "public" })).toMatchObject({ access: "public", route: true })
+    expect(defineContent({ sources: { handbook }, route: false }).route).toBe(false)
+    expect(defineContent({ sources: { handbook }, authorize: ({ user }) => user !== null }).route).toBe(true)
+  })
+
+  it("requires an exposure choice for opaque Source inputs, including adapters", () => {
+    const handbook = github({ repo: "acme/private" })
+    registerSources({ handbook })
+    const inputs = [
+      useSource(handbook),
+      () => useSource(handbook),
+      "handbook" as SourceName,
+    ]
+    for (const input of inputs) {
+      for (const source of [input, contentSource(input), contentSource(contentSource(input), { prefix: "docs" })]) {
+        for (const config of [{ source }, { sources: { handbook: source } }]) {
+          expect(() => defineContent(config)).toThrow(/access: "public"/)
+          expect(() => defineContent({ ...config, route: false, seo: { llms: true } })).toThrow(/authorize/)
+          expect(() => defineContent({ ...config, route: false, previews: true })).toThrow(/authorize/)
+          expect(() => defineContent({ ...config, route: false, seo: { robots: true } })).not.toThrow()
+          expect(() => defineContent({ ...config, route: false })).not.toThrow()
+          expect(() => defineContent({ ...config, access: "public" })).not.toThrow()
+          expect(() => defineContent({ ...config, authorize: () => false })).not.toThrow()
+        }
+      }
+    }
+  })
+
+  it("rejects an unknown route or access value", () => {
+    expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(/must be true or false/)
+    expect(() => defineContent({ source: guide, access: "open" as never })).toThrow(/must be "public"/)
+  })
+
+  it("names access: \"public\" for the old route: \"public\"", () => {
+    // @ts-expect-error route is a boolean. Public reading moved to access.
+    expect(() => defineContent({ source: guide, route: "public" })).toThrow(expect.objectContaining({ code: "CONTENT_ROUTE_INVALID", message: expect.stringContaining('access: "public"') }))
+  })
+
+  it("asks read for the whole route, and read-draft for one collection", async () => {
+    const policy = vi.fn<ContentAuthorize>(() => true)
+    const content = defineContent({ source: guide, authorize: policy })
+    expect(await content.can({ action: "read" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, action: "read" })
+    await expect(content.can({ action: "read", collection: "posts" } as never)).rejects.toMatchObject({ code: "CONTENT_CAN_INPUT_INVALID" })
+    expect(await defineContent({ source: guide, route: false }).can({ action: "read" })).toBe(false)
   })
 })

@@ -1,8 +1,7 @@
 import {
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
-import { Diagnostic } from "nostics"
-
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import {
   chatgptGatewayDiagnostic,
   readAgentErrorProperty,
@@ -17,17 +16,13 @@ function httpErrors(): WeakSet<object> {
   return scope[httpErrorsKey] ??= new WeakSet<object>()
 }
 
-export class AgentHttpError extends Diagnostic {
-  readonly status: number
-  readonly statusCode: number
+/** An `AGENT_R0891` error whose status and message the Agent HTTP routes answer with as they are. */
+export type AgentHttpError = ReturnType<typeof agentHttpError>
 
-  constructor(statusCode: number, message: string) {
-    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0891", why: message }, AgentHttpError)
-    this.name = "AgentHttpError"
-    this.status = statusCode
-    this.statusCode = statusCode
-    httpErrors().add(this)
-  }
+export function agentHttpError(statusCode: number, message: string) {
+  const error = Object.assign(agentDiagnostics.AGENT_R0891({ message }), { status: statusCode, statusCode })
+  httpErrors().add(error)
+  return error
 }
 
 function getHttpErrorStatusCode(error: unknown): number | undefined {
@@ -38,7 +33,7 @@ function getHttpErrorStatusCode(error: unknown): number | undefined {
   if (code === "AUTHENTICATION_REQUIRED") return 401
   if (code === "RATE_LIMIT_REJECTED") return 429
   if (code === "RATE_LIMIT_UNAVAILABLE") return 503
-  if (code === "LLM_GATE_REJECTED" || code === "CAPABILITY_DENIED") return 403
+  if (code === "CAPABILITY_DENIED") return 403
   if (code === "CAPABILITY_NOT_FOUND") return 404
 }
 

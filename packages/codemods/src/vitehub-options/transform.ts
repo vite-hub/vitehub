@@ -1,0 +1,531 @@
+import { basename } from "node:path"
+
+import { end, findProperty, indentAt, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
+
+import { ConfigEditor, findViteHubEntry } from "../shared/config-editor.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
+import { unwrapExpression } from "../shared/nuxt-config.ts"
+
+import type { File, Identifier, Node, ObjectExpression, ObjectProperty } from "@babel/types"
+import type { FollowUp } from "../types.ts"
+
+const removedViteKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "vitehub", "workflow", "workspace"]
+
+const ownerPlugins: Record<string, { name: string, previousName?: string, package: string }> = {
+  agent: { name: "hubAgent", package: "agent" },
+  auth: { name: "hubAuth", package: "auth" },
+  blob: { name: "hubBlob", package: "blob" },
+  browser: { name: "hubBrowser", package: "browser" },
+  database: { name: "hubDatabase", previousName: "hubDb", package: "database" },
+  kv: { name: "hubKV", previousName: "hubKv", package: "kv" },
+  queue: { name: "hubQueue", package: "queue" },
+  rateLimit: { name: "hubRateLimit", package: "rate-limit" },
+  sandboxTask: { name: "hubSandboxTask", package: "sandbox/task" },
+  workflow: { name: "hubWorkflow", package: "workflow" },
+  workspace: { name: "hubWorkspace", package: "workspace" },
+}
+
+const removedConsoleOptions: Record<string, string> = {
+  embed: "Apps do not serve the Console page. Open the app in the ViteHub Console at https://console.vitehub.dev.",
+  mcp: "Apps do not serve a Console MCP. Link the app in the ViteHub Console and connect agents to https://console.vitehub.dev/mcp/account.",
+  mcpClient: "The MCP client section of the ViteHub Console connects to MCP servers from the Console server. Remove @modelcontextprotocol/sdk if nothing else imports it, and remove VITEHUB_CONSOLE_MCP_KEY.",
+  origins: "The ViteHub Console signs calls on its server, so apps take no Console calls from browsers.",
+  pill: "The Comments pill loads the Console segment from the ViteHub Console. An app without Comments opens through https://console.vitehub.dev.",
+  signInPage: "People sign in to the ViteHub Console at https://console.vitehub.dev.",
+}
+
+const invocationKeys = new Set(["databaseUrl", "observations", "retention"])
+
+const removedConsoleAuth = "console.auth was removed: apps do not sign people in to the Console. Set console: true, link the app in the ViteHub Console at https://console.vitehub.dev, and set the VITEHUB_CONSOLE_KEY_<NAME> line that it shows. Move a check of the person to console.authorize. See https://vitehub.dev/docs/console/migrate"
+
+const configFunctions = new Set(["defineConfig", "defineNuxtConfig", "defineNitroConfig"])
+
+export interface OptionsMigration {
+  code: string
+  changed: boolean
+  followUps: FollowUp[]
+  notes: string[]
+}
+
+/** The object of `defineConfig({...})`, `defineConfig(() => ({...}))`, `defineNuxtConfig({...})`, or `export default {...}`. */
+export function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
+  const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
+  if (!exported) return undefined
+  let value = unwrapExpression(exported.declaration)
+  if (value.type === "Identifier") {
+    const name = value.name
+    for (const statement of program.program.body) {
+      if (statement.type !== "VariableDeclaration") continue
+      for (const declarator of statement.declarations) {
+        if (declarator.id.type === "Identifier" && declarator.id.name === name && declarator.init) value = unwrapExpression(declarator.init)
+      }
+    }
+  }
+  if (value.type === "CallExpression") {
+    if (value.callee.type !== "Identifier" || !configFunctions.has(value.callee.name)) return undefined
+    const [argument] = value.arguments
+    if (!argument) return undefined
+    value = unwrapExpression(argument)
+  }
+  if (value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "FunctionDeclaration") {
+    if (value.body.type !== "BlockStatement") value = unwrapExpression(value.body)
+    else {
+      const returns: Node[] = []
+      walk(value.body, (node, ancestors) => {
+        if (node.type === "ReturnStatement" && node.argument && !ancestors.some(ancestor =>
+          ancestor.type === "ArrowFunctionExpression" || ancestor.type === "FunctionExpression"
+          || ancestor.type === "FunctionDeclaration" || ancestor.type === "ObjectMethod"
+          || ancestor.type === "ClassMethod" || ancestor.type === "ClassPrivateMethod")) returns.push(node.argument)
+      })
+      const returned = returns.length === 1 ? objectValue(returns[0]) : undefined
+      if (!returned) {
+        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move observability.logs to the top-level logs key by hand." })
+        return undefined
+      }
+      value = returned
+    }
+  }
+  return value.type === "ObjectExpression" ? value : undefined
+}
+
+function property(object: ObjectExpression, name: string): ObjectProperty | undefined {
+  return findProperty(object, name)
+}
+
+function objectValue(node: Node | undefined): ObjectExpression | undefined {
+  const value = node ? unwrapExpression(node) : undefined
+  return value?.type === "ObjectExpression" ? value : undefined
+}
+
+function hasOpaqueKeys(object: ObjectExpression): boolean {
+  return object.properties.some(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined)
+}
+
+function hasProperty(object: ObjectExpression, name: string): boolean {
+  return object.properties.some(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === name)
+}
+
+function hasAmbiguousProperty(object: ObjectExpression, name: string): boolean {
+  const matches = object.properties.filter(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === name)
+  return matches.length > 1 || matches.some(item => item.type !== "ObjectProperty")
+}
+
+function hasStaticNuxtScopes(root: ObjectExpression): boolean {
+  if (hasOpaqueKeys(root) || hasProperty(root, "extends") || hasProperty(root, "_extends")) return false
+  return root.properties.every((item) => {
+    if (item.type === "SpreadElement") return false
+    const name = keyName(item.key, item.computed)
+    if (!name?.startsWith("$")) return true
+    const scope = item.type === "ObjectProperty" && objectValue(item.value)
+    if (!scope || hasOpaqueKeys(scope) || hasAmbiguousProperty(root, name)) return false
+    if (name !== "$env") return true
+    return scope.properties.every(entry => entry.type === "ObjectProperty" && objectValue(entry.value))
+  })
+}
+
+function hasStaticNuxtOptions(scope: ObjectExpression, entry: Node | undefined): boolean {
+  if (hasOpaqueKeys(scope) || hasProperty(scope, "extends") || hasProperty(scope, "_extends")) return false
+  if (hasAmbiguousProperty(scope, "vitehub") || hasAmbiguousProperty(scope, "modules")) return false
+  if (hasProperty(scope, "vitehub") && !objectValue(property(scope, "vitehub")?.value)) return false
+  const modulesValue = property(scope, "modules")?.value
+  if (!modulesValue) return true
+  const modules = unwrapExpression(modulesValue)
+  if (modules.type !== "ArrayExpression") return false
+  return modules.elements.every((element) => {
+    if (!element) return true
+    const module = unwrapExpression(element)
+    if (module === entry) return module.type !== "ArrayExpression" || !module.elements[1] || Boolean(objectValue(module.elements[1]))
+    if (module.type === "StringLiteral") return module.value !== "vite-hub/nuxt"
+    if (module.type !== "ArrayExpression" || !module.elements[0]) return false
+    const head = unwrapExpression(module.elements[0])
+    return head.type === "StringLiteral" && head.value !== "vite-hub/nuxt"
+  })
+}
+
+function nuxtEnvironmentOverrides(root: ObjectExpression): ObjectExpression[] {
+  return root.properties.flatMap((item) => {
+    if (item.type !== "ObjectProperty") return []
+    const name = keyName(item.key, item.computed)
+    const scope = objectValue(item.value)
+    if (!scope || !name?.startsWith("$")) return []
+    if (name !== "$env") return [scope]
+    return scope.properties.flatMap((entry) => {
+      const override = entry.type === "ObjectProperty" ? objectValue(entry.value) : undefined
+      return override ? [override] : []
+    })
+  })
+}
+
+function logsMode(node: Node): "capture" | "possibly-disabled" | "source" | undefined {
+  const value = unwrapExpression(node)
+  if (value.type === "BooleanLiteral") return value.value ? "capture" : "possibly-disabled"
+  if (value.type === "ObjectExpression") {
+    if (value.properties.some(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined)) return
+    return value.properties.some(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === "source") ? "source" : "capture"
+  }
+  if (value.type === "SequenceExpression") return logsMode(value.expressions.at(-1)!)
+  if (value.type === "ConditionalExpression") {
+    const left = logsMode(value.consequent)
+    const right = logsMode(value.alternate)
+    if (left === right) return left
+    if (left && right && left !== "source" && right !== "source") return "possibly-disabled"
+  }
+}
+
+function importedNames(program: File, sources: readonly string[], imported: string | readonly string[]): Map<string, Identifier> {
+  const names = new Map<string, Identifier>()
+  const imports = typeof imported === "string" ? [imported] : imported
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !sources.includes(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && imports.some(name => name === keyName(specifier.imported))) names.set(specifier.local.name, specifier.local)
+    }
+  }
+  return names
+}
+
+function callsOf(scope: Node, names: ReadonlyMap<string, Identifier>, resolveBinding: ReturnType<typeof bindingResolver>): Array<Node & { type: "CallExpression" }> {
+  const calls: Array<Node & { type: "CallExpression" }> = []
+  walk(scope, (node) => {
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name) && names.get(node.callee.name) === resolveBinding(node.callee)) calls.push(node)
+  })
+  return calls
+}
+
+function reindent(text: string, from: string, to: string): string {
+  if (from === to) return text
+  return text.split("\n").map((value, index) => {
+    if (index === 0 || !value.trim()) return value
+    if (value.startsWith(from)) return to + value.slice(from.length)
+    return to.length > from.length ? to.slice(from.length) + value : value
+  }).join("\n")
+}
+
+/**
+ * `findOptions` selects the options objects traced from a config that imports this file.
+ */
+export function migrateViteHubOptions(file: string, code: string, { findOptions, hasLocalNuxtLayers }: {
+  findOptions?: (program: File) => ObjectExpression[]
+  hasLocalNuxtLayers?: boolean
+} = {}): OptionsMigration {
+  const followUps: FollowUp[] = []
+  const notes: string[] = []
+  const unchanged = { code, changed: false, followUps, notes }
+  if (!findOptions && !/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
+  let program: File
+  try {
+    program = parseProgram(code, { jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) })
+  }
+  catch {
+    return unchanged
+  }
+  const importedOptions = findOptions?.(program)
+  const root = importedOptions ? importedOptions[0] : findConfigRoot(program, followUps, file)
+  if (!root) return unchanged
+  const nuxt = basename(file).startsWith("nuxt.config")
+  const editor = new ConfigEditor({ code, fileName: file, path: file, program, root })
+  const resolveBinding = bindingResolver(program)
+  const removed = new Set<Node>()
+  const additions = new Map<ObjectExpression, string[]>()
+  const insertProperties = (object: ObjectExpression, entries: string[]) => {
+    additions.set(object, [...(additions.get(object) ?? []), ...entries])
+  }
+  let changed = false
+  const text = (node: Node) => code.slice(start(node), end(node))
+  const follow = (node: Node, message: string) => followUps.push({ file, line: line(node), message })
+  const remove = (node: Node) => {
+    editor.removeItem(node)
+    removed.add(node)
+    changed = true
+  }
+  const renameKey = (options: ObjectExpression, from: string, to: string, conflict: string) => {
+    const item = property(options, from)
+    if (!item) return
+    if (property(options, to)) {
+      follow(item, conflict)
+      return
+    }
+    if (item.shorthand || item.computed) editor.output.overwrite(start(item), end(item), `${to}: ${text(item.value)}`)
+    else editor.output.overwrite(start(item.key), end(item.key), to)
+    changed = true
+  }
+
+  const moveToInvocations = (options: ObjectExpression, items: ObjectProperty[]): boolean => {
+    const entries = items.map(text)
+    if (importedOptions || !staticNuxtOptions || hasLocalNuxtLayers || options === legacyAgentTarget) return false
+    if (nuxt && allOptions.some(other => other !== options &&
+      (hasOpaqueKeys(other) || hasProperty(other, "agent") || hasProperty(other, "console")))) return false
+    if (hasOpaqueKeys(options) || hasAmbiguousProperty(options, "agent") || hasAmbiguousProperty(options, "console")) return false
+    const consoleOptions = objectValue(property(options, "console")?.value)
+    if (!consoleOptions || hasOpaqueKeys(consoleOptions) || items.some(item => hasAmbiguousProperty(consoleOptions, keyName(item.key)!))) return false
+    const agent = property(options, "agent")
+    if (!agent) {
+      insertProperties(options, [`agent: { invocations: { ${entries.join(", ")} } }`])
+      return true
+    }
+    const agentObject = objectValue(agent.value)
+    if (!agentObject || hasOpaqueKeys(agentObject) || hasAmbiguousProperty(agentObject, "invocations")) return false
+    const invocations = property(agentObject, "invocations")
+    if (!invocations) {
+      insertProperties(agentObject, [`invocations: { ${entries.join(", ")} }`])
+      return true
+    }
+    const invocationsObject = objectValue(invocations.value)
+    if (!invocationsObject || hasOpaqueKeys(invocationsObject)) return false
+    if (items.some(item => hasProperty(invocationsObject, keyName(item.key)!) ||
+      (keyName(item.key) === "databaseUrl" && hasProperty(invocationsObject, "store")))) return false
+    insertProperties(invocationsObject, entries)
+    return true
+  }
+
+  const migrateConsoleOptions = (options: ObjectExpression, consoleOptions: ObjectExpression) => {
+    const removable: ObjectProperty[] = []
+    const moved: ObjectProperty[] = []
+    let kept = 0
+    for (const item of consoleOptions.properties) {
+      const key = item.type === "ObjectProperty" ? keyName(item.key, item.computed) : undefined
+      if (item.type !== "ObjectProperty" || !key) {
+        kept++
+        continue
+      }
+      const reason = removedConsoleOptions[key]
+      const authValue = key === "auth" ? unwrapExpression(item.value) : undefined
+      if (reason || (authValue?.type === "StringLiteral" && authValue.value === "token")) {
+        removable.push(item)
+        notes.push(`${file}: removed console.${key}. ${reason ?? "Signed calls are the default."}`)
+      }
+      else if (invocationKeys.has(key) && !item.computed && !item.shorthand) moved.push(item)
+      else {
+        kept++
+        if (invocationKeys.has(key)) follow(item, `console.${key} was removed. Move it to agent: { invocations: { ${key} } } in the vite-hub options by hand.`)
+        else if (authValue && !(authValue.type === "BooleanLiteral" && !authValue.value)) follow(item, removedConsoleAuth)
+      }
+    }
+    if (moved.length) {
+      if (moveToInvocations(options, moved)) {
+        removable.push(...moved)
+        notes.push(`${file}: moved ${moved.map(item => `console.${keyName(item.key)}`).join(", ")} to agent.invocations.`)
+      }
+      else {
+        kept += moved.length
+        for (const item of moved) follow(item, `console.${keyName(item.key)} was removed. Move it to agent: { invocations: { ${keyName(item.key)} } } in the vite-hub options by hand.`)
+      }
+    }
+    if (!removable.length) return
+    if (kept) for (const item of removable) remove(item)
+    else {
+      editor.output.overwrite(start(consoleOptions), end(consoleOptions), environmentOptions.includes(options) ? "{}" : "true")
+      for (const item of removable) removed.add(item)
+      changed = true
+    }
+  }
+
+  const optionObjects: ObjectExpression[] = importedOptions ?? []
+  const environmentOptions: ObjectExpression[] = []
+  const emptyCalls: Array<Node & { type: "CallExpression" }> = []
+  let staticNuxtOptions = true
+  if (!importedOptions && nuxt) {
+    staticNuxtOptions = hasStaticNuxtScopes(root)
+    for (const scope of [root, ...nuxtEnvironmentOverrides(root)]) {
+      const target = scope === root ? optionObjects : environmentOptions
+      const options = objectValue(property(scope, "vitehub")?.value)
+      if (options) target.push(options)
+      const entry = findViteHubEntry({ code, fileName: file, path: file, program, root: scope })
+      const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
+      if (inline) target.push(inline)
+      staticNuxtOptions &&= hasStaticNuxtOptions(scope, entry)
+    }
+  }
+  else if (!importedOptions) {
+    const names = importedNames(program, ["vite-hub"], "vitehub")
+    const local = callsOf(root, names, resolveBinding)
+    for (const call of local.length ? local : callsOf(program, names, resolveBinding)) {
+      const [argument] = call.arguments
+      const options = objectValue(argument)
+      if (options) optionObjects.push(options)
+      else if (!argument) emptyCalls.push(call)
+    }
+  }
+
+  const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
+  const legacyAgentTarget = viteObject && property(viteObject, "agent") && optionObjects.length === 1 && !emptyCalls.length ? optionObjects[0] : undefined
+
+  const allOptions = [...new Set([...optionObjects, ...environmentOptions])]
+  for (const options of allOptions) {
+    renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
+    const sandbox = property(options, "sandbox")
+    const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
+    if (sandbox && sandboxValue?.type === "BooleanLiteral") {
+      if (!sandboxValue.value) remove(sandbox)
+      else renameKey(options, "sandbox", "sandboxTask", "Both sandbox and sandboxTask are set. Remove sandbox.")
+    }
+    else if (sandbox) follow(sandbox, "sandbox is now sandboxTask. Move these options into sandboxTask by hand.")
+    const devtools = property(options, "devtools")
+    if (devtools) {
+      remove(devtools)
+      notes.push(`${file}: removed devtools. Use the ViteHub Console with console: true.`)
+    }
+    const cloudflare = property(options, "cloudflare")
+    if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
+    const consoleOptions = objectValue(property(options, "console")?.value)
+    if (consoleOptions) migrateConsoleOptions(options, consoleOptions)
+    const contentImportBase = property(options, "contentImportBase")
+    if (contentImportBase) {
+      remove(contentImportBase)
+      notes.push(`${file}: removed contentImportBase. ViteHub always imports Content from vite-hub/content.`)
+    }
+    const observability = property(options, "observability")
+    const observabilityValue = observability ? unwrapExpression(observability.value) : undefined
+    const observabilityObject = objectValue(observability?.value)
+    const logs = property(options, "logs")
+    const nestedLogs = observabilityObject ? property(observabilityObject, "logs") : undefined
+    if (observability && observabilityObject && nestedLogs) {
+      if (logs) {
+        follow(nestedLogs, "Both logs and observability.logs are set. Merge observability.logs into logs by hand.")
+        continue
+      }
+      const mode = logsMode(nestedLogs.value)
+      const onlyLogs = observabilityObject.properties.length === 1
+      const service = property(observabilityObject, "service")
+      const serviceValue = service && unwrapExpression(service.value)
+      const hasService = serviceValue?.type === "StringLiteral" && Boolean(serviceValue.value)
+      if (!mode || observabilityObject.properties.some(item => item.type === "SpreadElement") || (mode === "source" && !onlyLogs && !hasService)) {
+        follow(nestedLogs, "Move observability.logs to logs by hand. Keep observability to preserve Evlog when capture is disabled; omit or disable observability for a read-only source that did not run Evlog.")
+        continue
+      }
+      const parenStart = nestedLogs.value.extra?.parenStart
+      const value = code.slice(typeof parenStart === "number" ? parenStart : start(nestedLogs.value), end(nestedLogs))
+      const indent = indentAt(code, start(observability))
+      const logsText = `logs: ${reindent(value, indentAt(code, start(nestedLogs)), indent)}`
+      const separator = text(options).includes("\n") ? `,\n${indent}` : ", "
+      if (onlyLogs) editor.output.overwrite(start(observability), end(observability), mode === "possibly-disabled" ? `observability: true${separator}${logsText}` : logsText)
+      else {
+        editor.output.appendLeft(end(observability), `${separator}${logsText}`)
+        remove(nestedLogs)
+      }
+      changed = true
+      continue
+    }
+    if (observability && !observabilityObject && /\blogs\s*:/u.test(text(observability.value))) {
+      follow(observability, "observability is an expression, so the codemod cannot move its logs. Move observability.logs to the top-level logs key by hand.")
+    }
+    const logsObject = objectValue(logs?.value)
+    const evlog = logsObject ? property(logsObject, "evlog") : undefined
+    if (!logs || !logsObject || !evlog) continue
+    if (observabilityObject && property(observabilityObject, "evlog")) {
+      follow(logs, "Both logs.evlog and observability.evlog are set. Merge logs.evlog into observability.evlog by hand.")
+      continue
+    }
+    if (observability && !observabilityObject && !(observabilityValue?.type === "BooleanLiteral" && observabilityValue.value)) {
+      follow(logs, "observability is not an object literal. Move logs.evlog into observability.evlog by hand.")
+      continue
+    }
+    if (!observability) insertProperties(options, [`observability: { ${text(evlog)} }`])
+    else if (observabilityObject) insertProperties(observabilityObject, [text(evlog)])
+    else if (observabilityValue) editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${text(evlog)} }`)
+    if (logsObject.properties.length === 1) {
+      editor.output.overwrite(start(logs.value), end(logs.value), "true")
+      changed = true
+    }
+    else remove(evlog)
+  }
+
+  const envProperty = viteObject ? property(viteObject, "env") : undefined
+  if (envProperty && viteObject) {
+    const envValue = unwrapExpression(envProperty.value)
+    const envText = text(envValue)
+    const sourceIndent = indentAt(code, start(envProperty))
+    const hubEnvNames = importedNames(program, ["@vite-hub/env/vite", "vite-hub/env/vite"], "hubEnv")
+    const localHubEnvCalls = callsOf(root, hubEnvNames, resolveBinding)
+    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
+    const viteHubTargets = optionObjects.length + emptyCalls.length
+    const moveInto = (target: ObjectExpression, nested: boolean): boolean => {
+      const targetEnv = nested ? property(target, "env") : undefined
+      if (nested && !targetEnv) {
+        const indent = editor.propertyIndent(target)
+        insertProperties(target, [`env: ${reindent(envText, sourceIndent, indent)}`])
+        return true
+      }
+      const envOptions = nested ? objectValue(targetEnv!.value) : target
+      if (!envOptions) {
+        follow(envProperty, nested
+          ? "The Env option of vitehub() is not an object literal. Move these declarations into vitehub({ env }) by hand."
+          : "hubEnv() options are not an object literal. Move these declarations into hubEnv() by hand.")
+        return false
+      }
+      const indent = editor.propertyIndent(envOptions)
+      if (envValue.type !== "ObjectExpression") {
+        insertProperties(envOptions, [`...${reindent(envText, sourceIndent, indent)}`])
+        return true
+      }
+      const conflict = envValue.properties.find(item => item.type === "ObjectProperty" && property(envOptions, keyName(item.key, item.computed) ?? ""))
+      if (conflict) {
+        follow(envProperty, `env.${keyName((conflict as ObjectProperty).key) ?? ""} is set in two places. Merge the declarations into one object by hand.`)
+        return false
+      }
+      const propertyIndent = envValue.properties[0] ? indentAt(code, start(envValue.properties[0])) : sourceIndent
+      insertProperties(envOptions, envValue.properties.map(item => reindent(text(item), propertyIndent, indent)))
+      return true
+    }
+    let moved = false
+    const targetEnv = optionObjects[0] ? property(optionObjects[0], "env") : undefined
+    const targetEnvValue = targetEnv ? unwrapExpression(targetEnv.value) : undefined
+    const envOff = targetEnvValue?.type === "BooleanLiteral" && !targetEnvValue.value
+    if (viteHubTargets > 1) follow(envProperty, "The config has more than one vite-hub options object. Move env into the right one by hand.")
+    else if (optionObjects[0] && envOff && hubEnvCalls.length !== 1) follow(envProperty, "vitehub({ env: false }) turns Env off, but the config declares Env. Remove one of them.")
+    else if (optionObjects[0] && !envOff) moved = moveInto(optionObjects[0], true)
+    else if (emptyCalls[0]) {
+      const callIndent = indentAt(code, start(emptyCalls[0]))
+      const indent = `${callIndent}${editor.style.indent}`
+      editor.output.appendLeft(end(emptyCalls[0]) - 1, `{\n${indent}env: ${reindent(envText, sourceIndent, indent)},\n${callIndent}}`)
+      moved = true
+    }
+    else if (hubEnvCalls.length === 1) {
+      const call = hubEnvCalls[0]!
+      const [argument] = call.arguments
+      const options = objectValue(argument)
+      if (options) moved = moveInto(options, false)
+      else if (!argument) {
+        editor.output.appendLeft(end(call) - 1, reindent(envText, sourceIndent, indentAt(code, start(call))))
+        moved = true
+      }
+      else follow(envProperty, "hubEnv() options are not an object literal. Move these declarations into hubEnv() by hand.")
+    }
+    else {
+      follow(envProperty, nuxt
+        ? "vite.env is no longer read. Move these declarations into the vite-hub/nuxt options, under vitehub.env."
+        : "The top-level Vite env key is no longer read. Move these declarations into vitehub({ env }), or into hubEnv() for a standalone Env plugin.")
+    }
+    if (moved) {
+      const viteProperty = nuxt ? property(root, "vite") : undefined
+      if (viteProperty && viteObject.properties.length === 1) remove(viteProperty)
+      else remove(envProperty)
+    }
+  }
+
+  if (viteObject) {
+    for (const key of removedViteKeys) {
+      const item = property(viteObject, key)
+      if (!item || removed.has(item)) continue
+      const value = unwrapExpression(item.value)
+      const sourceIndent = indentAt(code, start(item))
+      const plugin = ownerPlugins[key]
+      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
+      if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
+        insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
+        remove(item)
+      }
+      else if (!optionObjects.length && !emptyCalls.length && pluginCalls.length === 1 && !pluginCalls[0]!.arguments.length) {
+        editor.output.appendLeft(end(pluginCalls[0]!) - 1, reindent(text(value), sourceIndent, indentAt(code, start(pluginCalls[0]!))))
+        remove(item)
+      }
+      else {
+        follow(item, nuxt
+          ? `vite.${key} is no longer read. Set ${key} in the vite-hub/nuxt options.`
+          : `The top-level Vite ${key} key is no longer read. Move it into vitehub({ ${key} }), or pass it to the feature's plugin.`)
+      }
+    }
+  }
+  for (const [object, entries] of additions) editor.insertProperties(object, entries, removed)
+  return changed ? { code: editor.output.toString(), changed, followUps, notes } : unchanged
+}

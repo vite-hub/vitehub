@@ -1,4 +1,4 @@
-import type { CommentMessage, CommentThread } from "@vite-hub/comments/client";
+import type { CommentDelivery, CommentMessage, CommentThread } from "@vite-hub/comments/client";
 
 /** The messages written after the thread was resolved. Empty for an open thread. */
 export function messagesSinceResolved(thread: Pick<CommentThread, "status" | "resolvedAt" | "messages">): CommentMessage[] {
@@ -7,9 +7,15 @@ export function messagesSinceResolved(thread: Pick<CommentThread, "status" | "re
   return thread.messages.filter(message => message.createdAt > resolvedAt);
 }
 
-/**
- * Whether someone replied after the thread was resolved, such as an agent that says what it changed. The thread stays
- * resolved, and lists show it with the open threads until someone resolves it again.
- */
 export const repliedSinceResolved = (thread: Pick<CommentThread, "status" | "resolvedAt" | "messages">): boolean =>
   messagesSinceResolved(thread).length > 0;
+
+/** "Comment 3". A comment that waits in the outbox has no number yet. */
+export function commentTitle(thread: Pick<CommentThread, "n">): string {
+  return thread.n ? `Comment ${thread.n}` : "Comment";
+}
+
+/** `data-pending` or `data-failed` for a thread, message, or row that the outbox holds. */
+export function deliveryAttributes(delivery: CommentDelivery | undefined) {
+  return { "data-failed": delivery?.status === "failed" ? "true" : undefined, "data-pending": delivery?.status === "pending" ? "true" : undefined };
+}

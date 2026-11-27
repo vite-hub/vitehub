@@ -19,10 +19,80 @@ Use `gmail()` for a Gmail account your team owns, [`email()`](/docs/email/agent-
 
 ### Define the Google Connection
 
-Enable [Connections](/docs/connections/get-started#define-a-connection) and define a Connection with the `google()` preset. `gmail.readonly` covers search and read; `gmail.compose` covers drafts.
+Enable [Connections](/docs/connections/get-started#define-a-connection) and declare the Google client credentials in Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+Define a Connection with the `google()` preset. `gmail.readonly` covers search and read; `gmail.compose` covers drafts.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 
@@ -60,7 +130,7 @@ export default defineAgent({
 
 ### Connect the account
 
-In the Console, open **Connections** and select **Connect** for `google`, or run `vitehub connections connect google`.
+Run `vitehub connections connect google`.
 
 ::
 
@@ -114,7 +184,7 @@ Every Google request, including reads and denied calls, is recorded as activity 
 
 ## Verify Gmail access
 
-1. `vitehub agent info --agent inbox --json` lists `gmail_search` and `gmail_read`, plus `gmail_draft` with `draft`.
+1. `vitehub agent get inbox --json` lists `gmail_search` and `gmail_read`, plus `gmail_draft` with `draft`.
 2. On a test account, search `in:inbox` and create a draft.
 3. Check that it stays in Drafts, unsent.
 4. Check the Agent's activity entries.
@@ -136,7 +206,7 @@ Every Google request, including reads and denied calls, is recorded as activity 
 | `gmail()` | `gmail()` |
 | `gmail({ mode: 'draft' })` | `gmail({ operations: ['search', 'read', 'draft'] })` and a Connection write rule for `gmail.users.drafts.create` |
 | `gog` OAuth client, keyring, and `GOG_KEYRING_PASSWORD` | A Google OAuth client in Server Env and a Connection in `server/connections/` |
-| `gmail_auth` tool | Connect the account in the Console or with `vitehub connections connect` |
+| `gmail_auth` tool | Connect the account with `vitehub connections connect` |
 | `workspace: { mode: 'write' }` for Gmail | Not required |
 
 Remove the `gog` installation and its state directories afterwards.

@@ -8,10 +8,11 @@
     "vitehub": "node ../../packages/vite-hub/dist/bin.js"
   },
   "dependencies": {
-    "@ai-sdk/vue": "4.0.130",
-    "@iconify-json/lucide": "1.2.139",
+    "@comark/html": "catalog:markdown-ui",
+    "@comark/vue": "0.9.2",
+    "@iconify-json/lucide": "1.2.158",
     "@iconify-json/ph": "1.2.2",
-    "@nuxt/ui": "4.11.3",
+    "@nuxt/ui": "4.13.0",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/cms": "workspace:*",
@@ -20,30 +21,27 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
-    "@vite-hub/env": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
-    "@vite-hub/runtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
-    "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "ai": "7.0.130",
-    "h3": "1.15.11",
-    "nuxt": "4.5.2",
-    "tailwindcss": "4.3.3",
+    "ai": "7.0.179",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611222336-0ed8910",
+    "tailwindcss": "4.3.5",
     "vite-hub": "workspace:*",
-    "vue": "3.5.44",
-    "zod": "4.6.5"
+    "vue": "3.5.46",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/node": "24.19.1",
-    "typescript": "6.0.3",
-    "vue-tsc": "3.3.12"
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
   },
   "engines": {
-    "node": "^22.22.0 || ^24.11.0 || >=26.0.0"
+    "node": "^24.15.0 || >=26.0.0"
   }
 }

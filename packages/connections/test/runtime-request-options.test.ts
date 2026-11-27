@@ -17,7 +17,7 @@ it.each(["manual", "error"] as const)("preserves fetch redirect %s through appro
   const error: unknown = await runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body: "{}", method: "POST", redirect }).catch(error => error)
   expect(isConnectionError(error)).toBe(true)
   expect(isConnectionError(error)).toBe(true)
-  await runtime.approve({ id: approvalIdOf(error) })
+  await runtime.approve({ actor: "user:owner", id: approvalIdOf(error) })
   expect(fetch.mock.calls.at(-1)?.[1]?.redirect).toBe(redirect)
 })
 
@@ -43,7 +43,7 @@ it.each([301, 302, 303, 307, 308, 304])("handles a runtime-owned token response 
   const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store, now: () => test.now.value })
   const connected = connect({ ...test, runtime })
   if (status === 304) await expect(connected).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
-  else await expect(connected).rejects.toThrow("The provider answered with a redirect.")
+  else await expect(connected).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", message: expect.stringContaining("The provider answered with a redirect") })
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("manual")
 })
@@ -66,7 +66,7 @@ it("keeps OAuth state, PKCE, client, redirect, and scopes authoritative over pro
       },
     },
   })
-  const { state, url } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+  const { state, url } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
   const params = new URL(url).searchParams
   expect(params.get("state")).toBe(state)
   expect(params.get("client_id")).toBe("client-id")

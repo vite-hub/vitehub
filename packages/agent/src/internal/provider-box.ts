@@ -9,7 +9,7 @@ import type { SandboxDefinition, SandboxFile, SandboxPlan, SandboxProcess, Sandb
 import type { AgentInvocationContextStore } from "../types.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 const activeSandboxes = new WeakMap<AgentInvocationContextStore, ProviderSandboxSession>()
 
@@ -89,8 +89,8 @@ export async function openProviderSandbox<Context>(options: {
   }
   const environment: Record<string, string> = {}
   const env = Object.fromEntries(Object.entries(options.definition.env ?? {}).map(([name, value]) => [name, async (context: Context) => {
-    const resolved = hasRuntimeType(value, "function") ? await value(context) : value
-    if (hasRuntimeType(resolved, "string")) environment[name] = resolved
+    const resolved = typeof value === "function" ? await value(context) : value
+    if (typeof resolved === "string") environment[name] = resolved
     return resolved
   }]))
   const sandbox = await resolveSandbox({
@@ -102,7 +102,7 @@ export async function openProviderSandbox<Context>(options: {
   try {
     const spawn = session.spawn
     if (!spawn) {
-      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host or crabbox.` })
+      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host, crabbox, or container.` })
     }
     const home = await session.exec("sh", ["-c", "printf %s \"$HOME\""], { signal: options.signal })
     if (!home.ok || !home.stdout.startsWith("/")) {
@@ -240,9 +240,15 @@ async function handleRelayConnection(
   socket.once("close", () => {
     disconnected = true
   })
+  if (!sandboxWorkingDirectory) {
+    const message = "[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout."
+    await writeDiagnostic(options.diagnosticPath, { exitCode: 127, spawnError: message })
+    socket.write(frame(frameStderr, Buffer.from(`${message}\n`)))
+    socket.end(exitFrame(127))
+    return
+  }
   let child: SandboxProcess
   try {
-    if (!sandboxWorkingDirectory) throw new Error("[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout.")
     const environment = Object.fromEntries(Object.entries(options.environment(env)).map(([name, value]) => [name, mapText(value)]))
     child = await options.sandbox.spawn(options.command, selectedArgs.map(mapText), {
       cwd: sandboxWorkingDirectory,
@@ -363,11 +369,11 @@ async function readRelayHeader(socket: Socket, token: string) {
   const received = Reflect.get(header, "token")
   const args = Reflect.get(header, "args")
   const env = Reflect.get(header, "env")
-  if (!hasRuntimeType(received, "string") || !sameToken(received, token)) throw invalidRelayConnection()
-  if (!Array.isArray(args) || !args.every(arg => hasRuntimeType(arg, "string"))) throw invalidRelayConnection()
+  if (typeof received !== "string" || !sameToken(received, token)) throw invalidRelayConnection()
+  if (!Array.isArray(args) || !args.every(arg => typeof arg === "string")) throw invalidRelayConnection()
   if (!isRuntimeRecord(env)) throw invalidRelayConnection()
   const environment: Record<string, string> = {}
-  for (const [name, value] of Object.entries(env)) if (hasRuntimeType(value, "string")) environment[name] = value
+  for (const [name, value] of Object.entries(env)) if (typeof value === "string") environment[name] = value
   return { args: args.map(String), env: environment, input }
 }
 
@@ -502,7 +508,7 @@ export function providerSandboxEnvironment(options: {
     if (!environmentNamePattern.test(name) || sandboxRuntimeEnvironmentKeys.has(name)) continue
     // Values added by the provider runtime, such as the MCP bearer token, are forwarded.
     // Host values, such as PATH, stay on the host unless driver.env names them.
-    if (name === "T3_MCP_BEARER_TOKEN" || explicit.has(name) || (options.prepared[name] === undefined && options.host[name] === undefined)) selected[name] = value
+    if (name === "VITEHUB_MCP_BEARER_TOKEN" || explicit.has(name) || (options.prepared[name] === undefined && options.host[name] === undefined)) selected[name] = value
   }
   return selected
 }

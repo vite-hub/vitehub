@@ -1,13 +1,40 @@
 # @vite-hub/forge
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fforge&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fforge&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/forge)](https://npmx.dev/package/@vite-hub/forge)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/forge)](https://npmx.dev/package/@vite-hub/forge)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
-`@vite-hub/forge` is the one Forge client of ViteHub. Channels, Capabilities, Workspaces and Sources use it to reach GitHub, GitLab and Forgejo. It is built on [`forges`](https://forges.link).
+`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab, Forgejo or Gitea token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
 
-Applications do not install this package. They set Server Env, and the `vite-hub` packages that need a Forge read it. This README is the contract for ViteHub packages that depend on it.
+The GitHub Channel, the `forge()` Capability, and the Workspace GitHub store mint App installation tokens through `useForge()` when using App credentials. The store prefers an explicit `token` over App credentials and falls back to the env token when no App ID is set. GitHub Sources read `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`) when `auth` is omitted. Channels, Workspaces and Sources list `@vite-hub/forge` as an optional peer and load it only on a Forge path, so an app without a Forge does not install it. Such an app that uses a Forge Channel, the `forge()` Capability, a GitHub Store or a GitHub Source fails with `INTERNAL_FORGE_NOT_INSTALLED` until it runs `pnpm add @vite-hub/forge`.
+
+## Use it in an app
+
+```bash
+pnpm add @vite-hub/forge
+```
+
+Import it from `vite-hub/forge`, which re-exports this package:
+
+```ts
+import { useForge } from "vite-hub/forge"
+
+const forge = useForge()
+const [error, github] = await forge.provider({ repository: "acme/web" })
+if (error) throw error
+await github.request("POST", "/repos/acme/web/issues", { body: { title: "Nightly build failed" } })
+```
+
+| Call | Returns |
+| --- | --- |
+| `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `conditionalRequests: false` stops GitHub providers from revalidating repeated GETs with ETags. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
+| `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
+| `forge.token({ repository, installation, refresh, minLifetime, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `installation`, such as `installation.id` of a webhook delivery, else for the owner of `repository` (see [Installations](https://vitehub.dev/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. Cached until `minLifetime` milliseconds (default one minute) before it expires. |
+| `forge.provider({ repository, installation, refresh, minLifetime, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
+| `forge.app({ signal })` | `[error, { id, slug, login, email }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
+
+GitHub uses the App when `VITEHUB_GITHUB_APP_ID` is set, and `VITEHUB_GITHUB_TOKEN` otherwise. Runtime errors are `FORGE_APP_NOT_INSTALLED` and `FORGE_REQUEST_FAILED`. A cancelled call rejects with the abort reason. The codes are documented at [Forge limits and errors](https://vitehub.dev/docs/forge/limits-and-errors).
 
 ## Server Env
 
@@ -25,28 +52,43 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `github.webhookSecret` | `VITEHUB_GITHUB_WEBHOOK_SECRET`, `FORGES_GITHUB_WEBHOOK_SECRET` |
 | `gitlab.baseUrl`, `gitlab.token`, `gitlab.webhookSecret` | `VITEHUB_GITLAB_*`, `FORGES_GITLAB_*` |
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
+| `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
+
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
 
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 
+## Build identity
+
+`@vite-hub/forge/build/node` exports `readForgeBuild(root, env)`, the commit, branch, repository and pull request of a build, from the CI or host, else Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` each replace their own field. `@vite-hub/forge/build` has no Node code and exports `buildMetaName`, `buildMetaContent(build)` and `parseBuildMeta(content)` for the `<meta name="vitehub:build">` tag. The tag is a claim; check it against the Forge. See [Name the build of a page](https://vitehub.dev/docs/forge/server-api#name-the-build-of-a-page).
+
 ## Public imports
+
+`useForge()` is the app API. The other exports are the building blocks that ViteHub packages use.
 
 | Import | Use |
 | --- | --- |
+| `useForge(options)` | The Forge identity of the app, as above. |
 | `forgeEnv` | The Server Env table above. |
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
-| `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
+| `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. GitHub providers revalidate repeated GETs with `If-None-Match`, so unchanged responses come back as `304`s that GitHub doesn't charge; `conditionalRequests: false` turns it off, and `{ identity, cache }` sets who shares entries and where they live. |
+| `conditionalFetch(fetch, { identity, cache })`, `forgeMemoryCache({ maxSize, maxEntrySize })` | The `fetch` wrapper behind `conditionalRequests`, and its in-memory LRU. The default cache is shared by the process, holds up to 32 MiB of bodies, and skips bodies over 1 MiB. |
+| `forgeBranchRules(provider, repo, branch, options)` | Reads branch rules with `provider.repos.branchRules()`. Returns empty rules only as a fallback when GitHub responds with a `403` asking you to upgrade or make the repository public and the branch summary confirms the branch is unprotected. Other `403` responses still reject. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
+| `forgeMerge(provider, pull, options)` | `threads.merge()` with `bypassRules`. GitHub only with `bypassRules: true`: merge past failing branch rules, as an admin or a ruleset bypass actor. It needs `method` and `sha`. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. |
 | `githubAppCredentials(input)` | GitHub App installation tokens, installation lookup and App metadata. Tokens are cached until one minute before they expire. |
 | `readGitHubAppPrivateKey(inline, path)` | Read a PEM key from a value or a file. |
+| `githubInstallationRouting({ installationId, appOwner, appInstallations })` | Read the [installation routing](https://vitehub.dev/docs/forge/configure#installations) from Server Env values. Throws `FORGE_INVALID_ENV`. |
+| `githubInstallationFor(routing, repository)` | The configured installation for `repository`, or `undefined` when GitHub must find it. |
 | `forgeArchive(provider, repo, { ref, signal })` | The repository tree at `ref` as a `tar.gz` stream. GitHub only. Anonymous github.com reads go to `codeload.github.com` and do not use the API limit. |
 | `forgeGitCredentials({ forge, baseUrl, token, repository })` | The Git smart HTTP remote and the basic auth pair for one repository. |
 | `forgeGitAuthHeader(credentials)` | The `http.<remote>.extraheader` entry for `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. It keeps the token out of process arguments. |
 | `forgeBlob(provider, repo, sha, { signal })` | The bytes of one blob by sha. GitHub only. |
 | `forgeCommitFiles(provider, repo, input, options)` | `contents.commitFiles()` that can also set git file modes (`100644`, `100755`, `120000`). Returns the commit sha. |
 | `BranchMovedError` | The bundled `forges` error for a branch that moved before a commit. |
-| `forgeErrorStatus(error)`, `ForgeResponseError` | Classify Forge request failures. |
+| `forgeResponseError(problem)`, `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Build `FORGE_RESPONSE_INVALID` errors and classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |
 
 ## Diagnostics
@@ -61,6 +103,8 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `FORGE_R0006` | A GitHub-only helper got a provider for another Forge. |
 | `FORGE_R0007` | `githubBranchRuleDetails()` got branch rules that are not complete GitHub rulesets or classic protection. |
 | `FORGE_R0009` | A GitHub-only helper got a reference that is not a numbered pull request, or an empty input. |
+| `FORGE_RESPONSE_INVALID` | A Forge request returned missing or invalid data. Read the error message for the specific problem. |
+| `FORGE_UNSUPPORTED` | The `forge` value of a Forge connection is not `github`, `gitlab`, `forgejo`, or `gitea`. |
 
 ## Gaps in `forges`
 
@@ -72,5 +116,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeBlob()` | `contents.getFile()` reads by path, not by blob sha. |
 | `forgeCommitFiles()` | `contents.commitFiles()` cannot set a file mode. |
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
+| `forgeBranchRules()` | `repos.branchRules()` rejects on GitHub's plan-limit `403` even when the branch is unprotected. |
 | `githubBranchRuleDetails()` | `BranchRules` has no required workflows, ruleset merge methods or classic protection source. |
 | `retargetPullRequest()` | No pull request base change. |
+| `forgeMerge()` | `threads.merge()` cannot bypass branch rules. |

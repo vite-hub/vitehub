@@ -53,3 +53,36 @@ test('a repaired inbox removes persisted App activity and keeps ordinary feedbac
   assert.deepEqual(Object.keys(claim.snapshot.comments), ['11'])
   assert.deepEqual(Object.keys((await repaired.get(repository, 64))!.comments), ['11'])
 })
+
+test('authenticated outcome replies do not change a claim or wake a waiting PR', async t => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], activityAuthors: [oldLogin], activityAppId: appId })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr)
+  const claim = (await inbox.claim(1))[0]!
+  const body = '<!-- vitehub-babysitter-repair:repair -->\n<!-- vitehub-babysitter-outcome:fixed -->\n**Fixed.**'
+  const own = { ...comment(20, newLogin, appId, body), node_id: 'outcome-node' }
+  const deliver = (id: string, item: ReturnType<typeof comment> = own) => inbox.ingest(id, 'pull_request_review_comment', {
+    repository: { full_name: repository }, action: 'created', pull_request: pr, comment: item,
+  })
+  assert.deepEqual((await deliver('active-outcome')).updated, [])
+  assert.equal((await inbox.get(repository, 64))?.generation, claim.generation)
+  assert.deepEqual((await inbox.get(repository, 64))?.reviewComments, {})
+  await inbox.finish(claim, { text: 'Waiting for checks.' })
+  assert.deepEqual((await deliver('waiting-outcome')).queued, [])
+  const observed = (await inbox.get(repository, 64))!
+  assert.equal(await inbox.refreshThreads(observed, [{ id: 'thread', isResolved: true, comments: [own] }]), true)
+  // The first observation of a resolved thread is evidence; a later own reply is not.
+  const next = (await inbox.claim(1))[0]!
+  assert.ok(next)
+  await inbox.hydrate(next, { reviewComments: { 20: own }, threads: [{ id: 'thread', isResolved: true, comments: { nodes: [own] } }] })
+  assert.deepEqual(next.snapshot.reviewComments, {})
+  assert.deepEqual(next.snapshot.threads[0]?.comments, { nodes: [] })
+  await inbox.finish(next, { text: 'Ready.' })
+  assert.equal(await inbox.refreshThreads((await inbox.get(repository, 64))!, [{ id: 'thread', isResolved: true, comments: [{ id: 'outcome-node' }] }]), true)
+  const threadReply = await inbox.ingest('thread-outcome', 'pull_request_review_thread', { repository: { full_name: repository }, action: 'resolved', pull_request: pr,
+    thread: { node_id: 'thread', comments: [own] } })
+  assert.deepEqual(threadReply.queued, [])
+  assert.equal((await inbox.claim(1)).length, 0)
+  assert.deepEqual((await deliver('foreign-marker', comment(21, oldLogin, 99, body))).queued, [64])
+  assert.deepEqual((await deliver('real-review', comment(22, newLogin, appId, 'P1: this fails.'))).updated, [64])
+})

@@ -40,14 +40,12 @@ export function requestEvent(request: Request, extra: { context?: { params?: Rec
   return { ...rest, "~standard": { vendor: "test", req: request, res: { headers: new Headers() }, ...(remoteAddress ? { runtime: { clientAddress: remoteAddress } } : {}) } }
 }
 
-/** The Node response of an H3 1 event, enough for Console code to write headers through Standard Context. */
-export function nodeResponse() {
-  const headers = new Map<string, number | string | string[]>()
-  return {
-    statusCode: 200,
-    getHeader: (name: string) => headers.get(name.toLowerCase()),
-    getHeaders: () => Object.fromEntries(headers),
-    removeHeader: (name: string) => { headers.delete(name.toLowerCase()) },
-    setHeader: (name: string, value: number | string | string[]) => { headers.set(name.toLowerCase(), value) },
-  }
+/**
+ * The Request that Nitro passes to a Fetchable Console route for this event: the event's Request, with the event's
+ * Standard Context on it, as the ViteHub Nitro plugin sets it.
+ */
+export function routeRequest(event: ConsoleRequestEvent): Request {
+  const standard = event["~standard"]
+  if (!("~standard" in standard.req)) Object.defineProperty(standard.req, "~standard", { configurable: true, value: standard })
+  return standard.req
 }

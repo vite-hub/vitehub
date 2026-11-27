@@ -10,7 +10,6 @@ describe("Agent parents in Env access", () => {
     const access = agentEnvAccess(identity);
     expect(access.actor).toEqual({ kind: "agent", id: "bot-canary" });
     expect(envAccessAgentParents(access)).toEqual(["bot-dev", "bot"]);
-    // The result is a copy. Changing it does not change the authority.
     envAccessAgentParents(access).push("admin");
     expect(envAccessAgentParents(access)).toEqual(["bot-dev", "bot"]);
     expect(envAccessAgentParents(agentEnvAccess(createAgentEnvIdentity({ name: "inline" })))).toEqual([]);
@@ -29,7 +28,6 @@ describe("Agent parents in Env access", () => {
   });
 
   it("does not give parents to contexts that are not Agent runtime contexts", () => {
-    // A key context only carries the bridge. This test never calls it.
     const bridge = {} as unknown as EnvBridge;
     const key = connectionEnvAccess(bridge, { actor: { kind: "agent", id: "bot-dev" }, name: "mail", permission: "use" });
     expect(() => envAccessAgentParents(key)).toThrow(expect.objectContaining({ code: "ENV_BRIDGE_UNTRUSTED" }));

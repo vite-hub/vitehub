@@ -2,10 +2,11 @@ import { it, afterEach } from 'vitest'
 import assert from 'node:assert/strict'
 import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
 import type { GitHubEvidence } from '../src/babysitter/inbox/types.ts'
-import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/babysitter/inbox/ci-evidence.ts'
+import { hydrateFailedCiEvidence } from '../src/babysitter/inbox/ci-evidence.ts'
+import { compactCiLog, diagnosticExcerpt } from '../src/github/ci-logs.ts'
 import { rerunFailedActions } from '../src/babysitter/ci-recovery.ts'
 import type { Claim } from '../src/babysitter/inbox/store.ts'
-import { githubError, githubForge, type GitHubTestRequest } from '../../agent/test/fixtures/github-forge.ts'
+import { githubError, githubForge, type GitHubTestRequest } from './fixtures/github-forge.ts'
 import type { GitHubProvider } from '@vite-hub/forge'
 const repository = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'head', ref: 'fix' }, base: { ref: 'main' } }
@@ -44,6 +45,32 @@ it('failed current-head job metadata and log are fetched once, cached and attach
  assert.equal(evidence.excerpt, '##[error] Type mismatch\nsource.ts:2'); assert.equal((evidence.failedSteps as {name:string}[])[0]!.name, 'Typecheck')
  assert.equal(((await inbox.meta(String(evidence.cacheKey))) as { value: { log: string } }).value.log, evidence.excerpt)
 })
+it('the cached job log drops color codes and fetch branch listings', async () => {
+ const { inbox, claim } = await fixture()
+ const log = ['  * [new branch]          fix/agent-error -> origin/fix/agent-error', '\u001b[31mFAIL\u001b[39m test/a.test.ts', '^[[41m^[[1m FAIL ^[[22m^[[49m test/b.test.ts'].join('\n')
+ await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job()], readLog: async () => log })
+ const evidence = claim.snapshot.ciEvidence![0]!
+ assert.equal(evidence.excerpt, 'FAIL test/a.test.ts\n FAIL  test/b.test.ts')
+ assert.equal(((await inbox.meta(String(evidence.cacheKey))) as { value: { log: string } }).value.log, evidence.excerpt)
+})
+it('an oversized job log keeps its tail and counts the lines it dropped', () => {
+ const log = `${Array.from({ length: 1000 }, (_, n) => `built chunk ${n}`).join('\n')}\nERR_PNPM_PEER_DEP_ISSUES Unmet peer dependencies`
+ const compact = compactCiLog(log, 2000)
+ assert.ok(compact.length < 2100)
+ assert.match(compact, /^\[\d+ earlier log lines omitted\]\n/)
+ assert.ok(compact.endsWith('ERR_PNPM_PEER_DEP_ISSUES Unmet peer dependencies'))
+})
+it('keeps the bounded tail of a long final log line with or without a newline', () => {
+ for (const ending of ['', '\n']) {
+  const log = 'setup\n' + 'x'.repeat(1000) + 'final diagnostic' + ending
+  const compact = compactCiLog(log, 40)
+  assert.equal(compact, '[1 earlier log lines omitted]\n…' + log.slice(-40))
+ }
+ assert.equal(compactCiLog('setup\n😀DONE', 5), '[1 earlier log lines omitted]\n…DONE')
+ assert.equal(compactCiLog('setup\n😀DONE', 6), '[1 earlier log lines omitted]\n😀DONE')
+ const whole = 'x'.repeat(40)
+ assert.equal(compactCiLog('setup\n' + whole, 40), '[1 earlier log lines omitted]\n' + whole)
+})
 it('pending, skipped, success and old-head checks never fetch job metadata or logs', async () => {
  const { inbox, claim } = await fixture([check({ id: 1, status: 'queued', conclusion: null }), check({ id: 2, conclusion: 'success' }), check({ id: 3, conclusion: 'skipped' }), check({ id: 4, head_sha: 'old' })])
  await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => assert.fail('no metadata request'), readLog: async () => assert.fail('no log request') })
@@ -66,7 +93,9 @@ it('unavailable logs are distinct from CI failures and retried only after two mi
 })
 it('external reviewer check and unrelated job head never download an action log', async () => {
  const { inbox, claim } = await fixture([check({ id: 8, app: { slug: 'pullfrog' } }), check()])
- await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job({ head_sha: 'default-branch' })], readLog: async () => assert.fail('unrelated log') })
+ let logs = 0
+ await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job({ head_sha: 'default-branch' })], readLog: async () => { logs++; return 'unrelated log' } })
+ assert.equal(logs, 0)
  assert.equal(claim.snapshot.ciEvidence![0]!.status, 'unsupported')
  assert.equal(claim.snapshot.ciEvidence![1]!.status, 'unavailable')
 })
@@ -136,7 +165,21 @@ it('prunes expired CI logs and metadata while retaining recent logs and unrelate
  assert.equal(await inbox.meta(expiredKey), undefined)
  assert.equal(await inbox.meta('ci-evidence:v1:jobs:legacy'), undefined)
  assert.equal((await inbox.metaEntries('ci-evidence:v1:')).length, 1)
+ assert.deepEqual((await inbox.metaEntries('ci-evidence-at:v1:')).map(([key]) => key), ['ci-evidence-at:v1:job-log:recent'])
  assert.deepEqual(await inbox.meta('review-assessment:keep'), { head: 'head' })
+})
+
+it('backfills fresh legacy CI evidence and deletes expired legacy evidence on the first prune', async () => {
+ const { inbox } = await fixture(); const fetchedAt = Date.now()
+ await inbox.setMeta('ci-evidence:v1:job-log:upgraded', { fetchedAt, value: { log: 'kept' } })
+ await inbox.deleteMeta('ci-evidence-at:v1:job-log:upgraded')
+ await inbox.setMeta('ci-evidence:v1:job-log:expired', { fetchedAt: 1, value: { log: 'expired' } })
+ await inbox.deleteMeta('ci-evidence-at:v1:job-log:expired')
+ await inbox.pruneDeliveries()
+ assert.deepEqual(await inbox.meta('ci-evidence:v1:job-log:upgraded'), { fetchedAt, value: { log: 'kept' } })
+ assert.equal(await inbox.meta('ci-evidence-at:v1:job-log:upgraded'), fetchedAt)
+ assert.equal(await inbox.meta('ci-evidence:v1:job-log:expired'), undefined)
+ assert.equal(await inbox.meta('ci-evidence-at:v1:job-log:expired'), undefined)
 })
 
 it('keeps the diagnostic anchor before oversized trailing context', () => {

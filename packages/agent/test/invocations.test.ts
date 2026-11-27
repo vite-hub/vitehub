@@ -1,6 +1,7 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
-import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
+import { traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -13,6 +14,7 @@ import * as invocationModule from "../src/invocations.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
+import { defaultAgentInvocationsMetadataContent } from "../src/invocations/default-core.ts"
 
 import type { AgentInvocationListOptions } from "../src/invocations.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
@@ -2049,7 +2051,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it.each(["input.messages", "input.prompt"])("preserves message structure when %s text exceeds the capture budget", async (key) => {
+  it.each(["input.messages", "input.prompt"])("keeps newer %s messages whole when an older message exceeds the string limit", async (key) => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime(`large-${key}`))
     if (!journal) throw new Error("Expected the invocation journal.")
@@ -2063,14 +2065,72 @@ describe("Agent Invocations", () => {
 
     const observation = (await invocations.getByRunId(`large-${key}`))?.observations.find(entry => entry.name === "agent.input")
     expect(observation?.attributes?.[key]).toEqual([
-      { id: "first", parts: [{ text: expect.stringMatching(/^x+$/), type: "text" }], role: "user" },
-      { content: "[truncated]", role: "assistant", id: "second" },
+      { id: "first", parts: [{ text: expect.stringMatching(/^x{65536}$/), type: "text" }], role: "user" },
+      { content: "second message", role: "assistant", id: "second" },
       { parts: [{ text: "", type: "text" }], role: "user", id: "third" },
     ])
-    expect(JSON.stringify(observation?.attributes?.[key]).length).toBeLessThan(66_000)
+    expect(observation?.attributes).not.toHaveProperty(`${key}.omitted`)
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(messages[0]?.parts?.[0]?.text).toHaveLength(100_000)
-    expect(messages[1]?.content).toBe("second message")
+  })
+
+  describe("Channel message history", () => {
+    const header = (index: number) => `[Tue 18 Nov 2026 10:${String(index).padStart(2, "0")} CET · msg 17634600${index} · from Ada Lovelace (id 29:1ada)]`
+    const teamsMessage = (index: number, text: string, mentions = 0) => ({
+      createdAt: `2026-11-18T09:${String(index).padStart(2, "0")}:00.000Z`,
+      id: `msg-${index}`,
+      metadata: {
+        chat: {
+          edited: false,
+          mentions: Array.from({ length: mentions }, (_, mention) => ({ aadObjectId: `aad-${mention}`, email: `person${mention}@quiver.dk`, id: `29:${mention}`, kind: "person", name: `Person ${mention}`, offset: mention, role: "member", team: "forecasting", tenant: "quiver", userPrincipalName: `person${mention}@quiver.dk` })),
+          threadId: "teams:19:forecasting@thread.tacv2",
+        },
+      },
+      parts: [
+        { data: { modelText: header(index) }, id: "message-header", type: "data-chat-message-header" },
+        { id: "text-0", text, type: "text" },
+      ],
+      role: index % 3 === 0 ? "assistant" : "user",
+    })
+
+    it("keeps every part of a message that fits the budget, in the history and the trigger", async () => {
+      const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+      const message = { id: "msg-1", parts: Array.from({ length: 40 }, (_, index) => ({ id: `text-${index}`, text: `part ${index}`, type: "text" })), role: "user" }
+      const journal = await bindAgentInvocations(invocations, runtime("many-parts"))
+      if (!journal) throw new Error("Expected the invocation journal.")
+      await journal.context.traceLog?.append({ attributes: { "input.messages": [message], "input.trigger.message": message }, name: "agent.input", type: "run" })
+      await journal.finish("completed")
+      const observation = (await invocations.getByRunId("many-parts"))?.observations.find(entry => entry.name === "agent.input")
+      expect(observation?.attributes?.["input.messages"]).toEqual([message])
+      expect(observation?.attributes?.["input.trigger.message"]).toEqual(message)
+      expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+    })
+
+    it.each([
+      ["item count", (index: number) => teamsMessage(index, `Message ${index}: why does b11b lead time change?`, 33)],
+      ["string length", (index: number) => teamsMessage(index, `Message ${index}: ${"forecast ".repeat(1_000)}`)],
+    ])("keeps the newest messages and the whole trigger under %s pressure", async (_pressure, create) => {
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore(), metadataContent: defaultAgentInvocationsMetadataContent })
+      const messages = Array.from({ length: 50 }, (_, index) => create(index + 1))
+      messages[49]!.role = "user"
+      const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
+      const runId = `teams-history-${_pressure}`
+      await runAgentWithContext(agent, { ...runtime(runId), run: { messageId: "msg-50", runId } }, { messages: messages as never })
+
+      const start = (await invocations.getByRunId(runId))?.observations.find(entry => entry.name === "agent.invocation.start")
+      const kept = start?.attributes?.["input.messages"]
+      if (!Array.isArray(kept)) throw new Error("Expected the input messages.")
+      const omitted = start?.attributes?.["input.messages.omitted"]
+      expect(omitted).toBeGreaterThan(0)
+      expect(start?.attributes?.["input.messages.total"]).toBe(50)
+      expect(kept).toHaveLength(50 - Number(omitted))
+      expect(kept.map(message => message.id)).toEqual(messages.slice(Number(omitted)).map(message => message.id))
+      expect(kept.at(-1)).toMatchObject({ id: "msg-50", parts: [{ data: { modelText: header(50) } }, { text: messages[49]!.parts[1]!.text }] })
+      expect(kept.at(-1)).toEqual(messages[49])
+      expect(kept[0]).toMatchObject({ parts: [{ data: { modelText: header(Number(omitted) + 1) } }, { type: "text" }] })
+      expect(start?.attributes?.["input.trigger.message"]).toEqual(messages[49])
+      expect(start?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["input.messages"])
+    })
   })
 
   it.each(["input.messages", "input.prompt"])("retains short %s messages unchanged", async (key) => {
@@ -2329,6 +2389,41 @@ describe("Agent Invocations", () => {
           errors: [{ message: "first", name: "Error" }],
           message: "outer",
           name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("keeps the children of a foreign AggregateError subclass with its own name", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-aggregate-subclass",
+      observations: [],
+      status: "running",
+      traceId: "foreign-aggregate-subclass-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('new (class ValidationError extends AggregateError { name = "ValidationError" })([new Error("field invalid")], "validation failed")')
+
+    await store.update("foreign-aggregate-subclass", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-aggregate-subclass"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          errors: [{ message: "field invalid", name: "Error" }],
+          message: "validation failed",
+          name: "ValidationError",
         },
       },
       visibility: "public",
@@ -5223,8 +5318,9 @@ describe("Agent Invocations", () => {
   it("shares an unfinished open after its wait times out", async () => {
     vi.useFakeTimers()
     try {
-      const pending = Promise.withResolvers<void>()
-      const open = vi.fn(() => pending.promise)
+      let resolveOpen!: () => void
+      const pending = new Promise<void>(resolve => { resolveOpen = resolve })
+      const open = vi.fn(() => pending)
       const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
       const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
       await vi.advanceTimersByTimeAsync(10_000)
@@ -5232,7 +5328,7 @@ describe("Agent Invocations", () => {
       const next = invocations.list()
       await vi.advanceTimersByTimeAsync(1)
       expect(open).toHaveBeenCalledOnce()
-      pending.resolve()
+      resolveOpen()
       await expect(next).resolves.toMatchObject({ invocations: [] })
       expect(open).toHaveBeenCalledOnce()
     }
@@ -6094,34 +6190,44 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-cutoff-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 60_000, maxRecords: false })
     const now = Date.now()
-    const nearlyExpired = new Date(now - 999).toISOString()
+    const timestamp = new Date(now).toISOString()
     try {
       await unboundedStore.create({
-        createdAt: nearlyExpired,
+        createdAt: timestamp,
         id: "retry",
         observations: [],
         status: "completed",
         traceId: "old-trace",
-        updatedAt: nearlyExpired,
+        updatedAt: timestamp,
       })
-      const clock = vi.spyOn(Date, "now")
-        .mockReturnValueOnce(now)
-        .mockReturnValue(now + 2)
+      await store.get("retry")
+      const batch = vi.spyOn(client, "batch")
+      let tick = now
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => tick++)
 
-      await expect(store.create({
-        createdAt: new Date(now).toISOString(),
+      const duplicate = await store.create({
+        createdAt: timestamp,
         id: "retry",
         observations: [],
         status: "completed",
         traceId: "replacement-trace",
-        updatedAt: new Date(now).toISOString(),
-      })).resolves.toMatchObject({
+        updatedAt: timestamp,
+      })
+      clock.mockRestore()
+
+      const cutoffs = batch.mock.calls.flatMap(([statements]) => statements.flatMap((statement) => {
+        if (typeof statement === "string") return []
+        const [sql, args] = Array.isArray(statement) ? statement : [statement.sql, statement.args]
+        return sql.startsWith("DELETE FROM ") && sql.endsWith("updated_at < ?") ? [args] : []
+      }))
+      expect(cutoffs).toHaveLength(2)
+      expect(cutoffs[0]).toEqual(cutoffs[1])
+      expect(duplicate).toMatchObject({
         created: false,
         record: { id: "retry", traceId: "old-trace" },
       })
-      clock.mockRestore()
       await expect(store.get("retry")).resolves.toMatchObject({ traceId: "old-trace" })
     }
     finally {
@@ -6381,7 +6487,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("search_version < ?")) {
@@ -6481,7 +6587,7 @@ describe("Agent Invocations", () => {
           if (property !== "execute") return value instanceof Function ? value.bind(target) : value
           return async (...args: unknown[]) => {
             const input = args[0]
-            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+            const sql = input !== null && typeof input === "object" && "sql" in input && typeof input.sql === "string"
               ? input.sql
               : ""
             if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
@@ -6573,7 +6679,7 @@ describe("Agent Invocations", () => {
             const isSummaryBackfill = statements.some((statement) => {
               return isRuntimeRecord(statement)
                 && "sql" in statement
-                && hasRuntimeType(statement.sql, "string")
+                && typeof statement.sql === "string"
                 && statement.sql.includes("SET summary = json_remove")
             })
             if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
@@ -6717,19 +6823,18 @@ describe("Agent Invocations", () => {
         get(target, property) {
           if (property === "batch") {
             return async (...args: Parameters<Client["batch"]>) => {
-              const statements = args[0]
-              const firstStatement = statements[0]
-              if (hasRuntimeType(firstStatement, "object")
-                && "sql" in firstStatement && hasRuntimeType(firstStatement.sql, "string")
-                && firstStatement.sql.includes("SET search")) {
-                pageSizes.push(statements.length)
+              const searchUpdates = args[0].filter(statement =>
+                typeof statement === "object" && "sql" in statement && statement.sql.includes("SET search ="),
+              )
+              if (searchUpdates.length) {
+                pageSizes.push(searchUpdates.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
               }
               return target.batch(...args)
             }
           }
           const value = Reflect.get(target, property)
-          return hasRuntimeType(value, "function") ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         },
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
@@ -6839,7 +6944,7 @@ describe("Agent Invocations", () => {
           }
         }
         const value = Reflect.get(target, property)
-        return hasRuntimeType(value, "function") ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const invocations = defineAgentInvocations({

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/agent/console/attachment-cleanup.ts"
 import type { BlobObject, BlobStorage } from "@vite-hub/blob"
 
 const dirs: string[] = []
@@ -13,7 +13,7 @@ const cleanupPrefix = consoleAttachmentCleanupPrefix
 const path = () => `${consoleAttachmentPrefix}${crypto.randomUUID()}`
 const marker = (path: string) => path.replace(consoleAttachmentPrefix, cleanupPrefix)
 
-function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"> {
+function connect(base: string): Pick<BlobStorage, "put" | "delete" | "list" | "get"> {
   const filename = (path: string) => join(base, Buffer.from(path).toString("base64url"))
   const metadata = (pathname: string): BlobObject => ({ pathname, contentType: "text/plain", httpEtag: undefined, uploadedAt: new Date(), httpMetadata: {}, customMetadata: {} })
   return {
@@ -32,10 +32,11 @@ function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"
         throw error
       }
     },
-    async del(paths) {
+    // The fixture deletes pathnames only; `delete({ prefix })` is not used here.
+    delete: (async (paths: string | string[]) => {
       for (const path of typeof paths === "string" ? [paths] : paths) await rm(filename(path), { force: true })
       return [undefined, undefined]
-    },
+    }) as BlobStorage["delete"],
     async list(options) {
       const paths = (await readdir(base)).map(file => Buffer.from(file, "base64url").toString()).filter(path => path.startsWith(options?.prefix ?? "")).sort()
       const limit = options?.limit ?? paths.length
@@ -54,7 +55,7 @@ it("retries a failed rollback after storage restart and preserves owned objects"
   const abandoned = path(); const owned = path()
   await storage.put(abandoned, "image"); await storage.put(owned, "image")
   const failure = new Error("Storage unavailable")
-  expect(await rollbackConsoleAttachments({ ...storage, async del() { throw failure } }, [abandoned])).toEqual([failure])
+  expect(await rollbackConsoleAttachments({ ...storage, async delete() { throw failure } }, [abandoned])).toEqual([failure])
   const restarted = connect(base)
   await retryConsoleAttachmentCleanup(restarted)
   expect((await restarted.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([owned])
@@ -65,7 +66,7 @@ it("keeps the cleanup record through another failed retry", async () => {
   const abandoned = path()
   await storage.put(abandoned, "image")
   const failure = new Error("Deletion unavailable")
-  const unavailable = { ...storage, async del() { throw failure } }
+  const unavailable = { ...storage, async delete() { throw failure } }
   await rollbackConsoleAttachments(unavailable, [abandoned])
   await expect(retryConsoleAttachmentCleanup(unavailable)).rejects.toBe(failure)
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs.map(blob => blob.pathname)).toEqual([marker(abandoned)])
@@ -131,7 +132,7 @@ it("recovers the entire batch when rollback stops during its first deletion", as
   // Leave the original request suspended, as if its host stopped before deletion returned.
   void rollbackConsoleAttachments({
     ...storage,
-    async del() {
+    async delete() {
       reachedDeletion()
       return new Promise<never>(() => {})
     },
@@ -175,10 +176,10 @@ it("retains the whole batch if a later deletion fails", async () => {
   const failure = new Error("Second deletion failed")
   expect(await rollbackConsoleAttachments({
     ...storage,
-    async del(object) {
+    delete: (async (object: string | string[]) => {
       if (object === abandoned[1]) throw failure
-      return storage.del(object)
-    },
+      return storage.delete(object)
+    }) as BlobStorage["delete"],
   }, abandoned)).toEqual([failure])
   await retryConsoleAttachmentCleanup(connect(base))
   expect((await storage.list())[1]?.blobs).toEqual([])
@@ -188,7 +189,7 @@ it("rejects reuse when reading a batch body fails and recovers on retry", async 
   const { base, storage } = await fixture()
   const abandoned = [path(), path()]
   for (const object of abandoned) await storage.put(object, "image")
-  await rollbackConsoleAttachments({ ...storage, async del() { throw new Error("Deletion unavailable") } }, abandoned)
+  await rollbackConsoleAttachments({ ...storage, async delete() { throw new Error("Deletion unavailable") } }, abandoned)
   const failure = new Error("Body stream interrupted")
   const unreadable = {
     ...storage,
@@ -212,7 +213,7 @@ it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record i
   const abandoned = path()
   await storage.put(abandoned, "image")
   await storage.put(`${cleanupPrefix}batch/${crypto.randomUUID()}`, body)
-  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).resolves.toBe(true)
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs).toEqual([])
@@ -229,7 +230,7 @@ it("preserves unknown ownership if quarantine persistence fails", async () => {
   await storage.put(record, "{")
   await expect(retryConsoleAttachmentCleanup({ ...storage, async put() { throw new Error("Write unavailable") } })).rejects.toThrow("Write unavailable")
   expect(await (await storage.get(record))[1]!.text()).toBe("{")
-  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).resolves.toBe(true)
 })
 
 it("rejects reuse when another request quarantines a record during the ownership scan", async () => {

@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto"
 import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
-import { forgeBlob } from "@vite-hub/forge"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
+import * as v from "valibot"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { isWorkspaceConflict, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import {
   historyConflict,
+  readHistoryDeleteRef,
   normalizeHistoryPath,
   normalizeHistoryRef,
+  rejectHistoryHead,
 } from "../../core/history.ts"
 import {
   contentToBytes,
@@ -19,6 +21,8 @@ import {
   normalizeSafeWorkspacePath,
 } from "../../core/path.ts"
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
+import { BoundedMap } from "./bounded-map.ts"
+import { githubKVKey, readWorkspaceKV, writeWorkspaceKV } from "./cache.ts"
 import {
   commitGitHubChanges,
   gitBlobSha,
@@ -26,6 +30,8 @@ import {
   githubRequest,
   githubRequestStatus,
   joinGitPath,
+  loadForge,
+  preloadGitHubFiles,
   readCurrentHead,
   readGitHubBranchState,
   readGitHubFile,
@@ -37,10 +43,12 @@ import {
 
 import type {
   GitHubWorkspaceRefs,
+  WorkspaceAuthor,
   WorkspaceMergeCommit,
   WorkspaceMergeConflict,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspacePullRequest,
   ListOptions,
   ReadFileOptions,
@@ -49,6 +57,7 @@ import type {
   WorkspaceHistoryListOptions,
   WorkspaceHistoryListResult,
   WorkspaceHistoryRef,
+  WorkspaceLastChange,
   WorkspaceRevision,
   WorkspaceRevisionView,
   WorkspaceStoreHistory,
@@ -80,6 +89,26 @@ export const githubMaxMetadataBytes = 64 * 1024
 export const githubMaxMessageBytes = 16 * 1024
 
 type GitHubCommit = Commit
+
+/** Paths per GitHub file history request. */
+const lastChangedBatch = 100
+const lastChangedHistoryLimit = 100
+
+const pathHistory = v.object({ nodes: v.array(v.object({ oid: v.string(), authoredDate: v.string() })) })
+
+const fileHistoryResponse = v.object({
+  data: v.optional(v.nullable(v.object({
+    repository: v.nullable(v.object({
+      object: v.nullable(v.looseObject({
+        recent: v.object({ nodes: v.array(v.object({
+          oid: v.string(),
+          parents: v.object({ nodes: v.array(v.object({ oid: v.string() })) }),
+        })) }),
+      })),
+    })),
+  }))),
+  errors: v.optional(v.array(v.object({ message: v.string() }))),
+})
 type GitHubTreeItem = TreeEntry
 
 interface GitHubHistoryEntry {
@@ -190,6 +219,18 @@ function readCommitMessage(message: string | undefined): { message?: string, met
   return { ...(text ? { message: text } : {}), metadata }
 }
 
+/**
+ * The Git author of a history commit: `metadata.author` with a `name` and an `email`, as Content and the
+ * `workspace.commit` operation record the signed-in user. Without both, the account of the token is the author.
+ */
+function commitAuthor(metadata: Record<string, unknown> | undefined): WorkspaceAuthor | undefined {
+  const author = metadata?.author
+  if (!author || typeof author !== "object") return undefined
+  const name = Reflect.get(author, "name")
+  const email = Reflect.get(author, "email")
+  return typeof name === "string" && name.trim() && typeof email === "string" && email.trim() ? { name, email } : undefined
+}
+
 function messageWithMetadata(message: string, metadata: Record<string, unknown> | undefined): string {
   const limit = (what: string, size: number, max: number) => {
     if (size > max) throw workspaceErrorDiagnostics.WORKSPACE_R0073({ message: `[vitehub] GitHub history commit ${what} is ${size} bytes, over the limit of ${max}. Shorten it.` })
@@ -204,7 +245,8 @@ function messageWithMetadata(message: string, metadata: Record<string, unknown> 
   return `${message}\n\n${metadataTrailer}${json}`
 }
 
-function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[], url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
+/** A revision from its commit. Without `entries`, the revision leaves out `files` and `bytes`. */
+function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[] | undefined, url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
   const stored = readCommitMessage(commit.message)
   suppliedMetadata ??= stored.metadata
   const author = commit.author
@@ -236,8 +278,7 @@ function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistor
     createdAt: createdAt.toISOString(),
     ...(stored.message ? { message: stored.message } : {}),
     ...(metadata ? { metadata } : {}),
-    files: entries.length,
-    bytes: entries.reduce((total, entry) => total + entry.size, 0),
+    ...(entries ? { files: entries.length, bytes: entries.reduce((total, entry) => total + entry.size, 0) } : {}),
   }
 }
 
@@ -314,9 +355,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   // Hide a literal alias only when its reported ref resolves to another branch.
   const hiddenBranch = (branch: string): boolean => toBranch(fromBranch(branch)) !== branch
   const heads = new Map<string, { expires: number, head: Promise<string | null> }>()
-  const commitCache = new Map<string, GitHubCommit>()
-  const treeCache = new Map<string, GitHubHistoryEntry[]>()
-  const commitRefs = new Map<string, string>()
+  // Commits and trees never change, so they stay until newer ones push them out.
+  const commitCache = new BoundedMap<string, GitHubCommit>(2_000)
+  const treeCache = new BoundedMap<string, GitHubHistoryEntry[]>(32)
+  const commitRefs = new BoundedMap<string, string>(2_000)
+  const lastChanges = new BoundedMap<string, Map<string, WorkspaceLastChange | null>>(32)
 
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
@@ -377,6 +420,14 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return publicRevision(commit, ref, entries, `https://github.com/${options.repository}/commit/${commit.sha}`, suppliedMetadata)
   }
 
+  /** A revision from a commit that a list or a head read returned, without the tree request that `files` and `bytes` need. */
+  const listedRevision = (ref: string, commit: GitHubCommit): WorkspaceRevision => {
+    if (!nonEmptyString(commit.sha)) malformed("commit list")
+    commitCache.set(commit.sha, commit)
+    commitRefs.set(commit.sha, ref)
+    return publicRevision(commit, ref, undefined, `https://github.com/${options.repository}/commit/${commit.sha}`)
+  }
+
   const readBranches = async (): Promise<GitHubBranch[]> => {
     try {
       return await githubRequest(client(), async (provider, repo) => {
@@ -399,7 +450,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (cached && cached.expires > Date.now()) return await cached.head
     const head = (async () => {
       try {
-        return await githubRequest(client(), async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit")
+        // The commit of the branch, in one request. A later revision() of this head reads no commit again.
+        const commit = await githubRequest(client(), async (provider, repo) => await provider.commits.get({ forge: provider.forge, instance: provider.instance, repo, sha: encodeURIComponent(`heads/${branch}`) }), "commit")
+        if (!nonEmptyString(commit.sha)) malformed("commit")
+        commitCache.set(commit.sha, commit)
+        return commit.sha
       }
       catch (error) {
         if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
@@ -412,6 +467,25 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       if (heads.get(branch)?.head === head) heads.delete(branch)
     })
     return await head
+  }
+
+  /** Whether the history of `branch` has the commit `id`: the commit is the merge base of both. */
+  async function branchContains(branch: string, id: string): Promise<boolean> {
+    if (!/^[0-9a-f]{40}$/i.test(id)) return false
+    const head = await readBranchHead(branch)
+    if (!head) return false
+    if (head.toLowerCase() === id.toLowerCase()) return true
+    // Compare immutable commits so the ancestry proof can be shared through the read cache.
+    return await githubRequest(client(), async (provider, repo) => {
+      try {
+        const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(head)}...${encodeURIComponent(id)}`, { query: { per_page: 1 } })).data
+        return String(Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha")).toLowerCase() === id.toLowerCase()
+      }
+      catch (error) {
+        if (isUnrelatedHistoryError(error) || githubRequestStatus(error) === 404) return false
+        throw error
+      }
+    }, "compare")
   }
 
   const list = async (listOptions: WorkspaceHistoryListOptions = {}): Promise<WorkspaceHistoryListResult> => {
@@ -427,7 +501,15 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor does not belong to ref "${ref}".` })
     }
     const afterId = revisionCursor ?? (listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined)
+    // A cursor lists the history of its commit. That commit must be a commit of this ref, so a cursor cannot list another
+    // branch, such as the draft branch from a published listing.
+    if (afterId !== undefined && !await branchContains(branch, afterId)) {
+      throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor does not belong to ref "${ref}".` })
+    }
     const page = afterId ? 1 : pageFromCursor(ref, listOptions.cursor)
+    // The first page starts at the head commit, so every page names a commit and its answer never changes.
+    const start = afterId ?? (page === 1 ? await readBranchHead(branch) : branch)
+    if (!start) return { revisions: [] }
     // Only the commits that changed this file or folder.
     const gitPath = !listOptions.path ? "" : joinGitPath(options.root, normalizeHistoryPath(listOptions.path))
     let result: Page<Commit>
@@ -437,7 +519,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const cursor = page === 1
           ? undefined
           : { nextUrl: `${provider.baseUrl.replace(/\/+$/, "")}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}&page=${page}${gitPath ? `&path=${encodeURIComponent(gitPath)}` : ""}` }
-        return await provider.commits.list(repo, { cursor, perPage: afterId ? Math.min(limit + 1, 100) : limit, ref: afterId ?? branch, ...(gitPath ? { path: gitPath } : {}) }).page()
+        return await provider.commits.list(repo, { cursor, perPage: afterId ? Math.min(limit + 1, 100) : limit, ref: start, ...(gitPath ? { path: gitPath } : {}) }).page()
       }, "commit list")
     }
     catch (error) {
@@ -447,10 +529,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // The listing starts at the cursor's revision, which the caller already has.
     const items = afterId && result.items[0]?.sha === afterId ? result.items.slice(1) : result.items
     const shown = items.slice(0, limit)
-    const revisions = await Promise.all(shown.map(commit => {
-      if (!nonEmptyString(commit.sha)) malformed("commit list")
-      return revision(ref, commit.sha)
-    }))
+    const revisions = shown.map(commit => listedRevision(ref, commit))
     const followingPage = nextPage(result.cursor?.nextUrl)
     if (afterId) {
       const last = shown.at(-1)?.sha
@@ -473,10 +552,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const heads = branches.filter(branch => branch.commit === id)
     let branch = heads.find(branch => branch.name === options.branch) ?? heads[0]
     if (!branch) {
-      // Prefer the default branch for shared ancestry, then look through the other branches for older draft commits.
-      // A branch holds the commit when the commit is the merge base of both. One compare request per branch, so a
-      // long history costs no more than a short one.
-      const ordered = [...branches].sort((left, right) => Number(right.name === options.branch) - Number(left.name === options.branch))
+      // Prefer the default branch for shared ancestry, then the branches of `published` and `draft`, which hold older
+      // draft commits, then the other branches. A branch holds the commit when the commit is the merge base of both. One
+      // compare request per branch, so a long history costs no more than a short one.
+      const rank = (name: string) => name === options.branch ? 0 : name === options.refs?.published || name === options.refs?.draft ? 1 : 2
+      const ordered = [...branches].sort((left, right) => rank(left.name) - rank(right.name))
       for (const candidate of ordered) {
         const contains = await githubRequest(client(), async (provider, repo) => {
           try {
@@ -498,6 +578,68 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const ref = fromBranch(branch?.name ?? options.branch)
     commitRefs.set(id, ref)
     return ref
+  }
+
+  /**
+   * GitHub can simplify path history through a merge's side parent. Trust only the linear prefix from `sha` and
+   * cache only proven answers. Each request checks at most 100 paths.
+   */
+  const lastChanged = async (sha: string, gitPaths: readonly string[]): Promise<Map<string, WorkspaceLastChange | null>> => {
+    const cacheKey = await githubKVKey(options.repository, `first-parent-last-changed:${sha}`)
+    let known = lastChanges.get(sha)
+    if (!known) {
+      known = new Map(Object.entries(await readWorkspaceKV<Record<string, WorkspaceLastChange | null>>(cacheKey) ?? {}))
+      lastChanges.set(sha, known)
+    }
+    const missing = [...new Set(gitPaths)].filter(path => !known.has(path))
+    let changed = false
+    for (let start = 0; start < missing.length; start += lastChangedBatch) {
+      const paths = missing.slice(start, start + lastChangedBatch)
+      const query = [
+        `query FileHistory($owner: String!, $name: String!, $sha: GitObjectID!${paths.map((_, index) => `, $p${index}: String!`).join("")}) {`,
+        "  repository(owner: $owner, name: $name) { object(oid: $sha) { ... on Commit {",
+        `    recent: history(first: ${lastChangedHistoryLimit}) { nodes { oid parents(first: 2) { nodes { oid } } } }`,
+        ...paths.map((_, index) => `    p${index}: history(first: 1, path: $p${index}) { nodes { oid authoredDate } }`),
+        "  } } }",
+        "}",
+      ].join("\n")
+      const response = await githubRequest(client(), async (provider, repo) => (await provider.request<unknown>("POST", "/graphql", {
+        body: { query, operationName: "FileHistory", variables: { owner: repo.owner, name: repo.name, sha, ...Object.fromEntries(paths.map((path, index) => [`p${index}`, path])) } },
+        mutates: false,
+      })).data, "file history")
+      const parsed = v.safeParse(fileHistoryResponse, response)
+      if (!parsed.success || parsed.output.errors?.length || !parsed.output.data?.repository?.object) {
+        throw workspaceError(`[vitehub] GitHub workspace file history request failed for ${options.repository}${parsed.success && parsed.output.errors?.length ? `: ${parsed.output.errors.map(error => error.message).join("; ")}` : "."}`)
+      }
+      const commit = parsed.output.data.repository.object
+      const linear = new Set<string>()
+      let next: string | undefined = sha
+      let reachedRoot = false
+      for (const node of commit.recent.nodes) {
+        if (node.oid !== next || node.parents.nodes.length > 1) break
+        linear.add(node.oid)
+        next = node.parents.nodes[0]?.oid
+        if (!next) {
+          reachedRoot = true
+          break
+        }
+      }
+      paths.forEach((path, index) => {
+        const history = v.safeParse(pathHistory, commit[`p${index}`])
+        if (!history.success) return
+        const node = history.output.nodes[0]
+        if (node && linear.has(node.oid)) {
+          known.set(path, { id: node.oid, createdAt: new Date(node.authoredDate).toISOString() })
+          changed = true
+        }
+        else if (!node && reachedRoot) {
+          known.set(path, null)
+          changed = true
+        }
+      })
+    }
+    if (changed) await writeWorkspaceKV(cacheKey, Object.fromEntries(known))
+    return known
   }
 
   const open = async (id: string): Promise<WorkspaceRevisionView> => {
@@ -564,6 +706,23 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const bytes = await readGitHubFile(client(), { ...entry, path: joinGitPath(options.root, normalized) }, commit.sha)
         return decodeFile(bytes, readOptions)
       },
+      preload: async (paths: readonly string[]) => {
+        const entries = paths.flatMap((path) => {
+          const entry = byPath.get(normalizeHistoryPath(path))
+          return entry ? [{ ...entry, path: joinGitPath(options.root, entry.path) }] : []
+        })
+        await preloadGitHubFiles(client(), commit.sha, entries)
+      },
+      lastChanged: async (paths: readonly string[]) => {
+        const gitPaths = paths.map(path => [path, joinGitPath(options.root, normalizeHistoryPath(path))] as const)
+        const changes = await lastChanged(commit.sha, gitPaths.map(([, gitPath]) => gitPath))
+        const found = new Map<string, WorkspaceLastChange | null>()
+        for (const [path, gitPath] of gitPaths) {
+          const change = changes.get(gitPath)
+          if (change !== undefined) found.set(path, change)
+        }
+        return found
+      },
     })
     return view
   }
@@ -600,7 +759,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // A conflict means the cached head was stale, so the next read asks GitHub.
     if (actual !== commitOptions.ifHead) {
       heads.delete(branch)
-      throw historyConflict(ref, commitOptions.ifHead, actual)
+      rejectHistoryHead(commitOptions, historyConflict(ref, commitOptions.ifHead, actual))
     }
     // GitHub stores refs as independent branches, so the cross-ref expectation
     // cannot be included in the ref update itself. Recheck every expected ref
@@ -651,12 +810,16 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       deletePaths: deletes,
       files: updates,
       message: messageWithMetadata(commitOptions.message || "Update Workspace", commitOptions.metadata),
+      author: commitAuthor(commitOptions.metadata),
       parentSha: state.refSha,
       remoteModes: new Map([...state.files.values()].map(entry => [entry.path, entry.mode])),
       repository: client(),
     }).catch((error: unknown) => {
       // The branch moved after the read above, so the cached head is stale too.
-      if (isWorkspaceConflict(error)) heads.delete(branch)
+      if (isWorkspaceConflict(error)) {
+        heads.delete(branch)
+        rejectHistoryHead(commitOptions, error)
+      }
       throw error
     })
     heads.set(branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(commitSha) })
@@ -853,7 +1016,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
         if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null, base: b?.sha ?? null })
       }
-      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await forgeBlob(provider, repo, sha) })
+      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await (await loadForge()).forgeBlob(provider, repo, sha) })
       metadata = { ...mergeOptions.metadata, ...resolution.metadata }
       for (const [path, text] of Object.entries(resolution.files ?? {})) {
         if (!conflicts.some(conflict => conflict.path === path)) throw workspaceError(`[vitehub] A merge resolved ${path}, which is not one of its conflicting files.`)
@@ -973,14 +1136,26 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     }
   }
 
+  const deleteRef = async (deleteOptions: WorkspaceHistoryDeleteRefOptions): Promise<boolean> => {
+    const { ref, ifHead } = readHistoryDeleteRef(deleteOptions)
+    if (toBranch(ref) === options.branch) throw workspaceErrorDiagnostics.WORKSPACE_DEFAULT_REF_DELETE()
+    const { branch } = resolveRef(ref)
+    const head = await readCurrentHead(client(), branch)
+    if (ifHead !== undefined && head !== ifHead) throw historyConflict(ref, ifHead, head, { repository: options.repository })
+    if (!head) return false
+    await deleteBranch(branch)
+    return true
+  }
+
   return {
     pullRequests,
     openPullRequest,
+    deleteRef,
     merge: checkedMerge,
     head: async (headOptions) => {
       const { branch, ref } = resolveRef(headOptions?.ref)
       const id = await readBranchHead(branch)
-      return id ? await revision(ref, id) : null
+      return id ? listedRevision(ref, await readCommit(id)) : null
     },
     digest: gitBlobSha,
     forksFrom: async ref => options.refs?.published && ref !== "published" ? "published" : undefined,

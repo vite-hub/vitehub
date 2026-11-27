@@ -2,9 +2,13 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
+import { deserializeResponse, serializeResponse } from "@vite-hub/runtime/internal/response"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
-import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
+import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
+import { runScheduleFrom } from "../src/runtime/execute.ts"
+import { executeStaticSchedule as executeStaticScheduleHandler } from "../src/runtime/static.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
@@ -12,7 +16,7 @@ function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
 
   return {
-    async del(key) {
+    async delete(key) {
       data.delete(key)
     },
     async get(key) {
@@ -30,12 +34,11 @@ function createTestKVStore(): ScheduleKVStorage {
   }
 }
 
-/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
 function createColonKVStore(): ScheduleKVStorage {
   const store = createTestKVStore()
   const normalize = (key: string) => key.replaceAll("/", ":")
   return {
-    del: key => store.del(normalize(key)),
+    delete: key => store.delete(normalize(key)),
     get: key => store.get(normalize(key)),
     has: key => store.has(normalize(key)),
     keys: base => store.keys(base === undefined ? undefined : normalize(base)),
@@ -185,6 +188,32 @@ describe("Schedule Run bookkeeping", () => {
     })).resolves.toMatchObject({
       id: "srun_direct_daily-report_2026-05-23T09:00:00.000Z",
     })
+  })
+
+  it("runs the handler inside the run scopes, such as the Workspace scope that drops a failed run's writes", async () => {
+    const events: string[] = []
+    registerRunScope(async (run) => {
+      events.push("enter")
+      try {
+        await run()
+      }
+      finally {
+        events.push("leave")
+      }
+    })
+    await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: () => { events.push("handler") } },
+      name: "mirror",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })
+    await executeStaticScheduleHandler({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: () => { events.push("static handler") } },
+      name: "mirror",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })
+    expect(events).toEqual(["enter", "handler", "leave", "enter", "static handler", "leave"])
   })
 
   it("accepts scheduledAt Date values from another JavaScript realm", async () => {
@@ -408,6 +437,36 @@ describe("Schedule Run bookkeeping", () => {
     })
   })
 
+  it("sends schedule.failed once the run is stored as failed", async () => {
+    const events: unknown[] = []
+    const stop = onRunFailed(async (event) => {
+      const [run] = await getScheduleRunStore().listRuns()
+      events.push({ event, stored: run?.status })
+    })
+    try {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => { throw new Error("SMTP timeout") } },
+        name: "nightly-sync",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      })).rejects.toThrow("SMTP timeout")
+      await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => "ok" },
+        name: "hourly-report",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      })
+    }
+    finally {
+      stop()
+    }
+    const [run] = (await getScheduleRunStore().listRuns()).filter(candidate => candidate.status === "failed")
+    expect(events).toEqual([{
+      event: { event: "schedule.failed", schedule: "nightly-sync", runId: run!.id, error: { message: "SMTP timeout" }, failedAt: run!.completedAt!.toISOString() },
+      stored: "failed",
+    }])
+  })
+
   it.each([
     ["a null-prototype object", () => Object.create(null)],
     ["an unprintable object", () => ({ toString() { throw new Error("cannot stringify") } })],
@@ -420,7 +479,6 @@ describe("Schedule Run bookkeeping", () => {
       name: "report",
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
     })
-    // Capture the rejection without asking the test reporter to inspect the thrown value.
     const rejected = await execution.then(() => false, error => error === thrown)
     const [run] = await getScheduleRunStore().listRuns()
     expect(run).toMatchObject({
@@ -455,28 +513,24 @@ describe("Schedule Run bookkeeping", () => {
 
 describe("Manual Schedule runs", () => {
   it("returns a failed run for an unprintable handler rejection", async () => {
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
-          throw Object.create(null)
-        }, { manual: true }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
+        throw Object.create(null)
+      } }),
+    }, "sync")
     expect(run).toMatchObject({ error: { message: "[unprintable thrown value]" }, status: "failed" })
   })
 
   it("runs a manual Static Schedule Definition with a run id that cron runs cannot use", async () => {
     const calls: unknown[] = []
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => ({
-          default: defineSchedule("*/5 * * * *", (context) => {
-            calls.push(context.id)
-            return { synced: 3 }
-          }, { manual: true }),
-        }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => ({
+        default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler: (context) => {
+          calls.push(context.id)
+          return { synced: 3 }
+        } }),
+      }),
+    }, "sync")
 
     expect(run).toMatchObject({
       attemptCount: 1,
@@ -491,15 +545,15 @@ describe("Manual Schedule runs", () => {
 
   it("runs a manual Definition as if its cron fired at a given Date or ISO 8601 string", async () => {
     const seen: string[] = []
-    const registry = { close: async () => defineSchedule("0 0 1 * *", ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) }, { manual: true }) }
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) } }) }
 
-    const fromString = await runSchedule("close", { registry, scheduledAt: "2026-03-01T00:00:00-05:00" })
-    const fromDate = await runSchedule("close", { registry, scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
+    const fromString = await runScheduleFrom(registry, "close", { scheduledAt: "2026-03-01T00:00:00-05:00" })
+    const fromDate = await runScheduleFrom(registry, "close", { scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
 
     expect([fromString.scheduledAt.toISOString(), fromDate.scheduledAt.toISOString()]).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
     expect(seen).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
-    await expect(runSchedule("close", { registry, scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
-    await expect(runSchedule("close", { registry, scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    await expect(runScheduleFrom(registry, "close", { scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
+    await expect(runScheduleFrom(registry, "close", { scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
     expect(seen).toHaveLength(2)
   })
 
@@ -508,8 +562,8 @@ describe("Manual Schedule runs", () => {
     ["2026-01-31T23:59:00.123456789+01:00", "2026-01-31T22:59:00.123Z"],
   ])("normalizes fractional seconds in %s to milliseconds", async (scheduledAt, expected) => {
     const handler = vi.fn()
-    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
-    const run = await runSchedule("close", { registry, scheduledAt })
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
+    const run = await runScheduleFrom(registry, "close", { scheduledAt })
     expect(run.scheduledAt.toISOString()).toBe(expected)
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date(expected) }))
     expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
@@ -517,11 +571,11 @@ describe("Manual Schedule runs", () => {
 
   it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
     const handler = vi.fn()
-    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
-    const run = await runSchedule("close", { registry, scheduledAt: "0000-02-29T00:00:00Z" })
+    const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
+    const run = await runScheduleFrom(registry, "close", { scheduledAt: "0000-02-29T00:00:00Z" })
     expect(run.scheduledAt.toISOString()).toBe("0000-02-29T00:00:00.000Z")
     for (const scheduledAt of ["0000-02-30T00:00:00Z", "0001-02-29T00:00:00Z", "0100-02-29T00:00:00Z"]) {
-      await expect(runSchedule("close", { registry, scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+      await expect(runScheduleFrom(registry, "close", { scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
     }
     expect(handler).toHaveBeenCalledOnce()
   })
@@ -531,88 +585,76 @@ describe("Manual Schedule runs", () => {
     vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))
     let calls = 0
     const registry = {
-      sync: async () => defineSchedule("*/5 * * * *", () => {
+      sync: async () => defineSchedule({ cron: "*/5 * * * *", manual: true, handler: () => {
         calls++
         return { synced: calls }
-      }, { manual: true }),
+      } }),
     }
 
-    const runs = await Promise.all([runSchedule("sync", { registry }), runSchedule("sync", { registry })])
+    const runs = await Promise.all([runScheduleFrom(registry, "sync"), runScheduleFrom(registry, "sync")])
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
     expect(await getScheduleRunStore().listRuns()).toHaveLength(2)
   })
 
-  it("uses the installed runtime registry when no registry is passed", async () => {
-    setScheduleRuntimeRegistry({
-      sync: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {}, manual: true }),
-    })
-
-    await expect(runSchedule("sync")).resolves.toMatchObject({ status: "succeeded" })
-  })
-
-  it("runs cross-realm handlers from installed and supplied registries", async () => {
+  it("runs cross-realm handlers from a supplied registry", async () => {
     const calls: string[] = []
     const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
     const definition = { cron: "0 9 * * *", handler, options: { manual: true } }
     const registry = { report: async () => ({ default: definition }) }
     expect(handler).not.toBeInstanceOf(Function)
-    setScheduleRuntimeRegistry(registry)
 
-    await runSchedule("report")
-    await runSchedule("report", { registry })
-    expect(calls).toEqual(["cross-realm", "cross-realm"])
+    await runScheduleFrom(registry, "report")
+    expect(calls).toEqual(["cross-realm"])
   })
 
-  it("rejects inherited definitions from the installed runtime registry", async () => {
+  it("does not load inherited definitions from the installed runtime registry", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     setScheduleRuntimeRegistry({
       inherited: async () => Object.create(inherited),
     })
 
-    await expect(runSchedule("inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(loadScheduleDefinition("inherited")).resolves.toBeUndefined()
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
   it("rejects inherited manual schedule definitions", async () => {
     const inherited = {
-      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+      default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
     const registry = {
       inherited: async () => Object.create(inherited),
     }
 
-    await expect(runSchedule("inherited", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
   it("rejects definitions that do not allow manual runs", async () => {
     const registry = {
-      cron: async () => defineSchedule("0 9 * * *", () => {}),
-      disabled: async () => defineSchedule("0 9 * * *", () => {}, { manual: false }),
+      cron: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {} }),
+      disabled: async () => defineSchedule({ cron: "0 9 * * *", manual: false, handler: () => {} }),
       cronless: async () => ({ handler: () => {} }) as unknown as ScheduleDefinition,
     }
 
-    await expect(runSchedule("cron", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
-    await expect(runSchedule("disabled", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
-    await expect(runSchedule("cronless", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("missing", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("toString", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "cron")).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runScheduleFrom(registry, "disabled")).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runScheduleFrom(registry, "cronless")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "missing")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "toString")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
   it("resolves with the failed run when the handler fails", async () => {
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => defineSchedule("0 9 * * *", () => {
-          throw new TypeError("mailbox unavailable")
-        }, { manual: true }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
+        throw new TypeError("mailbox unavailable")
+      } }),
+    }, "sync")
 
     expect(run).toMatchObject({
       error: { message: "mailbox unavailable", name: "TypeError" },
@@ -623,6 +665,10 @@ describe("Manual Schedule runs", () => {
 })
 
 describe("KV Schedule Run Store", () => {
+  function payloadReads(get: { mock: { calls: [string][] } }) {
+    return get.mock.calls.filter(([key]) => /[/:]schedule-run(?:s|-attempts)[/:]/.test(key))
+  }
+
   it("reads only attempts for the requested run and sees another store's writes", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
@@ -633,43 +679,34 @@ describe("KV Schedule Run Store", () => {
     }
     const get = vi.spyOn(kvStore, "get")
     expect((await store.listAttempts("target/run%")).map(attempt => attempt.id)).toEqual(["opaque/attempt%_0", "opaque/attempt%_1"])
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(payloadReads(get)).toHaveLength(2)
     await createKVScheduleRunStore({ kvStore }).createAttempt({ id: "external/attempt%", runId: "target/run%",
       createdAt, startedAt: createdAt, updatedAt: createdAt, status: "running" })
     get.mockClear()
     expect(await store.listAttempts("target/run%")).toHaveLength(3)
-    expect(get).toHaveBeenCalledTimes(3)
+    expect(payloadReads(get)).toHaveLength(3)
     get.mockClear()
     expect(await store.listAttempts("target/run")).toEqual([])
-    expect(get).not.toHaveBeenCalled()
+    expect(payloadReads(get)).toHaveLength(0)
   })
 
-  it.each([true, false])("preserves legacy attempts when index writes are available: %s", async (indexAvailable) => {
+  it("fails a create and writes no record when its index write fails", async () => {
     const kvStore = createTestKVStore()
-    const store = createKVScheduleRunStore({ kvStore, prefix: "attempt-tests/custom" })
-    const createdAt = new Date("2026-05-23T09:00:00Z")
-    for (let index = 0; index < 40; index++) {
-      await store.createAttempt({ id: `legacy/opaque%_${index}`, runId: index < 2 ? "target" : "other",
-        createdAt, startedAt: createdAt, updatedAt: createdAt, status: "running" })
-    }
-    for (const key of await kvStore.keys("attempt-tests/custom/schedule-run-attempt-index/")) await kvStore.del(key)
-    if (!indexAvailable) {
-      const set = kvStore.set.bind(kvStore)
-      vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
-        if (key.includes("/schedule-run-attempt-index/")) throw new Error("index unavailable")
-        return set(key, value)
-      })
-    }
-    const get = vi.spyOn(kvStore, "get")
-    expect(await store.listAttempts("target")).toHaveLength(2)
-    expect(get).toHaveBeenCalledTimes(40)
-    get.mockClear()
-    expect(await store.listAttempts("target")).toHaveLength(2)
-    expect(get).toHaveBeenCalledTimes(indexAvailable ? 2 : 40)
-    expect(await store.getAttempt("legacy/opaque%_0")).toMatchObject({ runId: "target" })
+    const set = kvStore.set.bind(kvStore)
+    vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
+      if (key.includes("-index/")) throw new Error("index unavailable")
+      return set(key, value)
+    })
+    const store = createKVScheduleRunStore({ kvStore })
+    const at = new Date("2026-05-23T09:00:00Z")
+    await expect(store.createRun({ id: "run-1", scheduleId: "daily", target: "daily", scheduledAt: at,
+      createdAt: at, updatedAt: at, status: "pending", attemptCount: 0 })).rejects.toThrow("index unavailable")
+    await expect(store.createAttempt({ id: "attempt-1", runId: "run-1", createdAt: at, startedAt: at, updatedAt: at,
+      status: "running" })).rejects.toThrow("index unavailable")
+    expect(await kvStore.keys()).toEqual([])
   })
 
-  it("limits provider reads to the newest matching indexed run keys", async () => {
+  it("limits payload reads to the newest matching indexed run keys", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
     for (let index = 0; index < 100; index++) {
@@ -685,7 +722,7 @@ describe("KV Schedule Run Store", () => {
     const get = vi.spyOn(kvStore, "get")
     const runs = await store.listRuns({ scheduleId: "digest_with_underscore", limit: 10 })
     expect(runs).toHaveLength(10)
-    expect(get).toHaveBeenCalledTimes(10)
+    expect(payloadReads(get)).toHaveLength(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
   })
@@ -701,24 +738,23 @@ describe("KV Schedule Run Store", () => {
       }
     }
     const get = vi.spyOn(kvStore, "get")
-    // Reopen the existing index: no migration or record scan should be needed.
     const reopened = createKVScheduleRunStore({ kvStore })
     const controller = await installProcessScheduleRuntime({
       now: () => new Date("2026-01-01T16:41:20.000Z"),
-      registry: { reconcile: async () => defineSchedule("0 0 * * *", vi.fn()) },
+      registry: { reconcile: async () => defineSchedule({ cron: "0 0 * * *", handler: vi.fn() }) },
       scheduleRunStore: reopened,
     })
     await controller.close()
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     get.mockClear()
     const query = { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 }
     expect((await reopened.listRuns(query)).map(run => run.id)).toEqual(["srun_static_opaque/%_1000"])
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     get.mockClear()
     expect(await reopened.listRunsBatch!([query, { ...query, idPrefix: "absent_" }])).toEqual([
       [expect.objectContaining({ scheduledAt: new Date("2026-01-01T16:40:00.000Z") })], [],
     ])
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
   })
 
   it.each(["memory", "kv"])("filters run ID prefixes before applying limits in the %s store", async (kind) => {
@@ -733,10 +769,6 @@ describe("KV Schedule Run Store", () => {
       const scheduledAt = new Date(time)
       await store.createRun({ id, scheduleId, target: "daily", scheduledAt,
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    }
-    if (kind === "kv") {
-      // The bounded legacy fallback must apply the same filter after backfilling.
-      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.del(key)
     }
     expect((await store.listRuns({ scheduleId: "daily", idPrefix: "srun_static_", limit: 1 })).map(run => run.id)).toEqual(["srun_static_newer"])
     expect((await store.listRuns({ idPrefix: "srun_static_" })).map(run => run.id)).toEqual(["srun_static_other", "srun_static_newer", "srun_static_older"])
@@ -756,38 +788,8 @@ describe("KV Schedule Run Store", () => {
 
     const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
     expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
-  })
-
-  it.each([true, false])("preserves newest opaque fallback history when index writes are available: %s", async (indexAvailable) => {
-    const kvStore = createTestKVStore()
-    const store = createKVScheduleRunStore({ kvStore })
-    for (let index = 0; index < 30; index++) {
-      const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
-      for (const scheduleId of ["actual", "other"]) {
-        await store.createRun({ id: `srun_static_${scheduleId}_opaque%_${index}`, scheduleId, target: "report", scheduledAt,
-          createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
-      }
-    }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
-    if (!indexAvailable) {
-      const set = kvStore.set.bind(kvStore)
-      vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
-        if (key.includes("/schedule-run-index/")) throw new Error("index unavailable")
-        return set(key, value)
-      })
-    }
-    const get = vi.spyOn(kvStore, "get")
-    const latest = await store.listRuns({ scheduleId: "actual", limit: 1 })
-    expect(latest[0]?.id).toBe("srun_static_actual_opaque%_29")
-    expect(get).toHaveBeenCalledTimes(60)
-    get.mockClear()
-    const other = await store.listRuns({ scheduleId: "other", limit: 10 })
-    expect(other).toHaveLength(10)
-    expect(other[0]?.id).toBe("srun_static_other_opaque%_29")
-    expect(get).toHaveBeenCalledTimes(indexAvailable ? 10 : 60)
-    expect(await store.getRun("srun_static_actual_opaque%_29")).toEqual(latest[0])
   })
 
   it("ignores sibling schedule-run index namespaces", async () => {
@@ -796,33 +798,10 @@ describe("KV Schedule Run Store", () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     await store.createRun({ id: "run-1", scheduleId: "actual", target: "report", scheduledAt,
       createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    await kvStore.set(`vitehub:schedule/schedule-run-index-other/run-1/other/${scheduledAt.toISOString()}`, true)
+    await kvStore.set("vitehub:schedule/run-index-other/run-1", { scheduleId: "other", scheduledAt: scheduledAt.getTime() })
 
     expect(await store.listRuns({ scheduleId: "other" })).toEqual([])
     expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id)).toEqual(["run-1"])
-  })
-
-  it("reports incomplete history when the unindexed fallback exceeds its safety bound", async () => {
-    const kvStore = createTestKVStore()
-    const set = kvStore.set.bind(kvStore)
-    vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
-      if (key.includes("/schedule-run-index/")) throw new Error("index unavailable")
-      return set(key, value)
-    })
-    const store = createKVScheduleRunStore({ kvStore })
-    const get = vi.spyOn(kvStore, "get")
-    const scheduledAt = new Date("2026-01-01T00:00:00.000Z")
-    for (let index = 0; index < 1001; index++) {
-      await store.createRun({ id: `legacy_${index}`, scheduleId: "legacy", target: "report", scheduledAt,
-        createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
-    }
-    for (const options of [{ limit: 1 }, { scheduleId: "legacy" }, { scheduleId: "legacy", limit: 1 }]) {
-      await expect(store.listRuns(options)).rejects.toMatchObject({
-        code: "SCHEDULE_HISTORY_INCOMPLETE",
-        name: "ScheduleHistoryIncompleteError",
-      })
-    }
-    expect(get).not.toHaveBeenCalled()
   })
 
   it("parses each indexed key once for a multi-Schedule history batch", async () => {
@@ -832,21 +811,22 @@ describe("KV Schedule Run Store", () => {
       await store.createRun({ id: `srun_static_${scheduleId}`, scheduleId, target: "report", scheduledAt,
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
+    await store.listRuns({ limit: 0 })
     const decode = vi.spyOn(globalThis, "decodeURIComponent")
     try {
       const results = await store.listRunsBatch!(["alpha", "beta", "gamma"].map(scheduleId => ({ scheduleId, limit: 1 })))
       expect(results.map(runs => runs[0]?.scheduleId)).toEqual(["alpha", "beta", "gamma"])
-      expect(decode).toHaveBeenCalledTimes(12)
+      expect(decode).toHaveBeenCalledTimes(3)
     }
     finally {
       decode.mockRestore()
     }
   })
 
-  it.each([true, false])("groups legacy run payloads once per batch when indexes are available: %s", async indexAvailable => {
+  it("reads each run payload once per history batch", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
-    const response = await serializeResponse(new Response("retained legacy payload"))
+    const response = await serializeResponse(new Response("retained payload"))
     for (const scheduleId of ["alpha", "beta", "gamma", "delta"]) {
       for (let index = 0; index < 8; index++) {
         const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
@@ -854,14 +834,6 @@ describe("KV Schedule Run Store", () => {
           scheduleId, target: "report", scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt,
           status: "failed", attemptCount: 1, error: { name: "Error", message: "retained" }, response })
       }
-    }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
-    if (!indexAvailable) {
-      const set = kvStore.set.bind(kvStore)
-      vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
-        if (key.includes("/schedule-run-index/")) throw new Error("index unavailable")
-        return set(key, value)
-      })
     }
     const get = vi.spyOn(kvStore, "get")
     const clone = vi.spyOn(globalThis, "structuredClone")
@@ -876,8 +848,7 @@ describe("KV Schedule Run Store", () => {
       expect(results[5]).toHaveLength(3)
       expect(results[5]?.every(run => run.scheduledAt.getUTCMinutes() === 7)).toBe(true)
       expect(results.slice(6).map(runs => runs.length)).toEqual([32, 8, 16, 0])
-      expect(get).toHaveBeenCalledTimes(32)
-      // Retained payloads are decoded once, then copied only for matching output records.
+      expect(payloadReads(get)).toHaveLength(32)
       expect(clone.mock.calls.length).toBeLessThanOrEqual(32 + results.flat().length)
       results[0]![0]!.error!.message = "changed"
       results[0]![0]!.scheduledAt.setUTCFullYear(2000)
@@ -885,14 +856,14 @@ describe("KV Schedule Run Store", () => {
       expect(results[4]?.[0]?.scheduledAt.getUTCFullYear()).toBe(2026)
       get.mockClear()
       expect((await store.listRunsBatch!([{ scheduleId: "alpha", limit: 1 }]))[0]?.[0]?.id).toBe("srun_static_alpha_opaque%_7")
-      expect(get).toHaveBeenCalledTimes(indexAvailable ? 1 : 32)
+      expect(payloadReads(get)).toHaveLength(1)
     }
     finally {
       clone.mockRestore()
     }
   })
 
-  it("shares key enumeration and opaque legacy reads within each history batch", async () => {
+  it("shares key enumeration and run reads within each history batch", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
     for (let index = 0; index < 20; index++) {
@@ -902,43 +873,37 @@ describe("KV Schedule Run Store", () => {
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+    await store.listRuns({ limit: 0 })
     const keys = vi.spyOn(kvStore, "keys")
     const get = vi.spyOn(kvStore, "get")
     const queries = ["alpha", "beta"].map(scheduleId => ({ scheduleId, limit: 1 }))
     const results = await store.listRunsBatch!(queries)
     expect(results.map(runs => runs[0]?.id)).toEqual(["opaque%_alpha_19", "opaque%_beta_19"])
-    expect(keys).toHaveBeenCalledTimes(2)
-    expect(get).toHaveBeenCalledTimes(40)
+    expect(keys).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(2)
     keys.mockClear()
     get.mockClear()
     await store.listRunsBatch!(queries)
-    expect(keys).toHaveBeenCalledTimes(2)
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(keys).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(2)
     const scheduledAt = new Date("2026-02-01T00:00:00Z")
     await createKVScheduleRunStore({ kvStore }).createRun({ id: "external_newest", scheduleId: "alpha", target: "report", scheduledAt,
       createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     expect((await store.listRunsBatch!(queries))[0]?.[0]?.id).toBe("external_newest")
   })
 
-  it("rereads legacy records after an external update when index writes fail", async () => {
+  it("rereads records after an external update and skips a deleted record", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
-    const run = await store.createRun({ id: "legacy-external", scheduleId: "alpha", target: "report",
+    const run = await store.createRun({ id: "external-update", scheduleId: "alpha", target: "report",
       scheduledAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-01T00:00:00Z"), status: "pending", attemptCount: 0 })
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
-    const set = kvStore.set.bind(kvStore)
-    vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
-      if (key.includes("/schedule-run-index/")) throw new Error("index unavailable")
-      return set(key, value)
-    })
     expect((await store.listRuns({ scheduleId: "alpha" }))[0]).toMatchObject({ id: run.id, status: "pending" })
 
     const externalStore = createKVScheduleRunStore({ kvStore })
     await externalStore.updateRun(run.id, { status: "succeeded", updatedAt: new Date("2026-01-02T00:00:00Z") })
     expect((await store.listRuns({ scheduleId: "alpha" }))[0]).toMatchObject({ id: run.id, status: "succeeded" })
-    await kvStore.del((await kvStore.keys("vitehub:schedule/schedule-runs"))[0]!)
+    await kvStore.delete((await kvStore.keys("vitehub:schedule/schedule-runs"))[0]!)
     expect(await store.listRuns({ scheduleId: "alpha" })).toEqual([])
   })
 
@@ -965,11 +930,6 @@ describe("KV Schedule Run Store", () => {
         updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
     expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id)).toEqual(ids)
-    if (kind === "kv") {
-      // Existing records remain readable when they predate the index.
-      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
-      expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id).sort()).toEqual(ids.toSorted())
-    }
   })
 
   it.each(["memory", "kv"])("lists schedule runs newest first when no limit is provided: %s", async kind => {
@@ -983,7 +943,7 @@ describe("KV Schedule Run Store", () => {
     expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
   })
 
-  it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {
+  it.each([false, true])("rejects a run whose index write fails after writing %s, and lists only complete runs", async (published) => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
@@ -993,28 +953,61 @@ describe("KV Schedule Run Store", () => {
     const originalSet = kvStore.set.bind(kvStore)
     const set = vi.spyOn(kvStore, "set")
     set.mockImplementation(async (key, value) => {
-      if (key.includes("/schedule-run-index/")) {
+      if (key.includes("/run-index/")) {
         if (published) await originalSet(key, value)
         throw new Error("index unavailable")
       }
       await originalSet(key, value)
     })
     const newer = { ...run, id: "index-failure", scheduledAt: new Date("2026-05-24T09:00:00.000Z") }
-    await expect(store.createRun(newer)).resolves.toEqual(newer)
-    expect(await store.getRun(newer.id)).toEqual(newer)
-    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([newer])
+    await expect(store.createRun(newer)).rejects.toThrow("index unavailable")
+    expect(await store.getRun(newer.id)).toBeUndefined()
+    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([run])
     set.mockImplementation(async (key, value) => {
       if (key.includes("/schedule-runs/")) throw new Error("record unavailable")
       await originalSet(key, value)
     })
-    await expect(store.createRun({ ...run, id: "record-failure", scheduledAt: new Date("2026-05-25T09:00:00.000Z") })).rejects.toThrow("record unavailable")
-    expect(await store.getRun("record-failure")).toBeUndefined()
-    expect(await kvStore.keys("vitehub:schedule/schedule-run-index/record-failure/")).toEqual([])
+    const failed = { ...run, id: "record-failure", scheduledAt: new Date("2026-05-25T09:00:00.000Z") }
+    await expect(store.createRun(failed)).rejects.toThrow("record unavailable")
+    expect(await store.getRun(failed.id)).toBeUndefined()
+    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([run])
     set.mockRestore()
-    const retried = { ...run, id: "record-failure", scheduleId: "other", scheduledAt: new Date("2026-05-26T09:00:00.000Z") }
-    await store.createRun(retried)
-    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([newer])
-    expect(await store.listRuns({ scheduleId: "other", limit: 1 })).toEqual([retried])
+    await store.createRun({ ...failed, scheduledAt: new Date("2026-05-22T09:00:00.000Z") })
+    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([run])
+  })
+
+  it("replaces the parent index when a failed attempt ID is reused", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const originalSet = kvStore.set.bind(kvStore)
+    const set = vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
+      if (key.includes("/schedule-run-attempts/")) throw new Error("record unavailable")
+      await originalSet(key, value)
+    })
+    const at = new Date("2026-05-23T09:00:00Z")
+    const attempt = { id: "retry", runId: "run-1", createdAt: at, startedAt: at, updatedAt: at, status: "running" } as const
+    await expect(store.createAttempt(attempt)).rejects.toThrow("record unavailable")
+    set.mockRestore()
+    await store.createAttempt({ ...attempt, runId: "run-2" })
+    expect(await store.listAttempts("run-1")).toEqual([])
+    expect(await store.listAttempts("run-2")).toEqual([expect.objectContaining({ id: attempt.id })])
+  })
+
+  it("retries a failed legacy upgrade and does not rescan after success", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const at = "2026-07-11T09:00:00.000Z"
+    await kvStore.set("vitehub:schedule/schedule-runs/legacy", {
+      id: "legacy", scheduleId: "daily", target: "daily", scheduledAt: at,
+      createdAt: at, updatedAt: at, status: "running", attemptCount: 1,
+    })
+    const set = vi.spyOn(kvStore, "set").mockRejectedValueOnce(new Error("index unavailable"))
+    await expect(store.listRuns()).rejects.toThrow("index unavailable")
+    expect(await kvStore.has("vitehub:schedule/indexes-v2")).toBe(false)
+    expect(await store.listRuns()).toEqual([expect.objectContaining({ id: "legacy" })])
+    set.mockClear()
+    expect(await createKVScheduleRunStore({ kvStore }).listRuns()).toHaveLength(1)
+    expect(set).not.toHaveBeenCalled()
   })
 
   it("matches the ScheduleRunStore run and attempt contract and round-trips dates and errors", async () => {

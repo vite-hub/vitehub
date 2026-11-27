@@ -91,7 +91,8 @@ afterEach(() => {
 
 const stubs = {
   ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
-  ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
+  UAlert: { props: ["title", "description"], template: "<div>{{ title }}<slot name='description'>{{ description }}</slot><slot name='actions' /></div>" },
+  Status: { props: ["label"], template: "<span>{{ label }}</span>" },
   UButton,
   UModal,
   UTooltip: { template: "<slot />" },
@@ -438,6 +439,13 @@ describe("Apply local edits while the person keeps typing", () => {
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
   })
 
+  it("grows the title with its text through CSS, not a script that sets its height", async () => {
+    const { wrapper } = await openLocal()
+    const title = wrapper.get("textarea")
+    expect(title.classes()).toContain("field-sizing-content")
+    expect(title.element.style.height).toBe("")
+  })
+
   it("keeps every edit local after a failed save", async () => {
     const { client, request, wrapper } = await openLocal()
     request.reject(new ConsoleRequestError(500, "Server Error", { code: "INTERNAL" }))
@@ -768,7 +776,7 @@ describe("Local only edits on the third review", () => {
     // The recovery actions show for a singleton too.
     expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
     expect(wrapper.get('[data-label="Apply to shared draft"]').attributes("disabled")).toBeUndefined()
-    expect(wrapper.get('[data-label="Copy"]').attributes("aria-label")).toBe("Copy your local edits")
+    expect(wrapper.getComponent({ name: "CopyButton" }).props()).toMatchObject({ ariaLabel: "Copy your local edits", label: "Copy" })
   })
 
   for (const [name, listed] of [["deleted from the draft", "deleted"], ["gone from the draft and the site", undefined]] as const) {

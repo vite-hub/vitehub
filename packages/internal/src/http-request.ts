@@ -1,4 +1,4 @@
-import { Diagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
 
 import { abortable } from "./abort.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
@@ -10,6 +10,40 @@ export type InternalHttpResponseType = HttpResponseType | "arrayBuffer" | "blob"
 export const defaultHttpRequestTimeout = 30_000
 export const defaultHttpMaxResponseBytes = 5 * 1024 * 1024
 export const maximumHttpMaxResponseBytes = 25 * 1024 * 1024
+
+export async function readBoundedHttpBody(message: Request | Response, limit: number): Promise<Uint8Array<ArrayBuffer> | undefined> {
+  const declared = Number(message.headers.get("content-length"))
+  if (declared > limit) {
+    await message.body?.cancel().catch(() => undefined)
+    return undefined
+  }
+  if (!message.body) return new Uint8Array()
+  const reader = message.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > limit) {
+        await reader.cancel().catch(() => undefined)
+        return undefined
+      }
+      chunks.push(value)
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
 
 export interface StandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -124,11 +158,9 @@ function normalizeForeignBlob(value: Blob): Blob | undefined {
 
 const httpInterruptedMessage = "[vitehub] HTTP request was interrupted."
 
-class HttpStatusError extends Diagnostic {
-  constructor(readonly status: number) {
-    super({ code: "INTERNAL_R0012", docs: "https://vitehub.dev/docs/development/diagnostics/internal_r0012", why: `[vitehub] HTTP request failed with status ${status}.` }, HttpStatusError)
-    this.name = "HttpStatusError"
-  }
+/** `INTERNAL_R0012` with the HTTP status of the failed response. */
+function httpStatusError(status: number): Diagnostic & { status: number } {
+  return Object.assign(internalErrorDiagnostics.INTERNAL_R0012({ message: `[vitehub] HTTP request failed with status ${status}.` }), { status })
 }
 
 type HttpAttempt =
@@ -223,7 +255,7 @@ async function fetchOnce(
         return { failure: { cause, retryable: retryFetchError(cause) } }
       }
       if (!response.ok) {
-        const cause = new HttpStatusError(response.status)
+        const cause = httpStatusError(response.status)
         cancelResponseBody(response)
         return { failure: { cause, retryable: cause.status === 408 || cause.status === 429 || cause.status >= 500 } }
       }

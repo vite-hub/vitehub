@@ -14,15 +14,33 @@ const responses: unknown[] = []
 const requests: Array<Record<string, string> | undefined> = []
 
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ replace }) }))
+// The chart test finds the chart by `svg[role=img]`, which an Iconify icon also has.
+vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
+  const { defineComponent, h } = await import("vue")
+  return { default: defineComponent({ setup(_props, { attrs }) { return () => h("span", attrs) } }) }
+})
 vi.mock("../src/console/runtime/client/request", () => ({
-  requestConsole: async (base: string, options?: { query?: Record<string, string> }) => {
+  // The error state of a failed load checks for this class.
+  ConsoleRequestError: class ConsoleRequestError extends Error {},
+  requestConsole: async (base: string) => {
     if (base.endsWith("/status")) return { agents: [] }
+    throw new Error(`unexpected request to ${base}`)
+  },
+  requestConsoleUsage: async (_base: string, options?: { query?: Record<string, string> }) => {
     requests.push(options?.query)
-    return responses.shift()
+    const response = responses.shift()
+    if (response instanceof Error) throw response
+    return response
   },
 }))
 
 import Usage from "../src/console/runtime/components/console-usage.vue"
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
 
 function totals(overrides: Record<string, unknown> = {}) {
   return {
@@ -57,7 +75,6 @@ const stubs = {
   RouterLink: passthrough("a"),
   UAlert: passthrough("div"),
   UBadge: passthrough("span"),
-  UIcon: defineComponent({ setup(_props, { attrs }) { return () => h("span", attrs) } }),
   UInput: defineComponent({ setup(_props, { attrs }) { return () => h("input", attrs) } }),
   USelect: defineComponent({ setup(_props, { attrs }) { return () => h("div", attrs) } }),
   USlideover: defineComponent({
@@ -72,24 +89,26 @@ const stubs = {
   }),
   UEmpty: defineComponent({
     props: { actions: { default: () => [], type: Array }, description: { default: "", type: String }, title: { default: "", type: String } },
-    setup(props, { attrs }) {
+    setup(props, { attrs, slots }) {
       return () => h("div", { ...attrs, "data-test": "empty" }, [
         h("p", props.title),
         h("p", props.description),
         ...props.actions.map(action => h("button", { onClick: (action as { onClick: () => void }).onClick, type: "button" }, (action as { label: string }).label)),
+        slots.actions?.(),
       ])
     },
   }),
   UDashboardPanel: defineComponent({ setup(_props, { slots }) { return () => h("div", [slots.header?.(), slots.body?.()]) } }),
   UDashboardNavbar: defineComponent({ setup(_props, { slots }) { return () => h("header", slots.right?.()) } }),
-  // The stub renders the selected panel. Nuxt UI renders the tab and tabpanel roles, which the Console only configures.
+  // The stub marks the selected tab and renders its panel. Nuxt UI renders the tab and tabpanel roles, which the
+  // Console only configures.
   UTabs: defineComponent({
     props: { items: { required: true, type: Array }, modelValue: { required: true, type: String } },
     emits: ["update:modelValue"],
-    setup(props, { emit, slots }) {
-      return () => h("div", [
+    setup(props, { attrs, emit, slots }) {
+      return () => h("div", attrs, [
         ...(props.items as Array<{ label: string, slot: string, value: string }>).map(item =>
-          h("button", { "data-tab": item.value, onClick: () => emit("update:modelValue", item.value), type: "button" }, item.label)),
+          h("button", { "aria-selected": String(item.value === props.modelValue), "data-tab": item.value, onClick: () => emit("update:modelValue", item.value), type: "button" }, item.label)),
         slots[props.modelValue]?.(),
       ])
     },
@@ -115,6 +134,24 @@ afterEach(() => {
 })
 
 describe("Console Usage page", () => {
+  it("shows overlapping model session counts without a share percentage or bar", async () => {
+    route.query = { metric: "sessions" }
+    responses.push(summary({
+      totals: totals({ invocations: 1 }),
+      models: ["model-a", "model-b"].map(model => ({ ...totals({ invocations: 1, totalTokens: 10 }), model })),
+    }))
+    const { app, root } = await mount()
+    try {
+      const models = root.querySelector('[data-slot="usage-model-breakdown"]')!
+      expect(models.textContent).toContain("model-a")
+      expect(models.textContent).toContain("model-b")
+      expect(models.textContent).not.toContain("%")
+      expect(models.textContent).not.toContain("Share")
+      expect(root.querySelector('[aria-label="Share by model"]')).toBeNull()
+    }
+    finally { app.unmount() }
+  })
+
   it("names the chart, keeps plotted periods out of the tab order, and lists values in a data table", async () => {
     responses.push(summary({ totals: totals({ costUsd: "0.5", invocations: 1, pricedInvocations: 1, totalTokens: 10 }), buckets: [
       { ...totals(), models: [], start: "2026-10-11T00:00:00.000Z" },
@@ -123,7 +160,7 @@ describe("Console Usage page", () => {
     const { app, root } = await mount()
     try {
       const chart = root.querySelector("svg[role=img]")
-      expect(document.getElementById(chart!.getAttribute("aria-labelledby")!)?.textContent).toBe("Daily cost")
+      expect(document.getElementById(chart!.getAttribute("aria-labelledby")!)?.textContent).toBe("Daily spend")
       expect(document.getElementById(chart!.getAttribute("aria-describedby")!)?.textContent).toContain("Peak $0.50 on Oct 12")
       expect(chart!.parentElement!.querySelectorAll("button, [tabindex]")).toHaveLength(0)
       const rows = [...root.querySelectorAll("[data-slot=usage-chart-data] tbody tr")].map(row => row.textContent)
@@ -139,7 +176,7 @@ describe("Console Usage page", () => {
       expect(root.querySelector("svg[role=img]")).toBeNull()
       const empty = root.querySelector("[data-slot=usage-chart-empty]")
       expect(empty?.getAttribute("data-state")).toBe("unavailable")
-      expect(empty?.textContent).toContain("Cost is unavailable for this period")
+      expect(empty?.textContent).toContain("Spend is unavailable for this period")
       expect(empty?.textContent).not.toContain("$")
       // A day without sessions is a real zero. A day with sessions but no cost evidence is unknown.
       const rows = [...root.querySelectorAll("[data-slot=usage-chart-data] tbody tr")].map(row => row.textContent)
@@ -234,10 +271,11 @@ describe("Console Usage URL state", () => {
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "tokens", search: "deploy", section: undefined } })
       await nextTick()
       // The explicit token choice stays, although the Agents record cost.
-      expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
+      expect(root.querySelector("[aria-label='Usage metric'] [aria-pressed=true] .usage-headline__label")?.textContent).toBe("Tokens")
       expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Day")
-      ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => button.textContent === "Cost")!.click()
+      ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => /spend/i.test(button.querySelector(".usage-headline__label")?.textContent ?? ""))!.click()
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "cost", search: "deploy" } })
+      await nextTick()
       // A view change does not load the summary again.
       expect(requests).toHaveLength(requestCount)
     }
@@ -249,8 +287,9 @@ describe("Console Usage URL state", () => {
     responses.push(summary({ costSupported: false }))
     const { app, root } = await mount()
     try {
-      expect(root.querySelector("[aria-label='Usage metric']")?.textContent).toBe("Tokens")
-      expect(root.querySelector("h2")?.textContent).toBe("Daily tokens")
+      // Without cost evidence, the page offers no spend and falls back to tokens.
+      expect([...root.querySelectorAll("[aria-label='Usage metric'] .usage-headline__label")].map(label => label.textContent)).toEqual(["Sessions", "Tokens"])
+      expect(root.querySelector("[aria-label='Usage metric'] [aria-pressed=true] .usage-headline__label")?.textContent).toBe("Tokens")
       expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Model")
     }
     finally { app.unmount() }
@@ -258,20 +297,68 @@ describe("Console Usage URL state", () => {
 
   it("starts history from the first page when a filter changes and keeps the section", async () => {
     route.query = { section: "sessions" }
+    const filtered = deferred<ReturnType<typeof summary>>()
     responses.push(
       summary({ cursor: "next", sessionCount: 2, sessions: [session("first")] }),
       summary({ sessionCount: 2, sessions: [session("second")] }),
-      summary({ sessionCount: 1, sessions: [session("failed")] }),
+      filtered.promise,
     )
     const { app, root } = await mount()
     try {
       root.querySelector<HTMLElement>("button[aria-label='Next history page']")!.click()
       await vi.waitFor(() => expect(root.textContent).toContain("second"))
       route.query = { ...route.query, status: "failed" }
-      await vi.waitFor(() => expect(root.textContent).toContain("failed"))
-      expect(requests.at(-1)).toEqual({ status: "failed", window: "30d" })
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ status: "failed", window: "30d" }))
+      expect(root.querySelector("[data-slot=session-history]")).toBeNull()
+      filtered.resolve(summary({ sessionCount: 1, sessions: [session("failed")] }))
+      await vi.waitFor(() => expect(root.querySelector("[data-slot=session-history]")?.textContent).toContain("failed"))
       expect(root.querySelector("#session-history-heading")).not.toBeNull()
       expect(root.querySelector("button[aria-label='Previous history page']")?.hasAttribute("disabled")).toBe(true)
+    }
+    finally { app.unmount() }
+  })
+
+  it("keeps the headline while another period loads, so its digits roll from the old totals", async () => {
+    route.query = { metric: "sessions" }
+    const nextPeriod = deferred<ReturnType<typeof summary>>()
+    const agent = (invocations: number) => ({ agent: "bot", ...totals({ invocations }) })
+    responses.push(summary({ sessionCount: 1_204, agents: [agent(12)] }), nextPeriod.promise)
+    const { app, root } = await mount()
+    try {
+      const value = root.querySelector(".usage-headline__value")
+      const agentCount = () => root.querySelector('[title="bot"] + .usage-filters__count')?.textContent
+      expect(value?.textContent).toBe("1,204")
+      expect(agentCount()).toBe("12")
+      route.query = { ...route.query, window: "7d" }
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ window: "7d" }))
+      await nextTick()
+      expect(root.querySelector(".usage-headline__value")).toBe(value)
+      expect(value?.textContent).toBe("1,204")
+      expect(root.querySelector(".usage-page__caption")?.textContent).toContain("Previous results · 30 days")
+      expect(root.querySelector("#usage-ranked-heading")).toBeNull()
+      expect(agentCount()).toBe("")
+      nextPeriod.resolve(summary({ sessionCount: 1_342, agents: [agent(4)] }))
+      // The digits roll: the element holds the rolling glyphs and names the new total for screen readers.
+      await vi.waitFor(() => expect(value?.querySelector("[data-motion-copy]")?.textContent).toBe("1,342"))
+      expect(agentCount()).toBe("4")
+      expect(value?.querySelector("[data-motion-glyphs]")).not.toBeNull()
+      expect(root.querySelector(".usage-headline__value")).toBe(value)
+      expect(root.querySelector(".usage-page__caption")?.textContent).toContain("7 days")
+      expect(root.querySelector(".usage-page__caption")?.textContent).not.toContain("Previous results")
+    }
+    finally { app.unmount() }
+  })
+
+  it("drops the numbers of the last period when the next one fails to load", async () => {
+    route.query = { metric: "sessions" }
+    responses.push(summary({ sessionCount: 1_204 }), new Error("Usage is down"))
+    const { app, root } = await mount()
+    try {
+      expect(root.querySelector(".usage-headline__value")).not.toBeNull()
+      route.query = { ...route.query, window: "7d" }
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ window: "7d" }))
+      await vi.waitFor(() => expect(root.querySelector("main")?.getAttribute("aria-busy")).toBe("false"))
+      expect(root.querySelector(".usage-headline__value")).toBeNull()
     }
     finally { app.unmount() }
   })

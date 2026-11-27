@@ -1,3 +1,4 @@
+import { isRecord } from "@vite-hub/internal/object"
 
 export { inlineChannelArchiveMedia, materializeChannelArchive } from "@vite-hub/internal/channel-archive"
 export type { ChannelArchiveMedia } from "@vite-hub/internal/channel-archive"
@@ -67,10 +68,6 @@ const replyWindowAfterMs = 60_000
 const unlabeledMatchMs = 60_000
 const sourceRank: Record<ChannelConversationSource, number> = { provider: 0, transcript: 1, invocation: 2 }
 const roleRank: Record<ChannelConversationRole, number> = { assistant: 1, system: 0, user: 0 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined

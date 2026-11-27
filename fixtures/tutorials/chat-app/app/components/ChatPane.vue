@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import { ChatSession, PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { ChatSession, PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 import { DefaultChatTransport } from "ai";
 import type { Thread } from "../../shared/chat";
 

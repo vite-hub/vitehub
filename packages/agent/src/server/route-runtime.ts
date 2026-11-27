@@ -3,7 +3,6 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeContext as createHostRuntimeContext } from "@vite-hub/runtime"
 
-import { isRuntimeObject, isRuntimeString } from "../internal/runtime-value.ts"
 import { resolveAgentTriggers } from "../trigger-runtime.ts"
 
 import type {
@@ -49,7 +48,7 @@ const vercelFunctionsPackage = "@vercel/functions"
 export function detectRuntime(): AgentRuntimeName {
   if ("Deno" in globalThis) return "deno"
   const runtimeProcess = globalThis.process
-  const env = isRuntimeObject(runtimeProcess) ? runtimeProcess.env : undefined
+  const env = typeof runtimeProcess === "object" && runtimeProcess !== null ? runtimeProcess.env : undefined
   if (env?.VERCEL) return "vercel"
   return "unknown"
 }
@@ -104,7 +103,7 @@ export function normalizeWebhookPath(path: string): string {
 
 export function webhookRegistrationPaths(registration: AgentWebhookRegistrationDefinition): string[] {
   const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
-  return paths.filter(path => isRuntimeString(path)).map(normalizeWebhookPath)
+  return paths.filter(path => typeof path === "string").map(normalizeWebhookPath)
 }
 
 export async function agentWebhookRegistrations(

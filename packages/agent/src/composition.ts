@@ -3,6 +3,7 @@ import { forgeAccessKey } from "./internal/forge-access.ts"
 import type { AgentDefinition, AgentInterceptOutputCarrier, AgentSettings } from "./types.ts"
 
 export { activeProviderSandbox } from "./internal/provider-box.ts"
+export { recordProviderCheckout } from "./internal/prepared-provider-checkout.ts"
 export type { ProviderSandboxSession } from "./internal/provider-box.ts"
 
 /**

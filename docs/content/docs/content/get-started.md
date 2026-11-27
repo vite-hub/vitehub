@@ -13,18 +13,18 @@ Content turns your Markdown files into documents that your app can read. A docum
 In this tutorial, you write `docs/intro.md`. Then you read it as a document from an API route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands in the root folder of the app. You need no account and no API key.
+> Use the app from [Installation](/docs/getting-started/installation) and run commands in the app root. You need no account or API key.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Content to your app:
+Install Content in your app:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/content
 ```
 
-You do not change `vite.config.ts`. `vitehub()` finds the `server/content.ts` file that you write in the next step, and turns on Content.
+You do not change `nuxt.config.ts` or `vite.config.ts`. ViteHub finds the `server/content.ts` file that you write in the next step, and turns on Content.
 
 ::
 
@@ -35,9 +35,9 @@ Create `server/content.ts`. It tells Content where your Markdown files are:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -58,7 +58,7 @@ Create an API route that reads it:
 
 ```ts [server/api/guide.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   return await content.get('/intro')
@@ -67,7 +67,7 @@ export default defineEventHandler(async () => {
 
 `content.get('/intro')` finds `docs/intro.md` and returns it as a document. With this route, you can test Content before you build a page.
 
-You can also read the same document in browser code. This file is optional:
+You can also read the same document in browser code with this optional file:
 
 ```ts [app/utils/content.ts]
 import { createContentClient } from 'vite-hub/content/client'
@@ -90,7 +90,7 @@ Start the dev server:
 pnpm dev
 ```
 
-Keep the server running. Open a second terminal, and call your route:
+Keep the server running. Open a second terminal and call your route:
 
 ```bash [commands/request]
 curl http://localhost:3000/api/guide
@@ -106,7 +106,7 @@ The response is the `Hello from Content` document, as JSON:
 
 To show the document on a page, use [ViteHub UI Markdown](/docs/ui/markdown#content-pages). To search your documents, add [full-text search](/docs/content/configure#providers).
 
-You can change the `docs` Source only when you edit the files in your repository. Do you want people or Agents to edit documents while the app runs, with drafts and publishing? Add a [document collection](/docs/content/configure#document-collections).
+You can change the `docs` Source only when you edit the files in your repository. To let people or Agents edit documents while the app runs, with drafts and publishing, add a [document collection](/docs/content/configure#document-collections).
 
 ::
 

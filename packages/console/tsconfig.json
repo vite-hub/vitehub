@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "server/**/*.ts",
+    "test/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    ".vitehub/types.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".output"
+  ]
+}

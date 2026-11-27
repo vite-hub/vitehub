@@ -3,7 +3,7 @@ title: Message Scroller
 description: "Compose headless message scrolling with live-edge following, prepend preservation, and message jumps."
 navigation.order: 41
 navigation.group: Utilities
-icon: i-ph-scroll-light
+icon: i-lucide-scroll-text
 ---
 
 The message scroller is the scrolling layer under `Chat`. It follows new content only while the reader is at the bottom (the live edge), keeps the position when older messages load above, and jumps to a message ID. The parts match the names and `data-slot` attributes of the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller).
@@ -15,7 +15,7 @@ The scroller does not hold messages, Agent state, transport, or storage. Put any
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The parts are headless (unstyled). Import them from `@vite-hub/ui/headless`, which loads no styles and needs no Nuxt UI. `vite-hub/nuxt` does not auto-import them:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The parts are headless (unstyled). Import them from `vite-hub/ui/headless`, which loads no styles and needs no Nuxt UI. `vite-hub/nuxt` does not auto-import them:
 
 ```ts
 import {
@@ -24,10 +24,10 @@ import {
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerViewport,
-} from "@vite-hub/ui/headless";
+} from "vite-hub/ui/headless";
 ```
 
-`@vite-hub/ui/styles.css` adds the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered bottom button. Load it after Tailwind CSS and Nuxt UI, as [Installation](/docs/ui/installation) shows.
+`vite-hub/ui/styles.css` adds the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered bottom button. Load it after Tailwind CSS and Nuxt UI, as [Installation](/docs/ui/installation) shows.
 
 ## Usage
 
@@ -38,7 +38,7 @@ import {
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerViewport,
-} from "@vite-hub/ui/headless";
+} from "vite-hub/ui/headless";
 ```
 
 ```vue
@@ -98,7 +98,7 @@ MessageScroller
 - Keeps visible content in place when older messages load above.
 - Jumps to any item by ID with `scrollToMessage()`.
 - Exposes `atEnd` and `isScrollable` through the root slot and `useMessageScroller()`.
-- Has no styles. `@vite-hub/ui/styles.css` adds the shadcn/ui layout.
+- Has no styles. `vite-hub/ui/styles.css` adds the shadcn/ui layout.
 
 ## Anchoring Turns
 
@@ -169,7 +169,7 @@ Search results, permalinks, and outlines move the transcript from outside the li
 
 ```vue [JumpToMessage.vue]
 <script setup lang="ts">
-import { useMessageScroller } from "@vite-hub/ui/headless";
+import { useMessageScroller } from "vite-hub/ui/headless";
 
 const props = defineProps<{ id: string }>();
 const { scrollToMessage } = useMessageScroller();
@@ -193,7 +193,7 @@ For styles, use data attributes: the viewport has `data-at-end` at the live edge
 
 ## Unstyled
 
-The parts work without `@vite-hub/ui/styles.css`. Give the viewport a height and `overflow-y: auto`. The parts still set `overflow-anchor: none` on the viewport and items, so the browser does not move content on its own.
+The parts work without `vite-hub/ui/styles.css`. Give the viewport a height and `overflow-y: auto`. The parts still set `overflow-anchor: none` on the viewport and items, so the browser does not move content on its own.
 
 ## Accessibility
 

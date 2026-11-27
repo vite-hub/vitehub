@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/email",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -39,35 +39,35 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./drivers/cloudflare-email": {
-      "types": "./dist/drivers/cloudflare-email.d.ts",
-      "import": "./dist/drivers/cloudflare-email.js",
-      "default": "./dist/drivers/cloudflare-email.js"
+    "./drivers/cloudflare": {
+      "types": "./dist/drivers/cloudflare.d.ts",
+      "import": "./dist/drivers/cloudflare.js",
+      "default": "./dist/drivers/cloudflare.js"
+    },
+    "./drivers/log": {
+      "types": "./dist/drivers/log.d.ts",
+      "import": "./dist/drivers/log.js",
+      "default": "./dist/drivers/log.js"
     },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",
       "import": "./dist/drivers/resend.js",
       "default": "./dist/drivers/resend.js"
     },
+    "./drivers/smtp": {
+      "types": "./dist/drivers/smtp.d.ts",
+      "import": "./dist/drivers/smtp.js",
+      "default": "./dist/drivers/smtp.js"
+    },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "default": "./dist/server.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
@@ -79,21 +79,26 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/email#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/email#build && vp test"
+    "test": "vp run --cache -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@comark/html": "catalog:markdown",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:tooling",
-    "katex": "^0.18.7",
+    "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -101,21 +106,33 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "esbuild": "catalog:tooling",
+    "nodemailer": "10.6.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "nodemailer": "^10.0.0",
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "nodemailer": {
+      "optional": true
+    },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

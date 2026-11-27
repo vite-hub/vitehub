@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { createDropField, type DropField } from "@vite-hub/ui/motion";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
+import { consoleDiagnostic } from "../diagnostics";
 import {
   consoleFolderName,
   consoleFocalCropPosition,
@@ -24,6 +26,8 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
+import ConsoleConfirm from "./console-confirm.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Browses one folder of the media library: breadcrumbs, folders, and files in a grid or a list, search by file name
@@ -59,6 +63,8 @@ const emit = defineEmits<{
   info: [info: { access: ConsoleMediaAccess, served: string | null, store: string }];
   /** Open the details of a file, on the Media page. */
   open: [file: ConsoleMediaFile | undefined];
+  /** A double click on a file of a page. */
+  activate: [file: ConsoleMediaFile];
   /** Files changed: uploaded, moved, or deleted. */
   changed: [];
 }>();
@@ -91,6 +97,10 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 watch(view, value => globalThis.localStorage?.setItem(viewKey, value));
 
+const viewItems = [
+  { label: "Grid", icon: "i-lucide-layout-grid", value: "grid" },
+  { label: "List", icon: "i-lucide-list", value: "list" },
+];
 const typeItems = [
   { label: "All types", value: "all" },
   { label: "Images", value: "image" },
@@ -237,6 +247,11 @@ function click(file: ConsoleMediaFile, event: MouseEvent): void {
 }
 
 function activate(file: ConsoleMediaFile): void {
+  // On a page, a double click opens the file itself. A single click shows its details.
+  if (props.mode === "page") {
+    emit("activate", file);
+    return;
+  }
   if (props.mode !== "picker" || !pickable(file)) return;
   if (!selectedSet.value.has(file.pathname)) {
     if (props.multiple) selected.value = [...selected.value, file.pathname];
@@ -276,7 +291,8 @@ const uploads = useConsoleMediaUploads(() => props.client, (result) => {
   }
 });
 const fileInput = ref<HTMLInputElement>();
-const dragDepth = ref(0);
+const browser = ref<HTMLElement>();
+const dropSurface = ref<HTMLElement>();
 
 async function upload(files: readonly File[]): Promise<ConsoleMediaUploadResult[]> {
   if (!files.length) return [];
@@ -304,29 +320,16 @@ function hasFiles(event: DragEvent): boolean {
   return [...event.dataTransfer?.types ?? []].includes("Files");
 }
 
-function dragenter(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  dragDepth.value++;
-}
-
-function dragover(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-}
-
-function dragleave(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  dragDepth.value = Math.max(0, dragDepth.value - 1);
-}
-
-function drop(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  dragDepth.value = 0;
-  void upload([...event.dataTransfer?.files ?? []]);
-}
+let dropField: DropField | undefined;
+onMounted(() => {
+  if (!browser.value || !dropSurface.value) return;
+  dropField = createDropField(browser.value, {
+    accepts: event => hasFiles(event) && canWrite.value,
+    onFiles: files => void upload(files),
+    surface: dropSurface.value,
+  });
+});
+onBeforeUnmount(() => dropField?.destroy());
 
 // Folders
 
@@ -403,7 +406,7 @@ async function confirmMove(destination: { folder: string, name?: string }): Prom
     }
     else if (state.files) {
       const result = await props.client.move(state.files.map(file => ({ from: file.pathname, to: join(destination.folder, state.files!.length === 1 && destination.name ? destination.name : file.name) })));
-      if (result.failed.length && !result.moved.length) throw new Error(result.failed[0]!.message);
+      if (result.failed.length && !result.moved.length) throw consoleDiagnostic("CONSOLE_REQUEST_FAILED", result.failed[0]!.message);
       for (const file of result.moved) known.set(file.pathname, file);
       if (result.failed.length) toast.error(`${result.failed.length} of ${state.files.length} files couldn't move. ${result.failed[0]!.message}`);
       else toast.show({ title: result.moved.length === 1 ? `Moved to ${result.moved[0]!.pathname}` : `${result.moved.length} files moved` });
@@ -513,48 +516,46 @@ defineExpose({
 
 <template>
   <div
+    ref="browser"
     class="vitehub-media-browser relative flex min-h-0 flex-1 flex-col"
-    @dragenter="dragenter"
-    @dragover="dragover"
-    @dragleave="dragleave"
-    @drop="drop"
     @keydown="keydown"
   >
     <ConsolePageToolbar>
       <!-- On the Media page the header shows the folder trail; the picker shows it here. -->
       <nav v-if="mode === 'picker'" class="flex min-w-0 basis-full items-center gap-0.5 text-[13px] sm:basis-auto sm:flex-1" aria-label="Folders">
         <template v-for="(path, index) in trail" :key="path || '/'">
-          <UIcon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
-          <button
-            type="button"
-            class="vitehub-media-crumb"
+          <Icon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+          <UButton
+            variant="ghost"
+            size="xs"
+            class="max-w-48"
+            :class="index === trail.length - 1 && !searching ? 'text-highlighted' : 'text-muted'"
+            :label="folderLabel(path)"
             :aria-current="index === trail.length - 1 && !searching ? 'page' : undefined"
             @click="open(path)"
-          >
-            {{ folderLabel(path) }}
-          </button>
+          />
         </template>
       </nav>
-      <UInput v-model="search" class="w-full sm:w-56" icon="i-lucide-search" size="sm" :placeholder="searchPlaceholder ?? 'Search file names…'" :aria-label="searchPlaceholder ?? 'Search file names'" />
-      <USelect v-model="type" class="w-32" size="sm" :items="typeItems" aria-label="Filter by type" />
+      <UInput v-model="search" class="w-full sm:w-56" icon="i-lucide-search" :placeholder="searchPlaceholder ?? 'Search file names…'" :aria-label="searchPlaceholder ?? 'Search file names'" />
+      <USelect v-model="type" class="w-32" :items="typeItems" aria-label="Filter by type" />
       <!-- Controls of the page that hosts the browser, such as the Blob section's store picker. -->
       <slot name="toolbar" />
+      <!-- Icon tabs: the label stays in the accessible name only. -->
+      <template #tabs-end>
+        <UTabs v-model="view" :items="viewItems" :content="false" aria-label="View">
+          <template #default="{ item }">
+            <span class="sr-only">{{ item.label }}</span>
+          </template>
+        </UTabs>
+      </template>
       <div class="ms-auto flex items-center gap-1.5">
-        <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
-          <UTooltip text="Grid">
-            <UButton size="sm" variant="ghost" icon="i-lucide-layout-grid" aria-label="Grid" :aria-pressed="view === 'grid'" :class="view === 'grid' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'grid'" />
-          </UTooltip>
-          <UTooltip text="List">
-            <UButton size="sm" variant="ghost" icon="i-lucide-list" aria-label="List" :aria-pressed="view === 'list'" :class="view === 'list' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'list'" />
-          </UTooltip>
-        </div>
         <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
         <Teleport v-if="canWrite" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
           <UPopover v-if="client.capabilities?.folders !== false" v-model:open="folderOpen" :content="{ align: 'end' }">
-            <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
+            <UButton variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
             <template #content>
               <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
-                <UInput v-model="folderName" size="sm" placeholder="Folder name" aria-label="Folder name" autofocus />
+                <UInput v-model="folderName" placeholder="Folder name" aria-label="Folder name" autofocus />
                 <p class="text-xs text-dimmed">In {{ folderLabel(folder) }}</p>
                 <div class="flex justify-end gap-2">
                   <UButton size="xs" variant="ghost" label="Cancel" @click="folderOpen = false" />
@@ -563,7 +564,7 @@ defineExpose({
               </form>
             </template>
           </UPopover>
-          <UButton size="sm" icon="i-lucide-upload" label="Upload" @click="fileInput?.click()" />
+          <UButton icon="i-lucide-upload" label="Upload" @click="fileInput?.click()" />
         </Teleport>
         <input ref="fileInput" type="file" multiple class="hidden" :accept="mode === 'picker' && accept?.length ? accept.join(',') : undefined" aria-label="Files to upload" @change="chooseFiles">
       </div>
@@ -581,10 +582,7 @@ defineExpose({
 
         <div v-if="!searching && folders.length" class="vitehub-media-folders mb-4" :class="view === 'list' ? 'is-list' : ''">
           <div v-for="path in folders" :key="path" class="vitehub-media-folder group">
-            <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-start" @click="open(path)">
-              <UIcon name="i-lucide-folder" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-              <span class="truncate">{{ consoleFolderName(path) }}</span>
-            </button>
+            <UButton variant="ghost" icon="i-lucide-folder" class="min-w-0 flex-1 text-highlighted" :label="consoleFolderName(path)" @click="open(path)" />
             <UDropdownMenu
               v-if="mode === 'page' && access.manage && client.capabilities?.folders !== false"
               :content="{ align: 'end' }"
@@ -627,8 +625,8 @@ defineExpose({
               <span class="vitehub-media-tile__thumb" :style="{ background: file.color }">
                 <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded" @error="thumbnailFailed(file)">
                 <span v-else class="flex size-full flex-col items-center justify-center gap-1 text-dimmed">
-                  <UIcon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
-                  <span class="text-[11px] font-medium">{{ consoleMediaFormat(file) }}</span>
+                  <Icon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
+                  <span class="text-xs font-medium">{{ consoleMediaFormat(file) }}</span>
                 </span>
               </span>
               <span class="grid min-w-0 gap-0.5 px-0.5 pt-2">
@@ -636,7 +634,7 @@ defineExpose({
                 <span class="truncate text-xs text-dimmed tabular-nums">{{ searching ? file.pathname : meta(file) }}</span>
               </span>
             </button>
-            <UCheckbox color="neutral"
+            <UCheckbox
               v-if="canSelect"
               class="vitehub-media-tile__check"
               :model-value="selectedSet.has(file.pathname)"
@@ -667,13 +665,13 @@ defineExpose({
               @dblclick="activate(file)"
             >
               <td v-if="canSelect" @click.stop>
-                <UCheckbox color="neutral" :model-value="selectedSet.has(file.pathname)" :disabled="!pickable(file)" :aria-label="`Select ${file.name}`" @update:model-value="toggle(file)" />
+                <UCheckbox :model-value="selectedSet.has(file.pathname)" :disabled="!pickable(file)" :aria-label="`Select ${file.name}`" @update:model-value="toggle(file)" />
               </td>
               <td>
                 <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
                     <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @error="thumbnailFailed(file)">
-                    <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
+                    <Icon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
                   </span>
                   <span class="grid min-w-0">
                     <span class="truncate text-highlighted">{{ file.name }}</span>
@@ -690,24 +688,24 @@ defineExpose({
         </table>
 
         <div v-if="cursor && !searching" class="mt-4 flex justify-center">
-          <UButton variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load({ more: true })" />
+          <UButton variant="outline" label="Load more" :loading="loadingMore" @click="load({ more: true })" />
         </div>
       </template>
     </div>
 
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
-      <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
-      <UButton v-if="selectionManageable && client.capabilities?.move !== false" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
-      <UButton v-if="selectionManageable" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
+      <span class="h-4 w-px bg-(--border)" aria-hidden="true" />
+      <UButton v-if="selectionManageable && client.capabilities?.move !== false" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
+      <UButton v-if="selectionManageable" variant="ghost" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
-        <UButton size="sm" variant="ghost" icon="i-lucide-x" aria-label="Clear selection" @click="selected = []" />
+        <UButton variant="ghost" icon="i-lucide-x" aria-label="Clear selection" @click="selected = []" />
       </UTooltip>
     </div>
 
-    <div v-if="dragDepth > 0" class="vitehub-media-drop" aria-hidden="true">
+    <div ref="dropSurface" class="vitehub-media-drop" aria-hidden="true">
       <div class="flex flex-col items-center gap-2 text-center">
-        <UIcon name="i-lucide-upload" class="size-6 text-highlighted" />
+        <Icon name="i-lucide-upload" class="size-6 text-highlighted" />
         <p class="text-sm font-medium text-highlighted">Drop to upload to {{ folderLabel(folder) }}</p>
       </div>
     </div>
@@ -727,76 +725,41 @@ defineExpose({
       @confirm="confirmMove"
     />
 
-    <UModal v-model:open="removeOpen" :title="removeTitle" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <div class="grid gap-3 text-[13px] text-muted">
-          <template v-if="removeState?.folder !== undefined">
-            <p v-if="removeState.checking">Checking the folder…</p>
-            <p v-else-if="removeState.count">Everything inside it is deleted too: files, their crops, and their variants. This cannot be undone.</p>
-            <p v-else>The folder is empty.</p>
-          </template>
-          <template v-else>
-            <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
-            <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
-            <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
-              <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
-              <span>{{ removeState.warning }}</span>
-            </p>
-          </template>
-        </div>
+    <ConsoleConfirm v-model:open="removeOpen" :title="removeTitle" confirm-label="Delete" destructive :loading="removing" :disabled="removeState?.checking" @confirm="confirmRemove">
+      <template v-if="removeState?.folder !== undefined">
+        <p v-if="removeState.checking">Checking the folder…</p>
+        <p v-else-if="removeState.count">Everything inside it is deleted too: files, their crops, and their variants. This cannot be undone.</p>
+        <p v-else>The folder is empty.</p>
       </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Cancel" @click="removeOpen = false" />
-          <UButton color="error" label="Delete" :loading="removing" :disabled="removeState?.checking" @click="confirmRemove" />
-        </div>
+      <template v-else>
+        <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
+        <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
+        <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
+          <Icon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span>{{ removeState.warning }}</span>
+        </p>
       </template>
-    </UModal>
+    </ConsoleConfirm>
   </div>
 </template>
 
 <style>
 /* The detail panel of a file sits next to the browser on wide screens and covers it on narrow ones. */
 .vitehub-media-library__detail {
-  border-left: 1px solid var(--ui-border);
+  border-left: 1px solid var(--border);
   flex-shrink: 0;
   width: 22.5rem;
 }
 
 @media (max-width: 1023px) {
   .vitehub-media-library__detail {
-    background: var(--ui-bg);
+    background: var(--background);
     border-left: 0;
     inset: 0;
     position: absolute;
     width: auto;
     z-index: 40;
   }
-}
-
-.vitehub-media-crumb {
-  border-radius: 0.375rem;
-  color: var(--ui-text-muted);
-  max-width: 12rem;
-  overflow: hidden;
-  padding: 0.125rem 0.375rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vitehub-media-crumb:hover {
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-highlighted);
-}
-
-.vitehub-media-crumb[aria-current="page"] {
-  color: var(--ui-text-highlighted);
-  font-weight: 500;
-}
-
-.vitehub-media-crumb:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
 }
 
 .vitehub-media-grid {
@@ -822,26 +785,19 @@ defineExpose({
   grid-template-columns: 1fr;
 }
 
+/* A folder tile frames its open button and its menu. In the list view the frame goes, so folders read as rows. */
 .vitehub-media-folder {
   align-items: center;
-  border: 1px solid var(--ui-border);
-  border-radius: 0.375rem;
-  color: var(--ui-text-highlighted);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
-  font-size: 0.8125rem;
   gap: 0.25rem;
-  height: 2.5rem;
-  padding-inline: 0.75rem 0.25rem;
+  padding: 0.25rem;
 }
 
 .vitehub-media-folders.is-list .vitehub-media-folder {
   border-color: transparent;
-  height: 2.25rem;
-  padding-inline: 0.5rem 0.25rem;
-}
-
-.vitehub-media-folder:hover {
-  background: var(--ui-bg-elevated);
+  padding: 0;
 }
 
 .vitehub-media-tile {
@@ -849,27 +805,20 @@ defineExpose({
   position: relative;
 }
 
+/* The theme rings the whole tile, thumbnail and name, when the button has focus. */
 .vitehub-media-tile__button {
+  border-radius: calc(var(--radius) * 2);
   display: grid;
   min-width: 0;
   text-align: start;
   width: 100%;
 }
 
-.vitehub-media-tile__button:focus-visible {
-  outline: none;
-}
-
-.vitehub-media-tile__button:focus-visible .vitehub-media-tile__thumb {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: 2px;
-}
-
-/* An inset hairline keeps light images apart from the page (Rauno: image outlines). */
+/* An inset hairline keeps light images apart from the page, and dark images apart from the dark page. */
 .vitehub-media-tile__thumb {
   aspect-ratio: 1;
-  background: var(--ui-bg-elevated);
-  border-radius: 0.375rem;
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: block;
   overflow: hidden;
   position: relative;
@@ -877,15 +826,11 @@ defineExpose({
 
 .vitehub-media-tile__thumb::after {
   border-radius: inherit;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 8%, transparent);
   content: "";
   inset: 0;
   pointer-events: none;
   position: absolute;
-}
-
-.dark .vitehub-media-tile__thumb::after {
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
 }
 
 .vitehub-media-tile__image {
@@ -902,7 +847,7 @@ defineExpose({
 
 .vitehub-media-tile.is-selected .vitehub-media-tile__thumb,
 .vitehub-media-tile.is-active .vitehub-media-tile__thumb {
-  outline: 2px solid var(--ui-border-inverted);
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }
 
@@ -925,7 +870,7 @@ defineExpose({
 }
 
 .vitehub-media-table th {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   font-size: 0.75rem;
   font-weight: 500;
@@ -934,13 +879,13 @@ defineExpose({
 }
 
 .vitehub-media-table td {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   height: 2.75rem;
   padding-inline: 0.5rem;
 }
 
 .vitehub-media-table tbody tr:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-media-table tbody tr.is-selected,
@@ -954,8 +899,8 @@ defineExpose({
 
 .vitehub-media-row-thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: 0.25rem;
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: inline-flex;
   flex-shrink: 0;
   height: 1.75rem;
@@ -964,13 +909,14 @@ defineExpose({
   width: 1.75rem;
 }
 
-/* Floating bars use the Geist menu material: a 12px radius, a hairline ring, and a layered shadow. */
+/* Floating bars use the theme's floating surface: a 12px radius and the layered shadow with its own hairline. */
 .vitehub-media-bulk {
   align-items: center;
-  background: var(--ui-bg);
-  border-radius: 0.75rem;
+  backdrop-filter: blur(12px);
+  background: var(--vh-floating);
+  border-radius: calc(var(--radius) * 3);
   bottom: 1rem;
-  box-shadow: 0 0 0 1px var(--ui-border), 0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 8%);
+  box-shadow: var(--vh-shadow-floating);
   display: flex;
   gap: 0.25rem;
   left: 50%;
@@ -980,12 +926,16 @@ defineExpose({
   z-index: 15;
 }
 
-/* The drop target covers the whole browser, so a file can land anywhere on it. */
+.vitehub-media-browser:not([data-over]) > .vitehub-media-drop {
+  display: none;
+}
+
 .vitehub-media-drop {
+  --vh-drop-dot: var(--ui-text-highlighted);
   align-items: center;
-  background: color-mix(in oklab, var(--ui-bg) 85%, transparent);
-  border: 1.5px dashed var(--ui-border-inverted);
-  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--background) 85%, transparent);
+  border: 1px dashed var(--foreground);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
   inset: 0.5rem;
   justify-content: center;

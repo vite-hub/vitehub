@@ -1,14 +1,17 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { afterEach, describe, expect, it } from "vitest"
+import { gzipSync } from "node:zlib"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineSource } from "@vite-hub/source"
-import { files } from "@vite-hub/source/files"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
+import type { Plugin as RolldownPlugin } from "vite/rolldown"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
 import type { BuiltContentSnapshot, ContentSnapshot } from "../src/index.ts"
+import { withContentSnapshot } from "../src/snapshots.ts"
 import { buildContentSnapshotModules, hubContent } from "../src/vite.ts"
 
 const docs = {
@@ -38,9 +41,11 @@ async function snapshotOf(entries: Record<string, string>) {
   return snapshots.docs!
 }
 
+const gzip = (text: string) => gzipSync(text).toString("base64")
+
 /** The snapshot as the bundle serves it, counting the shards that load. */
 function served(built: BuiltContentSnapshot, loaded: number[] = []): () => Promise<ContentSnapshot> {
-  return async () => ({ index: built.index, shards: built.shards.map((shard, number) => async () => (loaded.push(number), shard)) })
+  return async () => ({ index: gzip(built.index), shards: built.shards.map((shard, number) => async () => (loaded.push(number), gzip(shard))) })
 }
 
 afterEach(() => {
@@ -80,10 +85,55 @@ describe("Content snapshots", () => {
     expect((await content.list("docs")).map(item => item.data.title)).toEqual(["a", "b", "c"])
     expect(await content.navigation()).toHaveLength(3)
     expect(loaded).toEqual([])
+    // Hosts without node:zlib, such as Workers without nodejs_compat, inflate with DecompressionStream.
+    const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
     expect((await content.get("/b"))?.data.title).toBe("b")
+    expect(getBuiltinModule).toHaveBeenCalledWith("node:zlib")
+    vi.restoreAllMocks()
     expect(loaded).toEqual([1])
     await content.handler(new Request("http://localhost/api/content/snapshot/docs.json"))
     expect(loaded.sort()).toEqual([0, 1, 2])
+  })
+
+  it("loads the snapshot and a shard again after a failed load", async () => {
+    const snapshot = await snapshotOf(docs)
+    const serve = served(snapshot)
+    let failShard = true
+    const load = vi.fn()
+      .mockRejectedValueOnce(new Error("transient snapshot failure"))
+      .mockImplementation(async () => {
+        const loaded = await serve()
+        return {
+          ...loaded,
+          shards: loaded.shards.map(shard => async () => {
+            if (!failShard) return await shard()
+            failShard = false
+            throw new Error("transient shard failure")
+          }),
+        }
+      })
+    // SAFETY: The snapshot reads only its loader and the Source keys; it keeps the origin for refresh() alone.
+    const parsed = withContentSnapshot({} as never, load, async () => Object.keys(docs))
+
+    await expect(parsed.manifest!()).rejects.toThrow("transient snapshot failure")
+    await expect(parsed.manifest!()).resolves.toBeDefined()
+    await expect(parsed.get!("guide/install.md")).rejects.toThrow("transient shard failure")
+    await expect(parsed.get!("guide/install.md")).resolves.toMatchObject({ path: "/guide/install" })
+  })
+
+  it("reads no file of the Source until refresh()", async () => {
+    const snapshot = await snapshotOf(docs)
+    const reads: string[] = []
+    const lazy = Object.fromEntries(Object.entries(docs).map(([key, text]) => [key, async () => (reads.push(key), text)]))
+    registerContentSnapshots({ docs: served(snapshot) })
+    const content = defineContent({ sources: { docs: files(lazy) } })
+
+    expect((await content.list("docs")).map(item => item.path)).toEqual(["/guide", "/guide/install"])
+    expect((await content.get("/guide/install"))?.data.title).toBe("Install")
+    await content.handler(new Request("http://localhost/api/content/snapshot/docs.json"))
+    expect(reads).toEqual([])
+    await content.cache.refresh("docs")
+    expect(reads.sort()).toEqual(Object.keys(docs))
   })
 
   it("keeps the Source as the authority for refresh()", async () => {
@@ -167,23 +217,23 @@ describe("Content snapshot build", () => {
     root = undefined
   })
 
-  async function fixture(contentModule: string) {
+  async function fixture(contentModule: string, serverDir = "server") {
     // Inside the package, so the fixture resolves `@vite-hub/source` and `comark-content` as an app would.
     await mkdir(join(import.meta.dirname, ".vitest-tmp"), { recursive: true })
     root = await mkdtemp(join(import.meta.dirname, ".vitest-tmp/snapshot-app-"))
-    await mkdir(join(root, "server"), { recursive: true })
+    await mkdir(join(root, serverDir), { recursive: true })
     await writeFile(join(root, "package.json"), "{ \"type\": \"module\" }\n")
-    await writeFile(join(root, "server/content.ts"), contentModule)
-    await writeFile(join(root, "server/entry.ts"), "export { content } from \"./content.ts\"\n")
+    await writeFile(join(root, serverDir, "content.ts"), contentModule)
+    await writeFile(join(root, serverDir, "entry.ts"), "export { default } from \"./content.ts\"\n")
     return root
   }
 
   const importBase = join(import.meta.dirname, "../src/index.ts")
   const contentModule = [
     `import { defineContent } from ${JSON.stringify(importBase)}`,
-    "import { files } from \"@vite-hub/source/files\"",
+    "import { files } from \"@vite-hub/source\"",
     "",
-    `export const content = defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
+    `export default defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
     "",
   ].join("\n")
 
@@ -206,14 +256,50 @@ describe("Content snapshot build", () => {
     })
 
     const output = await readdir(join(project, "dist"), { recursive: true })
-    expect(output.filter(file => file.endsWith(".js") || file.endsWith(".mjs"))).toEqual(["entry.mjs", expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    expect(output).toContain("entry.mjs")
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
 
-    const { content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    const { default: content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
     const live = defineContent({ sources: { docs: files(docs) } })
     // A live Source lists from a frontmatter-only parse. The snapshot holds full parses, so its entries are not partial.
     expect((await live.list("docs")).map(item => item.meta.partial)).toEqual([true, true])
     expect((await content.list("docs")).map((item: ContentFile) => item.meta.partial)).toEqual([false, false])
     expect(await content.get("/guide/install")).toEqual(await live.get("/guide/install"))
     expect(await content.navigation()).toEqual(await live.navigation())
+  })
+
+  it.each(["server", "node_modules/test-layer/server"])("ships the parsed Sources from %s in a Nitro build outside Vite", { timeout: 30_000 }, async (serverDir) => {
+    const project = await fixture(contentModule, serverDir)
+    const entry = join(project, serverDir, "entry.ts")
+    const kvModule = join(import.meta.dirname, "../src/kv.ts")
+    await writeFile(entry, `export { default } from "./content.ts"\nexport { contentKV } from ${JSON.stringify(kvModule)}\n`)
+    const plugin = hubContent({ importBase })
+    // SAFETY: The hook reads only the root, aliases, and plugin names.
+    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, [VITEHUB_SERVER_DIRS]: [serverDir], resolve: { alias: [] }, plugins: [{ name: "@vite-hub/kv/vite" }] }])
+    const options = { dev: false, rollupConfig: { plugins: [] as RolldownPlugin[] } }
+    plugin.nitro.setup({ options })
+    const { rolldown } = await import("vite/rolldown")
+    const bundle = await rolldown({ input: entry, cwd: project, platform: "node", external: [/^node:/, "@vite-hub/kv"], plugins: options.rollupConfig.plugins })
+    await bundle.write({ dir: join(project, "dist"), entryFileNames: "entry.mjs" })
+    await bundle.close()
+
+    const output = await readdir(join(project, "dist"), { recursive: true })
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    const { default: content, contentKV } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    expect(contentKV()).toEqual(expect.objectContaining({ get: expect.any(Function), set: expect.any(Function) }))
+    expect((await content.list("docs")).map((item: ContentFile) => item.meta.partial)).toEqual([false, false])
+  })
+
+  it("parses live in a Nitro dev build outside Vite", async () => {
+    const project = await fixture(contentModule)
+    const plugin = hubContent({ importBase })
+    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, resolve: { alias: [] }, plugins: [] }])
+    const options = { dev: true, rollupConfig: { plugins: [] as RolldownPlugin[] } }
+    plugin.nitro.setup({ options })
+    const { rolldown } = await import("vite/rolldown")
+    const bundle = await rolldown({ input: join(project, "server/entry.ts"), cwd: project, platform: "node", external: [/^node:/], plugins: options.rollupConfig.plugins })
+    const { output } = await bundle.generate({})
+    await bundle.close()
+    expect(output.map(chunk => chunk.fileName).filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([])
   })
 })

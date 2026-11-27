@@ -1,8 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { cmsConsoleAuthorize } from "vite-hub/cms/access"
-import { getAuthForRequest } from "@vite-hub/auth/server"
-import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
+import { defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
 import type { ConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -12,9 +11,17 @@ declare const event: ConsoleRequestEvent
 declare const access: ConsoleAccess
 
 describe("Console access types", () => {
-  it("accepts synchronous and lazy app Auth resolvers", () => {
-    createConsoleAppAuthPages(getAuthForRequest)
-    createConsoleAppAuthPages(async (...input) => getAuthForRequest(...input))
+  it("preserves validated signed-user fields when narrowing the public authorize context", () => {
+    defineConsoleAuthorize((context) => {
+      if (context.via === "console") {
+        expectTypeOf(context.user.id).toEqualTypeOf<string>()
+        expectTypeOf(context.user.name).toEqualTypeOf<string | undefined>()
+        expectTypeOf(context.user.email).toEqualTypeOf<string | undefined>()
+        return context.user.email?.endsWith("@example.com") ?? false
+      }
+      if (context.via === "cli") expectTypeOf(context.user).toEqualTypeOf<undefined>()
+      return false
+    })
   })
 
   it("type checks", () => {
@@ -53,6 +60,8 @@ describe("Console access types", () => {
     installConsoleAccess({ mode: "public" })
     // @ts-expect-error The open policy has no check to replace.
     installConsoleAccess({ mode: "open", check: async () => undefined })
+    // @ts-expect-error App Auth sessions no longer open the Console.
+    installConsoleAccess({ mode: "auth" })
 
     defineConsoleAuthorize(({ request }) => request.headers.get("x-role") === "admin")
     defineConsoleAuthorize(() => new Response("Sign in at the host.", { status: 401 }))

@@ -11,7 +11,7 @@ icon: i-lucide-library
   :::code-tree
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
-    modules: ['@vite-hub/docs/nuxt'],
+    modules: ['vite-hub/docs/nuxt'],
     docs: {
       // Name in titles, the rail, and llms.txt
       site: { name: 'Lumen', url: 'https://lumen.example.com' },
@@ -39,11 +39,15 @@ icon: i-lucide-library
   :::
 ::
 
-`@vite-hub/docs` is a Nuxt module. Each folder in `content/docs/` is a section, and each Markdown file in it is a page. The module adds a shell, search, and a Markdown copy for coding agents. [vitehub.dev](https://vitehub.dev) uses it.
+`@vite-hub/docs` is a Nuxt module. Each folder in `content/docs/` is a section, and each Markdown file in it is a page. The module adds a shell, search, and a Markdown copy of each page for coding agents. [vitehub.dev](https://vitehub.dev) uses it.
 
 ::product-features
   :::product-feature-item{title="Markdown in, site out" icon="i-lucide-file-text" to="/docs/docs-site/get-started"}
   Folders are sections and files are pages. Frontmatter sets the title, the layout, and the order.
+  :::
+
+  :::product-feature-item{title="Inside your Nuxt app" icon="i-lucide-square-plus" to="/docs/docs-site/nuxt-app"}
+  Pages in `content/docs/` are at `/docs`. The app keeps its own pages, its `app.vue`, and its theme.
   :::
 
   :::product-feature-item{title="Three layouts" icon="i-lucide-layout-template" to="/docs/docs-site/configure#layouts"}
@@ -59,7 +63,7 @@ icon: i-lucide-library
   :::
 
   :::product-feature-item{title="Pages for coding agents" icon="i-lucide-bot" to="/docs/docs-site/configure#agent-resources"}
-  Each page has a Markdown copy at `/raw`. llms.txt, a sitemap, and an MCP server need no setup.
+  Each page has a Markdown copy at `/raw`. `llms.txt`, a sitemap, and an MCP server need no setup.
   :::
 
   :::product-feature-item{title="Edit pages in the Console" icon="i-lucide-pencil" to="/docs/docs-site/configure#edit-in-the-console"}
@@ -82,3 +86,20 @@ The design follows the comark-ui site: Geist, neutral grays, small radii, hairli
 ## Reference and limits
 
 The [Server API](/docs/docs-site/server-api) lists every module option, frontmatter field, export, and route. [Limits and errors](/docs/docs-site/limits-and-errors) lists what the module does not do yet and how to fix each error.
+
+## Use without ViteHub
+
+The module also works in a Nuxt app without `vite-hub`. Install `@vite-hub/docs` and add `@vite-hub/docs/nuxt` to `modules`:
+
+```bash pm [commands/install-alone]
+pnpm add @vite-hub/docs
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: { site: { name: 'Lumen' } },
+})
+```
+
+Import the other paths from `@vite-hub/docs` too, such as `createDocsManifest()` from `@vite-hub/docs/server`. Without `vite-hub/nuxt`, the site has no [Comments](/docs/docs-site/configure#comments) and no [assistant](/docs/docs-site/assistant).

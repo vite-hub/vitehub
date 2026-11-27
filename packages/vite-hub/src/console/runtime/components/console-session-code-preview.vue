@@ -1,29 +1,9 @@
 <script setup lang="ts">
-import type { HighlighterCore, LanguageRegistration } from "shiki/core";
+import type { HighlighterCore } from "shiki/core";
 import { computed, ref, watch } from "vue";
+import { consoleHighlightLanguages } from "../client/highlight-languages";
 import { languageForPath } from "./console-session-code-language";
-
-type LanguageModule = { default: LanguageRegistration[] };
-
-const languageLoaders: Record<string, () => Promise<LanguageModule>> = {
-  css: () => import("shiki/langs/css.mjs"),
-  dockerfile: () => import("shiki/langs/dockerfile.mjs"),
-  html: () => import("shiki/langs/html.mjs"),
-  javascript: () => import("shiki/langs/javascript.mjs"),
-  json: () => import("shiki/langs/json.mjs"),
-  jsonc: () => import("shiki/langs/jsonc.mjs"),
-  jsx: () => import("shiki/langs/jsx.mjs"),
-  make: () => import("shiki/langs/make.mjs"),
-  markdown: () => import("shiki/langs/markdown.mjs"),
-  mdx: () => import("shiki/langs/mdx.mjs"),
-  scss: () => import("shiki/langs/scss.mjs"),
-  shellscript: () => import("shiki/langs/shellscript.mjs"),
-  sql: () => import("shiki/langs/sql.mjs"),
-  tsx: () => import("shiki/langs/tsx.mjs"),
-  typescript: () => import("shiki/langs/typescript.mjs"),
-  vue: () => import("shiki/langs/vue.mjs"),
-  yaml: () => import("shiki/langs/yaml.mjs"),
-};
+import Icon from "./console-icon.vue";
 
 let highlighter: Promise<HighlighterCore> | undefined;
 
@@ -57,8 +37,12 @@ watch(
     highlightingFailed.value = false;
     try {
       const languageName = language.value;
-      const loadLanguage = languageLoaders[languageName];
-      if (!loadLanguage) throw new Error(`No syntax highlighter is registered for ${languageName}.`);
+      const loadLanguage = consoleHighlightLanguages[languageName];
+      // Plain text and languages without a highlighter show the plain lines.
+      if (!loadLanguage) {
+        if (id === renderId) highlightingFailed.value = true;
+        return;
+      }
       const instance = await loadHighlighter();
       if (!instance.getLoadedLanguages().includes(languageName)) await instance.loadLanguage((await loadLanguage()).default);
       const rendered = instance.codeToHtml(content, {
@@ -82,7 +66,7 @@ watch(
 <template>
   <div class="session-code-preview" :data-wrap="wrap">
     <div v-if="loading && !html" class="session-inspector__state">
-      <UIcon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
+      <Icon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
     </div>
     <pre v-else-if="highlightingFailed" class="session-code-preview__plain"><code><span
       v-for="(line, index) in plainLines"

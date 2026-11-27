@@ -9,7 +9,7 @@ export async function prepareSandboxTaskDefinition(
   sandbox: TaskSandbox,
   bundle: SandboxTaskDefinitionBundle,
   baseDir: string,
-  options: { signal?: AbortSignal, timeout?: number },
+  options: { onCommandStart?: () => void, signal?: AbortSignal, timeout?: number },
 ) {
   const project = bundle.project
   if (!project) {
@@ -17,10 +17,10 @@ export async function prepareSandboxTaskDefinition(
     return { directory: baseDir, cwd: baseDir }
   }
 
-  const projectDir = `/tmp/vitehub-sandbox-task/projects/${project.digest}`
+  const projectDir = `${sandbox.tempDir}/vitehub-sandbox-task/projects/${project.digest}`
   const marker = `${projectDir}/.vitehub/prepared`
   const prepared = { directory: projectDir, cwd: resolveSandboxTaskModulePath(projectDir, project.packagePath) }
-  await sandbox.mkdir('/tmp/vitehub-sandbox-task/projects', { recursive: true, signal: options.signal })
+  await sandbox.mkdir(`${sandbox.tempDir}/vitehub-sandbox-task/projects`, { recursive: true, signal: options.signal })
   if (await sandbox.exists(marker, { signal: options.signal }))
     return prepared
 
@@ -57,13 +57,14 @@ async function prepareSandboxTaskProjectAtomically(
   bundle: SandboxTaskDefinitionBundle & { project: NonNullable<SandboxTaskDefinitionBundle['project']> },
   projectDir: string,
   marker: string,
-  options: { signal?: AbortSignal, timeout?: number },
+  options: { onCommandStart?: () => void, signal?: AbortSignal, timeout?: number },
 ) {
   if (await sandbox.exists(marker, { signal: options.signal })) return
   const staging = `${projectDir}.staging-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   try {
     await sandbox.mkdir(staging, { recursive: true, signal: options.signal })
     await writeSandboxTaskDefinitionBundle(sandbox, staging, bundle, options.signal)
+    options.onCommandStart?.()
     const result = await sandbox.exec(
       bundle.project.install.command,
       bundle.project.install.args,
@@ -85,6 +86,7 @@ async function prepareSandboxTaskProjectAtomically(
     }
     await sandbox.mkdir(`${staging}/.vitehub`, { recursive: true, signal: options.signal })
     await sandbox.writeFile(`${staging}/.vitehub/prepared`, bundle.project.digest, { signal: options.signal })
+    options.onCommandStart?.()
     const published = await sandbox.exec('node', [
       '-e',
       'import("node:fs/promises").then(({ rename }) => rename(process.argv[1], process.argv[2]))',

@@ -17,8 +17,16 @@ import {
   withCloudflareRequest,
 } from "./internal/cloudflare-transport.ts";
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
+import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
-import type { CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
+import { cloudflareSignalNumber, type CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
+import {
+  cloudflareInterceptedHttpsEnv,
+  normalizeCloudflareNetworkPolicy,
+  sandboxNetworkAuthority,
+  type NormalizedSandboxNetworkPolicy,
+  type SandboxNetworkPolicy,
+} from "./internal/network-policy.ts";
 
 export interface CloudflareSandboxOptions {
   cloudflare?: {
@@ -33,6 +41,11 @@ export interface CloudflareSandboxOptions {
   ) => CloudflareSandboxStub;
   hostname?: string;
   namespace: CloudflareDurableObjectNamespace;
+  /**
+   * Outbound network of the Container. Default `"allow-all"`. The policy applies when the Container starts.
+   * A Sandbox that runs with another policy restarts. Not available with a custom `getSandbox`.
+   */
+  networkPolicy?: SandboxNetworkPolicy;
   sandboxId?: string;
 }
 
@@ -42,6 +55,8 @@ export interface CloudflareDurableObjectNamespace {
 }
 
 export interface CloudflareSandboxStub {
+  /** Stops the `exec` command started with this `id`, without stopping the Sandbox. */
+  cancelExec(id: string): Promise<void>;
   deleteFile?(path: string): Promise<{ success: boolean } | void>;
   destroy(): Promise<void>;
   exec(
@@ -49,6 +64,7 @@ export interface CloudflareSandboxStub {
     options?: {
       cwd?: string;
       env?: Record<string, string | undefined>;
+      id?: string;
       timeout?: number;
     },
   ): Promise<{
@@ -105,23 +121,30 @@ const cloudflareExecutionAuthority = {
 export function createCloudflareRuntime(options: CloudflareSandboxOptions): SandboxRuntime {
   if (!options?.namespace)
     throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: "[vitehub] The cloudflare Sandbox runtime requires a Durable Objects namespace." });
+  const networkPolicy = normalizeCloudflareNetworkPolicy(options.networkPolicy);
+  if (options.getSandbox && options.networkPolicy !== undefined)
+    throw sandboxErrorDiagnostics.SANDBOX_NETWORK_POLICY_INVALID({ problem: "A custom getSandbox starts the Container, so ViteHub cannot apply networkPolicy." });
+  const executionAuthority = options.getSandbox
+    ? cloudflareExecutionAuthority
+    : { ...cloudflareExecutionAuthority, network: sandboxNetworkAuthority(networkPolicy) };
+  const commandEnv = typeof networkPolicy === "object" ? cloudflareInterceptedHttpsEnv : {};
   return markBuiltInSandboxRuntime({
     name: "cloudflare",
     async prepare(input) {
-      return remoteSandboxPlan(input, {
-        executionAuthority: cloudflareExecutionAuthority,
-        runtime: "cloudflare",
-      });
+      return remoteSandboxPlan(input, { executionAuthority, runtime: "cloudflare" });
     },
     async open(input, openOptions) {
-      const env = await resolveRemoteEnvironment(input, {});
+      const env = { ...commandEnv, ...await resolveRemoteEnvironment(input, {}) };
       const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
-      const getSandbox = options.getSandbox ?? getCloudflareSandbox;
-      const stub = getSandbox(options.namespace, id, options.cloudflare);
-      const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
+      const stub = options.getSandbox
+        ? options.getSandbox(options.namespace, id, options.cloudflare)
+        : getCloudflareSandbox(options.namespace, id, options.cloudflare, networkPolicy);
+      const runtimeSession = createCloudflareSession(id, stub, env, options.hostname, !options.getSandbox);
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
+        preserveHome: true,
+        preserveWorkspace: !input.checkout,
         runtime: "cloudflare",
         signal: openOptions?.signal,
       }, env);
@@ -129,29 +152,25 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
   });
 }
 
-/**
- * Reaches the Sandbox Durable Object that the ViteHub Cloudflare host integration exports.
- * @cloudflare/sandbox 1.0 has no `getSandbox`; the generated class implements this stub over RPC.
- */
 function getCloudflareSandbox(
   namespace: CloudflareDurableObjectNamespace,
   id: string,
   options: CloudflareSandboxOptions["cloudflare"] = {},
+  networkPolicy: NormalizedSandboxNetworkPolicy = "allow-all",
 ): CloudflareSandboxStub {
   // SAFETY: the namespace binds the generated class, whose RPC methods implement CloudflareSandboxDurableObject.
   const target = namespace.get(namespace.idFromName(options.normalizeId ? id.toLowerCase() : id)) as CloudflareSandboxDurableObject;
   let configured: Promise<void> | undefined;
   const ready = async () => {
-    configured ??= target.configure({ keepAlive: options.keepAlive, sleepAfter: options.sleepAfter })
+    configured ??= target.configure({ keepAlive: options.keepAlive, networkPolicy, sleepAfter: options.sleepAfter })
       .catch((error: unknown) => {
         configured = undefined;
         throw error;
       });
     await configured;
   };
-  // List each method: a Durable Object stub answers every property name, and the session
-  // only falls back to shell commands for methods the stub lacks (listFiles, exposePort).
   return {
+    cancelExec: async id => (await ready(), await target.cancelExec(id)),
     deleteFile: async path => (await ready(), await target.deleteFile(path)),
     destroy: async () => (await ready(), await target.destroy()),
     exec: async (command, execOptions) => (await ready(), await target.exec(command, execOptions)),
@@ -170,6 +189,7 @@ function createCloudflareSession(
   stub: CloudflareSandboxStub,
   baseEnv: Record<string, string>,
   hostname: string | undefined,
+  builtIn: boolean,
 ): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
   const destroy = async () => {
@@ -195,16 +215,27 @@ function createCloudflareSession(
     workingDirectory?: string;
   }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
-    const result = await abortable(
-      request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
-        cwd: options.workingDirectory ?? "/workspace",
-        env: { ...baseEnv, ...options.env },
-        timeout,
-      })),
-      options.abortSignal,
-      destroy,
-    );
-    return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    const execId = crypto.randomUUID();
+    const executions: Array<ReturnType<CloudflareSandboxStub["exec"]>> = [];
+    try {
+      const result = await abortable(
+        request("exec", { idempotent, timeout }, async () => {
+          const execution = stub.exec(options.command, {
+            cwd: options.workingDirectory ?? "/workspace",
+            env: { ...baseEnv, ...options.env },
+            id: execId,
+            timeout,
+          });
+          executions.push(execution);
+          return await execution;
+        }),
+        options.abortSignal,
+        () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
+      );
+      return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    } finally {
+      if (options.abortSignal?.aborted) await Promise.allSettled(executions);
+    }
   };
   return {
     defaultWorkingDirectory: "/workspace",
@@ -315,7 +346,7 @@ function createCloudflareSession(
             const logs = stub.streamProcessLogs
               ? request("streamProcessLogs", { idempotent: true }, async () => await stub.streamProcessLogs!(process.id))
               : undefined;
-            return cloudflareProcess(process, logs);
+            return killOnAbort(cloudflareProcess(process, logs, builtIn), commandOptions.abortSignal);
           },
         }
       : {}),
@@ -346,6 +377,7 @@ function encodeBase64(value: Uint8Array) {
 function cloudflareProcess(
   process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>,
   logs: Promise<ReadableStream<Uint8Array>> | undefined,
+  builtIn: boolean,
 ): RuntimeProcess {
   const wait = process.waitForExit();
   const output = logs
@@ -355,6 +387,8 @@ function cloudflareProcess(
     ...output,
     ...(process.stdin ? { stdin: process.stdin } : {}),
     async kill(signal?: string) {
+      if (builtIn && cloudflareSignalNumber(signal) === undefined)
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Cloudflare", signal: String(signal) });
       await process.kill(signal);
     },
     async wait() {
@@ -375,7 +409,6 @@ interface CloudflareLogEvent {
   type: string;
 }
 
-/** Bounds each channel independently so an unread channel cannot stall its sibling. */
 function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
   const bufferLimit = 1024 * 1024;
   const encoder = new TextEncoder();
@@ -400,7 +433,6 @@ function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
   const forward = (name: "stderr" | "stdout", data: string) => {
     const controller = open.get(name);
     if (!controller || data.length === 0) return;
-    // Bound the encoding allocation even when a single log event is oversized.
     const chunk = new Uint8Array(Math.min(data.length * 3, controller.desiredSize ?? 0));
     const { read, written } = encoder.encodeInto(data, chunk);
     if (read < data.length) {
@@ -431,7 +463,7 @@ function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
           if (log.type === "stdout" || log.type === "stderr") forward(log.type, log.data ?? "");
           else if (log.type === "exit") return;
           else if (log.type === "error")
-            throw new Error(`[vitehub] Cloudflare process log stream failed: ${log.data ?? "unknown error"}`);
+            throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED({ detail: log.data ?? "unknown error" });
         }
         if (done) return;
       }
@@ -457,18 +489,18 @@ async function abortable<T>(
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-      if (abort) void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined).then(() => reject(signal.reason));
+      else reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        if (!signal.aborted) resolve(value);
       },
       (error) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        if (!signal.aborted) reject(error);
       },
     );
   });

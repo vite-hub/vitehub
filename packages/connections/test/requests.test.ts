@@ -15,7 +15,6 @@ const TOKEN = { accessToken: "key-1", tokenType: "bearer" }
 
 type Reply = Response | Error | "hang"
 
-/** A fake provider that answers from a queue and records when each request starts. */
 function fakeFetch(replies: Reply[] = []) {
   const starts: Array<{ at: number, method: string }> = []
   const request = async (_input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
@@ -79,7 +78,6 @@ describe("Connection request policy", () => {
     const sent = Promise.all([first.send(ITEMS, TOKEN, {}), second.send(ITEMS, TOKEN, {}), own.send(ITEMS, TOKEN, {})])
     await vi.runAllTimersAsync()
     await sent
-    // The "own" Connection does not wait for the shared bucket.
     expect(provider.starts.map(start => start.at)).toEqual([0, 0, 100])
   })
 
@@ -264,7 +262,7 @@ it("applies the policy to Connection fetch calls", async () => {
     fetch: provider.request,
     store: createStore(),
   })
-  await runtime.setKey({ key: "key-1", name: "items" })
+  await runtime.setKey({ actor: "user:owner", key: "key-1", name: "items" })
   const response = await runtime.client("items", {}).fetch(ITEMS)
   expect(response.status).toBe(200)
   expect(provider.starts).toHaveLength(2)

@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Page account menu placement</title>
+<!-- Serve packages/internal with Vite, then open /test/page-account.browser.html?vitehub at desktop and mobile
+     viewport sizes, in each browser. It needs native layout and the popover API, not happy-dom. -->
+<pre id="result">Running…</pre>
+<script type="module">
+  import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
+
+  function assert(condition, message) {
+    if (!condition) throw new Error(message)
+  }
+
+  const result = document.querySelector("#result")
+  const originalFetch = window.fetch
+  const dockKey = "vitehub-tools-dock"
+  const saved = localStorage.getItem(dockKey)
+  const frame = () => new Promise(requestAnimationFrame)
+  // The browser sends `toggle` in a task after the popover opens or closes.
+  const toggled = menu => new Promise(resolve => menu.addEventListener("toggle", resolve, { once: true }))
+  let exit
+  let cases = 0
+  const stop = async () => {
+    exit?.()
+    while (document.querySelector("vitehub-pill")) await new Promise(resolve => setTimeout(resolve, 20))
+    document.querySelector("vitehub-tools-off")?.remove()
+    localStorage.removeItem("vitehub-tools-off")
+  }
+  try {
+    // Only the session request is mocked: the loader, the pill and the account menu render as on a page.
+    window.fetch = async () => Response.json({
+      tools: [{ id: "content", label: "Content", script: "/content.js" }],
+      account: { name: "Ada Lovelace", email: "ada.lovelace@analytical-engine.example", signOut: "/api/auth/sign-out" },
+    })
+    for (const edge of ["bottom", "top", "left", "right"]) for (const at of [0, 50, 100]) {
+      localStorage.setItem(dockKey, JSON.stringify({ edge, at }))
+      document.cookie = "vitehub-tools=1; Path=/"
+      await loadViteHubPageTools({ load: async () => ({ default(context) {
+        exit = context.exit
+        context.bar.append(Object.assign(document.createElement("button"), { textContent: "Content" }))
+      } }) })
+      const pill = document.querySelector("vitehub-pill")
+      pill.style.transition = "none"
+      await frame()
+      for (const [shadow, selector] of [[pill.querySelector("vitehub-account").shadowRoot, "button.who"], [pill.shadowRoot, "button.exit"]]) {
+        const button = shadow.querySelector(selector)
+        const menu = shadow.getElementById(button.getAttribute("popovertarget"))
+        const label = `${selector} ${edge} ${at}% (${innerWidth}x${innerHeight})`
+
+        const opened = toggled(menu)
+        button.click()
+        await opened
+        await frame()
+        assert(menu.matches(":popover-open"), `${label}: the button opens the menu`)
+        assert(button.getAttribute("aria-expanded") === "true", `${label}: aria-expanded is true`)
+        assert(shadow.activeElement === shadow.querySelector("[role=menuitem]:not([hidden])"), `${label}: the first item has the focus`)
+        const box = menu.getBoundingClientRect()
+        const bar = pill.shadowRoot.querySelector("div").getBoundingClientRect()
+        const own = button.getBoundingClientRect()
+        // A menu beside a vertical dock can be wider than the room beside it on a phone, as before popovers.
+        if (edge === "bottom" || edge === "top") assert(box.left >= 8 - 1 && box.right <= innerWidth - 8 + 1, `${label}: inside the screen across (${box.left}, ${box.right})`)
+        assert(box.top >= 0 && box.bottom <= innerHeight, `${label}: inside the screen down (${box.top}, ${box.bottom})`)
+        const gap = edge === "bottom" ? bar.top - box.bottom : edge === "top" ? box.top - bar.bottom : edge === "left" ? box.left - bar.right : bar.left - box.right
+        assert(Math.abs(gap - 8) < 1, `${label}: 8px from the pill, not ${gap}`)
+        if (edge === "bottom" || edge === "top") {
+          // Its right edge lines up with the button, unless the screen has no room for that on the left.
+          if (own.right - box.width >= 8) assert(Math.abs(box.right - own.right) < 1, `${label}: lines up with the button (${box.right}, ${own.right})`)
+        }
+        else {
+          // Its top lines up with the button, or its bottom when there is no room under the button.
+          assert(Math.abs(box.top - own.top) < 1 || Math.abs(box.bottom - own.bottom) < 1, `${label}: level with the button (${box.top}, ${own.top})`)
+        }
+
+        const closed = toggled(menu)
+        pill.setAttribute("edge", edge === "top" ? "bottom" : "top")
+        await closed
+        assert(button.getAttribute("aria-expanded") === "false", `${label}: aria-expanded is false after close`)
+        pill.setAttribute("edge", edge)
+        await frame()
+        cases++
+      }
+      await stop()
+    }
+    result.textContent = `PASS: ${cases} account and exit menu placements stay 8px off the pill and close when the dock changes`
+  } catch (error) {
+    result.textContent = `FAIL: ${error.stack}`
+    throw error
+  } finally {
+    await stop()
+    window.fetch = originalFetch
+    if (saved === null) localStorage.removeItem(dockKey)
+    else localStorage.setItem(dockKey, saved)
+  }
+</script>

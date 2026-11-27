@@ -1,9 +1,29 @@
-<script setup lang="ts">
-import { createDocsSearch, docsAppPath, docsManifestPages, docsSectionHome } from "#docs/navigation"
+<script lang="ts">
+import { createDocsSearch, docsAppPath, docsSectionHome } from "#docs/navigation"
 
 import type { DocsSearchSection } from "@vite-hub/docs"
 
-// A result shows the page path over its heading. One line, "Page > Section > Heading", cut off the heading on a phone.
+type DocsSearch = ReturnType<typeof createDocsSearch>
+
+let loading: Promise<DocsSearch> | undefined
+
+function loadDocsSearch(url: string): Promise<DocsSearch> {
+  if (!import.meta.dev && loading) return loading
+  const request = $fetch<DocsSearchSection[]>(url).then(createDocsSearch)
+  if (import.meta.dev) return request
+  return loading = request.catch((error: unknown) => {
+    loading = undefined
+    throw error
+  })
+}
+
+function savesData(): boolean {
+  const connection: { saveData?: boolean } | undefined = Reflect.get(navigator, "connection")
+  return connection?.saveData === true
+}
+</script>
+
+<script setup lang="ts">
 const { appBase } = useDocsConfig()
 const manifest = useDocsManifest()
 const icons = useDocsIcons()
@@ -14,34 +34,34 @@ const navigation = manifest.sections.map(section => ({
   children: section.pages.filter(page => page.navigation).map(page => ({ title: page.title, path: page.path, icon: icons.page(page) })),
 }))
 const links = navigation.map((item, index) => ({ label: item.title, icon: item.icon, to: docsSectionHome(manifest.sections[index]!) }))
-// Root and standalone pages are searchable too; navigation: false keeps any page out of the results.
-const listed = new Set(docsManifestPages(manifest).filter(page => page.navigation).map(page => page.path))
 
-// The index loads when the dialog first opens, so pages do not pay for it.
 const status = ref<"idle" | "loading" | "ready" | "error">("idle")
-let rank: ReturnType<typeof createDocsSearch> | undefined
+let rank: DocsSearch | undefined
 const { open } = useContentSearch()
-watch(open, async (value) => {
-  if (!value || status.value === "loading" || status.value === "ready") return
+
+async function load() {
+  if (status.value === "loading" || status.value === "ready") return
   status.value = "loading"
   try {
-    const records = await $fetch<DocsSearchSection[]>(docsAppPath("/api/_docs/search.json", appBase))
-    rank = createDocsSearch(records.filter(record => listed.has(record.id.split("#")[0] ?? record.id)))
+    rank = await loadDocsSearch(docsAppPath("/api/_docs/search.json", appBase))
     status.value = "ready"
   }
   catch {
     status.value = "error"
   }
+}
+
+watch(open, (value) => {
+  if (value) void load()
 })
+if (!import.meta.dev && !savesData()) onNuxtReady(() => load())
 
 async function search(query: string, options?: { limit?: number }) {
   return rank?.(query, options?.limit ?? 30) ?? []
 }
 
-// The section list helps before the first key press. After it, the ranked results are the whole list.
 const searchTerm = ref("")
 
-// Nuxt UI builds the prefix as "Page > Section >".
 function searchPath(prefix: string) {
   return prefix.replace(/\s*>$/, "").split(" > ").join(" / ")
 }
@@ -54,6 +74,7 @@ function searchPath(prefix: string) {
     :navigation="navigation"
     :search="search"
     :search-status="status"
+    :search-delay="0"
     :fuse="{ resultLimit: 30 }"
   >
     <template #item-label="{ item }">

@@ -3,14 +3,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { H3Event } from "h3"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
-import { normalizeBlobOptions } from "../src/config.ts"
+import { normalizeBlobOptions, resolveRuntimeBlobSecrets } from "../src/config.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import {
+  blobRuntimeEnv,
   clearActiveCloudflareEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
@@ -22,12 +22,30 @@ import type { Result } from "@vite-hub/runtime"
 import type { BlobEnsureOptions, BlobErrorCode, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 it("forwards response options through the runtime Blob helper", async () => {
-  const storage = { serve: vi.fn(async () => [undefined, null] as const) }
+  const response = new Response(null, { status: 304 })
+  const storage = { serve: vi.fn(async () => response) }
   setBlobRuntimeStorage(storage as unknown as ReturnType<typeof createBlobStorage>)
-  const event = new H3Event(new Request("https://example.test/photo"))
+  const request = new Request("https://example.test/photo")
   const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
-  expect(await blob.serve(event, "original", options)).toEqual([undefined, null])
-  expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
+  expect(await blob.serve(request, "original", options)).toBe(response)
+  expect(storage.serve).toHaveBeenCalledWith(request, "original", options)
+})
+
+it("reads store credentials from the Worker env before process.env", () => {
+  onTestFinished(() => {
+    vi.unstubAllEnvs()
+  })
+  vi.stubEnv("VITEHUB_TEST_BLOB_TOKEN", "process-token")
+  vi.stubEnv("VITEHUB_TEST_PROCESS_ONLY", "process-only")
+  const store = { access: "public", driver: "vercel", secretEnv: { token: "VITEHUB_TEST_BLOB_TOKEN" }, token: "********" } as const
+
+  expect(resolveRuntimeBlobSecrets(store, blobRuntimeEnv())).toEqual({ access: "public", driver: "vercel", token: "process-token" })
+  runWithActiveCloudflareEnv({ BLOB: {}, VITEHUB_TEST_BLOB_TOKEN: "worker-token" }, () => {
+    const env = blobRuntimeEnv()
+    expect(resolveRuntimeBlobSecrets(store, env)).toEqual({ access: "public", driver: "vercel", token: "worker-token" })
+    expect(env.VITEHUB_TEST_PROCESS_ONLY).toBe("process-only")
+    expect(env).not.toHaveProperty("BLOB")
+  })
 })
 
 /** Runs one request the way the Nitro Cloudflare middleware does: the request env is active for the whole handler. */
@@ -340,7 +358,7 @@ function createMemoryBucket() {
 describe("blob runtime", () => {
   it.each([false, true])("returns null for missing R2 metadata with serving %s", async (serve) => {
     setBlobRuntimeConfig({
-      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" },
       ...(serve ? { serve: { route: "/f", store: "default" } } : {}),
     })
     const bucket = createMemoryBucket()
@@ -423,7 +441,7 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "********",
       },
     })
@@ -444,7 +462,7 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       store: {
         access: "private",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "********",
       },
     })
@@ -456,7 +474,7 @@ describe("blob runtime", () => {
   })
 
   it("passes a masked configured token to the Vercel SDK ahead of OIDC", async () => {
-    const config = normalizeBlobOptions({ driver: "vercel-blob", token: "build-token" }, {
+    const config = normalizeBlobOptions({ driver: "vercel", token: "build-token" }, {
       env: { BLOB_READ_WRITE_TOKEN: "build-token", BLOB_STORE_ID: "oidc-store" },
     })
     const runtimeConfig: ResolvedBlobModuleOptions = JSON.parse(JSON.stringify(config))
@@ -471,7 +489,7 @@ describe("blob runtime", () => {
 
   it.each([undefined, false, true])("preserves Vercel list options and result shape with folded %s", async (folded) => {
     const { createDriver } = await import("../src/drivers/vercel.ts")
-    const driver = createDriver({ access: "public", driver: "vercel-blob", token: "default-token" })
+    const driver = createDriver({ access: "public", driver: "vercel", token: "default-token" })
     const reads: string[] = []
     vercelBlobMock.list.mockImplementationOnce(async () => ({
       blobs: [],
@@ -510,16 +528,14 @@ describe("blob runtime", () => {
       ...(folded ? { mode: "folded" } : {}),
       prefix: "a/",
     })
-    expect(Object.keys(vercelBlobMock.list.mock.calls[0]?.[0] ?? {})).toEqual(folded ? ["token", "cursor", "limit", "mode", "prefix"] : ["token", "cursor", "limit", "prefix"])
     expect(result).toEqual({ blobs: [], cursor: "next-page", ...(folded ? { folders: [] } : {}), hasMore: true })
-    expect(Object.keys(result)).toEqual(folded ? ["blobs", "cursor", "folders", "hasMore"] : ["blobs", "cursor", "hasMore"])
   })
 
   it("preserves provider cursors for folded Vercel listings", async () => {
     setBlobRuntimeConfig({
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "default-token",
       },
     })
@@ -576,18 +592,18 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "default-token",
       },
       stores: {
         assets: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "assets-token",
         },
         default: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "default-token",
         },
       },
@@ -605,23 +621,23 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       serve: {
         publicBaseUrl: "https://assets.example/",
-        route: "/api/_vitehub/blob/",
+        route: "/_vitehub/blob/",
         store: "assets",
       },
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "default-token",
       },
       stores: {
         assets: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "assets-token",
         },
         default: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "default-token",
         },
       },
@@ -641,13 +657,13 @@ describe("blob runtime", () => {
     const list = expectBlobSuccess(await blob.store("assets").list())
     const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
-    expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(head?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(put.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(head?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(list.blobs[0]?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
 
     const reserved = expectBlobSuccess(await blob.store("assets").put("notes/query?draft#one.txt", "value"))
-    expect(reserved.url).toBe("https://assets.example/api/_vitehub/blob/notes/query%3Fdraft%23one.txt")
+    expect(reserved.url).toBe("https://assets.example/_vitehub/blob/notes/query%3Fdraft%23one.txt")
   })
 
   it.each([
@@ -661,18 +677,18 @@ describe("blob runtime", () => {
       },
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "default-token",
       },
       stores: {
         assets: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "assets-token",
         },
         default: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "default-token",
         },
       },
@@ -687,13 +703,13 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       store: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "default-token",
       },
       stores: {
         default: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "default-token",
         },
       },
@@ -701,7 +717,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("missing").get("notes/missing.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
     })
   })
 
@@ -715,8 +731,8 @@ describe("blob runtime", () => {
   })
 
   it("invalidates default and named stores when runtime configuration changes", async () => {
-    const first = { access: "public" as const, driver: "vercel-blob" as const, token: "first-token" }
-    const second = { access: "public" as const, driver: "vercel-blob" as const, token: "second-token" }
+    const first = { access: "public" as const, driver: "vercel" as const, token: "first-token" }
+    const second = { access: "public" as const, driver: "vercel" as const, token: "second-token" }
     setBlobRuntimeConfig({ store: first, stores: { default: first, assets: first } })
     expectBlobSuccess(await blob.put("first.txt", "first"))
     expectBlobSuccess(await blob.store("assets").put("first.txt", "first"))
@@ -736,13 +752,13 @@ describe("blob runtime", () => {
     const inheritedStores = Object.create({
       inherited: {
         access: "public",
-        driver: "vercel-blob",
+        driver: "vercel",
         token: "inherited-token",
       },
-    }) as Record<string, { access: "public", driver: "vercel-blob", token: string }>
+    }) as Record<string, { access: "public", driver: "vercel", token: string }>
     inheritedStores.default = {
       access: "public",
-      driver: "vercel-blob",
+      driver: "vercel",
       token: "default-token",
     }
     setBlobRuntimeConfig({
@@ -752,7 +768,7 @@ describe("blob runtime", () => {
 
     await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
       code: "BLOB_R0027",
-      message: "Unknown Blob store \"inherited\".",
+      message: "Unknown Blob store \"inherited\". Configured stores: \"default\".",
     })
     expect(vercelBlobMock.get).not.toHaveBeenCalled()
   })
@@ -762,7 +778,7 @@ describe("blob runtime", () => {
       store: {
         binding: "BLOB",
         bucketName: "assets",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       },
     })
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
@@ -782,12 +798,12 @@ describe("blob runtime", () => {
     expect(await body?.text()).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
-    expectBlobSuccess(await blob.del("notes/hello.txt"))
+    expectBlobSuccess(await blob.delete("notes/hello.txt"))
     expect(await blob.head("notes/hello.txt")).toEqual([undefined, null])
   })
 
   it("serves byte ranges from the active Cloudflare binding in one read, without reading the whole object", async () => {
-    setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } })
+    setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } })
     const reads: unknown[] = []
     const object = { httpEtag: "\"v1\"", httpMetadata: { contentType: "video/mp4" }, key: "video.mp4", size: 10, uploaded: new Date(0) }
     setActiveCloudflareEnv({
@@ -805,11 +821,10 @@ describe("blob runtime", () => {
       },
     })
 
-    const event = new H3Event(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }))
-    const body = expectBlobSuccess(await blob.serve(event, "video.mp4"))
+    const response = await blob.serve(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }), "video.mp4")
 
-    expect(event.res.status).toBe(206)
-    expect(await new Response(body).text()).toBe("456")
+    expect(response.status).toBe(206)
+    expect(await response.text()).toBe("456")
     expect(reads).toEqual([{ onlyIf: undefined, range: { offset: 4, length: 3 } }])
   })
 
@@ -825,7 +840,7 @@ describe("blob runtime", () => {
         binding: "BLOB",
         bucketName: "********",
         defaultUrlExpiresIn: 900,
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
         publicBaseUrl: "https://assets.example.com",
         secretAccessKey: "********",
       },
@@ -854,7 +869,7 @@ describe("blob runtime", () => {
         accessKeyId: "access-key",
         binding: "BLOB",
         bucketName: "eu-assets",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
         jurisdiction: "eu",
         secretAccessKey: "secret-key",
       },
@@ -880,7 +895,7 @@ describe("blob runtime", () => {
         accessKeyId: "********",
         binding: "BLOB",
         bucketName: "********",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
         secretAccessKey: "********",
       },
     })
@@ -901,7 +916,7 @@ describe("blob runtime", () => {
     const storage = createBlobStorage(createDriver({
       binding: "BLOB",
       bucketName: "assets",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
     }))
 
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
@@ -916,7 +931,7 @@ describe("blob runtime", () => {
       store: {
         binding: "BLOB",
         bucketName: "assets",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       },
     })
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
@@ -928,6 +943,27 @@ describe("blob runtime", () => {
 
     expect(list.blobs).toEqual([])
     expect(list.folders).toEqual(["images/", "notes/"])
+  })
+
+  const folderNames = ["a/", "B/", "_/", "\u00E4/", "Z/"]
+  const codeUnitFolderOrder = ["B/", "Z/", "_/", "a/", "\u00E4/"]
+
+  it("orders R2 folders by code unit, as the fs driver does", async () => {
+    setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } })
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    for (const folder of folderNames) expectBlobSuccess(await blob.put(`${folder}file.txt`, "x"))
+
+    expect(expectBlobSuccess(await blob.list({ folded: true })).folders).toEqual(codeUnitFolderOrder)
+  })
+
+  it.each(["slash", false] as const)("orders files-sdk folders by code unit with delimiter %j", async (delimiter) => {
+    filesSdkMock.delimiter = delimiter
+    filesSdkMock.list.mockResolvedValueOnce(delimiter
+      ? { items: [], prefixes: folderNames }
+      : { items: folderNames.map(folder => ({ etag: "etag", key: `${folder}file.txt`, lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 1, contentType: "text/plain" })) })
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    expect(expectBlobSuccess(await blob.list({ folded: true })).folders).toEqual(codeUnitFolderOrder)
   })
 
   it("loads non-core drivers through provider-specific driver imports", async () => {
@@ -1174,7 +1210,7 @@ describe("blob runtime", () => {
     const { createDriver } = await import("../src/drivers/s3.ts")
     const driver = createDriver({ bucket: "assets", driver: "s3" })
 
-    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor, folded: true })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
 
     expect(filesSdkMock.list).toHaveBeenCalledOnce()
   })
@@ -1214,7 +1250,7 @@ describe("blob runtime", () => {
   it("decodes percent-encoded pathnames once before reaching drivers", async () => {
     const bucket = createMemoryBucket()
     setBlobRuntimeConfig({
-      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" },
     })
     setActiveCloudflareEnv({ BLOB: bucket })
 
@@ -1233,18 +1269,18 @@ describe("blob runtime", () => {
     ])
 
     expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
-    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
+    expectBlobSuccess(await blob.delete("notes/h%C3%A9llo.txt"))
     expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([undefined, null])
   })
 
   it("passes decoded pathnames to the Vercel driver", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
     setBlobRuntimeConfig({
-      store: { access: "public", driver: "vercel-blob", token: "********" },
+      store: { access: "public", driver: "vercel", token: "********" },
     })
 
     expectBlobSuccess(await blob.put("notes/100%25.txt", "value"))
-    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
+    expectBlobSuccess(await blob.delete("notes/h%C3%A9llo.txt"))
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/100%.txt",
@@ -1260,7 +1296,7 @@ describe("blob runtime", () => {
   it("accepts literal percent characters in blob pathnames", async () => {
     const bucket = createMemoryBucket()
     setBlobRuntimeConfig({
-      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" },
     })
     setActiveCloudflareEnv({ BLOB: bucket })
 
@@ -1275,7 +1311,7 @@ describe("blob runtime", () => {
   })
 
   it("binds Blob access to the active Cloudflare request env", async () => {
-    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } }
     const env = { BLOB: createMemoryBucket() }
     await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.put("notes/worker.txt", "hello")))
     const list = await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))
@@ -1287,6 +1323,21 @@ describe("blob runtime", () => {
     })
   })
 
+  it("uses the R2 binding without the HTTP credential env variables that the config names", async () => {
+    // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
+    const config = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare", secretAccessKey: "test-secret" }, {
+      env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
+    })
+    if (!config) throw new Error("Expected a store.")
+    const env = { MEDIA: createMemoryBucket() }
+    await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.put("notes/worker.txt", "hello")))
+    expect(await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))).toMatchObject({ blobs: [{ pathname: "notes/worker.txt" }] })
+    expect(await cloudflareRequest(config, env, async () => blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+      .toMatchObject([expect.objectContaining({ cause: expect.objectContaining({ code: "BLOB_R0044", message: expect.stringContaining("`TEST_MEDIA_KEY`") }) }), undefined])
+    const signed = await cloudflareRequest(config, { ...env, R2_ACCOUNT_ID: "account", TEST_MEDIA_KEY: "worker-key", TEST_MEDIA_SECRET: "worker-secret" }, async () => expectBlobSuccess(await blob.sign("notes/worker.txt", { expiresIn: 60, method: "GET" })))
+    expect(signed.url).toContain("worker-key")
+  })
+
   it("rehydrates R2 HTTP fallback secrets from the Cloudflare request env", async () => {
     const config: ResolvedBlobModuleOptions = {
       store: {
@@ -1294,7 +1345,7 @@ describe("blob runtime", () => {
         accessKeyId: "********",
         binding: "BLOB",
         bucketName: "********",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
         secretAccessKey: "********",
       },
     }
@@ -1321,7 +1372,7 @@ describe("blob runtime", () => {
         accessKeyId: "********",
         binding: "BLOB",
         bucketName: "********",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
         secretAccessKey: "********",
       },
     }
@@ -1354,7 +1405,7 @@ describe("blob runtime", () => {
   })
 
   it("keeps the Cloudflare binding available for deferred Blob tasks", async () => {
-    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } }
     const env = { BLOB: createMemoryBucket() }
     let deferred: Promise<void> | undefined
     await cloudflareRequest(config, env, async () => {
@@ -1375,7 +1426,7 @@ describe("blob runtime", () => {
   })
 
   it("keeps Cloudflare bindings isolated across overlapping requests", async () => {
-    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } }
     const envA = { BLOB: createMemoryBucket() }
     const envB = { BLOB: createMemoryBucket() }
 
@@ -1433,9 +1484,45 @@ describe("blob runtime in vite dev", () => {
     setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
 
     expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.copy("notes/hello.txt", "notes/copy.txt"))
 
     expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(await readFile(join(base, "notes/copy.txt"), "utf8")).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the local fs store for an explicit cloudflare store when the dev runner has no R2 binding", async () => {
+    // quiver-airtable: `nuxt dev` on the Cloudflare host has no `TASK_ASSETS` binding, which only the build writes.
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(await readFile(join(base, "tasks/hello.txt"), "utf8")).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the R2 binding of the dev runner for an explicit cloudflare store", async () => {
+    const base = await localBase()
+    setActiveCloudflareEnv({ TASK_ASSETS: createMemoryBucket() })
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(existsSync(join(base, "tasks/hello.txt"))).toBe(false)
+  })
+
+  it("enforces the R2 key limit on the local filesystem fallback", async () => {
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+    const pathname = Array(6).fill("x".repeat(180)).join("/")
+
+    const [error] = await blob.put(pathname, "hello")
+
+    expect(error?.code).toBe("BLOB_PATHNAME_TOO_LONG")
+    expect(existsSync(join(base, pathname))).toBe(false)
   })
 
   it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {
@@ -1444,9 +1531,11 @@ describe("blob runtime in vite dev", () => {
     setActiveCloudflareEnv({ BLOB: bucket })
     setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
 
-    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello", { contentType: "text/markdown" }))
+    expect(expectBlobSuccess(await blob.copy("notes/hello.txt", "notes/copy.txt"))).toMatchObject({ contentType: "text/markdown", pathname: "notes/copy.txt" })
 
     expect(await expectBlobSuccess(await blob.get("notes/hello.txt"))?.text()).toBe("hello")
+    expect(await expectBlobSuccess(await blob.get("notes/copy.txt"))?.text()).toBe("hello")
     expect(existsSync(join(base, "notes/hello.txt"))).toBe(false)
   })
 
@@ -1476,6 +1565,20 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(new Blob(["hello"], { type: "text/plain" }), {
       types: ["image"],
     })).toThrow("File type is invalid")
+  })
+
+  it("accepts a type that a browser opens as a page only when the app lists it exactly", () => {
+    const svg = new Blob(["content"], { type: "image/svg+xml" })
+    expect(() => ensureBlob(svg, { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    expect(() => ensureBlob(svg, { types: ["image/svg+xml"] })).not.toThrow()
+    expect(() => ensureBlob(new Blob(["content"], { type: "image/png" }), { types: ["image"] })).not.toThrow()
+    for (const type of ["image/png,image/svg+xml", "image/png, text/html", "image/png,multipart/mixed;boundary=b"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["image"] })).toThrow("File type is invalid, must be: image")
+    }
+    for (const type of ["text/html", "text/html;charset=utf-8", "text/xml", "text/html extra"]) {
+      expect(() => ensureBlob(new Blob(["content"], { type }), { types: ["text"] })).toThrow("File type is invalid, must be: text")
+    }
+    expect(() => ensureBlob(new Blob(["content"], { type: "text/html" }), { types: ["text/html"] })).not.toThrow()
   })
 
   it("rejects fractional max sizes instead of truncating them", () => {

@@ -1,6 +1,6 @@
 import { readBuiltInEnv } from "./internal/builtin-env.ts"
 
-import { forgeEnv, type ForgeEnv } from "@vite-hub/forge"
+import { forgeEnv, type ForgeEnv } from "@vite-hub/internal/forge"
 
 import type { BuiltInEnvContext, BuiltInEnvField } from "./internal/builtin-env.ts"
 import type { AgentCallbackContext, AgentRuntimeConfig } from "./types.ts"
@@ -35,7 +35,8 @@ export const builtInChannelEnv: BuiltInChannelEnv = {
   gitlab: forgeEnv.gitlab,
   forgejo: forgeEnv.forgejo,
   teams: {
-    apiUrl: { names: ["TEAMS_API_URL"], requiredUnless: ["adapter"] },
+    // The Teams SDK sends to the service URL of each conversation. TEAMS_API_URL only pins a gateway or an emulator.
+    apiUrl: { names: ["TEAMS_API_URL"] },
     appId: { names: ["TEAMS_APP_ID"], requiredUnless: ["adapter"] },
     appPassword: { names: ["TEAMS_APP_PASSWORD"], requiredUnless: ["adapter"], secret: true },
     appTenantId: { names: ["TEAMS_APP_TENANT_ID"], requiredUnless: ["adapter"] },

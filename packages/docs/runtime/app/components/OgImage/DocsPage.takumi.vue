@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The share image of every docs page, in the `vercel` theme: the site, the page title and description, and the section.
+// The share image of every docs page, in the docs design: the site, the page title and description, and the section.
 // The build renders it once per page while prerendering, so the Worker carries no renderer.
 withDefaults(defineProps<{
   title?: string

@@ -1,17 +1,20 @@
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
+import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 import { mergeConfig, resolveConfig } from "vite"
 
 import {
+  createNativePackageLoading,
   createNoExternalMerger,
   createNoExternalAddition,
   createProviderOutputEnvironmentOwner,
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
-  loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
   resolveNitroVercelFunctionName,
   resolveNuxtServerDirs,
@@ -64,31 +67,167 @@ describe("Vite provider builds", () => {
   })
 
   it("loads ViteHub packages natively only in the Nitro environment of vite dev", () => {
-    expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
-    expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)
-    expect(loadsViteHubPackagesNatively("ssr", { command: "serve" })).toBe(false)
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+    expect(loading.configureEnvironment("nitro", { command: "build" })).toBe(false)
+    expect(loading.configureEnvironment("ssr", { command: "serve" })).toBe(false)
+  })
+
+  // workerd cannot import a package file from the disk, so a `data:` module that re-exports it has no exports there.
+  it("inlines ViteHub packages when the Nitro dev runner is not Node", () => {
+    const loading = createNativePackageLoading()
+    const previous = process.env.NITRO_DEV_RUNNER
+    try {
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(false)
+      expect(loading.load("/app/node_modules/@vite-hub/agent/dist/server/registry.js", "nitro")).toBeUndefined()
+      process.env.NITRO_DEV_RUNNER = "node-process"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+
+      const instance = { options: { devServer: { runner: "miniflare" } } }
+      loading.nitro.setup(instance)
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(false)
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      instance.options.devServer.runner = "node-worker"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+    }
+    finally {
+      if (previous === undefined) delete process.env.NITRO_DEV_RUNNER
+      else process.env.NITRO_DEV_RUNNER = previous
+    }
+  })
+
+  it("lets Node load the installed files of native packages that generated code imports by path", async () => {
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    loading.configureEnvironment("nitro", { command: "serve" })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-module-"))
+    try {
+      const dist = join(root, "node_modules/@vite-hub/agent/dist")
+      await mkdir(join(dist, "server"), { recursive: true })
+      const registry = join(dist, "server/registry.js")
+      await writeFile(registry, "export const registry = {}\n")
+      const withDefault = join(dist, "index.js")
+      await writeFile(withDefault, "const agent = {}\nexport { agent as default }\n")
+      const linked = join(root, "packages/agent/dist/server/registry.js")
+      await mkdir(join(root, "packages/agent/dist/server"), { recursive: true })
+      await writeFile(linked, "export const registry = {}\n")
+
+      const native = loading.load(registry, "nitro")
+      const url = pathToFileURL(registry).href
+      expect(native).toBe(`export * from ${JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(url)}`)}`)}\n`)
+      // Node evaluates the `data:` module, so its import of the file is the instance that the app's bare import loads.
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+        const viaDataUrl = await import(${native!.slice("export * from ".length).trim()})
+        const direct = await import(${JSON.stringify(url)})
+        process.stdout.write(String(viaDataUrl.registry === direct.registry))
+      `])
+      expect(stdout).toBe("true")
+      expect(loading.load(withDefault, "nitro")).toContain("export { default } from")
+
+      expect(loading.load(registry, "ssr")).toBeUndefined()
+      expect(loading.load(registry, undefined)).toBeUndefined()
+      // A linked workspace package is outside `node_modules`, where Vite inlines the app's imports too.
+      expect(loading.load(linked, "nitro")).toBeUndefined()
+      expect(loading.load(join(root, "node_modules/@vite-hub/blob/dist/index.js"), "nitro")).toBeUndefined()
+      loading.configureEnvironment("nitro", { command: "build" })
+      expect(loading.load(registry, "nitro")).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("re-exports a default only when the native package file exports one", async () => {
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    loading.configureEnvironment("nitro", { command: "serve" })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-module-"))
+    try {
+      const dist = join(root, "node_modules/@vite-hub/agent/dist")
+      await mkdir(dist, { recursive: true })
+      const channels = join(dist, "channels.js")
+      await writeFile(channels, [
+        "/**",
+        " * @example",
+        " * export default defineChannel({ adapter: webhook() })",
+        " */",
+        "const example = \"export { channel as default }\"",
+        "export const channel = { example }",
+        "",
+      ].join("\n"))
+      const agent = join(dist, "agent.js")
+      await writeFile(agent, ["const agent = {}", "export {", "  agent,", "  agent as default", "}", ""].join("\n"))
+
+      const shims = await Promise.all([channels, agent].map(async (file) => {
+        const shim = join(root, `${basename(file, ".js")}.mjs`)
+        await writeFile(shim, loading.load(file, "nitro")!)
+        return pathToFileURL(shim).href
+      }))
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+        for (const shim of ${JSON.stringify(shims)}) process.stdout.write(Object.keys(await import(shim)).join(",") + ";")
+      `])
+      expect(stdout).toBe("channel;agent,default;")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("shares only grant chunks in Node SSR dev and leaves other modules to Vite", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-ssr-"))
+    try {
+      const entry = join(root, "dist", "index.js")
+      const linked = join(root, "dist", "vitehub-grants-123abc.js")
+      await mkdir(join(root, "dist"))
+      await writeFile(linked, "export const registry = {}\n")
+      const ssr = createNativePackageLoading([pathToFileURL(entry).href])
+      ssr.configureEnvironment("ssr", { command: "serve" })
+      expect(ssr.load(linked, "ssr")).toContain("export * from \"data:text/javascript,")
+      expect(ssr.load(entry, "ssr")).toBeUndefined()
+      expect(ssr.load(join(root, "other", "dist", "vitehub-grants-123abc.js"), "ssr")).toBeUndefined()
+      expect(ssr.load(linked, "client")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "serve", isSsrTargetWebworker: true })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "serve" }, { resolve: { conditions: ["workerd"] } })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "build" })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("renders a Nitro plugin that hands each generated module to its package", async () => {
-    const source = renderNativePackageInstallPlugin([
-      { from: "@vite-hub/agent/server/registry", install: "installAgentRegistry", module: "./registry.mjs" },
-      { from: "@vite-hub/agent/server/registry", install: "installAgentKV", module: "vite-hub/_internal/kv" },
-      { from: "@vite-hub/agent/server/registry", install: "installAgentServerEnv" },
-    ])
-    expect(source).toBe([
-      'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
-      'import * as viteHubModule0 from "./registry.mjs"',
-      'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
-      'import * as viteHubModule1 from "vite-hub/_internal/kv"',
-      'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
-      "",
-      "viteHubInstall0(viteHubModule0)",
-      "viteHubInstall1(viteHubModule1)",
-      "viteHubInstall2(undefined)",
-      "",
-      "export default function viteHubNativePackagesPlugin() {}",
-      "",
-    ].join("\n"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-install-"))
+    try {
+      const installer = pathToFileURL(join(root, "installer.mjs")).href
+      await writeFile(new URL(installer), [
+        "export const calls = []",
+        "export const installRegistry = module => calls.push([\"registry\", module.name])",
+        "export const installKV = module => calls.push([\"kv\", module.name])",
+        "export const installServerEnv = module => calls.push([\"env\", module])",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, "registry.mjs"), "export const name = \"registry\"\n")
+      await writeFile(join(root, "kv.mjs"), "export const name = \"kv\"\n")
+      const plugin = join(root, "plugin.mjs")
+      await writeFile(plugin, renderNativePackageInstallPlugin([
+        { from: installer, install: "installRegistry", module: "./registry.mjs" },
+        { from: installer, install: "installKV", module: "./kv.mjs" },
+        { from: installer, install: "installServerEnv" },
+      ]))
+
+      const loaded = await import(pathToFileURL(plugin).href)
+      const { calls } = await import(installer)
+      expect(calls).toEqual([["registry", "registry"], ["kv", "kv"], ["env", undefined]])
+      expect(loaded.default).toBeTypeOf("function")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("merges a package into existing noExternal values", () => {
@@ -274,7 +413,7 @@ describe("Vite provider builds", () => {
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "vercel" } }, "blob", {})).toBe("__blob.func")
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "vercel-edge" } }, "database", {})).toBe("__database.func")
     expect(resolveNitroVercelFunctionName({ plugins }, "queue", { VERCEL: "1" })).toBe("__queue.func")
-    expect(resolveNitroVercelFunctionName({ plugins }, "workflow", { VITEHUB_HOSTING: "vercel" })).toBe("__workflow.func")
+    expect(resolveNitroVercelFunctionName({ plugins }, "workflow", { VITEHUB_HOST: "vercel" })).toBe("__workflow.func")
     expect(resolveNitroVercelFunctionName({ nitro: { preset: "vercel" }, plugins: [{ name: "vitehub" }] }, "blob", {})).toBe("__blob.func")
     expect(resolveNitroVercelFunctionName({ nitro: { preset: "vercel-edge" } }, "database", {})).toBe("__database.func")
     expect(resolveNitroVercelFunctionName({}, "workflow", { NITRO_PRESET: "vercel" })).toBe("__workflow.func")
@@ -284,10 +423,10 @@ describe("Vite provider builds", () => {
       plugins,
     }, "blob", {})).toBe("__blob.func")
     expect(resolveNitroVercelFunctionName({ plugins: [{ name: "vitehub" }] }, "blob", { VERCEL: "1" })).toBeUndefined()
-    expect(resolveNitroVercelFunctionName({}, "blob", { VITEHUB_HOSTING: "vercel" })).toBeUndefined()
+    expect(resolveNitroVercelFunctionName({}, "blob", { VITEHUB_HOST: "vercel" })).toBeUndefined()
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "node-server" } }, "blob", {})).toBeUndefined()
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "node-server" } }, "blob", { VERCEL: "1" })).toBeUndefined()
-    expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "cloudflare" } }, "blob", { VITEHUB_HOSTING: "vercel" })).toBeUndefined()
+    expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "cloudflare" } }, "blob", { VITEHUB_HOST: "vercel" })).toBeUndefined()
   })
 })
 

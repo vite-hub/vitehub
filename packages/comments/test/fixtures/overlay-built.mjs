@@ -8,7 +8,7 @@ let connected
 let timeout
 const connections = new Promise((resolve, reject) => {
   connected = resolve
-  timeout = setTimeout(() => reject(new Error(`Expected a page presence connection, got ${JSON.stringify(sockets)}`)), 2000)
+  timeout = setTimeout(() => reject(new Error(`Expected page presence and subject notice connections, got ${JSON.stringify(sockets)}`)), 2000)
 })
 const browser = new Browser({
   settings: {
@@ -18,7 +18,7 @@ const browser = new Browser({
       interceptor: {
         beforeAsyncRequest: async ({ request, window }) => {
           const path = new URL(request.url).pathname
-          if (path === `${base}/api/_vitehub/comments/session`) {
+          if (path === `${base}/_vitehub/comments/session`) {
             if (new URL(request.url).searchParams.get("page") !== "/articles/example") throw new Error("The session must authorize the current page")
             return window.Response.json({ data: {
               user: { id: "ada", name: "Ada" },
@@ -27,7 +27,7 @@ const browser = new Browser({
               content: false,
             } })
           }
-          if (path === `${base}/api/_vitehub/comments/threads`) return window.Response.json({ data: [] })
+          if (path === `${base}/_vitehub/comments/threads`) return window.Response.json({ data: [] })
           throw new Error(`Unexpected API request: ${request.url}`)
         },
       },
@@ -42,12 +42,12 @@ try {
     readyState = 0
     constructor(url) {
       sockets.push(url)
-      if (sockets.length === 1) connected()
+      if (sockets.length === 2) connected()
     }
     close() {}
   }
   // The overlay and its chunks load from the asset directory only. Presence loads the Realtime chunk with `import()`.
-  const assets = `https://site.test${base}/api/_vitehub/comments/assets/`
+  const assets = `https://site.test${base}/_vitehub/comments/assets/`
   const modules = new Map()
   const moduleOf = (url) => {
     const name = new URL(url).pathname.slice(new URL(assets).pathname.length)
@@ -74,7 +74,7 @@ try {
   }
   const overlay = await ready(`${assets}overlay.js`)
   overlay.namespace.default({
-    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: `${base}/api/_vitehub/comments/assets/overlay.js` },
+    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: `${base}/_vitehub/comments/assets/overlay.js` },
     bar: page.mainFrame.document.createElement("div"),
     signal: new page.mainFrame.window.AbortController().signal,
     open: false,
@@ -85,7 +85,9 @@ try {
     beforeExit() {},
   })
   await connections
-  console.log(JSON.stringify(sockets))
+  // Vite adds a `modulepreload` link for each chunk of a dynamic import before it imports the chunk.
+  const preloads = [...page.mainFrame.document.querySelectorAll("link[rel=modulepreload]")].map(link => link.href)
+  console.log(JSON.stringify({ preloads, sockets }))
 }
 finally {
   clearTimeout(timeout)

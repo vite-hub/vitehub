@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { docsAppPath, docsRawPath, normalizeDocsPath } from "#docs/navigation"
+import { camelize, capitalize } from "vue"
+import { pageBlocks } from "#docs/components"
+import { docsAppPath, docsRawPath, isDocsWorkspaceLayout, normalizeDocsPath } from "#docs/navigation"
+import { articleLayout } from "#docs/shell"
+import workspaces from "#docs/workspaces"
 
-import type { DocsPageResponse } from "@vite-hub/docs"
+import type { Node as ComarkNode } from "comark"
+import type { DocsDocument, DocsPageResponse } from "@vite-hub/docs"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -14,15 +19,44 @@ const response = data.value
 const { page } = response
 
 const isRoot = page.path === manifest.root?.path
+// A page that `start.links` lists opens inside the start section, like the pages of a section.
+const isStartLink = isDocsStartLink(useDocsConfig(), page.path)
+const loadWorkspace = isDocsWorkspaceLayout(page.layout) ? workspaces[page.path] : undefined
+const workspace = loadWorkspace && (await loadWorkspace()).default
 // Content previews can change a page's layout or add a home page after the manifest was built.
-const layout = page.layout !== "home" && (response.section || isRoot) ? "docs" : "default"
+const layout = isDocsWorkspaceLayout(page.layout) || (page.layout !== "home" && (response.section || isRoot || isStartLink)) ? "docs" : articleLayout
 if (import.meta.client && route.meta.layout !== layout) {
   // The server has already rendered the manifest's layout. Finish hydrating it before switching shells.
   if (useNuxtApp().isHydrating) onNuxtReady(() => setPageLayout(layout))
   else setPageLayout(layout)
 }
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !response.section && !isRoot && page.layout !== "home"
+const isStandalone = !response.section && !isRoot && !isStartLink && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)
+
+// A home page draws the app's `components/content/` blocks at full width. The Markdown between two of them, such as a
+// heading and a list, goes in one column with the prose styles of a docs page.
+const componentKey = (tag: string) => capitalize(camelize(tag))
+function homeDocument(document: DocsDocument): DocsDocument {
+  const blocks = new Set(pageBlocks.map(componentKey))
+  const nodes: ComarkNode[] = []
+  let prose: ComarkNode[] = []
+  const flush = () => {
+    if (prose.length) nodes.push(["div", { class: "docs-content vh-docs-home-prose" }, ...prose])
+    prose = []
+  }
+  for (const node of document.nodes) {
+    // The parser draws some blocks as HTML. An app component with the block's name still draws it.
+    const tag = typeof node === "string" || node[0] === null ? undefined : node[0] === "comark-html" && typeof node[1].block === "string" ? node[1].block : node[0]
+    if (tag && blocks.has(componentKey(tag))) {
+      flush()
+      nodes.push(node)
+    }
+    else prose.push(node)
+  }
+  flush()
+  return { ...document, nodes }
+}
+const home = page.layout === "home" ? homeDocument(response.document) : undefined
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
@@ -35,33 +69,41 @@ useDocsSeo({
   description: page.seo?.description ?? page.description,
   section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
   image: indexed ? page.seo?.image : false,
-  type: isRoot || page.layout === "landing" || page.layout === "home" ? "page" : "article",
+  type: isRoot || page.layout === "landing" || page.layout === "home" || page.layout === "playground" ? "page" : "article",
 })
 </script>
 
 <template>
   <!-- The layout's UMain is the page's only main landmark. -->
-  <div v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
+  <div v-if="workspace" :key="page.path" class="vh-docs-workspace-page">
+    <LazyDocsLearn v-if="workspace.layout === 'learn'" :response="response" :data="workspace" />
+    <LazyDocsPlayground v-else :response="response" :data="workspace" />
+    <DocsBuiltWith class="shrink-0 px-4 py-2" />
+  </div>
+
+  <div v-else-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
       :headline="page.eyebrow ?? undefined"
       :title="page.sourceTitle"
       :description="page.tagline ?? undefined"
-      :ui="{
+      :ui="withDocsTheme('pageHeader', {
         root: 'border-b border-default px-0 pb-10 pt-0',
         title: 'text-balance text-[38px] leading-[46px] sm:text-[46px] sm:leading-[54px]',
         description: 'max-w-2xl text-pretty text-lg leading-8',
-      }"
+      })"
     />
 
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <DocsMarkdown :document="response.document" />
       <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
+    <DocsBuiltWith class="mt-8" />
   </div>
 
-  <div v-else-if="page.layout === 'home'" :data-path="page.path">
-    <DocsMarkdown :document="response.document" />
+  <div v-else-if="home" :data-path="page.path">
+    <DocsMarkdown :document="home" />
     <DocsPageCredits v-if="response.credits" :credits="response.credits" class="mx-auto w-full max-w-(--vh-content-width) px-4 sm:px-6" />
+    <DocsBuiltWith class="mx-auto w-full max-w-(--vh-content-width) px-4 pb-8 pt-8 sm:px-6" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">
@@ -75,6 +117,25 @@ useDocsSeo({
 </template>
 
 <style scoped>
+.vh-docs-workspace-page {
+  display: contents;
+}
+
+.vh-docs-workspace-page:has(> .vh-docs-credit) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.vh-docs-workspace-page > :deep(.vh-docs-workspace) {
+  flex: 1 1 0;
+}
+
+.vh-docs-workspace-page:has(> .vh-docs-credit) > :deep(.vh-docs-workspace:has(.vh-workspace-gate)) {
+  flex: 1 0 auto;
+  height: auto;
+}
+
 /* Below 40rem the article and the product landing set the only gutter, so the text keeps the width. */
 .vh-docs-main,
 .vh-docs-landing,

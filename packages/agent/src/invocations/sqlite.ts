@@ -1,15 +1,16 @@
 import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { createClient } from "@libsql/client"
 
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
-import { filteredObservationRecord } from "./observation-projection.ts"
+import { observationRecordProjection } from "./observation-projection.ts"
+import { observationRowChanges, parsedObservation } from "./observation-rows.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationPruneResult,
@@ -19,11 +20,13 @@ import type {
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreUpdateInput,
 } from "../invocations.ts"
-import type { Client, InStatement, Row } from "@libsql/client"
+import type { Client, Config, InStatement, ResultSet, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
+import type { ObservationRow } from "./observation-rows.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { startWalCheckpointer } from "../internal/sqlite-wal-checkpointer.ts"
 
 export interface LibsqlAgentInvocationStoreOptions extends AgentRetentionPolicy {
   authToken?: string
@@ -47,6 +50,11 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 /** Pages that one incremental vacuum returns to the file system. */
 const incrementalVacuumPages = 1000
+/**
+ * Bytes a WAL file keeps after a checkpoint resets it. SQLite reuses the WAL file without shrinking it, so one long
+ * reader during a write burst would otherwise leave a WAL as large as that burst on disk for the life of the database.
+ */
+const walSizeLimitBytes = 64 * 1024 * 1024
 const backfillPageSize = 100
 const observationInsertChunkSize = 200
 const searchVersion = 3
@@ -70,25 +78,12 @@ function stringify(value: unknown): string {
     return JSON.stringify(value)
   }
   catch {
-    return JSON.stringify(value, (_key, item: unknown) => hasRuntimeType(item, "bigint") ? String(item) : item)
+    return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? String(item) : item)
   }
 }
 
 function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
   return stringify(record)
-}
-
-function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
-  if (!hasRuntimeType(value, "string")) return
-  const parsed: unknown = JSON.parse(value)
-  if (parsed === null || !hasRuntimeType(parsed, "object") || !("name" in parsed) || !hasRuntimeType(parsed.name, "string")) return
-  // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
-  return parsed as TraceEventLogEntry
-}
-
-interface ObservationRow {
-  observation: TraceEventLogEntry
-  position: number
 }
 
 function observationRows(rows: readonly Row[]): ObservationRow[] {
@@ -101,33 +96,6 @@ function observationRows(rows: readonly Row[]): ObservationRow[] {
 function withObservationRows(record: AgentInvocationRecord, rows: readonly Row[]): AgentInvocationRecord {
   if (!rows.length) return record
   return { ...record, observations: [...record.observations, ...observationRows(rows).map(row => row.observation)] }
-}
-
-/**
- * Returns the row changes when an update kept the record's observations and the order of existing rows.
- * Appends and evictions of appended observations qualify. Any other change returns undefined.
- */
-function observationRowChanges(
-  inRecord: readonly TraceEventLogEntry[],
-  rows: readonly ObservationRow[],
-  observations: readonly TraceEventLogEntry[],
-): { added: TraceEventLogEntry[], removed: number[] } | undefined {
-  if (observations.length < inRecord.length || inRecord.some((observation, index) => observations[index] !== observation)) return
-  const positions = new Map(rows.map(row => [row.observation, row.position]))
-  const kept = new Set<number>()
-  const added: TraceEventLogEntry[] = []
-  let lastPosition = -1
-  for (const observation of observations.slice(inRecord.length)) {
-    const position = positions.get(observation)
-    if (position === undefined) {
-      added.push(observation)
-      continue
-    }
-    if (added.length || position <= lastPosition) return
-    lastPosition = position
-    kept.add(position)
-  }
-  return { added, removed: rows.flatMap(row => kept.has(row.position) ? [] : [row.position]) }
 }
 
 function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {
@@ -195,6 +163,170 @@ function triggeredByProjection() {
     THEN json_extract(${source}, '$.annotations.triggeredBy') END`
 }
 
+function journalSchema(table: string) {
+  const claimsTable = `${table}_claims`
+  const observationTable = `${table}_observations`
+  const column = (name: string, sql: string, after: string[] = []) => ({ name, statements: [`ALTER TABLE ${sql}`, ...after] })
+  return {
+    tables: [
+      `CREATE TABLE IF NOT EXISTS ${table} (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
+        capability_ids TEXT,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS ${claimsTable} (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL DEFAULT 0,
+        claim_token TEXT NOT NULL DEFAULT '',
+        expires_at INTEGER NOT NULL
+      )`,
+      // Observations appended to a running Invocation. They follow the observations in its record column
+      // in position order. The terminal update moves them back into the record column.
+      // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
+      `CREATE TABLE IF NOT EXISTS ${observationTable} (
+        position INTEGER PRIMARY KEY AUTOINCREMENT,
+        invocation_sequence INTEGER NOT NULL,
+        observation TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS ${table}_schema (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)`,
+    ],
+    columns: [
+      column("search", `${table} ADD COLUMN search TEXT`),
+      column("agent_name", `${table} ADD COLUMN agent_name TEXT`),
+      column("search_version", `${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`),
+      column("summary", `${table} ADD COLUMN summary TEXT`),
+      column("capability_ids", `${table} ADD COLUMN capability_ids TEXT`),
+      column("updated_at", `${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`),
+    ],
+    claimColumns: [
+      column("claimed_at", `${claimsTable} ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`, [
+        `UPDATE ${claimsTable} SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`,
+      ]),
+      column("claim_token", `${claimsTable} ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`),
+    ],
+    beforeBackfill: [
+      // Updates clear capability_ids in the same statement. The trigger clears it only for
+      // writers that change record alone, so it does not rewrite the row a second time.
+      `CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.capability_ids IS NOT NULL
+        BEGIN
+          UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_capability_ids_update`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
+        BEGIN
+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE ${table} SET
+            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
+            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`,
+      // Version 0 is already stale, so marking it stale again would only rewrite the row.
+      `CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
+        AFTER UPDATE OF search, record ON ${table}
+        WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
+        BEGIN
+          UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.summary IS NULL
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.summary IS OLD.summary
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
+        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+        AFTER UPDATE OF expires_at ON ${claimsTable}
+        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
+        BEGIN
+          UPDATE ${claimsTable}
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
+          WHERE id = NEW.id;
+        END`,
+    ],
+    afterBackfill: [
+      `CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
+        WHERE agent_name IS NULL OR agent_name = ''`,
+      // Tables from older versions store summary and capability_ids after the large record column.
+      // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
+      `CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
+        ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`,
+      `CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
+        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
+        ON ${table} (${triggeredByProjection()}, agent_name)`,
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+        ON ${observationTable} (invocation_sequence, position)`,
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`,
+      // A reader that follows a running Invocation reads only the rows after its last sequence.
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_sequence
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.sequence'))`,
+      // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
+      `CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+        AFTER DELETE ON ${table}
+        BEGIN
+          DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
+        END`,
+    ],
+    droppedTriggers: [`${table}_capability_ids_update`, `${table}_legacy_updated_at_update`, `${table}_stale_legacy_search_update`],
+  }
+}
+
+async function hasCurrentJournalSchema(client: Client, table: string): Promise<boolean> {
+  const schema = journalSchema(table)
+  const [objects, columns, claimColumns] = await client.batch([
+    `SELECT type, lower(name) AS name FROM sqlite_master
+      WHERE tbl_name COLLATE NOCASE IN ('${table}', '${table}_claims', '${table}_observations')`,
+    `PRAGMA table_info(${table})`,
+    `PRAGMA table_info(${table}_claims)`,
+  ], "read")
+  const names = new Set(objects!.rows.map(row => `${row.type}:${row.name}`))
+  return [...schema.tables, ...schema.beforeBackfill, ...schema.afterBackfill].every((sql) => {
+    const object = /^CREATE (TABLE|INDEX|TRIGGER) IF NOT EXISTS (\w+)/.exec(sql)
+    return !object || object[2] === `${table}_schema` || names.has(`${object[1]}:${object[2]}`.toLowerCase())
+  })
+    && schema.droppedTriggers.every(name => !names.has(`trigger:${name.toLowerCase()}`))
+    && schema.columns.every(column => columns!.rows.some(row => row.name === column.name))
+    && schema.claimColumns.every(column => claimColumns!.rows.some(row => row.name === column.name))
+}
+
+async function schemaFingerprint(schema: ReturnType<typeof journalSchema>): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(schema)))
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 function serializedSummary(record: Omit<AgentInvocationRecord, "cursor">): string {
   const { observations: _observations, ...summary } = record
   return stringify(summary)
@@ -251,7 +383,26 @@ interface PendingUpdate {
   resolve: (record: AgentInvocationRecord | undefined) => void
 }
 
+// Clients created by this package's @libsql/client. A checkpoint worker loads that same native addon;
+// another copy of SQLite in the process would drop this client's file locks when it closes.
+const ownedClients = new WeakSet<Client>()
+
+/** Creates a libSQL client whose WAL file the store may checkpoint on a worker thread. */
+export function createOwnedLibsqlClient(config: Config): Client {
+  const client = createClient(config)
+  ownedClients.add(client)
+  return client
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): Required<AgentInvocationStore> {
+  return createSqliteJournalStore(options)
+}
+
+export function createFileBackedWasmJournalStore(options: LibsqlAgentInvocationStoreOptions & { client: Client }, backingFile: string): Required<AgentInvocationStore> {
+  return createSqliteJournalStore(options, backingFile)
+}
+
+function createSqliteJournalStore(options: LibsqlAgentInvocationStoreOptions, backingFile?: string): Required<AgentInvocationStore> {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
   }
@@ -261,7 +412,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     size: "any",
     error: retentionError,
   })
-  const client = options.client || createClient({
+  const client = options.client || createOwnedLibsqlClient({
     ...(options.authToken ? { authToken: options.authToken } : {}),
     url: options.url!,
   })
@@ -283,22 +434,41 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     return statements
   }
-  // Unary + sorts the selected rows instead of scanning payloads through the position index.
-  const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
-    args: observationNames === undefined ? [id] : [id, observationNames],
-    sql: `SELECT position, observation FROM ${observationTable}
-      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
-        ? ""
-        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === undefined ? "position" : "+position"}`,
-  })
+  // A filter uses the name or sequence index. Unary + then sorts the selected rows instead of scanning payloads through the position index.
+  const observationRowsStatement = (id: string, options: AgentInvocationGetOptions = {}): InStatement => {
+    const conditions: string[] = []
+    const args: (number | string)[] = [id]
+    if (options.observationNames) {
+      conditions.push(" AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))")
+      args.push(JSON.stringify(options.observationNames))
+    }
+    if (options.afterSequence !== undefined) {
+      conditions.push(" AND json_extract(observation, '$.sequence') > ?")
+      args.push(options.afterSequence)
+    }
+    return {
+      args,
+      sql: `SELECT position, observation FROM ${observationTable}
+      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${conditions.join("")} ORDER BY ${conditions.length ? "+position" : "position"}`,
+    }
+  }
   let initialized: Promise<void> | undefined
   /** The database file. Set by initialize() when maxSize is set. */
   let storePath: string | undefined
   let synchronousNormal = false
-  // synchronous is a per-connection setting, and libSQL opens pooled connections on demand.
-  // Each write sets it on the idle connection that the write borrows next.
+  const walSizeLimit = `PRAGMA journal_size_limit = ${walSizeLimitBytes}`
   const prepareWrite = async () => {
-    if (synchronousNormal) await client.execute("PRAGMA synchronous = NORMAL")
+    if (synchronousNormal) await client.executeMultiple("PRAGMA synchronous = NORMAL;")
+  }
+  const batchWrite = async (statements: InStatement[]) => {
+    if (!synchronousNormal) return await client.batch(statements, "write")
+    const results = await client.batch([walSizeLimit, ...statements], "write")
+    return results.slice(1)
+  }
+  const executeWrite = async (statement: InStatement) => {
+    if (!synchronousNormal) return await client.execute(statement)
+    const results = await batchWrite([statement])
+    return results[0]!
   }
   let searchBackfill: Promise<void> | undefined
   let summaryBackfill: Promise<void> | undefined
@@ -319,6 +489,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await prepareWrite()
       const transaction = await client.transaction("write")
       try {
+        if (synchronousNormal) await transaction.execute(walSizeLimit)
         const result = await transaction.execute({
           args: claimId === undefined ? [id] : [id, id, claimId],
           sql: `SELECT sequence, search_version, record FROM ${table} WHERE id = ?${claimId === undefined
@@ -452,7 +623,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             : []
         })
         if (searchUpdates.length) {
-          await client.batch(searchUpdates, "write")
+          await batchWrite(searchUpdates)
           projected = true
         }
       }
@@ -481,11 +652,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       })
       if (!missingSummaries.rows.length) break
       beforeSequence = Math.min(...missingSummaries.rows.map(row => numberValue(row.sequence)))
-      await client.batch(missingSummaries.rows.map(row => ({
+      await batchWrite(missingSummaries.rows.map(row => ({
         args: [numberValue(row.sequence)],
         sql: `UPDATE ${table} SET summary = json_remove(record, '$.observations')
           WHERE sequence = ? AND summary IS NULL AND json_valid(record)`,
-      })), "write")
+      })))
     }
   }
   const startSummaryBackfill = () => {
@@ -517,238 +688,85 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
       }
+      const checkpoints = synchronousNormal && ownedClients.has(client)
+      const file = checkpoints || (maxSize !== false && !backingFile)
+        ? (await client.execute("PRAGMA database_list")).rows.find(row => row.name === "main")?.file
+        : undefined
+      // The store has no close, so the worker runs for the life of the process.
+      if (checkpoints && typeof file === "string" && file) startWalCheckpointer(file)
       if (maxSize !== false) {
-        const databases = await client.execute("PRAGMA database_list")
-        const file = databases.rows.find(row => row.name === "main")?.file
-        if (!hasRuntimeType(file, "string") || !file) {
+        storePath = backingFile ?? (typeof file === "string" ? file : undefined)
+        if (!storePath) {
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }
-        storePath = file
       }
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT NOT NULL UNIQUE,
-        status TEXT NOT NULL,
-        agent_name TEXT NOT NULL DEFAULT '',
-        search TEXT,
-        search_version INTEGER NOT NULL DEFAULT 0,
-        summary TEXT,
-        capability_ids TEXT,
-        updated_at TEXT NOT NULL DEFAULT '',
-        record TEXT NOT NULL
-      )`)
-      const columns = await client.execute(`PRAGMA table_info(${table})`)
-      if (!columns.rows.some(row => row.name === "search")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "search")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "agent_name")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN agent_name TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "agent_name")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "search_version")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "summary")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN summary TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "summary")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "capability_ids")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN capability_ids TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "capability_ids")) throw error
-        }
-      }
-      // Updates clear capability_ids in the same statement. The trigger clears it only for
-      // writers that change record alone, so it does not rewrite the row a second time.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.capability_ids IS NOT NULL
-        BEGIN
-          UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_capability_ids_update`)
-      if (!columns.rows.some(row => row.name === "updated_at")) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "updated_at")) throw error
-        }
-      }
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
-        AFTER INSERT ON ${table}
-        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
-        BEGIN
-          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.updated_at IS OLD.updated_at
-        BEGIN
-          UPDATE ${table} SET
-            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
-            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
-          WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
-      // Version 0 is already stale, so marking it stale again would only rewrite the row.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
-        AFTER UPDATE OF search, record ON ${table}
-        WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
-        BEGIN
-          UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
-        AFTER INSERT ON ${table}
-        WHEN NEW.summary IS NULL
-        BEGIN
-          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
-            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.summary IS OLD.summary
-        BEGIN
-          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
-            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
-        END`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
-        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
-      let backfillSequence = 0
+      const schema = journalSchema(table)
+      const fingerprint = await schemaFingerprint(schema)
+      const storedFingerprint = await client.execute(`SELECT fingerprint FROM ${table}_schema WHERE id = 1
+        AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name IN (${schema.droppedTriggers.map(name => `'${name}'`).join(", ")}))`)
+        .then(result => result.rows[0]?.fingerprint, () => undefined)
+      if (storedFingerprint === fingerprint) return
+      const runSchema = async (statements: string[], reads: InStatement[]): Promise<ResultSet[]> => await retrySqliteBusy(async () => {
+        if (!synchronousNormal) return (await client.batch([...statements, ...reads], "write")).slice(statements.length)
+        // executeMultiple keeps the connection-local pragma and the transaction on one borrowed connection.
+        await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${walSizeLimit};\nBEGIN IMMEDIATE;\n${statements.map(sql => `${sql};\n`).join("")}COMMIT;`)
+        return reads.length ? await client.batch(reads, "read") : []
+      })
+      const inspection = [`PRAGMA table_info(${table})`, `PRAGMA table_info(${table}_claims)`]
+      const missingColumns = ([columns, claimColumns]: ResultSet[]) => [
+        ...schema.columns.filter(column => !columns!.rows.some(row => row.name === column.name)),
+        ...schema.claimColumns.filter(column => !claimColumns!.rows.some(row => row.name === column.name)),
+      ].flatMap(column => column.statements)
+      const agentNamePage = (after: number): InStatement => ({
+        args: [after, backfillPageSize],
+        sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      const updatedAtPage = (after: number): InStatement => ({
+        args: [after, backfillPageSize],
+        sql: `SELECT sequence FROM ${table}
+          WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      let migrations = missingColumns(await runSchema(schema.tables, inspection))
+      let backfills: ResultSet[]
       while (true) {
-        const missingAgentNames = await client.execute({
-          args: [backfillSequence, backfillPageSize],
-          sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingAgentNames.rows.length) break
-        const agentNameBackfill = missingAgentNames.rows.map((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
-          return {
-            args: [record ? agentNameRecord(storedRecord(record)) : "", numberValue(row.sequence)],
-            sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
-          }
-        })
-        await client.batch(agentNameBackfill, "write")
-      }
-      backfillSequence = 0
-      while (true) {
-        const missingUpdatedAt = await client.execute({
-          args: [backfillSequence, backfillPageSize],
-          sql: `SELECT sequence FROM ${table}
-            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingUpdatedAt.rows.length) break
-        const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          return {
-            args: [numberValue(row.sequence)],
-            sql: `UPDATE ${table} SET
-              status = COALESCE(json_extract(record, '$.status'), status),
-              updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
-              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
-          }
-        })
-        await client.batch(updatedAtBackfill, "write")
-      }
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
-        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
-        WHERE agent_name IS NULL OR agent_name = ''`)
-      // Tables from older versions store summary and capability_ids after the large record column.
-      // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
-        ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
-        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
-        ON ${table} (${triggeredByProjection()}, agent_name)`)
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
-        id TEXT PRIMARY KEY,
-        claim_id TEXT NOT NULL,
-        claimed_at INTEGER NOT NULL DEFAULT 0,
-        claim_token TEXT NOT NULL DEFAULT '',
-        expires_at INTEGER NOT NULL
-      )`)
-      const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-      if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
         try {
-          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+          backfills = await runSchema([...migrations, ...schema.beforeBackfill], [agentNamePage(0), updatedAtPage(0)])
+          break
         }
         catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-          if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
-        }
-        await client.execute(`UPDATE ${table}_claims
-          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
-      }
-      if (!claimColumns.rows.some(row => row.name === "claim_token")) {
-        try {
-          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-          if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
+          const remaining = missingColumns(await client.batch(inspection, "read"))
+          if (remaining.length >= migrations.length) throw error
+          migrations = remaining
         }
       }
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
-        AFTER UPDATE OF expires_at ON ${table}_claims
-        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
-        BEGIN
-          UPDATE ${table}_claims
-          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
-          WHERE id = NEW.id;
-        END`)
-      // Observations appended to a running Invocation. They follow the observations in its record column
-      // in position order. The terminal update moves them back into the record column.
-      // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
-      await client.execute(`CREATE TABLE IF NOT EXISTS ${observationTable} (
-        position INTEGER PRIMARY KEY AUTOINCREMENT,
-        invocation_sequence INTEGER NOT NULL,
-        observation TEXT NOT NULL
-      )`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
-        ON ${observationTable} (invocation_sequence, position)`)
-      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
-        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
-      // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
-        AFTER DELETE ON ${table}
-        BEGIN
-          DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
-        END`)
+      const backfill = async (rows: Row[], page: (after: number) => InStatement, update: (row: Row) => InStatement) => {
+        while (rows.length) {
+          await batchWrite(rows.map(update))
+          rows = (await client.execute(page(numberValue(rows.at(-1)!.sequence)))).rows
+        }
+      }
+      await backfill(backfills[0]!.rows, agentNamePage, (row) => {
+        const record = deserialize(row.record, row.sequence)
+        return {
+          args: [record ? agentNameRecord(storedRecord(record)) : "", numberValue(row.sequence)],
+          sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
+        }
+      })
+      await backfill(backfills[1]!.rows, updatedAtPage, row => ({
+        args: [numberValue(row.sequence)],
+        sql: `UPDATE ${table} SET
+          status = COALESCE(json_extract(record, '$.status'), status),
+          updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
+          WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
+      }))
+      await runSchema([
+        ...schema.afterBackfill,
+        `INSERT INTO ${table}_schema (id, fingerprint) VALUES (1, '${fingerprint}') ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint`,
+      ], [])
       startSearchBackfill()
       startSummaryBackfill()
-    })().catch((error) => {
+    })().catch(async (error: unknown) => {
+      if (hasSqliteCode(error, "SQLITE_READONLY") && await hasCurrentJournalSchema(client, table).catch(() => false)) return
       initialized = undefined
       throw error
     })
@@ -756,14 +774,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const read: AgentInvocationStore["get"] = async (id, options) => {
     await initialize()
-    const observationNames = options?.observationNames ? JSON.stringify(options.observationNames) : undefined
+    const projection = observationRecordProjection(options)
     // One read transaction keeps the record and its observation rows consistent with a concurrent terminal update.
     const [result, rows] = await client.batch([
-      {
-        args: observationNames === undefined ? [id] : [observationNames, id],
-        sql: `SELECT sequence, ${observationNames === undefined ? "record" : filteredObservationRecord} AS record FROM ${table} WHERE id = ? LIMIT 1`,
-      },
-      observationRowsStatement(id, observationNames),
+      { args: [...projection.args, id], sql: `SELECT sequence, ${projection.sql} AS record FROM ${table} WHERE id = ? LIMIT 1` },
+      observationRowsStatement(id, options),
     ], "read")
     const row = result!.rows[0]
     const record = row ? deserialize(row.record, row.sequence) : undefined
@@ -855,7 +870,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         ) RETURNING id`,
       })
       if (!deleted.rows.length) break
-      for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+      for (const row of deleted.rows) if (typeof row.id === "string") ids.push(row.id)
       rows -= deleted.rows.length
       await executor.execute(deleteOrphanClaims)
       bytes = await liveBytes(executor)
@@ -868,7 +883,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
    */
   const vacuumFreePages = async () => {
     try {
-      await client.executeMultiple(`PRAGMA incremental_vacuum(${incrementalVacuumPages})`)
+      const vacuum = `PRAGMA incremental_vacuum(${incrementalVacuumPages})`
+      await client.executeMultiple(synchronousNormal ? `${walSizeLimit};\n${vacuum}` : vacuum)
     }
     catch (error) {
       console.warn(`[vitehub] SQLite Agent Invocation incremental vacuum failed. The next prune frees the remaining pages: ${error instanceof Error ? error.message : String(error)}`)
@@ -890,6 +906,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const transaction = await client.transaction("write")
     let result: Awaited<ReturnType<typeof pruneSize>>
     try {
+      if (synchronousNormal) await transaction.execute(walSizeLimit)
       result = await pruneSize(transaction, budget)
       await transaction.commit()
     }
@@ -936,11 +953,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await prepareWrite()
       const transaction = await client.transaction("write")
       try {
+        if (synchronousNormal) await transaction.execute(walSizeLimit)
         const beforeBytes = await liveBytes(transaction)
         const ids: string[] = []
         for (const selection of pruneSelections(true, updatedBefore)) {
           const deleted = await transaction.execute({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })
-          for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+          for (const row of deleted.rows) if (typeof row.id === "string") ids.push(row.id)
         }
         await transaction.execute(deleteOrphanClaims)
         const size = await pruneSize(transaction, budget)
@@ -973,7 +991,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         const expectedClaimIds = options?.expectedClaimIds === undefined ? null : JSON.stringify(options.expectedClaimIds)
         const expectedTraceId = options?.expectedTraceId ?? null
         const expectedCursor = options?.expectedCursor === undefined ? null : Number(options.expectedCursor)
-        const result = await client.execute({
+        const result = await executeWrite({
           args: [id, claimId, claimToken, leaseMs, id, expectedCursor, expectedCursor, expectedTraceId, expectedTraceId, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
           sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
             SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND (? IS NULL OR sequence = ?) AND (? IS NULL OR json_extract(record, '$.traceId') = ?))
@@ -1009,7 +1027,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             args: [input.id],
             sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
           }, observationRowsStatement(input.id))
-          const results = await client.batch(statements, "write")
+          const results = await batchWrite(statements)
           const row = results.at(-2)?.rows[0]
           const stored = row ? deserialize(row.record, row.sequence) : undefined
           const record = stored && withObservationRows(stored, results.at(-1)?.rows ?? [])
@@ -1027,7 +1045,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
       })
       const claimToken = result.rows[0]?.claim_token
-      return hasRuntimeType(claimToken, "string") ? claimToken : undefined
+      return typeof claimToken === "string" ? claimToken : undefined
     },
     get: read,
     getSummary: readSummary,
@@ -1060,7 +1078,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args.push(...statuses)
       }
       // With a status list, this range uses the (status, updated_at) index.
-      const updatedSince = hasRuntimeType(listOptions.updatedSince, "string") ? listOptions.updatedSince : undefined
+      const updatedSince = typeof listOptions.updatedSince === "string" ? listOptions.updatedSince : undefined
       if (updatedSince !== undefined) {
         filters.push("updated_at >= ?")
         args.push(updatedSince)
@@ -1145,7 +1163,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         : "1 = 1"
       // Cache complete IDs only when requested. Record writes invalidate the projection,
       // including writes from older clients that do not know about this column.
-      await write(async () => await retrySqliteBusy(async () => await client.execute({
+      await write(async () => await retrySqliteBusy(async () => await executeWrite({
         args,
         sql: `UPDATE ${table} SET capability_ids = ${capabilityIdsProjection(table)}
           WHERE capability_ids IS NULL AND ${filter}`,
@@ -1166,7 +1184,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           FROM (${rows}) AS invocation, json_each(invocation.ids) AS capability ORDER BY capability_id`,
       })
       return result.rows.flatMap((row) => {
-        return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
+        return typeof row.capability_id === "string" ? [row.capability_id] : []
       })
     },
     async listTriggeredBy(agentName) {
@@ -1186,7 +1204,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args: selectedAgent ? [selectedAgent, selectedAgent] : [],
         sql: `SELECT DISTINCT triggered_by FROM (${rows}) WHERE trim(triggered_by) <> '' ORDER BY triggered_by`,
       })
-      return result.rows.flatMap(row => hasRuntimeType(row.triggered_by, "string") ? [row.triggered_by] : [])
+      return result.rows.flatMap(row => typeof row.triggered_by === "string" ? [row.triggered_by] : [])
     },
     async delete(id) {
       return write(async () => {
@@ -1194,11 +1212,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         return await retrySqliteBusy(async () => {
           await prepareWrite()
           const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
-          const results = await client.batch([
+          const results = await batchWrite([
             { args: [id, ...terminalStatuses], sql: `DELETE FROM ${table} WHERE id = ? AND status IN (${terminalPlaceholders})` },
             { args: [id, id], sql: `DELETE FROM ${table}_claims WHERE id = ? AND NOT EXISTS (SELECT 1 FROM ${table} WHERE id = ?)` },
             { args: [id], sql: `SELECT 1 FROM ${table} WHERE id = ? LIMIT 1` },
-          ], "write")
+          ])
           if (results[0]!.rowsAffected > 0) return "deleted"
           return results[2]!.rows.length ? "not-terminal" : "not-found"
         })
@@ -1212,16 +1230,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         return await retrySqliteBusy(async () => {
           const selections = pruneSelections(true, pruneOptions.updatedBefore)
           if (!selections.length) return { dryRun, ids: [] }
-          const results = await client.batch(dryRun
-            ? [{
+          const results = dryRun
+            ? await client.batch([{
                 args: selections.flatMap<number | string>(selection => selection.args),
                 sql: `${selections.map(selection => `SELECT id, sequence FROM ${table} WHERE ${selection.where}`).join(" UNION ")} ORDER BY sequence`,
-              }]
-            : [
+              }], "write")
+            : await batchWrite([
                 ...selections.map(selection => ({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })),
                 deleteOrphanClaims,
-              ], "write")
-          const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => hasRuntimeType(row.id, "string") ? [row.id] : []))
+              ])
+          const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => typeof row.id === "string" ? [row.id] : []))
           return { dryRun, ids }
         })
       })
@@ -1230,7 +1248,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await write(async () => {
         await initialize()
         await prepareWrite()
-        await client.execute({
+        await executeWrite({
           args: [id, claimId],
           sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,
         })

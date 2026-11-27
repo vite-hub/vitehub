@@ -18,6 +18,31 @@ export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
  */
 export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
 
+/**
+ * Marks a gateway whose `openai-compatible` URL is the OpenAI API itself, such as `openai()`. Its `chat` model API then
+ * uses `@ai-sdk/openai`, the package that serves OpenAI, so the app needs no `@ai-sdk/openai-compatible`.
+ */
+export const aiGatewayOpenAIChat: unique symbol = Symbol.for("vitehub.aiGateway.openaiChat")
+
+/**
+ * Marks a gateway whose Chat Completions endpoint accepts a JSON schema in `response_format`. A symbol key, so key
+ * checks and copies skip it. `languageModel()` then sends the output schema on `api: "chat"`, not plain `json_object`.
+ */
+export const aiGatewayStructuredOutputs: unique symbol = Symbol.for("vitehub.aiGateway.structuredOutputs")
+
+/**
+ * The route of a model that `languageModel()` returns: its gateway name, model API, and model ID. A symbol key, so key
+ * checks and copies skip it. ViteHub Agents read it to send the same model to the AI emulator.
+ */
+export const aiGatewayLanguageModel: unique symbol = Symbol.for("vitehub.aiGateway.languageModel")
+
+/** The value of `aiGatewayLanguageModel`. */
+export interface AiGatewayLanguageModelRoute {
+  api: "chat" | "messages" | "responses"
+  gateway: string
+  modelId: string
+}
+
 /** Resolves model credentials together with headers that depend on their source. */
 export const aiGatewayModelCredentials: unique symbol = Symbol.for("vitehub.aiGateway.modelCredentials")
 
@@ -58,8 +83,6 @@ function isSecretInput(value: unknown): boolean {
   return typeof value === "string" || isResolver(value) || (isRecord(value) && typeof value.unseal === "function")
 }
 
-// An explicit undefined secret, such as an unset optional Server Env value, must fail the
-// request rather than fall back to another credential.
 const missingSecret = () => undefined
 
 /** Validate a gateway definition and return a frozen copy with its model API routes. */
@@ -168,7 +191,6 @@ async function resolveHeaders(gateway: AiGatewayDefinition, context: AiGatewayCo
   for (const [name, input] of Object.entries(gateway.headers || {})) {
     const value = await resolveAiGatewaySecret(input, context)
     if (!value && optional.includes(name)) continue
-    // Codex drops a header whose variable is unset, so a missing value would surface later as a 401 or 403 from the gateway.
     if (!value) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" resolved to an empty value.` })
     if (/[\r\n]/.test(value)) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" must not contain line breaks.` })
     headers.push([name, value])

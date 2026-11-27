@@ -50,14 +50,14 @@ it.each([
   }
   if (kind === "fetch" && stage === "network") {
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime })
-    const response = await handler(new Request("http://localhost/_vitehub/connections", { body: JSON.stringify({ action: "approve", id }), headers: { origin: "http://localhost", "content-type": "application/json" }, method: "POST" }))
+    const response = await handler.fetch(new Request("http://localhost/_vitehub/connections", { body: JSON.stringify({ action: "approve", id }), headers: { origin: "http://localhost", "content-type": "application/json" }, method: "POST" }))
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_EXECUTION_UNKNOWN", message: expect.stringContaining(`Approval: ${id}.`) } })
   }
-  else await expect(runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_EXECUTION_UNKNOWN", why: expect.stringContaining(`Approval: ${id}.`) })
+  else await expect(runtime.approve({ actor: "user:owner", id })).rejects.toMatchObject({ code: "CONNECTIONS_EXECUTION_UNKNOWN", why: expect.stringContaining(`Approval: ${id}.`) })
   expect(effects).toBe(1)
   expect(await test.store.approvals.get(id)).toMatchObject({ error: "CONNECTIONS_EXECUTION_UNKNOWN", status: "failed" })
-  await expect(runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+  await expect(runtime.approve({ actor: "user:owner", id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   expect(effects).toBe(1)
 })
 
@@ -68,6 +68,6 @@ it("preserves a confirmed provider rejection when an approved write returns HTTP
   const id = (await test.runtime.approvals({ status: "pending" })).approvals[0]!.id
   const runtime = createConnectionsRuntime({ definitions: { mail: mailConnection() }, store: test.store, now: () => test.now.value, fetch: async (input, init) =>
     String(input).endsWith("/modify") ? Response.json({ error: { message: "Invalid label" } }, { status: 400 }) : await test.provider.fetch(input, init) })
-  await expect(runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
+  await expect(runtime.approve({ actor: "user:owner", id })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
   expect(await test.store.approvals.get(id)).toMatchObject({ error: "CONNECTIONS_PROVIDER_FAILED", status: "failed" })
 })

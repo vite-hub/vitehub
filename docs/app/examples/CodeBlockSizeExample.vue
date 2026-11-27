@@ -8,7 +8,7 @@ Done in 2.8s using pnpm v10.18.0`;
   <div class="flex w-full max-w-md flex-col gap-4">
     <CodeBlock>
       <CodeBlockHeader>
-        <CodeBlockTitle><UIcon name="i-ph-terminal-light" />Terminal</CodeBlockTitle>
+        <CodeBlockTitle><UIcon name="i-lucide-terminal" />Terminal</CodeBlockTitle>
         <CodeBlockActions>
           <CodeBlockCopyButton :value="output" />
         </CodeBlockActions>
@@ -17,7 +17,7 @@ Done in 2.8s using pnpm v10.18.0`;
     </CodeBlock>
     <CodeBlock size="sm">
       <CodeBlockHeader>
-        <CodeBlockTitle><UIcon name="i-ph-terminal-light" />Terminal</CodeBlockTitle>
+        <CodeBlockTitle><UIcon name="i-lucide-terminal" />Terminal</CodeBlockTitle>
         <CodeBlockActions>
           <CodeBlockCopyButton :value="output" />
         </CodeBlockActions>

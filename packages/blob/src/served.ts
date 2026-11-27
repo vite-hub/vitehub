@@ -8,6 +8,9 @@ export interface ServedBlobRoute {
   publicBaseUrl?: string
 }
 
+/** The route of `blob.serve: true`. */
+export const DEFAULT_BLOB_SERVE_ROUTE = "/_vitehub/blob"
+
 let served: ServedBlobRoute | undefined
 
 /** Set by the Blob runtime when it loads the generated Blob config. `undefined` when `blob.serve` is off. */
@@ -16,7 +19,7 @@ export function setServedBlobRoute(route: ServedBlobRoute | undefined): void {
 }
 
 /**
- * The URL that `blob.serve` serves a pathname at, such as `/api/_vitehub/blob/covers/a.png`, from the generated Blob
+ * The URL that `blob.serve` serves a pathname at, such as `/_vitehub/blob/covers/a.png`, from the generated Blob
  * config. Undefined when the store is not served, or before the Blob runtime loaded its config, as in the browser.
  */
 export function servedBlobUrl(pathname: string, store = "default"): string | undefined {

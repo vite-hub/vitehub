@@ -14,60 +14,23 @@ A Workspace is a folder of files that your server code can read and change. It t
 In this tutorial, you list Markdown files from a local folder. Then you write a draft into the Workspace and see the change. The original files do not change.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. The files are saved on your computer. Before you deploy, read [Hosts](/docs/workspace/hosts) to choose storage.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. Everything saves on your computer, with no account or API key needed. Before deploying, read [Hosts](/docs/workspace/hosts) to choose storage.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install"}
+## Install
 
 Install the Workspace package:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/workspace
+pnpm add @vite-hub/workspace valibot
 ```
-
-Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', workspace: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workspace: true })],
-})
-```
-::::
-:::
-
 
 ::
 
 ::tutorial-step{title="Define the Workspace"}
 ## Define the Workspace
 
-Create `server/workspaces/docs.ts`. The file name is the name of the Workspace: `docs`.
+Create `server/workspaces/docs.ts`. The file name is the Workspace name: `docs`. This file turns Workspace on, so you do not add a `workspace` option.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace, glob } from 'vite-hub/workspace'
@@ -80,9 +43,9 @@ export default defineWorkspace({
 ```
 
 - `sources.docs` adds a Source named `docs` to the Workspace.
-- `glob({ cwd: 'docs', include: '**/*.md' })` reads every Markdown file in the `docs` folder of your app. In the Workspace, those files are under `docs/`.
+- `glob({ cwd: 'docs', include: '**/*.md' })` reads every Markdown file in your app's `docs` folder. In the Workspace, those files are under `docs/`.
 
-Create the `docs` folder and a sample file in it, so the read route has a file to find:
+Create `docs/intro.md` so the read route has a file to find:
 
 ```md [docs/intro.md]
 # Workspace sample
@@ -107,20 +70,21 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- `useWorkspace('docs')` opens the Workspace. By default, it can only read.
-- `workspace.fs.glob('**/*.md')` lists the Markdown files. The list includes the files from the Source.
+- `useWorkspace('docs')` opens the Workspace in read-only mode by default.
+- `workspace.fs.glob('**/*.md')` lists the Markdown files, including files from the Source.
 
 Create a second route that writes a draft:
 
 ```ts [server/api/drafts.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
-  const body = await readBody<{ text: string }>(event)
+  const body = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
 
-  await workspace.fs.writeFile('drafts/summary.md', body?.text ?? '', {
+  await workspace.fs.writeFile('drafts/summary.md', body.text, {
     mediaType: 'text/markdown',
   })
 
@@ -128,9 +92,10 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+- The route responds with `400` when the body lacks a `text` string.
 - `{ mode: 'write' }` asks for write access. In read mode, `workspace.fs` has no `writeFile()`.
 - `writeFile()` saves the draft in the Workspace. It does not change the files in your `docs` folder.
-- `diff()` returns the changes that wait to be saved, here the new draft.
+- `diff()` returns pending changes in the Workspace, here the new draft.
 
 ::
 
@@ -149,7 +114,7 @@ Keep the server running. Open a second terminal and call the read route:
 curl http://localhost:3000/api/docs
 ```
 
-The response lists the Markdown files. It includes `docs/intro.md`. Now send a draft to the write route:
+The response lists `docs/intro.md`. Now send a draft to the write route:
 
 ```bash [commands/write]
 curl -X POST http://localhost:3000/api/drafts \
@@ -178,7 +143,7 @@ The response is the diff. It shows the new file `drafts/summary.md`. Your `from`
 }
 ```
 
-Request `/api/docs` again, and the list also has the draft. The file `docs/intro.md` in your app does not change.
+Call `/api/docs` again and the list includes the draft. The file `docs/intro.md` in your app does not change.
 
 ::
 
@@ -186,7 +151,7 @@ Request `/api/docs` again, and the list also has the draft. The file `docs/intro
 
 ::card-group
 :::card{title="Workspaces and Sources" icon="i-lucide-folder-git-2" to="/docs/workspace/concepts"}
-Learn when to use a Workspace, a Source, or both.
+Decide when to use a Workspace, a Source, or both.
 :::
 
 :::card{title="Server API" icon="i-lucide-code-2" to="/docs/workspace/server-api"}
@@ -194,6 +159,6 @@ Take snapshots, make commits, and sync Sources.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/workspace/hosts"}
-Choose where a deployed app keeps its files.
+Choose where your deployed app stores its files.
 :::
 ::

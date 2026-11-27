@@ -16,7 +16,7 @@ it.each(["runAgentWithContext", "startAgentInvocation"] as const)("loads the col
   const run = vi.fn(() => "inline output")
   const agent = defineAgent({ driver: { run } })
   const context = { agentIdentity: { name: `cold-${method}` }, runtime: "unknown" as const, waitUntil: vi.fn() }
-  const providerRun = vi.fn(async () => ({ id: `workflow-${method}`, provider: "openworkflow", status: "queued" }))
+  const providerRun = vi.fn(async () => [undefined, { id: `workflow-${method}`, provider: "openworkflow", status: "queued" }])
   const staleState = vi.fn(async () => { throw new Error("Workflow state loaded before Agent host") })
   const staleWorkflow = vi.fn(async () => { throw new Error("Workflow module loaded before Agent host") })
   setAgentWorkflowRuntimeLoaders({ state: staleState, workflow: staleWorkflow })
@@ -24,12 +24,12 @@ it.each(["runAgentWithContext", "startAgentInvocation"] as const)("loads the col
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
         ...await import("@vite-hub/workflow/runtime/state"),
-        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       }),
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: The fixture only uses the provider's Workflow run operation.
-        createWorkflow: () => ({ run: providerRun }),
+        createWorkflow: () => ({ start: providerRun }),
       }) as never,
     })
   })

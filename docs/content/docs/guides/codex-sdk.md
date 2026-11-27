@@ -17,17 +17,17 @@ ViteHub does not use `@openai/codex-sdk`. `codexDriver()` starts the Codex CLI f
 
 ## Set up Codex
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
 
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @openai/codex@0.149.1
+pnpm add @vite-hub/agent @openai/codex@0.169.0
 ```
 
 `@openai/codex` installs one native Codex package for your OS and CPU. Without it, ViteHub uses `codex` from the host `PATH`. ViteHub downloads nothing during the build or at startup.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -35,9 +35,7 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -51,9 +49,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -66,16 +62,14 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
+The Agent runs inline and finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
 
 ### Define the Agent
 
@@ -101,14 +95,14 @@ The Agent name `reviewer` comes from the file path. `runtime: false` runs the Ag
 
 | Option | What it does |
 | --- | --- |
-| `gateway` | Sends model requests through an [AI gateway](/docs/agents/ai-gateways). `openai()` calls the OpenAI API with your key. |
+| `gateway` | Sends model requests through an [AI gateway](/docs/gateways). `openai()` calls the OpenAI API with your key. |
 | `model` | A model ID that Codex and the gateway accept. |
 | `reasoningEffort` | A reasoning effort the model supports, such as `'low'`, `'high'`, or `'xhigh'`. Needs `model`. `reasoningSummary` takes `'auto'`, `'concise'`, `'detailed'`, or `'none'`. |
 | `instructions` | Instructions for this Agent, passed as Codex instructions. |
 | `permissions` | `'ask'` (default), `'allow-edits'`, `'allow-edits-unattended'`, or `'allow-all'`. `'allow-edits-unattended'` allows file edits and denies other requests without a prompt. |
 | `requirements` | Commands Codex needs. `agent.status()` reports the ones missing on the host. |
 
-[Agent Drivers](/docs/agents/agent-drivers#use-a-provider-backed-driver) lists all options, such as `env`, `launch`, `cwd`, `toolchain`, `retention`, `sessionStorePath`, `output`, and `capacity`.
+[Agent Drivers](/docs/agents/agent-drivers#use-a-provider-backed-driver) lists all options, such as `env`, `launch`, `cwd`, `toolchain`, `sessionStorePath`, `output`, and `capacity`.
 
 ### Set the credential
 
@@ -124,21 +118,21 @@ ViteHub forwards no other process variables, so a server `OPENAI_API_KEY` reache
 | --- | --- |
 | A ChatGPT Plus or Pro plan | `gateway: chatgpt()` from `vite-hub/gateways` and a [ChatGPT Connection](/docs/connections/chatgpt). OpenAI allows plan use only for some kinds of apps, so read that page first. |
 | A Codex `auth.json` | `credentials` with the file contents or a sealed Server Env value, and `credentialProfile` to keep one writable Codex Home. Needs a POSIX host. |
-| Another gateway | `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, `ollama()`, or `defineAiGateway()`. See [AI gateway presets](/docs/agents/ai-gateways#presets). |
+| Another gateway | `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, `ollama()`, or `defineAiGateway()`. See [AI gateway presets](/docs/gateways/configure#presets). |
 
 With neither a gateway nor `credentials`, Codex uses the host user's Codex Home. A gateway replaces `credentials` and `credentialProfile`.
 
 ### Call the Agent from a route
 
 ```ts [server/api/review.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import reviewer from '../agents/reviewer'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt?: unknown }>(event)
   if (typeof body?.prompt !== 'string' || !body.prompt.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty prompt.' })
   }
 
   const [error, result] = await runAgent(reviewer, { prompt: body.prompt })
@@ -169,11 +163,11 @@ Each Invocation runs in a new temporary folder, deleted at the end. To give Code
 While the dev server runs, inspect the Definition and send a prompt from another terminal:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent reviewer --url http://localhost:3000
+pnpm vitehub agent get reviewer --dev --url http://localhost:3000
 pnpm vitehub agent dev --agent reviewer --url http://localhost:3000 -p "Which tools can you use?"
 ```
 
-`agent info` shows the Driver, gateway name, execution authority, tools, and instructions, without running Codex. See [Talk to an Agent during development](/docs/development/cli#talk-to-an-agent-during-development).
+`agent get` shows the Driver, gateway name, execution authority, tools, and instructions, without running Codex. See [Talk to an Agent during development](/docs/cli/agents#talk-to-an-agent-during-development).
 
 ### Connect a Channel
 
@@ -181,7 +175,7 @@ A Channel starts an Invocation from a message, such as a GitHub pull request com
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 import { openai } from 'vite-hub/gateways'
 
 export default defineAgent({
@@ -197,7 +191,7 @@ export default defineAgent({
 })
 ```
 
-Each Channel needs its own credentials and webhook. See [Agent Channels](/docs/agents/channels).
+Install the Channels package, and Forge for `github()`, with `pnpm add @vite-hub/channels @vite-hub/forge`. Each Channel needs its own credentials and webhook. See [Agent Channels](/docs/agents/channels).
 
 ## Deploy Codex
 
@@ -212,7 +206,6 @@ Copy the whole `.output` folder to the server, container, or VM. [Node and self-
 
 For a long-lived server:
 
-- Codex keeps every session in its Home forever. Set `retention`, such as `{ maxAge: '14d', maxSize: '45%' }`, to limit a persistent Home. See [Limit the Codex Home size](/docs/agents/agent-drivers#limit-the-codex-home-size).
 - Set `sessionStorePath` to keep thread cursors in a SQLite file, so a thread continues after a restart. With `credentials`, this needs a `credentialProfile`.
 - Share one `capacity` object across Agents to cap concurrent Codex processes. See [Adaptive process capacity](/docs/agents/agent-drivers#adaptive-process-capacity).
 - Use a [process host](/docs/agents/process-hosts) for background work that must recover and drain on restart.
@@ -222,9 +215,8 @@ For a long-lived server:
 Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 - `agent.status()` checks that Codex is installed and signed in, and reads its quota if reported. It sends no prompt. See [Provider status](/docs/agents/provider-status).
-- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
-- `vitehub agent codex-home status --home <path>` reports a Codex Home's size without the app.
-- The [Console](/docs/development/console) shows the trace, tool calls, and usage of each Invocation.
+- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
+- The [Console](/docs/console) shows the trace, tool calls, and usage of each Invocation.
 
 ## Where Codex can run
 
@@ -232,7 +224,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `preset: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. ViteHub builds for Node when it detects no other host. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |
@@ -252,7 +244,7 @@ On Cloudflare Workers, use a model-backed Driver instead, also with the ChatGPT 
 ## Related pages
 
 - [Agent Drivers](/docs/agents/agent-drivers): all provider Driver options.
-- [AI gateways](/docs/agents/ai-gateways): presets, variables, and custom gateways.
+- [AI gateways](/docs/gateways): presets, variables, and custom gateways.
 - [ChatGPT Connection](/docs/connections/chatgpt): run Codex on a ChatGPT plan.
 - [Run the Claude Agent SDK with ViteHub](/docs/guides/claude-agent-sdk): the same setup for Claude Code.
 - [Sandboxes](/docs/agents/sandboxes) and [Compare AI sandbox providers](/docs/guides/sandbox-providers).

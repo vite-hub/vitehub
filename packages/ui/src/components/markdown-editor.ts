@@ -1,5 +1,3 @@
-import { createHandlers } from "@nuxt/ui/utils/editor";
-import type { EditorSuggestionMenuItem, EditorToolbarItem } from "@nuxt/ui";
 import type { AnyExtension } from "@tiptap/core";
 import { type Editor, EditorContent } from "@tiptap/vue-3";
 import { uploadFiles } from "@vite-hub/blob/client";
@@ -7,7 +5,10 @@ import { typesetCss } from "comark-ui";
 import { chooseFiles, uploadKey, uploadPlugin, type UploadOptions } from "comark-ui/editor";
 import { useComarkEditor, type UseComarkEditorOptions } from "comark-ui/editor/vue";
 import { computed, defineComponent, h, provide, ref, shallowRef, watch, watchEffect, type PropType } from "vue";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createEditorHandlers, editorHandlersKey, type EditorHandlers } from "../editor/handlers.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import type { EditorSuggestionMenuItem, EditorToolbarItem } from "../ui-sdk/editor.ts";
 
 /** Sends one file and resolves with the URL the document links to. Call `progress` with a fraction from 0 to 1. */
 export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => void) => Promise<string>;
@@ -19,46 +20,47 @@ export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => 
 export function blobUpload(route: string): MarkdownEditorUpload {
   return async (file, progress) => {
     const [object] = await uploadFiles(route, [file], { onProgress: (percent) => progress(percent / 100) });
-    if (!object?.url) throw new Error(`${route} stored ${file.name} without a URL. Serve the Blob store with \`blob.serve\` so the editor can link it.`);
+    if (!object?.url) throw uiErrorDiagnostics.UI_MARKDOWN_UPLOAD_URL_MISSING({ route, file: file.name });
     return object.url;
   };
 }
 
 const toolbar: EditorToolbarItem[][] = [
   [
-    { kind: "mark", mark: "bold", icon: "i-ph-text-b", "aria-label": "Bold" },
-    { kind: "mark", mark: "italic", icon: "i-ph-text-italic", "aria-label": "Italic" },
-    { kind: "mark", mark: "strike", icon: "i-ph-text-strikethrough", "aria-label": "Strikethrough" },
-    { kind: "mark", mark: "code", icon: "i-ph-code", "aria-label": "Code" },
+    { kind: "mark", mark: "bold", icon: "i-lucide-bold", "aria-label": "Bold" },
+    { kind: "mark", mark: "italic", icon: "i-lucide-italic", "aria-label": "Italic" },
+    { kind: "mark", mark: "strike", icon: "i-lucide-strikethrough", "aria-label": "Strikethrough" },
+    { kind: "mark", mark: "code", icon: "i-lucide-code", "aria-label": "Code" },
   ],
   [
-    { kind: "heading", level: 1, icon: "i-ph-text-h-one", "aria-label": "Heading 1" },
-    { kind: "heading", level: 2, icon: "i-ph-text-h-two", "aria-label": "Heading 2" },
-    { kind: "heading", level: 3, icon: "i-ph-text-h-three", "aria-label": "Heading 3" },
+    { kind: "heading", level: 1, icon: "i-lucide-heading-1", "aria-label": "Heading 1" },
+    { kind: "heading", level: 2, icon: "i-lucide-heading-2", "aria-label": "Heading 2" },
+    { kind: "heading", level: 3, icon: "i-lucide-heading-3", "aria-label": "Heading 3" },
   ],
   [
-    { kind: "bulletList", icon: "i-ph-list-bullets", "aria-label": "Bulleted list" },
-    { kind: "orderedList", icon: "i-ph-list-numbers", "aria-label": "Numbered list" },
-    { kind: "blockquote", icon: "i-ph-quotes", "aria-label": "Quote" },
+    { kind: "bulletList", icon: "i-lucide-list", "aria-label": "Bulleted list" },
+    { kind: "orderedList", icon: "i-lucide-list-ordered", "aria-label": "Numbered list" },
+    { kind: "blockquote", icon: "i-lucide-quote", "aria-label": "Quote" },
   ],
 ];
 
 const blocks: EditorSuggestionMenuItem[] = [
   { type: "label", label: "Blocks" },
-  { kind: "paragraph", label: "Text", icon: "i-ph-text-t" },
-  { kind: "heading", level: 1, label: "Heading 1", icon: "i-ph-text-h-one" },
-  { kind: "heading", level: 2, label: "Heading 2", icon: "i-ph-text-h-two" },
-  { kind: "heading", level: 3, label: "Heading 3", icon: "i-ph-text-h-three" },
-  { kind: "bulletList", label: "Bulleted list", icon: "i-ph-list-bullets" },
-  { kind: "orderedList", label: "Numbered list", icon: "i-ph-list-numbers" },
-  { kind: "blockquote", label: "Quote", icon: "i-ph-quotes" },
-  { kind: "codeBlock", label: "Code block", icon: "i-ph-code-block" },
-  { kind: "horizontalRule", label: "Divider", icon: "i-ph-minus" },
+  { kind: "paragraph", label: "Text", icon: "i-lucide-type" },
+  { kind: "heading", level: 1, label: "Heading 1", icon: "i-lucide-heading-1" },
+  { kind: "heading", level: 2, label: "Heading 2", icon: "i-lucide-heading-2" },
+  { kind: "heading", level: 3, label: "Heading 3", icon: "i-lucide-heading-3" },
+  { kind: "bulletList", label: "Bulleted list", icon: "i-lucide-list" },
+  { kind: "orderedList", label: "Numbered list", icon: "i-lucide-list-ordered" },
+  { kind: "blockquote", label: "Quote", icon: "i-lucide-quote" },
+  { kind: "codeBlock", label: "Code block", icon: "i-lucide-square-code" },
+  { kind: "horizontalRule", label: "Divider", icon: "i-lucide-minus" },
 ];
-const image: EditorSuggestionMenuItem = { kind: "image", label: "Image", description: "Upload an image, video, or audio file", icon: "i-ph-image" };
+const image: EditorSuggestionMenuItem = { kind: "image", label: "Image", description: "Upload an image, video, or audio file", icon: "i-lucide-image" };
 
 /**
- * A Markdown editor on comark-ui's editor, with Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind Markdown with
+ * A Markdown editor on comark-ui's editor, with a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ones
+ * given to `createViteHubUI({ components })`, such as `uiSdkComponents`. Bind Markdown with
  * `v-model`, or pass an `editor` the app made, such as a Realtime room's. With `upload`, pasted and dropped files and the
  * "/" menu's Image item upload with a placeholder that shows the percentage; a string is a Blob upload route.
  */
@@ -119,17 +121,17 @@ export const MarkdownEditor = defineComponent({
       });
     }, { immediate: true });
 
-    // Nuxt UI's menus run an item's `kind` through these handlers. Image opens the file picker instead of asking for a URL.
-    const handlers = computed(() => ({
-      ...createHandlers(),
+    // The menus run an item's `kind` through these handlers. Image opens the file picker.
+    const handlers = computed<EditorHandlers>(() => ({
+      ...createEditorHandlers(),
       image: {
         canExecute: () => Boolean(options.value),
-        execute: (current: Editor) => ({ run: () => (options.value ? chooseFiles(current.view, options.value) : false) }),
+        execute: current => ({ run: () => (options.value ? chooseFiles(current.view, options.value) : false) }),
         isActive: () => false,
         isDisabled: () => !options.value,
       },
     }));
-    provide("editorHandlers", handlers);
+    provide(editorHandlersKey, handlers);
 
     const menu = computed(() => (options.value ? [...blocks, image] : blocks));
 

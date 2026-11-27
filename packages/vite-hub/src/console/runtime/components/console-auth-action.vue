@@ -6,10 +6,12 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, watch } from "vue";
-import { authDuration, changeAuthConsole } from "../client/auth-management";
+import { changeAuthConsole } from "../client/auth-management";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import { consoleDurationWords } from "../client/format";
 import { useConsoleToast } from "../client/toast";
+import Icon from "./console-icon.vue";
 const props = defineProps<{
-  base: string;
   action?: AuthConsoleAction;
   userId?: string;
   id?: string;
@@ -57,7 +59,7 @@ const copy = computed(() => {
     case "editField":
       return { title: `Edit ${field}`, description: `Change ${field} for ${user}.`, submit: "Save", pending: "Saving…" };
     case "impersonate":
-      return { title: "Impersonate user", description: `Open the app as ${user}.`, submit: "Impersonate", pending: "Opening the app…" };
+      return { title: "Impersonate user", description: `Open the app as ${user} in a new tab.`, submit: "Impersonate", pending: "Opening the app…" };
     default:
       return { title: "Auth action", description: "", submit: "Continue", pending: "Working…" };
   }
@@ -129,7 +131,7 @@ async function submit() {
         if (unset.value && !props.field?.required) value = null;
         else if (props.field?.type === "boolean") value = checked.value;
         else if (props.field?.type === "number") {
-          if (!text.value.trim()) throw new Error("Enter a number.");
+          if (!text.value.trim()) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_NUMBER_REQUIRED();
           value = Number(text.value);
         } else if (props.field?.type.endsWith("[]")) value = JSON.parse(text.value);
         body = { action: "editField", userId: props.userId!, field: props.field!.key, value };
@@ -142,7 +144,7 @@ async function submit() {
       default:
         body = { action: props.action, userId: props.userId! };
     }
-    await changeAuthConsole(props.base, body);
+    await changeAuthConsole(body);
     const done = doneTitle(props.action);
     if (done) toast.show({ title: done });
     emit("changed", props.action);
@@ -167,21 +169,21 @@ async function submit() {
       <form class="space-y-4" @submit.prevent="submit">
         <ul v-if="action === 'impersonate'" class="space-y-3 text-sm text-muted">
           <li class="flex gap-3">
-            <UIcon name="i-lucide-log-in" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-log-in" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
-              >This browser signs in to the app as {{ name ?? "this user" }}, and the app opens.
-              Your own session comes back when you stop.</span
+              >A new tab opens the app as {{ name ?? "this user" }}. This browser must be signed in to the app
+              with the email of your Console account. Your own session comes back when you stop.</span
             >
           </li>
           <li class="flex gap-3">
-            <UIcon name="i-lucide-timer" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-timer" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
-              >The session ends after {{ authDuration(duration ?? 3600) }}. To stop sooner, open
-              Auth in the Console.</span
+              >The session ends after {{ consoleDurationWords(duration ?? 3600) }}. To stop sooner, select
+              Stop impersonating on any user in the Console.</span
             >
           </li>
           <li class="flex gap-3">
-            <UIcon name="i-lucide-history" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-history" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty">Auth Activity records when you start and when you stop.</span>
           </li>
         </ul>
@@ -224,7 +226,7 @@ async function submit() {
         </UFormField>
         <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
         <div class="flex justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :disabled="pending" @click="emit('close')"
+          <UButton variant="ghost" :disabled="pending" @click="emit('close')"
             >Cancel</UButton
           ><UButton
             type="submit"

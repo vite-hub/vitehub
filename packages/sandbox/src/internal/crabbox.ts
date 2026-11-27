@@ -262,7 +262,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
                 abortSignal: bootstrapSignal,
                 command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
               })
-              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0099({ message: "Git command failed." })
+              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0120({ message: `[vitehub] Sandbox checkout Git command exited with code ${result.exitCode}.` })
               return { stdout: result.stdout }
             },
           })
@@ -464,10 +464,6 @@ function environmentWrapper(assignments: Readonly<Record<string, string>>) {
   return new TextEncoder().encode(`#!/bin/sh\nexec env -i ${values} "$@"\n`)
 }
 
-/**
- * Install into the shared target cache, then rewrite the command wrapper so
- * every Sandbox command sees the toolchain first on PATH.
- */
 async function provisionCrabboxToolchain(
   toolchain: SandboxToolchainInput,
   session: RuntimeSession,
@@ -950,8 +946,6 @@ function removeDisposableRootCommand(root: string) {
 }
 
 function reclaimDisposableRootProcessesCommand(root: string) {
-  // Children keep the session marker when a supervisor adopts them. Incidental
-  // references to the disposable root do not establish process ownership.
   return [
     `root=${shellQuote(root)}; owner_uid=$(id -u)`,
     `protected_pids=" $$ "; ancestor=$$; while test "$ancestor" -gt 1; do parent=$(awk '/^PPid:/ { print $2 }' "/proc/$ancestor/status" 2>/dev/null); case "$parent" in ''|*[!0-9]*) break ;; esac; case "$protected_pids" in *" $parent "*) break ;; esac; protected_pids="$protected_pids$parent "; ancestor=$parent; done`,
@@ -1146,23 +1140,21 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
       else resolvePromise({ exitCode: code ?? 1 })
     })
   })
-  // A background caller may not await immediately. Observe rejection now so
-  // cancellation and spawn failures cannot become process-level unhandled
-  // rejections before the caller reaches wait().
   void wait.catch(() => undefined)
   let stdin: WritableStream<Uint8Array> | undefined
   return {
     pid: child.pid,
     // SAFETY: child-process stderr yields Buffer chunks, which are Uint8Array values.
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
-    // Crabbox forwards local stdin to the remote command.
     get stdin() {
       return stdin ??= Writable.toWeb(child.stdin)
     },
     // SAFETY: child-process stdout yields Buffer chunks, which are Uint8Array values.
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     wait: () => wait,
-    async kill() {
+    async kill(signal?: string) {
+      if (signal !== undefined && signal.toUpperCase().replace(/^SIG/, "") !== "TERM")
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Crabbox", signal: String(signal) })
       child.kill()
       await wait.catch(() => undefined)
     },

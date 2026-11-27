@@ -2,144 +2,145 @@
 title: Email
 layout: landing
 navigation.title: Overview
-description: Send email from your server through Resend or Cloudflare, and write messages as Markdown templates.
+description: Send email from your server through Resend or Cloudflare, and write messages as Markdown or Vue templates.
 navigation.order: 1
 icon: i-lucide-mail
 ---
 
-::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree{feature="email"}
-  ```ts [server/api/welcome.post.ts] fragment
-  import renderWelcome from '#vitehub/emails/welcome'
-  import { defineEventHandler } from 'h3'
-  import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-  import { email } from 'vite-hub/email/server'
+::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown or Vue templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :hero-figure{name="email"}
+::
 
-  export default defineEventHandler(async () => {
-    // Fill the template, then make HTML and text
-    const markdown = await renderWelcome({ user: { name: 'Ada' } })
-    const body = await renderEmailMarkdown(markdown)
+::code-tree{feature="email"}
+```ts [server/api/welcome.post.ts]
+import { defineEventHandler } from 'h3'
+import { email } from 'vite-hub/email'
 
-    const [error, sent] = await email.send({
-      ...body,
-      from: 'verified-sender@example.com',
-      to: 'ada@example.com',
-      subject: 'Your workspace is ready',
-    })
-    if (error) throw error
-    return sent
+export default defineEventHandler(async () => {
+  // Render server/emails/welcome.md. TypeScript checks `data` against the template.
+  const [error, sent] = await email.send({
+    template: 'welcome',
+    data: { user: { name: 'Ada' } },
+    from: 'verified-sender@example.com',
+    to: 'ada@example.com',
   })
-  ```
+  if (error) throw error
+  return sent
+})
+```
 
-  ```md [server/emails/welcome.md]
-  # Welcome {{ data.user.name }}
+```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
 
-  Your workspace is ready.
-  ```
+# Welcome {{ data.user.name }}
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  import { env } from 'vite-hub/env'
+Your workspace is ready.
+```
 
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'node',
-      // Resend sends the email
-      email: {
-        driver: 'resend',
-        // The server reads the key when it sends
-        options: {
-          apiKey: env({
-            secret: true,
-            source: env.source('RESEND_API_KEY'),
-          }),
-        },
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    // Resend sends the email
+    email: {
+      driver: 'resend',
+      // The server reads the key when it sends
+      options: {
+        apiKey: env({
+          secret: true,
+          source: env.source('RESEND_API_KEY'),
+        }),
       },
     },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { env } from 'vite-hub/env'
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 
-  export default defineConfig({
-    plugins: [vitehub({
-      preset: 'node',
-      // Resend sends the email
-      email: {
-        driver: 'resend',
-        // The server reads the key when it sends
-        options: {
-          apiKey: env({
-            secret: true,
-            source: env.source('RESEND_API_KEY'),
-          }),
-        },
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    // Resend sends the email
+    email: {
+      driver: 'resend',
+      // The server reads the key when it sends
+      options: {
+        apiKey: env({
+          secret: true,
+          source: env.source('RESEND_API_KEY'),
+        }),
       },
-    }), nitro()],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { env } from 'vite-hub/env'
-  import { defineConfig } from 'vite'
+    },
+  }), nitro()],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
 
-  export default defineConfig({
-    plugins: [vitehub({
-      preset: 'node',
-      // Resend sends the email
-      email: {
-        driver: 'resend',
-        // The server reads the key when it sends
-        options: {
-          apiKey: env({
-            secret: true,
-            source: env.source('RESEND_API_KEY'),
-          }),
-        },
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    // Resend sends the email
+    email: {
+      driver: 'resend',
+      // The server reads the key when it sends
+      options: {
+        apiKey: env({
+          secret: true,
+          source: env.source('RESEND_API_KEY'),
+        }),
       },
-    })],
-  })
-  ```
-  ::::
+    },
+  })],
+})
+```
+:::
 
-  ```ts [test/welcome.test.ts]
-  import { expect, it } from 'vitest'
-  import { createTestEmail } from '@vite-hub/email/test'
+```ts [test/welcome.test.ts]
+import { expect, it } from 'vitest'
+import { createTestEmail } from 'vite-hub/email/test'
 
-  // Check an email without sending it
-  it('sends the welcome email', async () => {
-    const mail = createTestEmail()
-    await mail.send({
-      from: 'hello@example.com',
-      to: 'you@example.com',
-      subject: 'Welcome',
-      text: 'Hello',
-    })
-    expect(mail.messages[0]?.subject).toBe('Welcome')
+// Check an email without sending it
+it('sends the welcome email', async () => {
+  const mail = createTestEmail()
+  await mail.send({
+    from: 'hello@example.com',
+    to: 'you@example.com',
+    subject: 'Welcome',
+    text: 'Hello',
   })
-  ```
-  :::
+  expect(mail.messages[0]?.subject).toBe('Welcome')
+})
+```
 ::
 
 ::product-features
   :::product-feature-item{title="Pick a provider in one place" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-vite"}
-  Pick Resend or Cloudflare Email in your Vite config. Your routes stay the same.
+  Choose Resend or Cloudflare Email in your Vite config. Your routes stay the same.
   :::
 
   :::product-feature-item{title="Keys stay out of your code" icon="i-lucide-shield-check" to="/docs/email/get-started#provide-the-resend-secret"}
-  The server reads the API key from an environment variable when it sends.
+  The server reads your API key from an environment variable when it sends.
   :::
 
-  :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#compose-dynamic-markdown"}
-  Files in `server/emails` become typed imports. Fill them with data for HTML and text.
+  :::product-feature-item{title="Write emails in Markdown or Vue" icon="i-lucide-files" to="/docs/email/server-api#send-a-template"}
+  Files in `server/emails` become typed templates. `email.send({ template, data })` renders HTML and text.
   :::
 
   :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
@@ -156,7 +157,7 @@ icon: i-lucide-mail
 ::
 
 ::agent-only{skill="email"}
-Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
+Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown and Vue templates with a text fallback.
 
 Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
 

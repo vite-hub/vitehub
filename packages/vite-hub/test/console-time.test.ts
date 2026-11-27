@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { consoleClockTime, consoleDateTime, dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/time.ts"
+import { consoleClockTime, consoleDateTime, dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/format.ts"
 
 describe("recentTimestamp", () => {
   const now = Date.parse("2026-10-06T12:00:00.000Z")

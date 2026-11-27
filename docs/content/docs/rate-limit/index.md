@@ -2,115 +2,117 @@
 title: Rate Limit
 layout: landing
 navigation.title: Overview
-description: Add an API rate limiter to your server routes. Limit requests for each client or user, and reject the extra ones with HTTP 429 on Node or Cloudflare.
+description: Add an API rate limiter to your server routes. Limit requests per client or user, and reject the extra ones with HTTP 429 on Node or Cloudflare.
 seo.title: API rate limiter for Vite apps with ViteHub
 navigation.order: 1
 icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::code-tree{feature="rateLimit"}
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'node',
-      // On Node, counts stay in memory
+  :hero-figure{name="rate-limit"}
+::
+
+::code-tree{feature="rateLimit"}
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    // On Node, counts stay in memory. Turn on shared KV to share them.
+    rateLimit: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      // On Node, counts stay in memory. Turn on shared KV to share them.
       rateLimit: true,
-    },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      // On Node, counts stay in memory. Turn on shared KV to share them.
+      rateLimit: true,
+    }),
+  ],
+})
+```
+:::
+
+```ts [server/api/upload.post.ts]
+import { defineEventHandler } from 'h3'
+import { requireRateLimit } from 'vite-hub/rate-limit'
+
+// 2 requests a minute for each client.
+// The third gets a 429 error.
+export default defineEventHandler(async (event) => {
+  await requireRateLimit(event, 'image-upload', {
+    limit: 2,
+    window: '1m',
   })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
+  return { ok: true }
+})
+```
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'node',
-        // On Node, counts stay in memory
-        rateLimit: true,
-      }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+```ts [server/api/messages.post.ts]
+import { defineEventHandler, type H3Event } from 'h3'
+import { withAuth } from 'vite-hub/auth/server'
+import { requireRateLimit } from 'vite-hub/rate-limit'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'node',
-        // On Node, counts stay in memory
-        rateLimit: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-
-  ```ts [server/api/upload.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { requireRateLimit } from 'vite-hub/rate-limit'
-
-  // 2 requests a minute for each client.
-  // The third gets a 429 error.
-  export default defineEventHandler(async (event) => {
-    await requireRateLimit(event, 'image-upload', {
-      limit: 2,
+// Count per signed-in user, not per address
+export default defineEventHandler(
+  withAuth(async (event: H3Event, { user }) => {
+    await requireRateLimit(event, 'send-message', {
+      key: user.id,
+      limit: 10,
       window: '1m',
     })
     return { ok: true }
-  })
-  ```
+  }),
+)
+```
 
-  ```ts [server/api/messages.post.ts]
-  import { defineEventHandler, type H3Event } from 'h3'
-  import { withAuth } from 'vite-hub/auth/server'
-  import { requireRateLimit } from 'vite-hub/rate-limit'
+```ts [server/api/search.get.ts]
+import { defineEventHandler } from 'h3'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import {
+  memoryRateLimitDriver,
+} from 'vite-hub/rate-limit/drivers/memory'
 
-  // Count per signed-in user, not per address
-  export default defineEventHandler(
-    withAuth(async (event: H3Event, { user }) => {
-      await requireRateLimit(event, 'send-message', {
-        key: user.id,
-        limit: 10,
-        window: '1m',
-      })
-      return { ok: true }
-    }),
-  )
-  ```
+const limiter = createRateLimiter({
+  driver: memoryRateLimitDriver(),
+  limit: 30,
+  window: '1m',
+})
 
-  ```ts [server/api/search.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { createRateLimiter } from '@vite-hub/rate-limit'
-  import {
-    memoryRateLimitDriver,
-  } from '@vite-hub/rate-limit/drivers/memory'
-
-  const limiter = createRateLimiter({
-    driver: memoryRateLimitDriver(),
-    limit: 30,
-    window: '1m',
-  })
-
-  // Read the result and answer your own way
-  export default defineEventHandler(async () => {
-    const result = await limiter.consume({ key: 'all' })
-    if (!result.allowed) return { busy: true }
-    return { results: [] }
-  })
-  ```
-  :::
+// Read the result and answer your own way
+export default defineEventHandler(async () => {
+  const result = await limiter.consume({ key: 'all' })
+  if (!result.allowed) return { busy: true }
+  return { results: [] }
+})
+```
 ::
 
 ::product-features
@@ -119,7 +121,7 @@ icon: i-lucide-gauge
   :::
 
   :::product-feature-item{title="Count per user or per team" icon="i-lucide-users" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
-  Each client address has its own count. Pass `key` to count per user or team.
+  Each client IP address has its own count. Pass `key` to count per user or team.
   :::
 
   :::product-feature-item{title="Choose your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
@@ -131,18 +133,18 @@ icon: i-lucide-gauge
   :::
 
   :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
-  The build writes a file with each limit and what the host promises.
+  The build writes a file listing each limit and what the host guarantees.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
-  Memory counts reset on restart and are not shared between servers.
+  In-memory counts reset on restart and are not shared across servers.
   :::
 ::
 
 ::agent-only{skill="rate-limit"}
 Use Rate Limit to guard an action with an atomic counter and a defined window. Put identity derivation in the caller or Agent Capability.
 
-Choose a provider whose guarantees match the action. Memory is local to one process. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
+Choose a driver whose guarantees match the action. Memory is local to one process. On Node, the `kv` driver shares counts when KV uses Redis or Postgres; read the boot line that names the driver. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
 
 Prove allowed, rejected, reset, and provider failure behavior. Check the resolved window and enforcement mode in generated inspection state.
 ::

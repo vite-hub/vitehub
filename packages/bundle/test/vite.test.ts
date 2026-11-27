@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -7,6 +7,7 @@ import { build, createBuilder } from "vite"
 import { afterEach, expect, it } from "vitest"
 
 import { readEnvironmentReports } from "../src/files.ts"
+import { createBundleReport } from "../src/report.ts"
 import { hubBundle } from "../src/vite.ts"
 
 import type { Plugin } from "vite"
@@ -24,6 +25,20 @@ function project(): string {
   writeFileSync(join(root, "entry.js"), 'console.log("first build")')
   return root
 }
+
+it("groups a linked package with a BOM-prefixed manifest by name", async () => {
+  const root = project()
+  const linked = project()
+  writeFileSync(join(linked, "package.json"), '\uFEFF{"name":"shared","type":"module","exports":"./entry.js"}')
+  writeFileSync(join(root, "entry.js"), 'import "shared"')
+  mkdirSync(join(root, "node_modules"))
+  symlinkSync(linked, join(root, "node_modules", "shared"), "junction")
+
+  await build({ configFile: false, root, plugins: [hubBundle()], logLevel: "silent", build: { rollupOptions: { input: join(root, "entry.js") } } })
+
+  const report = createBundleReport(readEnvironmentReports(root))
+  expect(report?.client?.groups).toContainEqual(expect.objectContaining({ name: "shared", kind: "dependency" }))
+})
 
 it("refreshes the report when the same plugin builds the same root again", async () => {
   const root = project()

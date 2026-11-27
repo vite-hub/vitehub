@@ -22,13 +22,24 @@ import {
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
 import { mentionQuery, rankPeople } from "../internal/comment-mentions.ts";
+import { shake as shakeBox } from "../motion/helpers/shake.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { matchesAccept } from "../internal/prompt-files.ts";
+import { CommentImageStack, type CommentStackImage } from "../internal/comment-image-stack.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
+import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { PromptInput, type PromptInputSubmit } from "./prompt-input.ts";
 
 export type CommentComposerVariant = "comment" | "reply" | "edit";
+
+/** `md` fits a panel. `sm` is for a small floating card: 14px text, a shorter field, and smaller buttons. */
+export type CommentComposerSize = "sm" | "md";
+
+/** `field` draws the field's edge while it has the focus. `none` leaves the frame and its focus to the parent. */
+export type CommentComposerFrame = "field" | "none";
 
 /** What `submit` sends: the text, the ids of the people mentioned in it, and the attached files. */
 export interface CommentComposerSubmit {
@@ -43,11 +54,19 @@ export interface CommentMentionItemScope {
   active: boolean;
 }
 
+/** The scope of the `mention-empty` slot: the text after `@`, and whether the lookup failed or found nobody. */
+export interface CommentMentionEmptyScope {
+  query: string;
+  failed: boolean;
+}
+
 export type CommentComposerSlots = {
   /** Above the text field, such as a field for a suggested change. */
   extra?: () => VNode[];
   /** One person of the mention menu. */
   "mention-item"?: (scope: CommentMentionItemScope) => VNode[];
+  /** The line of the mention menu when it has no one to show. */
+  "mention-empty"?: (scope: CommentMentionEmptyScope) => VNode[];
 };
 
 interface MentionMenu {
@@ -57,7 +76,15 @@ interface MentionMenu {
   before: string;
   items: CommentUser[];
   index: number;
+  /** The text after `@`. */
+  query: string;
+  /** The lookup failed. The menu then has no items. */
+  failed: boolean;
 }
+
+// `comments.users` searches from two characters. A one word query that long gets a line when it finds no one, so `@`
+// never fails in silence. After a space the text is more likely a sentence than a name, so the menu stays closed.
+const emptyLineQuery = /^\S{2,}$/u;
 
 const placeholders: Record<CommentComposerVariant, string> = {
   comment: "Add a comment",
@@ -86,6 +113,12 @@ const pastedFiles = (clipboard: DataTransfer): File[] => {
 
 // The Figma composer. Enter sends and Shift+Enter breaks the line. Esc in an empty composer closes it. Esc in a composer
 // with text, and a click outside it, shake the box and keep the focus and the text, so a draft is never lost by accident.
+// A second Esc right after that shake means it: the text and files go and the composer closes.
+// How long a second Esc discards after the first one shook the box.
+const escapeWindow = 2000;
+// How long the preview of a removed picture lives on, for the card that folds away.
+const revokeDelay = 1000;
+
 export const CommentComposer = defineComponent({
   name: "CommentComposer",
   props: {
@@ -119,6 +152,21 @@ export const CommentComposer = defineComponent({
     accept: { type: String },
     /** Send files without text. Default: on for a reply, off for a new comment. */
     allowEmpty: { default: undefined, type: Boolean },
+    /**
+     * `box` is a bordered field. `row` is one line with attach, the text and send, for a box that already sits inside a
+     * card, as the reply box of a thread and the box at the bottom of a panel do.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    layout: { default: "box", type: String as PropType<"box" | "row"> },
+    /** `sm` is a compact box for a small card: a shorter field, smaller buttons, and a focus edge without a halo. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    size: { default: "md", type: String as PropType<CommentComposerSize> },
+    /**
+     * `none` is for a parent that is itself the frame, such as a bubble around a one-line box: the field draws no edge
+     * while it has the focus, so the parent shows the focus instead.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    frame: { default: "field", type: String as PropType<CommentComposerFrame> },
   },
   emits: ["update:modelValue", "update:mentions", "update:files", "submit", "cancel"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -134,6 +182,14 @@ export const CommentComposer = defineComponent({
     const menuId = useId();
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Set by the shake of an Esc. The next Esc within `escapeWindow`, with nothing typed in between, discards the text
+    // and closes. The box says so while it is set.
+    const escaped = ref(false);
+    let escapeTimer: ReturnType<typeof setTimeout> | undefined;
+    watch(escaped, (value) => {
+      clearTimeout(escapeTimer);
+      if (value) escapeTimer = setTimeout(() => (escaped.value = false), escapeWindow);
+    });
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -141,11 +197,14 @@ export const CommentComposer = defineComponent({
 
     const localFiles = ref<File[]>([]);
     const files = computed(() => props.files ?? localFiles.value);
+    // A change to the text or the files is new work, so the next Esc shakes again first.
+    watch([() => props.modelValue, files], () => (escaped.value = false));
     const attachmentsOn = computed(() => props.attachments && props.variant !== "edit");
     const allowEmpty = computed(() => props.allowEmpty ?? props.variant === "reply");
     // PromptInput shows a file as a UI part. The preview is an object URL, so no file is read before it is sent.
     const parts = new WeakMap<File, FileUIPart>();
     const urls = new Set<string>();
+    const revokers: Array<ReturnType<typeof setTimeout>> = [];
     const partOf = (file: File): FileUIPart => {
       let part = parts.get(file);
       if (!part) {
@@ -160,9 +219,12 @@ export const CommentComposer = defineComponent({
       for (const file of previous) {
         const part = parts.get(file);
         if (part && !next.includes(file)) {
-          URL.revokeObjectURL(part.url);
-          urls.delete(part.url);
           parts.delete(file);
+          // A removed picture still draws while its card folds away, so its preview goes a moment later.
+          revokers.push(setTimeout(() => {
+            URL.revokeObjectURL(part.url);
+            urls.delete(part.url);
+          }, revokeDelay));
         }
       }
     });
@@ -195,25 +257,66 @@ export const CommentComposer = defineComponent({
     const hasContent = () => hasText() || files.value.length > 0;
     const focus = () => textarea()?.focus();
 
+    // A row box puts attach and send on a row under the text once the text wraps, so each line uses the full width. It
+    // goes back to one row only when the text fits beside the buttons again, so the two layouts never alternate.
+    // `field-sizing: content` with `flex-wrap` can't do this alone: attach comes before the text in the row, so a wrap
+    // puts attach, the text, and send on three rows (tested in Chromium 153, Firefox 155, and WebKit 26.6).
+    const multiline = ref(false);
+    let buttonsWidth = 0;
+    function measureLines() {
+      const field = textarea();
+      const group = field?.parentElement;
+      if (props.layout !== "row" || !field || !group || !props.modelValue) {
+        multiline.value = false;
+        return;
+      }
+      const style = getComputedStyle(field);
+      const line = Number.parseFloat(style.lineHeight);
+      if (!(line > 0)) return;
+      if (multiline.value) {
+        // Measure the text at the width it has beside the buttons. The styles go back before the browser paints.
+        field.style.boxSizing = "border-box";
+        field.style.maxWidth = `${group.clientWidth - buttonsWidth}px`;
+      } else buttonsWidth = group.clientWidth - field.offsetWidth;
+      const text = field.scrollHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+      field.style.removeProperty("box-sizing");
+      field.style.removeProperty("max-width");
+      multiline.value = text > line * 1.5;
+    }
+    const lines = typeof ResizeObserver === "function" ? new ResizeObserver(() => measureLines()) : undefined;
+    watch([() => props.modelValue, () => props.layout, () => props.size], measureLines, { flush: "post" });
+
+    // The box shakes with the `shake` helper of the motion layer. Under reduced motion its frame flashes a color instead.
+    // `data-shake` names the refusal for the stylesheet and for tests.
     async function shake() {
       const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // Clear first, so a second shake restarts the animation.
+      // Clear first, so a second flash restarts its animation.
       shaking.value = null;
       await nextTick();
       void root.value?.offsetWidth;
       shaking.value = reduced ? "flash" : "shake";
+      if (!reduced && root.value) shakeBox(root.value);
       clearTimeout(timer);
       timer = setTimeout(() => (shaking.value = null), 450);
       focus();
     }
-    const onShake = () => void shake();
+    const onShake = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.escape === true) escaped.value = true;
+      void shake();
+    };
     onMounted(() => {
       root.value?.addEventListener(shakeEventName, onShake);
+      const group = textarea()?.parentElement;
+      if (group) lines?.observe(group);
+      measureLines();
       if (props.autofocus) void nextTick(focus);
     });
     onBeforeUnmount(() => {
+      lines?.disconnect();
       root.value?.removeEventListener(shakeEventName, onShake);
       clearTimeout(timer);
+      clearTimeout(escapeTimer);
+      for (const revoker of revokers) clearTimeout(revoker);
       for (const url of urls) URL.revokeObjectURL(url);
     });
     expose({ focus, shake });
@@ -224,8 +327,10 @@ export const CommentComposer = defineComponent({
       if (!field) return;
       field.setAttribute("role", "combobox");
       field.setAttribute("aria-autocomplete", "list");
-      field.setAttribute("aria-expanded", String(open !== null));
-      if (open) {
+      // A menu with only its empty line has no options, so the box controls no listbox.
+      const listed = open !== null && open.items.length > 0;
+      field.setAttribute("aria-expanded", String(listed));
+      if (listed) {
         field.setAttribute("aria-controls", `${menuId}-list`);
         field.setAttribute("aria-activedescendant", optionId(open.index));
       } else {
@@ -287,12 +392,20 @@ export const CommentComposer = defineComponent({
         menu.value = null;
         return;
       }
-      const results = await find(found.query).catch(() => []);
+      let results: CommentUser[] = [];
+      let failed = false;
+      try {
+        results = await find(found.query);
+      } catch (error) {
+        failed = true;
+        console.warn("[vitehub] The comment box could not load people to mention:", error);
+      }
       const items = rankPeople(results, found.query, { exclude: self(), participants: props.participants });
       checkSelection();
       if (run !== lookup || found.start === dismissed) return;
       const sameToken = field.selectionStart === field.selectionEnd && field.value.slice(0, field.selectionStart) === before;
-      menu.value = sameToken && items.length > 0 ? { before, index: 0, items, start: found.start } : null;
+      const show = items.length > 0 || emptyLineQuery.test(found.query);
+      menu.value = sameToken && show ? { before, failed, index: 0, items, query: found.query, start: found.start } : null;
     }
 
     function submit(payload: PromptInputSubmit) {
@@ -314,14 +427,18 @@ export const CommentComposer = defineComponent({
 
     function keydown(event: KeyboardEvent) {
       if (event.isComposing) return;
+      // Esc in the fanned pictures folds them, and keeps the text.
+      if (event.target instanceof Element && event.target.closest("[data-slot=comment-image-stack][data-fanned]")) return;
       const open = menu.value;
-      if (open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      // The empty line is not an option, so the arrows, Enter, and Tab act as if the menu were closed.
+      const listed = open !== null && open.items.length > 0;
+      if (listed && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
         open.index = (open.index + step + open.items.length) % open.items.length;
         return;
       }
-      if (open && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+      if (listed && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
         choose(open.items[open.index]!);
@@ -331,16 +448,75 @@ export const CommentComposer = defineComponent({
       // Esc belongs to the composer while it has the focus, so the page does not leave comment mode.
       event.preventDefault();
       event.stopPropagation();
+      // A held Esc repeats. Only a new press counts, so holding the key does not discard the text.
+      if (event.repeat) return;
       if (open) {
         // A lookup that is still on its way must not open the menu again.
         lookup++;
         dismissed = open.start;
         menu.value = null;
-      } else if (hasContent()) void shake();
-      else emit("cancel");
+      } else if (hasContent() && !escaped.value) {
+        escaped.value = true;
+        void shake();
+      } else void discard();
+    }
+
+    // Empties the box, then closes it once the parent has rendered the empty box, so a parent that checks for unsent text
+    // before it closes finds none.
+    async function discard() {
+      if (props.busy) return;
+      escaped.value = false;
+      if (hasContent()) {
+        emit("update:modelValue", "");
+        emit("update:mentions", []);
+        setFiles([]);
+        await nextTick();
+      }
+      emit("cancel");
     }
 
     const hasFiles = (event: DragEvent) => attachmentsOn.value && (event.dataTransfer?.types.includes("Files") ?? false);
+
+    // Where the next pictures come from: the text for a paste, the box for a drop, and the attach button for a pick.
+    // The stack reads it once, when the pictures show.
+    let origin: Element | null | undefined;
+    const takeOrigin = () => {
+      const from = origin;
+      origin = undefined;
+      return from;
+    };
+    const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
+    // Pictures go in one stack beside the text. Other files keep their chip with the name.
+    const fileList = ({ files: list, remove }: { files: readonly FileUIPart[]; remove: (index: number) => void }) => {
+      const images: CommentStackImage[] = [];
+      const others: Array<{ file: FileUIPart; index: number }> = [];
+      list.forEach((file, index) => {
+        if (file.mediaType.startsWith("image/")) images.push({ key: file.url, name: file.filename ?? "Picture", url: file.url });
+        else others.push({ file, index });
+      });
+      return [
+        h(CommentImageStack, {
+          disabled: props.busy,
+          images,
+          onRemove: (key: string) => remove(list.findIndex((file) => file.url === key)),
+          origin: takeOrigin,
+        }),
+        others.length > 0
+          ? h(AttachmentGroup, { "data-slot": "prompt-input-attachments" }, () =>
+              others.map(({ file, index }) =>
+                h(Attachment, { key: file.url, size: "xs" }, () => [
+                  h(AttachmentMedia, { variant: "icon" }, () => h(UIcon, { name: icons.value.file })),
+                  h(AttachmentContent, () => h(AttachmentTitle, () => file.filename ?? file.mediaType)),
+                  h(AttachmentActions, () =>
+                    h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.busy, icon: icons.value.close, onClick: () => remove(index) }),
+                  ),
+                ]),
+              ),
+            )
+          : null,
+      ];
+    };
 
     return () =>
       h(
@@ -349,7 +525,11 @@ export const CommentComposer = defineComponent({
           "data-busy": props.busy ? "true" : undefined,
           "data-dirty": hasContent() ? "true" : undefined,
           "data-dragging": dragging.value ? "true" : undefined,
+          "data-frame": props.frame,
+          "data-layout": props.layout,
+          "data-multiline": multiline.value ? "true" : undefined,
           "data-shake": shaking.value ?? undefined,
+          "data-size": props.size,
           "data-slot": "comment-composer",
           "data-variant": props.variant,
           // Capture, so the mention menu and Esc see the key before the prompt does.
@@ -363,6 +543,7 @@ export const CommentComposer = defineComponent({
           // PromptInput reads the pasted files. The composer keeps them as files, so it only stops the text paste here.
           onPasteCapture: (event: ClipboardEvent) => {
             if (!attachmentsOn.value || !event.clipboardData) return;
+            origin = textarea();
             if (pastedFiles(event.clipboardData).some((file) => matchesAccept(file, props.accept))) event.preventDefault();
           },
           onDragover: (event: DragEvent) => {
@@ -377,8 +558,14 @@ export const CommentComposer = defineComponent({
             dragging.value = false;
             if (!hasFiles(event)) return;
             event.preventDefault();
+            origin = root.value?.querySelector("[data-slot=prompt-input-group]");
             addFiles(event.dataTransfer?.files ?? []);
             focus();
+          },
+          onChangeCapture: (event: Event) => {
+            if (event.target instanceof HTMLInputElement && event.target.type === "file") {
+              origin = root.value?.querySelector("[data-slot=prompt-input-toolbar] button[aria-label='Add attachment']");
+            }
           },
           ref: root,
         },
@@ -389,8 +576,10 @@ export const CommentComposer = defineComponent({
               accept: props.accept,
               "aria-label": labels[props.variant],
               attachments: attachmentsOn.value,
+              attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
               filesDisabled: props.busy,
+              readonly: props.busy,
               filterFiles: (list: readonly File[]) => {
                 addFiles(list);
                 return [];
@@ -401,8 +590,19 @@ export const CommentComposer = defineComponent({
               onSubmit: submit,
               "onUpdate:files": (next: readonly FileUIPart[]) => setFiles(files.value.filter((file) => next.includes(partOf(file)))),
               "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
-            }),
-            menu.value
+            }, attachmentsOn.value ? { files: fileList } : undefined),
+            menu.value && menu.value.items.length === 0
+              ? h(
+                  "div",
+                  { "data-slot": "comment-composer-mentions", "data-state": menu.value.failed ? "error" : "empty", role: "status" },
+                  h(
+                    "p",
+                    { "data-slot": "comment-composer-mention-empty" },
+                    slots["mention-empty"]?.({ failed: menu.value.failed, query: menu.value.query })
+                      ?? (menu.value.failed ? "Could not load people." : "No one by that name can be mentioned here."),
+                  ),
+                )
+              : menu.value
               ? h(
                   "ul",
                   { "aria-label": "People", "data-slot": "comment-composer-mentions", id: `${menuId}-list`, role: "listbox" },
@@ -431,6 +631,8 @@ export const CommentComposer = defineComponent({
                 )
               : null,
             (props.error ?? hint.value) ? h("p", { "data-slot": "comment-composer-error", role: "alert" }, props.error ?? hint.value) : null,
+            // The shake shows that the text stays. The line says what the next Esc does, also to a screen reader.
+            h("p", { "aria-live": "polite", "data-slot": "comment-composer-status" }, escaped.value ? "Press Esc again to discard." : ""),
           ]),
         ],
       );

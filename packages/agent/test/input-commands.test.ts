@@ -12,6 +12,20 @@ const runtime = () => ({
 })
 
 describe("inputCommands", () => {
+  it("adds /debug without other commands, and a debug command replaces it", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    expect(inputCommands({ debug: true }).metadata).toMatchObject({
+      commands: { debug: { description: "Link the previous invocation in the ViteHub Console." } },
+    })
+    expect(inputCommands({ commands: { debug: { description: "Custom debug." } }, debug: true }).metadata).toEqual({
+      commands: { debug: { description: "Custom debug." } },
+      trigger: "/",
+    })
+    expect(() => inputCommands({ debug: false })).toThrow("inputCommands({ commands }) requires a command map")
+    // SAFETY: The test sends an invalid value through the public runtime boundary.
+    expect(() => inputCommands({ debug: "yes" as never })).toThrow(expect.objectContaining({ code: "AGENT_R1034" }))
+  })
+
   it.each(["replacement", "result"] as const)("bounds growing command expansion through %s", async (mode) => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

@@ -1,14 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import {
-  clearSources,
-  defineSource,
-  defineSources,
-  registerSources,
-  useSource,
-} from "../src/index.ts"
+import { defineSource, file, useSource } from "../src/index.ts"
+import { clearSources, registerSources } from "../src/internal/registry.ts"
 import { sourcePathError } from "../src/core/errors.ts"
-import { file } from "../src/file.ts"
 
 afterEach(() => {
   clearSources()
@@ -22,7 +16,7 @@ describe("@vite-hub/source registry", () => {
   })
 
   it("registers sources and reads through useSource", async () => {
-    registerSources(defineSources({
+    registerSources({
       docs: file({ content: "# Docs\n", workspacePath: "README.md" }),
       custom: defineSource({
         name: "custom",
@@ -33,7 +27,7 @@ describe("@vite-hub/source registry", () => {
           return { key, data: { ok: true } }
         },
       }),
-    }))
+    })
 
     const docs = useSource("docs")
 
@@ -47,8 +41,12 @@ describe("@vite-hub/source registry", () => {
     await expect(useSource("custom").get("data.json")).resolves.toMatchObject({ data: { ok: true } })
   })
 
-  it("throws a source-specific error for missing registrations", () => {
-    expect(() => useSource("missing" as any)).toThrow(expect.objectContaining({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" }))
+  it("opens a Source value without a name", async () => {
+    await expect(useSource(file({ content: "# Inline\n", workspacePath: "inline.md" })).read("inline.md")).resolves.toBe("# Inline\n")
+  })
+
+  it("reports missing registrations on the first operation", async () => {
+    await expect(useSource("missing" as "docs").keys()).rejects.toMatchObject({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" })
   })
 
   it("passes the abort signal to custom Source methods", async () => {

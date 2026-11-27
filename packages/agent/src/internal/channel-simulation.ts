@@ -6,7 +6,8 @@ export const channelSimulationEnv = "VITEHUB_CHANNELS"
 /** The one user of a simulated Channel. A simulated Channel is a direct message between this user and the Agent. */
 export const simulatedChatUserId = "learner"
 
-const simulatedKinds: ReadonlySet<string> = new Set(["discord", "slack", "teams", "telegram"])
+/** The built-in chat Channels that run on the simulated chat. */
+export const simulatedChannelKinds: ReadonlySet<string> = new Set(["discord", "slack", "teams", "telegram"])
 const simulatedAdapters = new WeakSet<object>()
 
 /** Whether the adapter is a simulated chat adapter, which has no provider connection such as a Discord Gateway. */
@@ -20,7 +21,7 @@ export function isSimulatedChatAdapter(adapter: object): boolean {
  */
 export function isChannelSimulated(kind: string): boolean {
   const env = globalThis.process?.env
-  return simulatedKinds.has(kind) && env?.[channelSimulationEnv] === "simulate" && env.NODE_ENV !== "production"
+  return simulatedChannelKinds.has(kind) && env?.[channelSimulationEnv] === "simulate" && env.NODE_ENV !== "production"
 }
 
 /**
@@ -29,6 +30,7 @@ export function isChannelSimulated(kind: string): boolean {
  *
  * `@chat-adapter/web` names itself `web` and prefixes its thread ids with `web:`. Two simulated Channels would then
  * share one adapter name, so each one gets the Channel kind as its name and thread prefix.
+ * Remove when `@chat-adapter/web` takes a name (https://github.com/vercel/chat/issues/1179).
  */
 export async function createSimulatedChatAdapter(kind: string): Promise<Adapter> {
   const [{ createWebAdapter }, { AsyncLocalStorage }] = await Promise.all([import("@chat-adapter/web"), import("node:async_hooks")])
@@ -45,7 +47,8 @@ export async function createSimulatedChatAdapter(kind: string): Promise<Adapter>
   adapter.encodeThreadId = data => `${prefix}${encode(data).slice("web:".length)}`
 
   // The web adapter keeps the request of a reply in an AsyncLocalStorage. A StackBlitz WebContainer loses that store
-  // after the first `await`, so `postMessage()` and `stream()` would not find the request. Take a snapshot of the
+  // after the first `await` (https://github.com/stackblitz/webcontainer-core/issues/1169), so `postMessage()` and
+  // `stream()` would not find the request. Take a snapshot of the
   // request context when the adapter gives the message to Chat. Bind it to that message's adapter, so overlapping
   // requests for the same conversation cannot overwrite each other's context. The Invocation owns its lifetime.
   const initialize = adapter.initialize.bind(adapter)

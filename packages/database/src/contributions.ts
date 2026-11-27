@@ -4,9 +4,12 @@ import { collectContributions, describeContribution, flattenPluginOptions } from
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDefaultDatabase } from "./default-database-name.ts"
 
 import type { CollectedContribution, Contribution, ContributionContext } from "@vite-hub/internal/contributions"
 import type { DatabaseDialect } from "./types.ts"
+
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./default-database-name.ts"
 
 const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
 
@@ -16,6 +19,12 @@ export interface DatabaseContributionFields {
   database?: string
   /** SQL dialect of the tables. When set, the target Database must use this dialect. */
   dialect?: DatabaseDialect
+  /**
+   * Absolute path of a folder of `.sql` migration files for the target Database. `vitehub database generate` adds each
+   * file that is not there yet to the migrations folder of the Database, after its own migrations, in file name order.
+   * A file named `<name>.<dialect>.sql` applies only to a Database of that dialect.
+   */
+  migrations?: string
 }
 
 interface DatabaseTableContributionFields extends DatabaseContributionFields {
@@ -25,11 +34,17 @@ interface DatabaseTableContributionFields extends DatabaseContributionFields {
    * schema still imports the module. A key that is missing here is missing from the generated schema.
    */
   tables?: Readonly<Record<string, string>>
+  /**
+   * Named export of `definition.module` that holds the relations of the contributed tables, from Drizzle's
+   * `defineRelationsPart(schema, r => ({ ... }))`. The target Database merges them with the relations of its
+   * Definition, so `db.query.<table>.findMany({ with })` follows them.
+   */
+  relations?: string
 }
 
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
- * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
+ * them into the generated Drizzle schema, so `vitehub database generate` writes their migrations and
  * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
  * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
@@ -37,7 +52,7 @@ export type DatabaseContribution = Contribution & DatabaseTableContributionField
 
 /**
  * A Database Definition that another package adds from its Vite plugin, for example because the application has no
- * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * Database the package can use. It behaves like a discovered Definition: `vitehub database generate`, the runtime,
  * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
  * them, so adding that Definition later continues the same history.
  */
@@ -123,21 +138,23 @@ export interface ResolvedDatabaseUse extends CollectedDatabaseUse {
   database: string
 }
 
-/** How `resolveDefaultDatabase()` picked a Database, or why it could not. */
-export type DefaultDatabaseResolution =
-  | { status: "resolved", name: string, reason: "default" | "only" }
-  | { status: "ambiguous", names: string[] }
-  | { status: "none" }
+/** A table contribution or use with `migrations`, and its target Database. */
+export type ResolvedDatabaseMigrations = (ResolvedDatabaseContribution | ResolvedDatabaseUse) & { migrations: string }
 
-/**
- * Resolves "the default or only Database": the Definition named `default`, else the only Definition. Several
- * Definitions without a `default` are ambiguous; no Definitions resolve to `none`.
- */
-export function resolveDefaultDatabase(databaseNames: readonly string[]): DefaultDatabaseResolution {
-  if (databaseNames.includes("default")) return { name: "default", reason: "default", status: "resolved" }
-  if (databaseNames.length === 1) return { name: databaseNames[0]!, reason: "only", status: "resolved" }
-  if (databaseNames.length) return { names: [...databaseNames].sort(), status: "ambiguous" }
-  return { status: "none" }
+/** The contributions of each Database that have `migrations`, in contribution name order. */
+export function selectMigrationContributions(
+  ...groups: Readonly<Record<string, readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]>>[]
+): Record<string, ResolvedDatabaseMigrations[]> {
+  const byDatabase: Record<string, ResolvedDatabaseMigrations[]> = Object.create(null)
+  for (const group of groups) {
+    for (const [database, contributions] of Object.entries(group)) {
+      for (const contribution of contributions) {
+        if (contribution.migrations !== undefined) (byDatabase[database] ??= []).push({ ...contribution, migrations: contribution.migrations })
+      }
+    }
+  }
+  for (const list of Object.values(byDatabase)) list.sort(byName)
+  return byDatabase
 }
 
 function isDatabaseDialect(value: unknown): value is DatabaseDialect {
@@ -145,7 +162,7 @@ function isDatabaseDialect(value: unknown): value is DatabaseDialect {
 }
 
 function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseTableContributionFields {
-  const { database, dialect, tables } = entry
+  const { database, dialect, migrations, relations, tables } = entry
   const fields: DatabaseTableContributionFields = {}
   if (tables !== undefined) {
     if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
@@ -153,6 +170,10 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
     }
     // SAFETY: the check above makes every value a non-empty string.
     fields.tables = { ...tables as Record<string, string> }
+  }
+  if (relations !== undefined) {
+    if (String(relations) !== relations || !relations) fail(`\`relations\` of ${JSON.stringify(entry.name)} must name an export of \`definition.module\`.`)
+    fields.relations = String(relations)
   }
   if (database !== undefined) {
     if (String(database) !== database || !database || database.trim() !== database) {
@@ -163,6 +184,10 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
   if (dialect !== undefined) {
     if (!isDatabaseDialect(dialect)) fail(`\`dialect\` of ${JSON.stringify(entry.name)} must be one of ${databaseDialects.map(name => JSON.stringify(name)).join(", ")}.`)
     fields.dialect = dialect
+  }
+  if (migrations !== undefined) {
+    if (String(migrations) !== migrations || !isAbsolute(migrations)) fail(`\`migrations\` of ${JSON.stringify(entry.name)} must be the absolute path of a folder of \`.sql\` files.`)
+    fields.migrations = String(migrations)
   }
   return fields
 }
@@ -189,13 +214,13 @@ function readDefinitionContribution(entry: Record<string, unknown>, plugin: stri
     throw fail(`Database ${JSON.stringify(name)} needs \`definition\`, the absolute path of its Definition module.`)
   }
   if (reason !== undefined && (String(reason) !== reason || !reason)) throw fail(`\`reason\` of Database ${JSON.stringify(name)} must be a non-empty string.`)
-  if (Object.hasOwn(entry, "database") || Object.hasOwn(entry, "dialect")) {
-    throw fail(`Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with the \`database\` or \`dialect\` of a table contribution. Contribute them as two entries.`)
+  if (Object.hasOwn(entry, "database") || Object.hasOwn(entry, "dialect") || Object.hasOwn(entry, "migrations")) {
+    throw fail(`Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with the \`database\`, \`dialect\`, or \`migrations\` of a table contribution. Contribute them as two entries.`)
   }
   return { definition, name, plugin, ...(reason === undefined ? {} : { reason }) }
 }
 
-const useKeys: ReadonlySet<string> = new Set(["database", "dialect", "name", "reason"])
+const useKeys: ReadonlySet<string> = new Set(["database", "dialect", "migrations", "name", "reason"])
 
 // An entry with only these keys is a use. Any other key, such as a misplaced `module`, makes it a table entry, so the
 // table reader reports the missing `definition`.

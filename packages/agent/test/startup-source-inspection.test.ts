@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest"
 import { custom } from "@vite-hub/workspace"
 import { createWorkspacePreparation, registerWorkspace } from "@vite-hub/workspace/runtime"
 
-import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
 
 describe("startup Source inspection", () => {
   it("reports an unprepared startup Source as pending", () => {

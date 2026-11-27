@@ -7,7 +7,7 @@ import type {
   AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 export interface AgentUsagePricingContext {
   model?: AgentUsageRecord["model"]
@@ -149,7 +149,7 @@ export function decimalStringFromNumber(value: number): string {
 }
 
 function normalizeModelsDevPrice(value: unknown): string | undefined {
-  if (!hasRuntimeType(value, "number") || !Number.isFinite(value) || value < 0) return
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return
   const parts = decimalToParts(decimalStringFromNumber(value))
   return addDecimalParts([{
     scale: parts.scale * 1_000_000n,
@@ -165,7 +165,7 @@ function normalizeModelsDevTier(value: unknown): NonNullable<StaticModelPrice["t
   const conditionRecord = condition
   if (conditionRecord.type !== "context") return
   const size = conditionRecord.size
-  if (!hasRuntimeType(size, "number") || !Number.isFinite(size) || size < 0) return
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return
   return {
     input: normalizeModelsDevPrice(tier.input),
     inputCacheRead: normalizeModelsDevPrice(tier.cache_read),
@@ -258,9 +258,9 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
 
   return async ({ model, provider, transport, usage }) => {
     if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
-    const modelId = hasRuntimeType(model, "string") ? model.trim() : ""
+    const modelId = typeof model === "string" ? model.trim() : ""
     if (!modelId) return
-    const providerId = hasRuntimeType(provider, "string") && provider.trim()
+    const providerId = typeof provider === "string" && provider.trim()
       ? provider.trim()
       : transport === "gateway"
         ? "vercel"

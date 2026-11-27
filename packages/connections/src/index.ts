@@ -1,11 +1,11 @@
 export { apiKey } from "./api-key.ts"
 export { defineConnection } from "./definition.ts"
-export { oauthLogin } from "./oauth-login.ts"
 export { isConnectionError } from "./errors.ts"
+export { CONNECTIONS_ROUTE, createConnectionsHandler } from "./http.ts"
 
 export type { ApiKeyProviderOptions } from "./api-key.ts"
-export type { OAuthLoginProviderOptions } from "./oauth-login.ts"
 export type { ConnectionsCatalogCode, ConnectionsErrorCode } from "./errors.ts"
+export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandler, ConnectionsHandlerOptions } from "./http.ts"
 export type { ConnectionDefinitionName } from "./registry-types.ts"
 export type {
   ConnectionAccessPreset,
@@ -35,9 +35,6 @@ export type {
   ConnectionFetchInit,
   ConnectionInspection,
   ConnectionInstancesDefinition,
-  ConnectionLoginContext,
-  ConnectionLoginDefinition,
-  ConnectionLoginProvider,
   ConnectionMethod,
   ConnectionMethodPattern,
   ConnectionMethodSignature,

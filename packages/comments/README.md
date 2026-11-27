@@ -22,13 +22,13 @@ A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudf
 
 ### Sign in with GitHub
 
-Create a GitHub App, install it on the repository, and list `https://<site>/api/_vitehub/comments/auth/callback/github` as its callback URL. Then set `VITEHUB_GITHUB_CLIENT_ID`, `VITEHUB_GITHUB_CLIENT_SECRET`, and `VITEHUB_SECRET` on the server. People who can push to the repository may comment. The session is an encrypted cookie, so the server stores no users.
+Create a GitHub App, install it on the repository, and list `https://<site>/_vitehub/comments/auth/callback/github` as its callback URL. Then set `VITEHUB_GITHUB_CLIENT_ID`, `VITEHUB_GITHUB_CLIENT_SECRET`, and `VITEHUB_SECRET` on the server. People who can push to the repository may comment. The session is an encrypted cookie, so the server stores no users.
 
 ### In a ViteHub app
 
 [`vite-hub`](https://www.npmjs.com/package/vite-hub) wires the package for you, with any ViteHub Database, presence over Realtime, Content edits in place, the Console, and MCP tools.
 
-```ts
+```ts [server/comments.ts]
 // server/comments.ts
 import { defineComments } from "vite-hub/comments"
 
@@ -41,19 +41,42 @@ export const comments = defineComments({
 
 Without the file, `vitehub({ comments: true })` turns Comments on with `defineComments()`, and so does an object such as `{ database: "team" }`. The Console does not turn it on. `comments: false` turns it off. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
 
-ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`. A production build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED` while the migrations lack a Comments table or column, such as one that a new version of Comments added.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
-Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A small ViteHub hexagon then stays at the pill's place, on every page, and pressing it turns them on again. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
+Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/tools`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A small ViteHub hexagon then stays at the pill's place, on every page, and pressing it turns them on again. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
 
-A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/session`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/api/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
+A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/tools`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
+`authorize` gets `console: true` when the Console admitted the caller to its Comments section: the comment operations of the Console, the CLI, and ViteHub MCP, and `commentsMcpTools(comments, { console: true })`. With `identify`, these calls have no app user, so `authorize` must allow them itself:
+
+```ts fragment
+// Console callers, and the app's editors on the page.
+authorize: ({ console, user }) => console === true || user?.role === "editor",
+```
+
+By default the overlay comments on the page itself, `{ kind: "page", id: "/pricing" }`. `page` maps a page to a subject of your own. The server decides: the overlay reads the subject from the session route, and a thread that the overlay starts must be on that subject. `authorize` still runs on it. A `page` given to the API, as the `?page=` query of a route such as `GET /threads?page=/pricing` or in the body of `POST /threads`, means that same subject.
+
+```ts fragment
+import { defineCommentSubject, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+  page: async ({ url }) => {
+    const id = url.pathname.match(/^\/d\/([^/]+)/)?.[1]
+    return id ? { kind: "drop", id, revision: await latestRevision(id) } : undefined
+  },
+})
+```
+
+`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on the version that the person saw: the overlay sends the `revision` that `/session` gave for the page, and the server keeps it when it is not newer than the one `page` gives now. A missing or newer revision becomes the one from `page`.
+
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
-Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
+Press `C` and click the page to start a thread, or press `B` to draw on the page with a marker, a pen, arrows, or text labels and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
 
 ```vue
 <script setup lang="ts">
@@ -67,6 +90,10 @@ import { contentField } from "vite-hub/content/client"
 ```
 
 An edit reads the draft, changes one string field, and saves the document with `ifDigest`. It needs `content.can({ action: "write" })`. Publishing stays in the Content publish flow.
+
+### Add Hosted Comments
+
+Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**. The Console signs reviewers in and stores their page threads. Send shows a comment at once and sends it in the background, with one outbox for each project. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
 ## Server API
 
@@ -85,15 +112,25 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 
 On a preview, `forge: { provider: "github" }` posts each thread to the pull request that the build previews: one summary comment that lists every thread, then one comment per comment, with the page, the element, the components, and the browser. Resolving a thread hides its comment. It posts with the GitHub App of `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY`, or as each person: people who signed in with GitHub post as themselves, and `token(author)` returns the token for any other sign-in. Each thread's `forge` field says whether it posted.
 
+## Failures in logs
+
+A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module registered, Comments logs it with `comments: { hook, step?, thread, code }`: a failed `onComment` on the wide event of the request, the others as their own evlog events. Without evlog, they go to the console. See [Limits and errors](https://vitehub.dev/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs).
+
+## Send to an agent
+
+Each open thread has **Open in T3 Code** and **Copy**, and the list of open threads has **Open in T3 Code** and **Copy open**. Both give a prompt with the page URL, the text and replies of each thread, the element, and the URLs of its files, for every person who may read the comments. For a Console team member whose MCP access may read the threads, the prompt also names the linked app, its team, and the steps of the ViteHub MCP. It includes resolution steps only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`, and `repository`, the GitHub `owner/name` that the T3 Code link opens: `forge.repository`, else the repository of the build. A Hosted Comments script tag gives it with `data-vitehub-repo`. For one click without a paste, use `send`:
+
+`defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields, and `prompt` changes the setup prompt. Each member has their own count, and Allow sends only the threads the member saw. The `comments_get_send` MCP tool reads a send, and `comments.listSends(user)` and `comments.readSend(user, id)` read sends on the server. Reopening a thread can restore a done inbox send or let the member send it to a webhook agent again. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
+
 ## Deployment and security boundaries
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
 - Pins anchor to the Content field first, then a CSS path checked against the element text, then the text alone, then the page point. A pin whose element is gone shows dashed.
-- A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
-- Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
+- After a thread changes, the server sends a Realtime notice to tabs displaying its subject, including different pages that show the same subject. Each tab reads the threads again through the Comments API. Cursors and presence stay on the current page. Pages without Realtime read the threads again on focus and every 30 seconds.
+- Without a Realtime driver, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
 - Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
-- Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads.
+- Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads. `defineComments({ rateLimit: { limit: 5, window: "1m" } })` limits the writes of each guest address.
 - The overlay is a custom element with a shadow root, so the page's CSS does not reach it.
 
 ## Public imports
@@ -101,30 +138,40 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy**, `commentsT3CodeLink()`, the link of **Open in T3 Code**, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
-| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
+| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` and `mcpToolResult()` for an app's own MCP server. |
 | `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
 | `@vite-hub/comments/runtime/connect` | `connectDatabase()` of `@vite-hub/database/connect`, for the files that `comments()` generates. `/node` also opens SQLite files. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With an H3 request `event`, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`createCommentsHandler(options)` returns a Fetchable, `{ fetch(request) }`. Mount it as a Nitro or H3 route at `/_vitehub/comments/**`, or call `handler.fetch(request)` yourself. Every outcome is a `Response`, also the errors. The handler gives the Request to `identify` as `event`, and reads cookies, the Cloudflare bindings, and `waitUntil` from its Standard Context, `request["~standard"]`. In a ViteHub app, Nitro sets it. For a Request from elsewhere, the handler sets it.
+
+```ts
+import { createCommentsHandler } from "@vite-hub/comments/runtime";
+import { comments } from "./server/comments";
+
+const handler = createCommentsHandler({ comments, realtime: false });
+const response = await handler.fetch(new Request("https://site.test/_vitehub/comments/threads?page=/"));
+```
+
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. A call returns `{ text, images, structured, isError }`: `comments_get_thread` puts the image attachments of the thread in `images`, up to 4 MB. `mcpToolResult(result)` turns it into the MCP tool result, with one `image` block for each image. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 
 - [Comments](https://vitehub.dev/docs/comments) covers access, guests, mentions, hosts, and errors.
 - [Content](https://vitehub.dev/docs/content) covers collections, drafts, and publishing.
-- [Realtime](https://vitehub.dev/docs/realtime) covers room authorities.
+- [Realtime](https://vitehub.dev/docs/realtime) covers room drivers.
 
 ### Floating window
 
 Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
 
-With access to the Content page tool, selecting **Edit** and a marked field opens that document in the existing Content editor. Otherwise Comments keeps its plain-text inline editor. The Content write and publish rules do not change.
+Select **Edit**, then a marked field, to edit plain text in place. A field that is not plain text says to edit it in the Console at console.vitehub.dev. The Content write and publish rules do not change.
 
 ## One model
 
@@ -142,7 +189,7 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC, which needs Console access. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
+The Vue parts are in `@vite-hub/ui`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC on a development server. A browser cannot sign Console calls, so the RPC transport works only with `console: { auth: false }` or without the `console` option. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
 
 ## Anchors
 
@@ -151,16 +198,18 @@ An anchor says where a comment sits, so the pin can find the spot again after th
 ```ts
 import { createAnchor, resolveAnchor } from "@vite-hub/comments/client";
 
-// From a click: the element under the point, plus where in its box the click landed.
-const anchor = createAnchor({ x: event.clientX, y: event.clientY });
-// { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
+document.addEventListener("click", (event) => {
+  // From a click: the element under the point, plus where in its box the click landed.
+  const anchor = createAnchor({ x: event.clientX, y: event.clientY });
+  // { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
 
-const position = resolveAnchor(anchor);
-if (position.detached) {
-  // The element is gone, hidden, or no longer holds the quote.
-} else {
-  position.x; // The pin position in client coordinates.
-}
+  const position = resolveAnchor(anchor);
+  if (position.detached) {
+    // The element is gone, hidden, or no longer holds the quote.
+  } else {
+    position.x; // The pin position in client coordinates.
+  }
+});
 ```
 
 | Kind | Made from | Keeps |
@@ -180,10 +229,10 @@ Offsets are in thousandths of the element box: `500` is the middle. A pin follow
 ## Client
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
+import { createAnchor, createCommentsClient, createRestTransport } from "@vite-hub/comments/client";
 
 const client = createCommentsClient({
-  transport, // see below
+  transport: createRestTransport(), // the Comments API; see Transport below
   user: { id: "ana", name: "Ana Ruiz" },
   query: { page: location.pathname },
 });
@@ -191,14 +240,39 @@ const client = createCommentsClient({
 const stop = client.start(); // Loads the threads, then keeps them fresh.
 await client.create({
   subject: { kind: "page", id: location.pathname },
-  anchor,
+  anchor: createAnchor(document.querySelector("#pricing button")!),
   body: "This button is too small.",
 });
 client.threads; // The cached threads, ordered by number.
-client.onChange(() => render(client.threads));
+client.onChange(() => console.log(`${client.threads.length} threads`));
 ```
 
+To retry a create safely, give it a `requestId`, such as `crypto.randomUUID()`, and keep it for that draft. A second create with the same `requestId` in the same scope returns the first thread and creates no new thread. Only the author of the first thread gets it back, for the same subject, and only when that author may still read it. Anything else fails: the Operations and `POST /threads` answer `409` with `COMMENTS_R0022`, and the server API `comments.create()` returns `COMMENTS_INVALID_INPUT` with the reason. Make a new `requestId` for each new comment.
+
+A reply takes a `requestId` too. A second reply with the same `requestId` in the same thread returns the thread with the first message, adds nothing, and runs no hooks. Another author with that key gets the same `409`.
+
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.
+
+### Outbox
+
+`createCommentsClient({ ..., outbox: { account } })` saves each new comment and reply in IndexedDB before it sends. `create` and `reply` show the draft with `delivery: { status: "pending" }` in `threads` and `outbox.entries` the moment you call them, and `onChange` fires before the save ends. The draft goes out, and other tabs see it, once it is saved. Drafts go out in the order you wrote them and survive a reload. If the save fails, as when the disk is full, the draft stays on the page as `failed` with its body and files, and `outbox.retry(id)` saves and sends it. The outbox checks the author on each write and stores progress so another tab can resume. When one origin serves more than one Comments API, give each its own `namespace`: entries saved under one never go out under another. See [Write comments offline](https://vitehub.dev/docs/comments/offline).
+
+With an outbox, `files` may be a promise, such as of a screenshot that renders after Send:
+
+```ts fragment
+const files = renderScreenshot().then(blob => [blob]);
+await client.create({ subject, anchor, body, files }); // Shows and saves now; sends once `files` settles.
+```
+
+To keep files the reader already picked when the page reloads before the screenshot arrives, pass them as `files` and the screenshot as `deferredFiles`:
+
+```ts fragment
+await client.create({ subject, anchor, body, files: picked, deferredFiles: renderScreenshot().then(blob => [blob]) });
+```
+
+The draft holds the queue until the files arrive, then goes out with them. If saving the files fails, Retry saves them again. If the promise rejects, the draft goes out without them. If the page reloads first, the next page sends a saved draft without them. Without Web Locks, the default outbox stays in memory. With a custom store and no locks, drafts wait in memory until their files arrive and can be saved in send order.
+
+If a comment write gets no answer, retry it to recover the server copy. A later refusal does not make the draft safe to edit or dismiss. A lost upload or thread lookup answer does not lock the draft on its own.
 
 Without an explicit query `limit`, refresh loads every page. Multi-page refreshes require two matching scans before replacing the cache. If three scans cannot agree because the list keeps changing, refresh raises `COMMENTS_R0015` and preserves the previous cache; refresh again to retry. An explicit `limit` makes one request.
 
@@ -207,14 +281,14 @@ Without an explicit query `limit`, refresh loads every page. Multi-page refreshe
 A transport is the seam to the server. Each method has the name and the input of one `comments.*` operation.
 
 ```ts
-import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentEvent, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentThread, CommentUser, CommentUsersInput } from "@vite-hub/comments"
+import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentEvent, CommentFiles, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentThread, CommentUser, CommentUsersInput } from "@vite-hub/comments"
 
 interface CommentsTransport {
   supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;
-  get(input: CommentGetInput): Promise<CommentThread | null>; // { id } or { scope, n }
-  create(input: CommentCreateInput): Promise<CommentThread>;
-  reply(input: CommentReplyInput): Promise<CommentThread>;
+  get(input: CommentGetInput): Promise<CommentThread | null>; // { threadId } or { scope, n }
+  create(input: CommentCreateInput & CommentFiles): Promise<CommentThread>; // `files` to store before the comment
+  reply(input: CommentReplyInput & CommentFiles): Promise<CommentThread>; // and `subject` of the thread, for the upload
   edit(input: CommentEditInput): Promise<CommentThread>;
   delete(input: CommentDeleteInput): Promise<CommentThread | null>;
   resolve(input: CommentStatusInput): Promise<CommentThread>;
@@ -225,6 +299,8 @@ interface CommentsTransport {
 ```
 
 A mutation returns the thread as it is afterwards. `delete` returns `null` when the thread is gone.
+
+Queued `create` and `reply` get `requestId`, the remaining `files`, and `outbox`. Check `outbox.account` against the current author on every server write, including file uploads. Await `outbox.uploaded(key)` for each stored file, add the keys to `attachments`, and return the first thread for a repeated `requestId` on the same target. `createRestTransport()` and `createRpcTransport()` do this. A thrown error with `status` tells the outbox whether to wait, and `retryAfter` in milliseconds tells it how long.
 
 Transports accept attachment keys by default, including the shipped `createRpcTransport()`. Custom transports that reject attachment keys should set `supportsAttachments: false` to disable file controls in comment surfaces.
 
@@ -240,6 +316,10 @@ const client = createCommentsClient({ transport, user: ana });
 ```
 
 `transport.as(user)` gives another person on the same store, and `transport.reconnect()` sends `reconnected` to the listeners.
+
+### Send
+
+`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code, selection)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. `createCommentSendTransport({ page })` is the transport over the Send routes of `send: true`. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
 
 ## Errors
 

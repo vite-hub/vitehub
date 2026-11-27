@@ -1,11 +1,12 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, ViteHubError } from "@vite-hub/runtime"
+import { emitTraceEvent, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { chat, progressSummary, title } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
@@ -67,7 +68,7 @@ async function failedTitleInvocation(options: {
   when?: () => boolean
 }) {
   const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-  const { defineChannel } = await import("../src/channels.ts")
+  const { channelAdapter } = await import("../src/channels.ts")
   const failure = new Error("driver failed")
   const delivered: string[] = []
   const titleEffect = vi.fn(async (context: { effect: { payload?: unknown } }) => {
@@ -85,7 +86,7 @@ async function failedTitleInvocation(options: {
       ...(options.when === undefined ? {} : { when: options.when }),
     })],
     channels: {
-      portal: defineChannel("portal", {
+      portal: channelAdapter("portal", {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         [channelDeliveryHandlers]: { title: titleEffect as never },
         messages: false,
@@ -148,7 +149,6 @@ describe("agent message protocol", () => {
     })
     const resolveCapabilities = vi.fn(async (context) => {
       expect(context.abortSignal).toBe(abortController.signal)
-      expect(context.actor).toBe(context.invoker)
       expect(context.driver.kind).toBe("run")
       expect(context.input.prompt).toBe("hello")
       expect(context.run?.channelId).toBe("portal")
@@ -194,7 +194,7 @@ describe("agent message protocol", () => {
     const { defineWorkspace } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const workspaceName = `dynamic-access-${Math.random().toString(36).slice(2)}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspaceAgent = defineAgent({
       capabilities: () => [
         access({
@@ -458,7 +458,7 @@ describe("agent message protocol", () => {
   it("lets command finish hooks reply after agent errors", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const effects: unknown[] = []
     const agent = defineAgent({
@@ -476,7 +476,7 @@ describe("agent message protocol", () => {
         },
       })],
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           [channelDeliveryHandlers]: {
             reply(context) {
               effects.push(context.effect)
@@ -808,7 +808,7 @@ describe("agent message protocol", () => {
   it("observes disjoint outcome hooks and delivers Agent Error Hook effects", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const failure = new Error("boom")
     const finish = vi.fn()
     const agentError = vi.fn(event => event.reply(`failed:${event.errorMessage}`))
@@ -816,7 +816,7 @@ describe("agent message protocol", () => {
     const reply = vi.fn()
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
@@ -1320,7 +1320,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("exposes resolved Agent Actors alongside legacy invokers", async () => {
+  it("exposes the resolved invoker to capabilities, Drivers, and finish hooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const prepare = vi.fn()
@@ -1328,10 +1328,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [{
         id: "seen",
-        prepare({ actor, context, invoker }) {
+        prepare({ context, invoker }) {
           prepare({
-            actor,
-            contextActor: context.get("actor"),
             contextInvoker: context.get("invoker"),
             invoker,
           })
@@ -1343,15 +1341,12 @@ describe("agent message protocol", () => {
       invoker: {
         resolve: () => ({ id: "tenant-1", kind: "tenant", meta: { tier: "pro" } }),
       },
-      driver: { run: ({ actor, context, invoker }) => ({
+      driver: { run: ({ context, invoker }) => ({
           raw: {
-            actor,
-            actorIsInvoker: actor === invoker,
-            contextActorIsActor: context.get("actor") === actor,
             contextInvokerIsInvoker: context.get("invoker") === invoker,
             invoker,
           },
-          text: actor.id,
+          text: invoker.id,
         }) },
     })
 
@@ -1361,22 +1356,16 @@ describe("agent message protocol", () => {
       waitUntil: vi.fn(),
     }, {})).resolves.toEqual({
       raw: {
-        actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
-        actorIsInvoker: true,
-        contextActorIsActor: true,
         contextInvokerIsInvoker: true,
         invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       },
       text: "tenant-1",
     })
     expect(prepare).toHaveBeenCalledWith({
-      actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
-      contextActor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       contextInvoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
     })
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
     }))
   })
@@ -2124,7 +2113,7 @@ describe("agent message protocol", () => {
       runtime: false,
       workspace: {
         mode: "write",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       driver: { async run(context) {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2981,7 +2970,8 @@ describe("agent message protocol", () => {
   })
 
   it("resolves capability-owned triggers and runs them through the agent lifecycle", async () => {
-    const { defineAgent, resolveAgentTriggers, runAgentTrigger } = await import("../src/index.ts")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [{
@@ -3006,7 +2996,7 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
-    await expect(resolveAgentTriggers(agent, runtime)).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, createExecutionContext(runtime) as never)).resolves.toMatchObject({
       "custom.ping": {
         capabilityId: "custom",
         id: "custom.ping",
@@ -3021,18 +3011,13 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("does not export entry() from capabilities", async () => {
-    const capabilities = await import("../src/capabilities.ts")
-
-    expect("entry" in capabilities).toBe(false)
-  })
-
-  it("creates custom trigger channels with defineChannel()", async () => {
-    const { defineAgent, resolveAgentTriggers, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+  it("creates custom trigger channels with channelAdapter()", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             message: {
@@ -3055,7 +3040,7 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
-    await expect(resolveAgentTriggers(agent, runtime)).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, createExecutionContext(runtime) as never)).resolves.toMatchObject({
       "portal.message": {
         channelId: "portal",
         id: "portal.message",
@@ -3068,19 +3053,19 @@ describe("agent message protocol", () => {
 
   it.each([false, true])("validates and transforms Standard Schema trigger input before invoke (callable: %s)", async (callable) => {
     const { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const validation = vi.fn((value: string) => value.length > 0)
     const schema = v.object({ payload: v.object({ text: v.pipe(v.string(), v.trim(), v.check(validation, "private validation detail")) }) })
     const inputSchema = callable ? Object.assign(() => {}, { "~standard": schema["~standard"] }) : schema
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
               input: inputSchema,
               invoke: (_context, input) => ({ input: { prompt: input.payload.text } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: () => "secret" }],
             }),
           },
         }),
@@ -3112,17 +3097,17 @@ describe("agent message protocol", () => {
 
   it("does not invoke an inherited webhook secret resolver", async () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const resolve = vi.fn(() => "secret")
     const secretToken = Object.create({ resolve })
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
               invoke: () => ({ input: { prompt: "accepted" } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: secretToken as never }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: secretToken as never }],
             }),
           },
         }),
@@ -3141,7 +3126,7 @@ describe("agent message protocol", () => {
 
   it("rejects class-based webhook secret resolvers", async () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     class SecretResolver {
       resolve() {
         return "secret"
@@ -3149,12 +3134,12 @@ describe("agent message protocol", () => {
     }
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
               invoke: () => ({ input: { prompt: "accepted" } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: new SecretResolver() as never }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: new SecretResolver() as never }],
             }),
           },
         }),
@@ -3172,13 +3157,13 @@ describe("agent message protocol", () => {
 
   it("does not treat an inherited Standard Schema marker as trigger validation", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const validate = vi.fn(() => ({ value: { payload: "forged" } }))
     const inheritedSchema = Object.create({ "~standard": { validate } })
     const received: unknown[] = []
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
@@ -3202,13 +3187,13 @@ describe("agent message protocol", () => {
 
   it("rejects an inherited Standard Schema marker getter", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const validate = vi.fn(() => ({ value: { payload: "validated" } }))
     const schema = Object.create({ get "~standard"() { return { validate } } })
     const received: unknown[] = []
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
@@ -3231,12 +3216,12 @@ describe("agent message protocol", () => {
 
   it.each([false, true])("propagates webhook validator exceptions (async: %s)", async (asyncValidation) => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
-    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const failure = new Error("broken validator")
     const invoke = vi.fn(() => ({ input: { prompt: "unused" } }))
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
@@ -3251,7 +3236,7 @@ describe("agent message protocol", () => {
                 },
               },
               invoke,
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: () => "secret" }],
             }),
           },
         }),
@@ -3271,7 +3256,7 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { openapi } = await import("../src/capabilities.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const triggerCapabilities: string[][] = []
     const resolvedTools: string[][] = []
     const shared = defineCapability({
@@ -3299,7 +3284,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [shared],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           capabilities: [portalApi],
           messages: false,
           triggers: {
@@ -3311,7 +3296,7 @@ describe("agent message protocol", () => {
             },
           },
         }),
-        teams: defineChannel("teams", {
+        teams: channelAdapter("teams", {
           messages: false,
           triggers: {
             message: {
@@ -3342,7 +3327,7 @@ describe("agent message protocol", () => {
 
   it("lets Channels execute Capability-contributed delivery effect intents", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const order: string[] = []
     const effect = vi.fn((context) => {
       order.push(`effect:${context.effect.kind}:${context.effect.intent}`)
@@ -3359,7 +3344,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reaction: effect },
           messages: false,
           triggers: {
@@ -3387,7 +3372,7 @@ describe("agent message protocol", () => {
 
   it("lets Channel triggers expose finish delivery effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { defineFinishEffect } = await import("../src/delivery-effects.ts")
     const order: string[] = []
     const effect = vi.fn((context) => {
@@ -3406,7 +3391,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply: effect },
           messages: false,
           triggers: {
@@ -3445,7 +3430,7 @@ describe("agent message protocol", () => {
   it("lets agent finish hooks return delivery effects after capability finish effects", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const order: string[] = []
     const agent = defineAgent({
       capabilities: [
@@ -3457,7 +3442,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             reaction({ effect }) {
               order.push(`reaction:${effect.payload}`)
@@ -3503,7 +3488,7 @@ describe("agent message protocol", () => {
 
   it("carries result artifacts through custom finish replies", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const effect = vi.fn()
     const artifact = {
       path: "artifacts/preview.png",
@@ -3513,7 +3498,7 @@ describe("agent message protocol", () => {
     }
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply: effect },
           messages: false,
           triggers: {
@@ -3542,7 +3527,7 @@ describe("agent message protocol", () => {
 
   it("lets finish delivery effects publish Workspace artifacts", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")
+    const { channelAdapter, publishWorkspaceArtifacts } = await import("../src/channels.ts")
     const content = new Uint8Array([1, 2, 3])
     const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/result.png" }))
     const effect = vi.fn((context) => {
@@ -3557,7 +3542,7 @@ describe("agent message protocol", () => {
     })
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply: effect },
           messages: false,
           triggers: {
@@ -3589,7 +3574,7 @@ describe("agent message protocol", () => {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
           return "ok"
         } },
-      workspace: { mode: "write", store: { provider: "memory" } },
+      workspace: { mode: "write", store: { driver: "memory" } },
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -3604,7 +3589,7 @@ describe("agent message protocol", () => {
 
   it("lets Capabilities expose finish delivery effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const effect = vi.fn((context) => {
       expect(context.effect).toMatchObject({ kind: "reply", payload: "done:ok" })
       expect(context.finish?.result).toBe("ok")
@@ -3619,7 +3604,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply: effect },
           messages: false,
           triggers: {
@@ -3643,7 +3628,7 @@ describe("agent message protocol", () => {
   it("evaluates result-dependent finish delivery effects with the finished result", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
     const finishEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
     finishEffect.active = context => context.result?.text === "deliver me"
@@ -3658,7 +3643,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -3682,12 +3667,12 @@ describe("agent message protocol", () => {
 
   it("delivers titles through message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const setAssistantTitle = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Prepared title", id: "thread-title" })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
@@ -3714,7 +3699,7 @@ describe("agent message protocol", () => {
 
   it("starts and replaces provisional titles while the main driver is pending", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
     let driverStarted = false
     let invocationSettled = false
@@ -3750,7 +3735,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             title: titleEffect,
           },
@@ -3866,7 +3851,7 @@ describe("agent message protocol", () => {
 
   it("retries title delivery at finish when any early delivery handler fails", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
     const driverPending = new Promise<void>((resolve) => {
       releaseDriver = resolve
@@ -3881,7 +3866,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             title: [titleEffect, retryingTitleEffect],
           },
@@ -3930,12 +3915,12 @@ describe("agent message protocol", () => {
 
   it("delivers titles through Slack Assistant message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const setAssistantTitle = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Prepared title", id: "thread-title" })],
       channels: {
-        slack: defineChannel("slack", {
+        slack: channelAdapter("slack", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => `channel:${threadId}`,
@@ -3962,13 +3947,13 @@ describe("agent message protocol", () => {
 
   it("does not resolve message Channel title adapters without title finish effects", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const adapter = vi.fn(() => {
       throw new Error("adapter should not resolve")
     })
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           adapter,
           triggers: {
             message: {
@@ -3990,7 +3975,7 @@ describe("agent message protocol", () => {
 
   it("does not resolve message Channel title adapters when input transforms remove user messages", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const adapter = vi.fn(() => {
       throw new Error("adapter should not resolve")
     })
@@ -4006,7 +3991,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           adapter,
           triggers: {
             message: {
@@ -4029,7 +4014,7 @@ describe("agent message protocol", () => {
 
   it("does not resolve message Channel title adapters for inactive title finish effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const adapter = vi.fn(() => {
       throw new Error("adapter should not resolve")
     })
@@ -4047,7 +4032,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           adapter,
           triggers: {
             message: {
@@ -4069,12 +4054,12 @@ describe("agent message protocol", () => {
 
   it("ignores title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
@@ -4100,13 +4085,13 @@ describe("agent message protocol", () => {
 
   it("preserves title finish extensions when message Channel title delivery is unsupported", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
@@ -4136,7 +4121,7 @@ describe("agent message protocol", () => {
 
   it("resolves title extensions only when an error-only hook runs", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const failure = new Error("failed")
     const run = vi.fn()
@@ -4146,7 +4131,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
@@ -4182,13 +4167,13 @@ describe("agent message protocol", () => {
 
   it("delivers titles through custom message Channel title effects", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const titleEffect = vi.fn()
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
@@ -4254,7 +4239,7 @@ describe("agent message protocol", () => {
 
   it("evaluates known-kind finish delivery active predicates after finish extensions resolve", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const finishEffect = ((finish) => finish.reply("Extension enabled")) as AgentChannelDeliveryFinishEffectCallback
@@ -4271,7 +4256,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             reply: ({ effect }) => delivered(effect.payload),
           },
@@ -4295,7 +4280,7 @@ describe("agent message protocol", () => {
 
   it("ignores unsupported delivery effect intents with observer metadata", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const observe = vi.fn()
     const agent = defineAgent({
       capabilities: [
@@ -4307,7 +4292,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             message: {
@@ -4342,11 +4327,11 @@ describe("agent message protocol", () => {
   it("marks bounded unsupported reply content as truncated", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             message: {
@@ -4383,7 +4368,7 @@ describe("agent message protocol", () => {
   it("records metadata-only unsupported reply content", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
       capabilities: [defineCapability({
@@ -4393,7 +4378,7 @@ describe("agent message protocol", () => {
         },
       })],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           messages: false,
           triggers: {
             message: {
@@ -4426,11 +4411,11 @@ describe("agent message protocol", () => {
   it("records bounded reply content when trace content is enabled", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     const agent = defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply: async ({ effect }) => {
             if (!isAsyncIterable(effect.payload)) return
             for await (const _chunk of effect.payload) {}
@@ -4470,7 +4455,7 @@ describe("agent message protocol", () => {
 
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const channelId = `portal-${"c".repeat(300)}`
     const effect = `reaction-${"e".repeat(300)}`
     const intent = `started-${"i".repeat(300)}`
@@ -4487,7 +4472,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        [channelId]: defineChannel("portal", {
+        [channelId]: channelAdapter("portal", {
           [channelDeliveryHandlers]: {
             [effect]: () => {
               throw new Error("reaction failed")
@@ -4535,7 +4520,7 @@ describe("agent message protocol", () => {
 
   it("does not run delivery effects after durable Channel ownership is lost", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
     const delivered = vi.fn()
     const verifyOwnership = vi.fn().mockRejectedValue(new Error("Channel ownership was reclaimed"))
@@ -4550,7 +4535,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reaction: delivered },
           messages: false,
           triggers: {
@@ -4583,7 +4568,7 @@ describe("agent message protocol", () => {
 
   it("does not reserve or generate a title after durable Channel ownership is lost", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { withAgentChannelDeliveryOwnershipVerifier } = await import("../src/internal/channel-delivery.ts")
     const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
     const acquireLock = vi.fn()
@@ -4603,7 +4588,7 @@ describe("agent message protocol", () => {
         title({ execute }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { title: delivered },
           messages: false,
           triggers: {
@@ -4632,7 +4617,8 @@ describe("agent message protocol", () => {
 
   it("runs delivery effects when outbound custody evidence cannot be written", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
+    const { withAgentChannelDelivery } = await import("../src/internal/channel-delivery.ts")
     const delivered = vi.fn()
     const event = vi.fn(async (input: { type: string }) => {
       if (input.type === "outbound.started") throw new Error("journal unavailable")
@@ -4648,7 +4634,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reaction: delivered },
           messages: false,
           triggers: {
@@ -4663,18 +4649,12 @@ describe("agent message protocol", () => {
       },
       driver: { run: () => "ok" },
     })
-    const runtime = {
-      [Symbol.for("vitehub.agent.channel-delivery")]: {
-        claimed: true,
-        delivery: { id: "delivery-1" },
-        duplicate: false,
-        event,
-      },
+    const runtime = withAgentChannelDelivery({
       memo: vi.fn(),
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       waitUntil: vi.fn(),
-    }
+    // SAFETY: This test fixture implements only the tracker members the delivery effect reads.
+    }, { claimed: true, delivery: { id: "delivery-1" }, duplicate: false, event } as never)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(runAgentTrigger(agent, runtime as never, "portal.message", {})).resolves.toBe("ok")
@@ -4684,11 +4664,11 @@ describe("agent message protocol", () => {
   })
 
   it("exposes Agent Trigger metadata", async () => {
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = {
       channels: {
-        github: defineChannel("github", {
+        github: channelAdapter("github", {
           messages: false,
           triggers: {
             webhook: {
@@ -4748,7 +4728,7 @@ describe("agent message protocol", () => {
           webhooks: {
             telegram: {
               path: "/api/webhooks/telegram",
-              secretToken: "secret-token",
+              secret: "WEBHOOK_SECRET",
             },
             slack: {
               path: "/api/webhooks/slack",
@@ -4769,7 +4749,7 @@ describe("agent message protocol", () => {
           path: "/api/webhooks/telegram",
           provider: "telegram",
           secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
+          secret: "WEBHOOK_SECRET",
         }, {
           id: "slack",
           method: "POST",
@@ -4843,7 +4823,7 @@ describe("agent message protocol", () => {
           adapter,
           webhooks: {
             path: "/api/telegram/support",
-            secretToken: "secret-token",
+            secret: "WEBHOOK_SECRET",
           },
         }),
       },
@@ -4860,7 +4840,7 @@ describe("agent message protocol", () => {
           path: "/api/telegram/support",
           provider: "telegram",
           secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
+          secret: "WEBHOOK_SECRET",
         }],
       },
     })
@@ -4897,8 +4877,9 @@ describe("agent message protocol", () => {
           path: "/api/github/webhook",
           provider: "github",
           secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
+          // A static GitHub App secret is a value, so it goes in a function: a string names a variable.
+          secret: expect.any(Function),
+          signature: "github",
         }],
       },
     })
@@ -4931,8 +4912,9 @@ describe("agent message protocol", () => {
           path: "/api/github/webhook",
           provider: "github",
           secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
+          // A static GitHub App secret is a value, so it goes in a function: a string names a variable.
+          secret: expect.any(Function),
+          signature: "github",
         }],
       },
     })
@@ -5111,7 +5093,7 @@ describe("agent message protocol", () => {
       },
       driver: { run: (context) => {
           expect(context.prompt).toContain("Work on PR #42 in vite-hub/vitehub")
-          expect(context.prompt).toContain("- Make sure CI is green.")
+          expect(context.prompt).toContain("- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.")
           expect(context.prompt).toMatch(/Request:$/)
           return {
             text: "Review completed.",
@@ -5550,6 +5532,7 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const calls: string[] = []
+    const fetchMetadata = vi.fn(async () => new Response(null, { status: 404 }))
     const agent = defineAgent({
       capabilities: [inputCommands({
         commands: {
@@ -5572,11 +5555,11 @@ describe("agent message protocol", () => {
       })],
       channels: {
         github: github({
-          app: { webhookSecret: false },
+          app: { fetch: fetchMetadata, webhookSecret: false },
           pullRequest: { workspace: false },
         }),
         triage: github({
-          app: { webhookSecret: false },
+          app: { fetch: fetchMetadata, webhookSecret: false },
           pullRequest: { workspace: false },
         }),
       },
@@ -5607,11 +5590,13 @@ describe("agent message protocol", () => {
 
     const filtered = await runAgentTrigger(agent, runtime, "triage.webhook", delivery("/review please", 201))
     expect(filtered).toBeInstanceOf(Response)
+    expect(fetchMetadata).not.toHaveBeenCalled()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect((filtered as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
 
     await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toContain("Request: please")
     await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toContain("Request: please")
+    expect(fetchMetadata).toHaveBeenCalledTimes(2)
     expect(calls).toEqual(["summary:please", "review:please"])
   })
 
@@ -5637,11 +5622,11 @@ describe("agent message protocol", () => {
 
   it("keeps generated webhook ids unique for channel webhook arrays", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => ({}) as never,
           webhooks: [
@@ -5692,20 +5677,13 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("rejects unwired HTTP channel paths", async () => {
-    const { http } = await import("../src/channels.ts")
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
-  })
-
   it("rejects channel webhooks without an adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
 
     expect(() => defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           webhooks: { path: "/api/support/chat" },
         }),
       },
@@ -5817,9 +5795,9 @@ describe("agent message protocol", () => {
 
   it("resolves zero-argument Channel factories once per Agent definition", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel, webChat } = await import("../src/channels.ts")
+    const { channelAdapter, webChat } = await import("../src/channels.ts")
     const factory = vi.fn(() => webChat())
-    const existing = defineChannel("custom")
+    const existing = channelAdapter("custom")
     const workspace = { sources: {} }
 
     const first = defineAgent({
@@ -5836,7 +5814,7 @@ describe("agent message protocol", () => {
     expect(first.channels?.existing).toBe(existing)
     expect(first.channels?.portal).not.toBe(second.channels?.portal)
     expect(first.workspace).toMatchObject(workspace)
-    expect(Object.values(first.channels || {}).every(channel => hasRuntimeType(channel, "object"))).toBe(true)
+    expect(Object.values(first.channels || {}).every(channel => typeof channel === "object")).toBe(true)
   })
 
   it("rejects built-in Channel settings without their factory", async () => {
@@ -5933,12 +5911,12 @@ describe("agent message protocol", () => {
   it("projects invocation status, harness plans, approvals, and final text through the active Channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const updates: AgentActivityUpdate[] = []
     const waitUntil = vi.fn()
     const agent = defineAgent({
       channels: {
-        work: defineChannel("work", {
+        work: channelAdapter("work", {
           activity: {
             update: ({ activity }) => {
               updates.push(structuredClone(activity))
@@ -6002,7 +5980,7 @@ describe("agent message protocol", () => {
     const { createBoundedTextAccumulator } = await import("../src/internal/bounded-text.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const updates: AgentActivityUpdate[] = []
     const retained = createBoundedTextAccumulator(12_000)
     retained.append("a".repeat(8_000))
@@ -6010,7 +5988,7 @@ describe("agent message protocol", () => {
     expect(retained.value()).toBe(`${"a".repeat(4_000)}${"b".repeat(8_000)}`)
     const agent = defineAgent({
       channels: {
-        work: defineChannel("work", {
+        work: channelAdapter("work", {
           activity: {
             update: ({ activity }) => {
               updates.push(structuredClone(activity))
@@ -6040,12 +6018,12 @@ describe("agent message protocol", () => {
   it("projects setup failures without replacing the Agent error", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const failure = new Error("driver failed")
     const statuses: string[] = []
     const agent = defineAgent({
       channels: {
-        work: defineChannel("work", {
+        work: channelAdapter("work", {
           activity: {
             update: ({ activity }) => {
               statuses.push(activity.status)
@@ -6072,7 +6050,7 @@ describe("agent message protocol", () => {
     const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
-    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const request = () => new Request("https://example.com/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
       }),
@@ -6370,7 +6348,7 @@ describe("agent message protocol", () => {
     inactiveFinishEffect.active = () => false
     registerWorkspace(workspaceName, defineWorkspace({
       commit: true,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const agent = defineAgent({
       capabilities: [
@@ -6416,7 +6394,7 @@ describe("agent message protocol", () => {
       workspace: {
         commit,
         mode: "write",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       driver: { async run({ workspace }) {
           // SAFETY: This test fixture intentionally constructs the exact writable Workspace contract.
@@ -6449,7 +6427,7 @@ describe("agent message protocol", () => {
     const workspaceName = `failed-auto-commit-${Math.random().toString(36).slice(2)}`
     registerWorkspace(workspaceName, defineWorkspace({
       commit: true,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const agent = defineAgent({
       driver: { async run({ workspace }) {
@@ -6673,9 +6651,9 @@ describe("agent message protocol", () => {
           output(context) {
             context.output.render((result, renderContext) => {
               const usageValue = renderContext.output.extensions.get("usage-note")
-              const usage = isRuntimeRecord(usageValue) && hasRuntimeType(usageValue.summary, "string") ? usageValue : undefined
+              const usage = isRuntimeRecord(usageValue) && typeof usageValue.summary === "string" ? usageValue : undefined
               const summaryValue = renderContext.output.extensions.get("usage-note", "summary")
-              const summary = hasRuntimeType(summaryValue, "string") ? summaryValue : undefined
+              const summary = typeof summaryValue === "string" ? summaryValue : undefined
               const missing = renderContext.output.extensions.get("missing")
               return `${result}:${usage?.summary}:${summary}:${String(missing)}`
             })
@@ -6705,7 +6683,7 @@ describe("agent message protocol", () => {
           output(context) {
             context.output.final((result, renderContext) => {
               const summaryValue = renderContext.output.extensions.get("usage-note", "summary")
-              const summary = hasRuntimeType(summaryValue, "string") ? summaryValue : undefined
+              const summary = typeof summaryValue === "string" ? summaryValue : undefined
               return `${result}:${summary}`
             })
           },
@@ -6960,7 +6938,7 @@ describe("agent message protocol", () => {
   it("runs final output renderers before finish delivery effects", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
@@ -6979,7 +6957,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7040,7 +7018,7 @@ describe("agent message protocol", () => {
   it("runs final output renderers for bare event streams before finish delivery effects", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
@@ -7059,7 +7037,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7102,7 +7080,7 @@ describe("agent message protocol", () => {
   it("carries bare stream usage events into final output renderers", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
@@ -7125,7 +7103,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7627,7 +7605,7 @@ describe("agent message protocol", () => {
   it("exposes explicit stream usage events to final output renderers", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
@@ -7650,7 +7628,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7753,7 +7731,7 @@ describe("agent message protocol", () => {
   it("runs final output renderers before ui-message-stream finish delivery effects", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
@@ -7777,7 +7755,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7826,7 +7804,7 @@ describe("agent message protocol", () => {
   it("preserves streamed usage for ui-message-stream finish work", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
     const finish = vi.fn()
 
@@ -7850,7 +7828,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -7911,7 +7889,7 @@ describe("agent message protocol", () => {
   it("preserves ViteHub event usage for generated ui-message-stream finish work", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const delivered = vi.fn()
     const finish = vi.fn()
 
@@ -7935,7 +7913,7 @@ describe("agent message protocol", () => {
         }),
       ],
       channels: {
-        review: defineChannel("review", {
+        review: channelAdapter("review", {
           [channelDeliveryHandlers]: {
             reply({ effect }) {
               delivered(effect.payload)
@@ -8591,7 +8569,7 @@ describe("agent message protocol", () => {
         }
       },
     }
-    vi.doMock("ai", () => aiSdk)
+    vi.doMock("ai", async importOriginal => ({ ...aiSdk, createGateway: (await importOriginal<typeof import("ai")>()).createGateway }))
     loadAiSdk.mockResolvedValue(aiSdk)
     try {
       const { defineAgent } = await import("../src/index.ts")
@@ -8642,7 +8620,7 @@ describe("agent message protocol", () => {
         }
       },
     }
-    vi.doMock("ai", () => aiSdk)
+    vi.doMock("ai", async importOriginal => ({ ...aiSdk, createGateway: (await importOriginal<typeof import("ai")>()).createGateway }))
     loadAiSdk.mockResolvedValue(aiSdk)
 
     try {
@@ -8804,7 +8782,7 @@ describe("agent message protocol", () => {
 
   it("renders custom title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
-    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
+    vi.doMock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway, generateText, jsonSchema: vi.fn(schema => schema) }))
 
     try {
       const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
@@ -10136,7 +10114,7 @@ describe("agent message protocol", () => {
     })
     const progress = events.find(event => event.type === "data-progress-summary")
     const progressData = isRuntimeRecord(progress?.data) ? progress.data : undefined
-    const summary = hasRuntimeType(progressData?.summary, "string") ? progressData.summary : undefined
+    const summary = typeof progressData?.summary === "string" ? progressData.summary : undefined
     expect(summary?.length).toBeLessThanOrEqual(80)
     expect(summary).toMatch(/…$/)
   })
@@ -12469,14 +12447,14 @@ describe("agent message protocol", () => {
       }],
     })
 
-    const resolved = await agent.resolve({
+    const resolved = asUnknownBoundary(await agent.resolve({
       capabilities: { sandbox: { kind: "sandbox", value: { id: "sb_1" } } },
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    })
+    })) as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
-    expect(resolved).toEqual(expect.any(Object))
+    await expect(resolved.tools.inspect!.execute({})).resolves.toEqual({ kind: "sandbox", value: { id: "sb_1" } })
   })
 
   it("converts static capability tool execution results to JSON-compatible values", async () => {
@@ -12680,11 +12658,11 @@ describe("agent message protocol", () => {
 
     it("streams workflow-backed chat triggers inline", async () => {
       const { createUIMessageStream, readUIMessageStream } = await import("ai")
-      const { defineAgent, streamAgentTrigger, workflow } = await import("../src/index.ts")
+      const { defineAgent, streamAgentTrigger, agentWorkflow } = await import("../src/index.ts")
 
       const agent = defineAgent({
         capabilities: [chat()],
-        runtime: workflow("support-agent"),
+        runtime: agentWorkflow("support-agent"),
         driver: { run: () => ({
             toUIMessageStream() {
               return createUIMessageStream({
@@ -12725,7 +12703,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
@@ -12747,13 +12725,12 @@ describe("agent message protocol", () => {
       })
       await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toBeUndefined()
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("support-agent", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("support-agent", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
       await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
       const record = await invocations.getByRunId(run.id, "support-agent")
       expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
@@ -12770,7 +12747,7 @@ describe("agent message protocol", () => {
         driver: { run: () => "unreachable" },
         invocations,
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
       })
@@ -12792,9 +12769,9 @@ describe("agent message protocol", () => {
     })
 
     it("journals Workflow provider start failures", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-      const { defineChannel } = await import("../src/channels.ts")
+      const { channelAdapter } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -12805,28 +12782,28 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async () => { throw failure },
+            start: async () => { throw failure },
           }),
         }) as never,
       })
       try {
         await expect(runAgentWithContext(defineAgent({
           channels: {
-            work: defineChannel("work", {
+            work: channelAdapter("work", {
               activity: { update: ({ activity }) => { statuses.push(activity.status) } },
               messages: false,
             }),
           },
           driver: { run: () => "unreachable" },
           invocations,
-          runtime: workflow("start-failure-agent"),
+          runtime: agentWorkflow("start-failure-agent"),
         }), {
           memo: vi.fn(),
           run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
@@ -12849,9 +12826,9 @@ describe("agent message protocol", () => {
     })
 
     it("projects activity when Workflow preparation fails", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-      const { defineChannel } = await import("../src/channels.ts")
+      const { channelAdapter } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const failure = new Error("workflow preparation failed")
       const statuses: AgentActivityUpdate["status"][] = []
@@ -12859,7 +12836,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -12868,13 +12845,13 @@ describe("agent message protocol", () => {
       try {
         await expect(runAgentWithContext(defineAgent({
           channels: {
-            work: defineChannel("work", {
+            work: channelAdapter("work", {
               activity: { update: ({ activity }) => { statuses.push(activity.status) } },
               messages: false,
             }),
           },
           driver: { run: () => "unreachable" },
-          runtime: workflow("preparation-failure-agent"),
+          runtime: agentWorkflow("preparation-failure-agent"),
         }), {
           memo: vi.fn(),
           run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
@@ -12893,9 +12870,9 @@ describe("agent message protocol", () => {
     })
 
     it("projects activity when the Workflow runtime state fails to load", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-      const { defineChannel } = await import("../src/channels.ts")
+      const { channelAdapter } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const failure = new Error("workflow runtime state failed to load")
       const statuses: AgentActivityUpdate["status"][] = []
@@ -12906,13 +12883,13 @@ describe("agent message protocol", () => {
       try {
         await expect(runAgentWithContext(defineAgent({
           channels: {
-            work: defineChannel("work", {
+            work: channelAdapter("work", {
               activity: { update: ({ activity }) => { statuses.push(activity.status) } },
               messages: false,
             }),
           },
           driver: { run: () => "unreachable" },
-          runtime: workflow("runtime-state-failure-agent"),
+          runtime: agentWorkflow("runtime-state-failure-agent"),
         }), {
           memo: vi.fn(),
           run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
@@ -12931,16 +12908,16 @@ describe("agent message protocol", () => {
     })
 
     it("projects failed activity when a direct Workflow has no name", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-      const { defineChannel } = await import("../src/channels.ts")
+      const { channelAdapter } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const statuses: AgentActivityUpdate["status"][] = []
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
         }) as never,
         workflow: () => import("@vite-hub/workflow"),
@@ -12948,13 +12925,13 @@ describe("agent message protocol", () => {
       try {
         await expect(runAgentWithContext(defineAgent({
           channels: {
-            work: defineChannel("work", {
+            work: channelAdapter("work", {
               activity: { update: ({ activity }) => { statuses.push(activity.status) } },
               messages: false,
             }),
           },
           driver: { run: () => "unreachable" },
-          runtime: workflow(),
+          runtime: agentWorkflow(),
         }), {
           memo: vi.fn(),
           run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
@@ -12973,41 +12950,41 @@ describe("agent message protocol", () => {
     })
 
     it("projects terminal activity from an already-settled Workflow run", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
-      const { defineChannel } = await import("../src/channels.ts")
+      const { channelAdapter } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const updates: AgentActivityUpdate[] = []
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async () => ({
+            start: async () => [undefined, {
               id: "existing-run",
               provider: "openworkflow",
               result: { text: "Already finished." },
               status: "completed",
-            }),
+            }],
           }),
         }) as never,
       })
       try {
         await runAgentWithContext(defineAgent({
           channels: {
-            work: defineChannel("work", {
+            work: channelAdapter("work", {
               activity: { update: ({ activity }) => { updates.push(structuredClone(activity)) } },
               messages: false,
             }),
           },
           driver: { run: () => "unreachable" },
-          runtime: workflow("settled-agent"),
+          runtime: agentWorkflow("settled-agent"),
         }), {
           memo: vi.fn(),
           run: { activity: { target: "work-1" }, channelId: "work", runId: "existing-run" },
@@ -13029,7 +13006,7 @@ describe("agent message protocol", () => {
     })
 
     it("keeps ambiguous accepted OpenWorkflow starts recoverable", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -13038,13 +13015,13 @@ describe("agent message protocol", () => {
       let providerRunId = ""
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        details: { acknowledgement: "unknown", operation: "run", provider: "openworkflow" },
+        data: { acknowledgement: "unknown", operation: "run", provider: "openworkflow" },
       })
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13052,7 +13029,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async (_payload: unknown, options: { id?: string }) => {
+            start: async (_payload: unknown, options: { id?: string }) => {
               providerRunId = options.id || ""
               throw failure
             },
@@ -13063,7 +13040,7 @@ describe("agent message protocol", () => {
         await expect(runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
-          runtime: workflow("ambiguous-start-agent"),
+          runtime: agentWorkflow("ambiguous-start-agent"),
         }), {
           memo: vi.fn(),
           run: { runId: "accepted/workflow" },
@@ -13085,22 +13062,22 @@ describe("agent message protocol", () => {
     })
 
     it("dispatches recovery for ambiguous Cloudflare starts", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const defer = vi.fn(async (_payload: unknown, _options?: unknown) => ({ id: "recovery", provider: "cloudflare" as const, status: "queued" as const }))
+      const startRecovery = vi.fn(async (_payload: unknown, _options?: unknown) => [undefined, { id: "recovery", provider: "cloudflare" as const, status: "queued" as const }])
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+        data: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
       })
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13108,8 +13085,8 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? { defer }
-            : { run: async () => { throw failure } },
+            ? { start: startRecovery }
+            : { start: async () => { throw failure } },
         }) as never,
       })
       try {
@@ -13117,7 +13094,7 @@ describe("agent message protocol", () => {
           driver: { run: () => "unreachable" },
           invocations,
           name: "ambiguous-cloudflare-agent",
-          runtime: workflow("ambiguous-cloudflare-agent"),
+          runtime: agentWorkflow("ambiguous-cloudflare-agent"),
         }), {
           memo: vi.fn(),
           run: { runId: "accepted/workflow" },
@@ -13125,8 +13102,8 @@ describe("agent message protocol", () => {
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
 
-        expect(defer).toHaveBeenCalledOnce()
-        expect(defer.mock.calls[0]?.[0]).toMatchObject({
+        expect(startRecovery).toHaveBeenCalledOnce()
+        expect(startRecovery.mock.calls[0]?.[0]).toMatchObject({
           invocationRecovery: {
             agentName: "ambiguous-cloudflare-agent",
             sourceRunId: "accepted/workflow",
@@ -13135,32 +13112,32 @@ describe("agent message protocol", () => {
         })
         await expect(invocations.getByRunId("accepted/workflow", "ambiguous-cloudflare-agent")).resolves.toMatchObject({ status: "pending" })
 
-        defer.mockRejectedValue(new Error("recovery unavailable"))
+        startRecovery.mockRejectedValue(new Error("recovery unavailable"))
         await expect(runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
           name: "ambiguous-cloudflare-agent",
-          runtime: workflow("ambiguous-cloudflare-agent"),
+          runtime: agentWorkflow("ambiguous-cloudflare-agent"),
         }), {
           memo: vi.fn(),
           run: { runId: "orphaned/workflow" },
           runtime: "cloudflare-agents",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
-        expect(defer).toHaveBeenCalledTimes(4)
+        expect(startRecovery).toHaveBeenCalledTimes(4)
         await expect(invocations.getByRunId("orphaned/workflow", "ambiguous-cloudflare-agent")).resolves.toBeUndefined()
 
         await expect(runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           name: "unobserved-cloudflare-agent",
-          runtime: workflow("unobserved-cloudflare-agent"),
+          runtime: agentWorkflow("unobserved-cloudflare-agent"),
         }), {
           memo: vi.fn(),
           run: { runId: "unobserved/workflow" },
           runtime: "cloudflare-agents",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
-        expect(defer).toHaveBeenCalledTimes(4)
+        expect(startRecovery).toHaveBeenCalledTimes(4)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
@@ -13171,7 +13148,7 @@ describe("agent message protocol", () => {
     })
 
     it("preserves accepted Workflow starts when recovery setup fails", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -13181,19 +13158,19 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: () => { throw new Error("recovery registration failed") },
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        workflow: async () => ({ createWorkflow: () => ({ run: async () => accepted }) }) as never,
+        workflow: async () => ({ createWorkflow: () => ({ start: async () => [undefined, accepted] }) }) as never,
       })
       try {
         const result = await runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
-          runtime: workflow("accepted-recovery-setup"),
+          runtime: agentWorkflow("accepted-recovery-setup"),
         }), { memo: vi.fn(), runtime: "cloudflare-agents", waitUntil: vi.fn() }, {})
 
         expect(result).toBe(accepted)
@@ -13207,26 +13184,26 @@ describe("agent message protocol", () => {
     })
 
     it("terminalizes deterministic wrapped Workflow start failures", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const failure = Object.assign(new Error("provider rejected start"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        details: { operation: "create", provider: "cloudflare", status: 403 },
+        data: { operation: "create", provider: "cloudflare", status: 403 },
       })
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
+          createWorkflow: () => ({ start: async () => { throw failure } }),
         }) as never,
       })
       try {
@@ -13234,7 +13211,7 @@ describe("agent message protocol", () => {
           driver: { run: () => "unreachable" },
           invocations,
           name: "rejected-start-agent",
-          runtime: workflow("rejected-start-agent"),
+          runtime: agentWorkflow("rejected-start-agent"),
         }), {
           memo: vi.fn(),
           run: { runId: "rejected/start" },
@@ -13256,7 +13233,7 @@ describe("agent message protocol", () => {
     })
 
     it("preserves source run identity when Workflow providers require a portable ID", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentInline, runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
@@ -13269,21 +13246,22 @@ describe("agent message protocol", () => {
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
           getWorkflowRuntimeEvent: () => undefined,
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({
-            defer: async () => ({ id: "recovery", provider: "cloudflare", status: "queued" }),
-            run: async (payload: unknown, options: { id?: string }) => {
-              workflowPayload = payload
-              providerRunId = options.id || ""
-              return { id: providerRunId, status: "queued" }
-            },
-          }),
+          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
+            ? { start: async () => [undefined, { id: "recovery", provider: "cloudflare", status: "queued" }] }
+            : {
+                start: async (payload: unknown, options: { id?: string }) => {
+                  workflowPayload = payload
+                  providerRunId = options.id || ""
+                  return [undefined, { id: providerRunId, status: "queued" }]
+                },
+              },
         }) as never,
       })
       try {
@@ -13292,7 +13270,7 @@ describe("agent message protocol", () => {
           driver: { run: () => "completed" },
           invocations,
           name: "portable-id-agent",
-          runtime: workflow("portable-id-agent"),
+          runtime: agentWorkflow("portable-id-agent"),
         })
         await runAgentWithContext(agent, {
           memo: vi.fn(),
@@ -13324,7 +13302,7 @@ describe("agent message protocol", () => {
     })
 
     it("does not terminalize a parent journal when a fresh Workflow start fails", async () => {
-      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { defineAgent, startAgentInvocation, agentWorkflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { bindAgentInvocations } = await import("../src/invocations.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -13334,14 +13312,14 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
-          createWorkflow: () => ({ run: async () => { throw failure } }),
+          createWorkflow: () => ({ start: async () => { throw failure } }),
         }) as never,
       })
       try {
@@ -13349,7 +13327,7 @@ describe("agent message protocol", () => {
           driver: { run: () => "unreachable" },
           invocations,
           name: "fresh-start-failure-agent",
-          runtime: workflow("fresh-start-failure-agent"),
+          runtime: agentWorkflow("fresh-start-failure-agent"),
         })
         const parent = await bindAgentInvocations(invocations, {
           memo: vi.fn(),
@@ -13378,7 +13356,7 @@ describe("agent message protocol", () => {
     })
 
     it("records a successful fresh Workflow under the child run ID", async () => {
-      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { defineAgent, startAgentInvocation, agentWorkflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -13386,7 +13364,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13394,8 +13372,8 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
-            ? { defer: async () => ({ id: "recovery", provider: "openworkflow", status: "queued" }) }
-            : { run: async () => ({ id: "child-run", provider: "openworkflow", status: "queued" }) },
+            ? { start: async () => [undefined, { id: "recovery", provider: "openworkflow", status: "queued" }] }
+            : { start: async () => [undefined, { id: "child-run", provider: "openworkflow", status: "queued" }] },
         }) as never,
       })
       try {
@@ -13403,7 +13381,7 @@ describe("agent message protocol", () => {
           driver: { run: () => "unreachable" },
           invocations,
           name: "fresh-child-agent",
-          runtime: workflow("fresh-child-agent"),
+          runtime: agentWorkflow("fresh-child-agent"),
         })
 
         await startAgentInvocation(agent, {
@@ -13425,7 +13403,7 @@ describe("agent message protocol", () => {
     })
 
     it("uses a distinct OpenWorkflow ID for fresh durable Channel recovery", async () => {
-      const { defineAgent, startAgentInvocation, workflow } = await import("../src/index.ts")
+      const { defineAgent, startAgentInvocation, agentWorkflow } = await import("../src/index.ts")
       const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       let providerRunId: string | undefined
@@ -13434,7 +13412,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13442,10 +13420,10 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
+            start: async (payload: { run?: { runId?: string } }, options: { id?: string }) => {
               payloadRunId = payload.run?.runId
               providerRunId = options.id
-              return { id: options.id || "missing", provider: "openworkflow", status: "queued" }
+              return [undefined, { id: options.id || "missing", provider: "openworkflow", status: "queued" }]
             },
           }),
         }) as never,
@@ -13454,7 +13432,7 @@ describe("agent message protocol", () => {
         const agent = defineAgent({
           driver: { run: () => "unreachable" },
           name: "durable-recovery-agent",
-          runtime: workflow("durable-recovery-agent"),
+          runtime: agentWorkflow("durable-recovery-agent"),
         })
         await startAgentInvocation(agent, {
           memo: vi.fn(),
@@ -13499,7 +13477,7 @@ describe("agent message protocol", () => {
         driver: { run: () => "unreachable" },
         invocations,
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-controlled-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
       })
@@ -13520,7 +13498,7 @@ describe("agent message protocol", () => {
     })
 
     it("schedules reconciliation for non-queued Workflow runs before the Agent worker starts", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -13534,7 +13512,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13543,16 +13521,16 @@ describe("agent message protocol", () => {
         workflow: async () => ({
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
             ? {
-                defer: async (payload: unknown) => {
+                start: async (payload: unknown) => {
                   recoveryAttempts++
                   if (!recoveryAvailable || recoveryAttempts < 3) throw new Error("recovery provider unavailable")
                   deferredRecovery = payload
-                  return { id: "recovery", provider: "openworkflow", status: "queued" }
+                  return [undefined, { id: "recovery", provider: "openworkflow", status: "queued" }]
                 },
               }
             : {
                 name,
-                run: async () => ({ id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
+                start: async () => [undefined, { id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }],
               },
         }) as never,
       })
@@ -13561,7 +13539,7 @@ describe("agent message protocol", () => {
         const run = await runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
-          runtime: workflow("non-queued-agent"),
+          runtime: agentWorkflow("non-queued-agent"),
         }), {
           memo: vi.fn(),
           runtime: "unknown",
@@ -13581,7 +13559,7 @@ describe("agent message protocol", () => {
         const unrecoveredRun = await runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
-          runtime: workflow("unrecovered-agent"),
+          runtime: agentWorkflow("unrecovered-agent"),
         }), {
           memo: vi.fn(),
           runtime: "unknown",
@@ -13595,7 +13573,7 @@ describe("agent message protocol", () => {
         const terminalRun = await runAgentWithContext(defineAgent({
           driver: { run: () => "unreachable" },
           invocations,
-          runtime: workflow("terminal-agent"),
+          runtime: agentWorkflow("terminal-agent"),
         }), {
           memo: vi.fn(),
           runtime: "unknown",
@@ -13619,7 +13597,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: context => Boolean(context.input.abortSignal) },
@@ -13636,13 +13614,12 @@ describe("agent message protocol", () => {
       }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("support-agent-abort-signal", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("support-agent-abort-signal", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual(false)
+      expect(completedRun.result).toEqual(false)
     })
 
     it("delivers durable failure fallbacks with completed write tool results", async () => {
@@ -14795,7 +14772,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => ({
@@ -14814,10 +14791,9 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completed = await getWorkflowRun("portable-result", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const [completedError, completed] = await getWorkflowRun("portable-result", run.id)
+      if (completedError) throw completedError
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           text: "portable text",
@@ -14897,7 +14873,8 @@ describe("agent message protocol", () => {
         return value
       })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).resolves.toBe("done")
     })
@@ -14908,14 +14885,14 @@ describe("agent message protocol", () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-      const getWorkflowRun = vi.fn(async () => ({
+      const getWorkflowRun = vi.fn(async () => [undefined, {
         id: "target-run",
-        metadata: new Error("worker startup failed"),
+        error: { message: "worker startup failed" },
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         provider: "cloudflare" as const,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         status: getWorkflowRun.mock.calls.length > 61 ? "failed" as const : "running" as const,
-      }))
+      }])
       const sleep = vi.fn(async () => {})
       const runInline = vi.fn()
       setAgentWorkflowRuntimeLoaders({
@@ -14940,12 +14917,12 @@ describe("agent message protocol", () => {
             },
           },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, runInline)
 
         expect(runInline).not.toHaveBeenCalled()
         expect(sleep).toHaveBeenCalledTimes(61)
-        expect(sleep).toHaveBeenLastCalledWith("agent-invocation-recovery-61", "1 minute")
+        expect(sleep).toHaveBeenLastCalledWith("1 minute")
         await expect(invocations.getByRunId("source-run", "broken-agent")).resolves.toMatchObject({
           error: { message: "worker startup failed" },
           status: "failed",
@@ -14982,13 +14959,13 @@ describe("agent message protocol", () => {
       setAgentWorkflowRuntimeLoaders({
         state: () => import("@vite-hub/workflow/runtime/state"),
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        workflow: async () => ({ getWorkflowRun: async () => ({
+        workflow: async () => ({ getWorkflowRun: async () => [undefined, {
           id: "target-run",
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           provider: "cloudflare" as const,
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           status: "completed" as const,
-        }) }) as never,
+        }] }) as never,
       })
       try {
         let completed = false
@@ -15053,13 +15030,13 @@ describe("agent message protocol", () => {
       setAgentWorkflowRuntimeLoaders({
         state: () => import("@vite-hub/workflow/runtime/state"),
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        workflow: async () => ({ getWorkflowRun: async () => ({
+        workflow: async () => ({ getWorkflowRun: async () => [undefined, {
           id: "target-run",
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           provider: "cloudflare" as const,
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           status: "completed" as const,
-        }) }) as never,
+        }] }) as never,
       })
       try {
         const recovery = runAgentWorkflowDefinition(defineAgent({
@@ -15076,7 +15053,7 @@ describe("agent message protocol", () => {
             workflowName: "recovering-agent",
           } },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, vi.fn())
 
         await vi.waitFor(async () => {
@@ -15117,7 +15094,8 @@ describe("agent message protocol", () => {
         throw failure
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).rejects.toBe(failure)
     })
@@ -15138,7 +15116,8 @@ describe("agent message protocol", () => {
         return "done"
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       background.resolve()
       await expect(result).resolves.toBe("done")
     })
@@ -15172,6 +15151,7 @@ describe("agent message protocol", () => {
       }, runAgentWithContext as never).finally(() => { completed = true })
 
       await telemetryStarted.promise
+      await new Promise(resolve => setTimeout(resolve, 10))
       expect(completed).toBe(false)
       telemetry.resolve()
       await expect(result).resolves.toBe("done")
@@ -15194,7 +15174,8 @@ describe("agent message protocol", () => {
         return "done"
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).resolves.toBe("done")
     })
@@ -15236,7 +15217,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => ({
@@ -15255,9 +15236,9 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("json-portable-result", run.id)).resolves.toMatchObject({
+      await expect(getWorkflowRun("json-portable-result", run.id)).resolves.toMatchObject([undefined, {
         status: "failed",
-      })
+      }])
     })
 
     it("rejects outputs whose JSON representation would change their declared type", async () => {
@@ -15266,7 +15247,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({ driver: { run: () => ({ createdAt: new Date(0) }) } })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -15278,7 +15259,7 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject({ status: "failed" })
+      await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject([undefined, { status: "failed" }])
     })
 
     it("rejects Agent result envelopes with no portable fields", async () => {
@@ -15497,7 +15478,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => new Response("portable response", {
@@ -15520,13 +15501,12 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("portable-response", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("portable-response", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         raw: {
           body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "Text/Plain" },
           headers: [
@@ -15548,7 +15528,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => new Response(new Uint8Array([0xff, 0x00, 0x80]), {
@@ -15564,10 +15544,9 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completed = await getWorkflowRun("portable-binary-response", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const [completedError, completed] = await getWorkflowRun("portable-binary-response", run.id)
+      if (completedError) throw completedError
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           raw: {
@@ -15587,7 +15566,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({ driver: { run: context => ({
         method: context.request?.method,
@@ -15607,13 +15586,12 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("request-url", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("request-url", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         method: "GET",
         tenant: null,
         url: "https://calories.example/messages?source=telegram",
@@ -15626,7 +15604,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: context => context.messages[0]?.parts },
@@ -15670,27 +15648,26 @@ describe("agent message protocol", () => {
       }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("portable-attachments", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("portable-attachments", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual([
+      expect(completedRun.result).toEqual([
         { data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" },
         { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
         { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
         { data: "data:text/plain;base64,CgsM", mediaType: "text/plain", type: "file" },
         { mediaType: "text/plain", name: "reference.txt", type: "file" },
       ])
-    expect(JSON.stringify(await getWorkflowRun("portable-attachments", run.id))).not.toContain("signed.example")
+    expect(JSON.stringify((await getWorkflowRun("portable-attachments", run.id))[1])).not.toContain("signed.example")
   })
 
     it("rejects unavailable message attachments before Workflow handoff", async () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const agent = defineAgent({ driver: { run: () => "unused" } })
 
       await expect(runAgentWithContext(agent, {
@@ -15711,7 +15688,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const agent = defineAgent({ driver: { run: () => "unused" } })
       await expect(runAgentWithContext(agent, {
         agentIdentity: { name: "portable-message-parts" },
@@ -15739,7 +15716,7 @@ describe("agent message protocol", () => {
       const blobPrimitive = { list: blobList }
       const databasePrimitive = { schema: dbSchema }
       vi.doMock("@vite-hub/blob", () => ({ blob: blobPrimitive }))
-      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: databasePrimitive }))
+      vi.doMock("@vite-hub/database/runtime/registry", () => ({ agentDb: databasePrimitive }))
       const { blob, db } = await import("../src/capabilities.ts")
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
@@ -15747,7 +15724,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const agent = defineAgent({
@@ -15770,13 +15747,12 @@ describe("agent message protocol", () => {
         }) as { id: string }
 
         await Promise.all(waitUntilTasks)
-        const completedRun = await getWorkflowRun("portable-storage", run.id)
+        const [completedRunError, completedRun] = await getWorkflowRun("portable-storage", run.id)
+        if (completedRunError) throw completedRunError
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toMatchObject({
+        expect(completedRun.result).toMatchObject({
           blobs: { blobs: [{ pathname: "workflow/input.jpg" }] },
           schema: { database: "default", schema: { meals: true } },
         })
@@ -15785,7 +15761,7 @@ describe("agent message protocol", () => {
       }
       finally {
         vi.doUnmock("@vite-hub/blob")
-        vi.doUnmock("@vite-hub/database/drizzle")
+        vi.doUnmock("@vite-hub/database/runtime/registry")
       }
     })
 
@@ -15820,7 +15796,7 @@ describe("agent message protocol", () => {
       }))
       const consolePrimitive = { resolve }
       setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const agent = defineAgent({
@@ -15853,13 +15829,12 @@ describe("agent message protocol", () => {
         }) as { id: string }
 
         await Promise.all(waitUntilTasks)
-        const completedRun = await getWorkflowRun("portable-console", run.id)
+        const [completedRunError, completedRun] = await getWorkflowRun("portable-console", run.id)
+        if (completedRunError) throw completedRunError
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("https://example.test/linked-invocation")
+        expect(completedRun.result).toEqual("https://example.test/linked-invocation")
         expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
           request: expect.objectContaining({ url: "https://example.test/portal/api/agent" }),
         }))
@@ -15870,7 +15845,7 @@ describe("agent message protocol", () => {
     })
 
     it("does not add registered portable Capabilities that were absent at Workflow handoff", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -15878,12 +15853,12 @@ describe("agent message protocol", () => {
       const loadConsole = vi.fn(() => ({ resolve: vi.fn() }))
       const waitUntilTasks: Array<Promise<unknown>> = []
       setAgentWorkflowCapabilityLoaders({ console: loadConsole })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const run = await runAgentWithContext(defineAgent({
           driver: { run: context => Object.keys(context.capabilities || {}) },
-          runtime: workflow("capability-boundary"),
+          runtime: agentWorkflow("capability-boundary"),
         }), {
           memo: vi.fn(),
           runtime: "vercel",
@@ -15891,13 +15866,12 @@ describe("agent message protocol", () => {
         }, {}) as { id: string }
 
         await Promise.all(waitUntilTasks)
-        const completedRun = await getWorkflowRun("capability-boundary", run.id)
+        const [completedRunError, completedRun] = await getWorkflowRun("capability-boundary", run.id)
+        if (completedRunError) throw completedRunError
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toEqual([])
+        expect(completedRun.result).toEqual([])
         expect(loadConsole).not.toHaveBeenCalled()
       } finally {
         setAgentWorkflowCapabilityLoaders({})
@@ -15924,7 +15898,7 @@ describe("agent message protocol", () => {
     })
 
     it("reconstructs Agent Run Events inside workflow execution", async () => {
-      const { defineAgent, defineCapability, workflow } = await import("../src/index.ts")
+      const { defineAgent, defineCapability, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { defineAgentRunEvents } = await import("../src/server.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -15954,9 +15928,9 @@ describe("agent message protocol", () => {
         })],
         driver: { run: context => context.runEvents?.publish({ type: "summarize" }).then(() => "done") },
         runEvents: defineAgentRunEvents({ store: resolveStore }),
-        runtime: workflow("summary-run-events"),
+        runtime: agentWorkflow("summary-run-events"),
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(agent, {
@@ -15967,13 +15941,12 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("summary-run-events", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("summary-run-events", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("done")
+      expect(completedRun.result).toEqual("done")
       expect(resolveStore).toHaveBeenCalledTimes(2)
       expect(innerRunId).toBe(run.id)
       expect(published).toEqual([
@@ -16029,7 +16002,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
@@ -16044,24 +16017,23 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("support", run.id)
-      expect(completedRun).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("registry:hello")
+      const [completedRunError, completedRun] = await getWorkflowRun("support", run.id)
+      if (completedRunError) throw completedRunError
+      expect(completedRun.result).toEqual("registry:hello")
     })
 
     it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "explicit-registry-collision": async () => ({ handler: async () => "registry" }),
       })
 
       await expect(runAgentWithContext(defineAgent({
-        runtime: workflow("explicit-registry-collision"),
+        runtime: agentWorkflow("explicit-registry-collision"),
         driver: { run: () => "explicit-agent" },
       }), {
         memo: vi.fn(),
@@ -16071,12 +16043,12 @@ describe("agent message protocol", () => {
     })
 
     it("reuses a discovered Workflow registry entry for named discovered Agent runs", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
           handler: async context => ({ marker: "registry", payload: context.payload }),
@@ -16085,7 +16057,7 @@ describe("agent message protocol", () => {
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(defineAgent({
-        runtime: workflow("named-discovered"),
+        runtime: agentWorkflow("named-discovered"),
         driver: { run: () => "inline" },
       }), {
         agentIdentity: { name: "support" },
@@ -16096,25 +16068,22 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("named-discovered", run.id)
-      expect(completedRun).toMatchObject({
-        result: expect.any(Response),
-      })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      const [completedRunError, completedRun] = await getWorkflowRun("named-discovered", run.id)
+      if (completedRunError) throw completedRunError
+      expect(completedRun.result).toMatchObject({
         marker: "registry",
         payload: { capabilities: { blob: false } },
       })
     })
 
     it("does not reuse cached discovered handles for direct Agent runs", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      const agent = defineAgent({ runtime: workflow("cache-boundary"), driver: { run: () => "inline" } })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({ runtime: agentWorkflow("cache-boundary"), driver: { run: () => "inline" } })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({ "cache-boundary": async () => ({ handler: async () => "registry" }) })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16125,10 +16094,9 @@ describe("agent message protocol", () => {
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks.splice(0))
-      const completedRun1 = await getWorkflowRun("cache-boundary", discoveredRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("registry")
+      const [completedRun1Error, completedRun1] = await getWorkflowRun("cache-boundary", discoveredRun.id)
+      if (completedRun1Error) throw completedRun1Error
+      expect(completedRun1.result).toEqual("registry")
 
       setWorkflowRuntimeRegistry(undefined)
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16138,10 +16106,9 @@ describe("agent message protocol", () => {
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
-      const completedRun2 = await getWorkflowRun("cache-boundary", directRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("inline")
+      const [completedRun2Error, completedRun2] = await getWorkflowRun("cache-boundary", directRun.id)
+      if (completedRun2Error) throw completedRun2Error
+      expect(completedRun2.result).toEqual("inline")
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
@@ -16180,7 +16147,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const child = defineAgent({ driver: { run: () => "child" } })
       const parent = defineAgent({
         runtime: false,
@@ -16214,7 +16181,7 @@ describe("agent message protocol", () => {
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const run = await runAgentWithContext(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
         agentIdentity: { name: "generated-capabilities" },
@@ -16234,7 +16201,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(defineAgent({
@@ -16248,7 +16215,7 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject({ status: "completed" })
+      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject([undefined, { status: "completed" }])
     })
 
     it("runs direct agent calls inline when runtime is false", async () => {
@@ -16267,15 +16234,15 @@ describe("agent message protocol", () => {
     })
 
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: context => `received ${context.prompt}` },
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16288,26 +16255,25 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("browser", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("browser", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("keeps one discovered Agent Definition isolated across host identities", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
-      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace")
+      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace/runtime")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: context => context.agentIdentity },
         workspace: {},
       })
@@ -16330,45 +16296,43 @@ describe("agent message protocol", () => {
       }, { prompt: "support" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun1 = await getWorkflowRun(docsIdentity.name, docsRun.id)
+      const [completedRun1Error, completedRun1] = await getWorkflowRun(docsIdentity.name, docsRun.id)
+      if (completedRun1Error) throw completedRun1Error
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(docsIdentity)
-      const completedRun2 = await getWorkflowRun(supportIdentity.name, supportRun.id)
+      expect(completedRun1.result).toEqual(docsIdentity)
+      const [completedRun2Error, completedRun2] = await getWorkflowRun(supportIdentity.name, supportRun.id)
+      if (completedRun2Error) throw completedRun2Error
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(supportIdentity)
+      expect(completedRun2.result).toEqual(supportIdentity)
       await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
       await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
       expect(agent.runtime).toBe(originalRuntime)
     })
 
     it("resolves workflow names from explicit binding, definition, then host identity", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const hostIdentity = { name: "identity-host-fallback" }
       const bindingAgent = defineAgent({
         name: "identity-definition-shadowed",
-        runtime: workflow("identity-binding-wins"),
+        runtime: agentWorkflow("identity-binding-wins"),
         driver: { run: context => context.agentIdentity },
       })
       const definitionAgent = defineAgent({
         name: "identity-definition-wins",
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: context => context.agentIdentity },
       })
       const hostAgent = defineAgent({
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: context => context.agentIdentity },
       })
 
@@ -16394,18 +16358,15 @@ describe("agent message protocol", () => {
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
-      const completedRun1 = await getWorkflowRun("identity-binding-wins", bindingRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(hostIdentity)
-      const completedRun2 = await getWorkflowRun("identity-definition-wins", definitionRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(hostIdentity)
-      const completedRun3 = await getWorkflowRun(hostIdentity.name, hostRun.id)
-      expect(completedRun3).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun3.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun3.result.json()).resolves.toEqual(hostIdentity)
+      const [completedRun1Error, completedRun1] = await getWorkflowRun("identity-binding-wins", bindingRun.id)
+      if (completedRun1Error) throw completedRun1Error
+      expect(completedRun1.result).toEqual(hostIdentity)
+      const [completedRun2Error, completedRun2] = await getWorkflowRun("identity-definition-wins", definitionRun.id)
+      if (completedRun2Error) throw completedRun2Error
+      expect(completedRun2.result).toEqual(hostIdentity)
+      const [completedRun3Error, completedRun3] = await getWorkflowRun(hostIdentity.name, hostRun.id)
+      if (completedRun3Error) throw completedRun3Error
+      expect(completedRun3.result).toEqual(hostIdentity)
     })
 
     it("resolves workspace names from explicit configuration before host identity", async () => {
@@ -16424,12 +16385,13 @@ describe("agent message protocol", () => {
     })
 
     it("preserves Agent Definition metadata for explicitly named definitions", async () => {
-      const { createAgentInspectionMetadata, defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
+    const { createAgentInspectionMetadata } = await import("../src/workspace-agent.ts")
       const agent = defineAgent({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         driver: { model: { id: "test-model" } as never },
         name: "browser",
-        runtime: workflow(),
+        runtime: agentWorkflow(),
       })
 
       expect(createAgentInspectionMetadata(agent)).toMatchObject({
@@ -16443,16 +16405,16 @@ describe("agent message protocol", () => {
     })
 
     it("uses explicit Agent Definition names for unnamed workflow runtime bindings", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         name: "reviewer",
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: context => `received ${context.prompt}` },
         workspace: {},
       })
@@ -16464,23 +16426,22 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("reviewer", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("reviewer", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("requires direct unnamed workflow runtime bindings to provide a name", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
-        runtime: workflow(),
+        runtime: agentWorkflow(),
         driver: { run: () => "ok" },
       })
 
@@ -16492,13 +16453,13 @@ describe("agent message protocol", () => {
     })
 
     it("passes runtimeConfig through Workflow Runs", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       let runtimeConfig: unknown
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const agent = {
@@ -16511,7 +16472,7 @@ describe("agent message protocol", () => {
             name: "configured",
           }
         },
-        runtime: workflow("configured-agent"),
+        runtime: agentWorkflow("configured-agent"),
       } as ReturnType<typeof defineAgent>
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(agent, {
@@ -16522,24 +16483,23 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun1 = await getWorkflowRun("configured-agent", run.id)
+      const [completedRun1Error, completedRun1] = await getWorkflowRun("configured-agent", run.id)
+      if (completedRun1Error) throw completedRun1Error
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun1.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
     it.each([false, 0, ""])("preserves falsey runtimeConfig %j through Workflow Runs", async configuredRuntime => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       let runtimeConfig: unknown
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const agent = {
@@ -16552,7 +16512,7 @@ describe("agent message protocol", () => {
             name: "configured",
           }
         },
-        runtime: workflow("falsey-configured-agent"),
+        runtime: agentWorkflow("falsey-configured-agent"),
       } as ReturnType<typeof defineAgent>
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(agent, {
@@ -16563,33 +16523,32 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun2 = await getWorkflowRun("falsey-configured-agent", run.id)
+      const [completedRun2Error, completedRun2] = await getWorkflowRun("falsey-configured-agent", run.id)
+      if (completedRun2Error) throw completedRun2Error
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun2.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toBe(configuredRuntime)
     })
 
     it("reuses generated workflow definitions across equivalent agent instances", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const run = (context: { prompt?: string }) => `received ${context.prompt}`
       const firstAgent = defineAgent({
-        runtime: workflow("support-agent"),
+        runtime: agentWorkflow("support-agent"),
         driver: {
           run
         },
       })
       const secondAgent = defineAgent({
-        runtime: workflow("support-agent"),
+        runtime: agentWorkflow("support-agent"),
         driver: {
           run
         },
@@ -16609,28 +16568,26 @@ describe("agent message protocol", () => {
       }, { prompt: "second" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun1 = await getWorkflowRun("support-agent", first.id)
+      const [completedRun1Error, completedRun1] = await getWorkflowRun("support-agent", first.id)
+      if (completedRun1Error) throw completedRun1Error
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("received first")
-      const completedRun2 = await getWorkflowRun("support-agent", second.id)
+      expect(completedRun1.result).toEqual("received first")
+      const [completedRun2Error, completedRun2] = await getWorkflowRun("support-agent", second.id)
+      if (completedRun2Error) throw completedRun2Error
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("received second")
+      expect(completedRun2.result).toEqual("received second")
     })
 
     it("uses trigger run ids as workflow run ids", async () => {
-      const { defineAgent, runAgentTrigger, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgentTrigger, agentWorkflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         capabilities: [{
@@ -16644,7 +16601,7 @@ describe("agent message protocol", () => {
             },
           },
         }],
-        runtime: workflow("portal-agent"),
+        runtime: agentWorkflow("portal-agent"),
         driver: { run: context => `received ${context.prompt}` },
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16660,23 +16617,22 @@ describe("agent message protocol", () => {
         status: "queued",
       })
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("portal-agent", "portal:run")
+      const [completedRunError, completedRun] = await getWorkflowRun("portal-agent", "portal:run")
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("maps invalid trigger run ids to deterministic Workflow ids", async () => {
-      const { defineAgent, runAgentTrigger, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgentTrigger, agentWorkflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       const workflowRunId = "vitehub-invalid-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
       let consumerRunId = "telegram:42:103"
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
         capabilities: [{
@@ -16691,7 +16647,7 @@ describe("agent message protocol", () => {
           },
         }],
         driver: { run: context => context.run?.runId },
-        runtime: workflow("telegram-agent"),
+        runtime: agentWorkflow("telegram-agent"),
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentTrigger(agent, {
@@ -16702,13 +16658,12 @@ describe("agent message protocol", () => {
 
       expect(run.id).toBe(workflowRunId)
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("telegram-agent", workflowRunId)
+      const [completedRunError, completedRun] = await getWorkflowRun("telegram-agent", workflowRunId)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual(workflowRunId)
+      expect(completedRun.result).toEqual(workflowRunId)
 
       consumerRunId = workflowRunId
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16722,15 +16677,15 @@ describe("agent message protocol", () => {
     })
 
     it("passes explicit Cloudflare env through workflow inline fallback", async () => {
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
-        runtime: workflow("explicit-cloudflare-env-agent"),
+        runtime: agentWorkflow("explicit-cloudflare-env-agent"),
         driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16742,26 +16697,25 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      const completedRun = await getWorkflowRun("explicit-cloudflare-env-agent", run.id)
+      const [completedRunError, completedRun] = await getWorkflowRun("explicit-cloudflare-env-agent", run.id)
+      if (completedRunError) throw completedRunError
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("explicit.nuxt.com")
+      expect(completedRun.result).toEqual("explicit.nuxt.com")
     })
 
     it("passes the active Cloudflare env through workflow inline fallback", async () => {
       const { runWithActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
-      const { defineAgent, workflow } = await import("../src/index.ts")
+      const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
-        runtime: workflow("cloudflare-agent"),
+        runtime: agentWorkflow("cloudflare-agent"),
         driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
       })
       await runWithActiveCloudflareEnv({ NUXT_SITE: "nuxt.com" }, async () => {
@@ -16777,13 +16731,12 @@ describe("agent message protocol", () => {
           status: "queued",
         })
         await Promise.all(waitUntilTasks)
-        const completedRun = await getWorkflowRun("cloudflare-agent", run.id)
+        const [completedRunError, completedRun] = await getWorkflowRun("cloudflare-agent", run.id)
+        if (completedRunError) throw completedRunError
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("nuxt.com")
+        expect(completedRun.result).toEqual("nuxt.com")
       })
     })
   })

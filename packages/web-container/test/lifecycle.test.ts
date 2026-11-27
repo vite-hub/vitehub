@@ -29,6 +29,7 @@ function fixture(chunks: string[] = []) {
   const container = {
     fs: {},
     mount: vi.fn(async () => {}),
+    setPreviewScript: vi.fn(async () => {}),
     spawn: vi.fn(async () => process),
     teardown: vi.fn(),
     on(event: string, listener: (...args: unknown[]) => void) {
@@ -47,6 +48,16 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("WebContainer lifecycle", () => {
+  it("installs the preview script before it mounts the files", async () => {
+    const { container } = fixture()
+    await bootWebContainer({ files: { "index.html": "" }, previewScript: "window.ready = true" })
+    expect(container.setPreviewScript).toHaveBeenCalledWith("window.ready = true")
+    expect(container.setPreviewScript.mock.invocationCallOrder[0]).toBeLessThan(container.mount.mock.invocationCallOrder[0]!)
+    const other = fixture()
+    await bootWebContainer()
+    expect(other.container.setPreviewScript).not.toHaveBeenCalled()
+  })
+
   it("reports each server-ready event for custom commands and supports unsubscribing", async () => {
     const { events, exited } = fixture()
     const app = await bootWebContainer()
@@ -241,6 +252,25 @@ describe("WebContainer lifecycle", () => {
     expect(container.teardown).toHaveBeenCalledOnce()
   })
 
+  it("allows readiness to be awaited in a later turn after startup fails", async () => {
+    const { container } = fixture()
+    const error = new Error("spawn failed")
+    container.spawn.mockRejectedValueOnce(error)
+    const app = await bootWebContainer()
+    const ready = app.preview.ready
+    await expect(app.run("dev")).rejects.toBe(error)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect(ready).rejects.toBe(error)
+  })
+
+  it("rejects readiness that is first read after teardown", async () => {
+    fixture()
+    const app = await bootWebContainer()
+    app.teardown()
+    await expect(app.preview.ready).rejects.toThrow(/torn down/)
+    expect(app.preview.ready).toBe(app.preview.ready)
+  })
+
   it("keeps first readiness resolved across later lifecycle events", async () => {
     const { events, exited } = fixture()
     const app = await bootWebContainer()
@@ -261,7 +291,6 @@ describe("WebContainer lifecycle", () => {
     const app = await bootWebContainer()
     await app.run("dev")
     expect(container.spawn).toHaveBeenCalledWith("npm", ["run", "dev"], { cwd: undefined, env: { PORT: "3000", NODE_OPTIONS: "--disable-warning=ExperimentalWarning" } })
-    // Nitro starts its dev workers on random ports before Vite listens on PORT.
     events.emit("server-ready", 51519, "https://worker.example")
     expect(app.preview.url).toBeUndefined()
     expect(app.status.stage).toBe("starting")
@@ -351,5 +380,23 @@ describe("WebContainer lifecycle", () => {
     events.emit("server-ready", 4000, "https://app.example")
     await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
     expect(app.status.stage).toBe("ready")
+  })
+
+  it.each(["install", "dev"] as const)("leaves no unhandled rejection when teardown aborts %s", async (command) => {
+    const { exited } = fixture()
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const app = await bootWebContainer()
+      const run = await app.run(command)
+      app.teardown()
+      exited.reject(new Error("Process aborted"))
+      await expect(run.exit).rejects.toThrow("Process aborted")
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
   })
 })

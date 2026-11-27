@@ -61,7 +61,7 @@ Most Agents use the top-level option. With `tokens` or `usd`, ViteHub turns it i
 With the Vite development server running, inspect the Agent:
 
 ```bash
-vitehub agent info --agent support --json
+vitehub agent get support --json
 ```
 
 For a token or USD policy, the JSON `capabilities` list has an `id: "budget"` entry whose `metadata` shows the configuration, including policy kind and mode. It shows no usage from earlier runs.
@@ -96,15 +96,21 @@ If the provider supports `maxOutputTokens`, AI SDK model calls also get the outp
 
 Read the result from a finish hook:
 
-```ts
-hooks: {
-  'agent:finish'(event) {
-    const budget = event.extensions.get('budget')
-    if (budget?.exceeded.length) {
-      console.log(budget.exceeded)
-    }
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'gpt-5.6-sol' },
+  budget: { tokens: 40_000 },
+  hooks: {
+    'agent:finish'(event) {
+      const budget = event.extensions.get('budget')
+      if (budget?.exceeded.length) {
+        console.log(budget.exceeded)
+      }
+    },
   },
-}
+})
 ```
 
 The snapshot has the configured `limits`, the normalized `usage` record when available, and an `exceeded` list of `inputTokens`, `outputTokens`, `totalTokens`, or `usd` entries.

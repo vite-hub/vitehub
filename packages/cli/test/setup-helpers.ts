@@ -1,6 +1,9 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { isBuiltin, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, vi } from "vitest"
 
@@ -8,14 +11,29 @@ import { runViteHubCli } from "../src/index.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
+import type { ProvisionStep } from "@vite-hub/internal/provision"
 
 const directories: string[] = []
+const packageResolvers: ReturnType<typeof registerHooks>[] = []
 
 afterEach(async () => {
+  for (const hooks of packageResolvers.splice(0)) hooks.deregister()
   await Promise.all(directories.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-/** A temp folder with `files`, keyed by relative path. */
+export function isolateProjectPackages(root: string): void {
+  const issuer = pathToFileURL(join(root, "package.json")).href
+  packageResolvers.push(registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const name = specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/")
+      if (context.parentURL === issuer && !isBuiltin(specifier) && !existsSync(join(root, "node_modules", name))) {
+        throw Object.assign(new Error(`Cannot find module '${specifier}' in the test project`), { code: "MODULE_NOT_FOUND" })
+      }
+      return nextResolve(specifier, context)
+    },
+  }))
+}
+
 export async function createProject(files: Record<string, string> = {}): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-cli-setup-"))
   directories.push(root)
@@ -34,14 +52,12 @@ export function viteConfig(options: string): string {
 
 interface SetupRun<T> {
   exitCode: number
-  /** The one JSON document on stdout with `--json`. */
   json: T
   loadConfig: ReturnType<typeof vi.fn>
   stderr: string
   stdout: string
 }
 
-/** A spawn that fails the test, so a setup test never runs a real package manager. */
 const noSpawn: ViteHubCliSpawn = async (command) => {
   throw new Error(`setup tests must not spawn ${command}`)
 }
@@ -51,11 +67,10 @@ interface FakeManifest {
   devDependencies?: Record<string, string>
 }
 
-/**
- * A package manager that only edits `package.json` in `root`, so a test can check the manifest after `add` and
- * `remove` without a real install. It understands `add`, `install`, `remove`, and `uninstall`, with `-D` for development.
- * An empty dependency field is deleted, so a round trip gives back the original bytes.
- */
+function specifierName(specifier: string): string {
+  return specifier.includes("://") ? specifier : specifier.replace(/(?<=.)@.*$/u, "")
+}
+
 export function fakePackageManager(root: string): { calls: string[][], spawn: ViteHubCliSpawn } {
   const calls: string[][] = []
   const spawn: ViteHubCliSpawn = async (command, args) => {
@@ -67,7 +82,7 @@ export function fakePackageManager(root: string): { calls: string[][], spawn: Vi
     const manifest = JSON.parse(await readFile(file, "utf8")) as FakeManifest
     if (verb === "add" || verb === "install") {
       const field = dev ? "devDependencies" : "dependencies"
-      manifest[field] = { ...manifest[field], ...Object.fromEntries(names.map(name => [name, "1.0.0"])) }
+      manifest[field] = { ...manifest[field], ...Object.fromEntries(names.map(name => [specifierName(name), "1.0.0"])) }
     }
     else if (verb === "remove" || verb === "uninstall") {
       for (const field of ["dependencies", "devDependencies"] as const) {
@@ -84,16 +99,15 @@ export function fakePackageManager(root: string): { calls: string[][], spawn: Vi
   return { calls, spawn }
 }
 
-/** A host CLI runner for a machine without a host CLI login. Tests never run a real host CLI. */
 export const noHostCli: HostCliRun = async () => ({ exitCode: 1, stdout: "" })
 
 interface SetupRunOptions {
   fetch?: typeof fetch
+  provisionSteps?: () => readonly ProvisionStep[]
   runHostCli?: HostCliRun
   spawn?: ViteHubCliSpawn
 }
 
-/** Runs one setup command with a config loader that throws, and parses stdout as exactly one JSON document. */
 export async function runSetup<T = Record<string, unknown>>(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, options: SetupRunOptions = {}): Promise<SetupRun<T>> {
   let stdout = ""
   let stderr = ""
@@ -104,17 +118,16 @@ export async function runSetup<T = Record<string, unknown>>(args: string[], cwd:
     args,
     cwd,
     env,
-    // A fetch that fails, so no test reaches a real host.
     fetch: options.fetch ?? (async (input: string | URL | Request) => {
       throw new Error(`unexpected request to ${String(input)}`)
     }),
     loadConfig,
+    loadProvision: async () => ({ rootDir: cwd, steps: options.provisionSteps?.() ?? [] }),
     runHostCli: options.runHostCli ?? noHostCli,
     spawn: options.spawn ?? noSpawn,
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },
     stdout: { write: (chunk: string | Uint8Array) => { stdout += String(chunk) } },
   })
-  // JSON.parse throws when stdout holds more than one document.
   const json = (args.includes("--json") ? JSON.parse(stdout) : {}) as T
   return { exitCode, json, loadConfig, stderr, stdout }
 }

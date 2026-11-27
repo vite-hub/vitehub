@@ -1,17 +1,19 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
-import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleSpecifier, numberValue, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, vitehubModule } from "../ast.ts"
+import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleSourceVisitors, numberValue, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, vitehubModule } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { viteHubInventory } from "../inventory.ts"
+import { removedViteHubOptions } from "../../removed-options.ts"
 
 // Local helpers.
 
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** True when the project `package.json` lists `name` in any dependency field. */
-function dependsOn(ctx: RuleContext, name: string): boolean {
-  const manifest: unknown = ctx.getJson("package.json")
+export function dependsOn(ctx: RuleContext, name: string): boolean {
+  const manifest = ctx.fs.readJson("package.json")
   if (!manifest || typeof manifest !== "object") return false
   return dependencyFields.some((field) => {
     const dependencies: unknown = Reflect.get(manifest, field)
@@ -104,16 +106,13 @@ export const realtimeCarets: DoctorRule = createRule({
     const usesRealtime = importsOf(ctx).some(declaration => vitehubModule(declaration.source)?.startsWith("realtime")
       && !declaration.typeOnly && declaration.specifiers.some(specifier => !specifier.typeOnly))
     if (!usesRealtime) return
-    return {
-      ScriptNode(node) {
-        const source = moduleSpecifier(node)
-        if (!source || source.typeOnly || source.specifier !== caretExtension) return
-        ctx.report(diagnostics.VHUB0024({
-          why: `\`${caretExtension}\` has its own copy of y-tiptap. It cannot find the sync plugin that ViteHub Realtime installs, so it draws no carets.`,
-          fix: "Remove the CollaborationCaret extension. `realtime.extensions` already draws carets. To change their markup, pass `carets: { render, selectionRender }` to `useRealtimeTiptap()`.",
-        }), { range: ctx.range(node) })
-      },
-    }
+    return moduleSourceVisitors((node, source) => {
+      if (source.typeOnly || source.specifier !== caretExtension) return
+      ctx.report(diagnostics.VHUB0024({
+        why: `\`${caretExtension}\` has its own copy of y-tiptap. It cannot find the sync plugin that ViteHub Realtime installs, so it draws no carets.`,
+        fix: "Remove the CollaborationCaret extension. `realtime.extensions` already draws carets. To change their markup, pass `carets: { render, selectionRender }` to `useRealtimeTiptap()`.",
+      }), { range: ctx.range(node) })
+    })
   },
 })
 
@@ -131,8 +130,8 @@ export const realtimePersistence: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !calls(r, node, ["realtime"], "defineRealtime")) return
+      CallExpression(node) {
+        if (!calls(r, node, ["realtime"], "defineRealtime")) return
         const persistence = unwrap(objectValue(callArguments(node)[0], "persistence"))
         if (!isNodeType(persistence, "ObjectExpression") || objectProperties(persistence).some(property => property.type === "SpreadElement")) return
         const timings: Partial<Record<"debounce" | "maxWait", number>> = {}
@@ -179,8 +178,8 @@ export const forgeErrorImports: DoctorRule = createRule({
   create(ctx) {
     if (!dependsOn(ctx, "@vite-hub/forge")) return
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "ImportDeclaration") || node.importKind === "type") return
+      ImportDeclaration(node) {
+        if (node.importKind === "type") return
         if (!isNode(node.source) || node.source.value !== "forges") return
         const names = (Array.isArray(node.specifiers) ? node.specifiers : []).flatMap(specifier =>
           isNode(specifier) && specifier.importKind !== "type" && isIdentifier(specifier.imported) && forgeClasses.has(specifier.imported.name) ? [specifier.imported.name] : [])
@@ -196,7 +195,7 @@ export const forgeErrorImports: DoctorRule = createRule({
 
 
 const runtimeNames = new Set(["crabbox", "trusted-host", "vercel"])
-const runtimeKinds = new Set(["cloudflare", "crabbox", "trusted-host", "vercel"])
+const runtimeKinds = new Set(["cloudflare", "container", "crabbox", "trusted-host", "vercel"])
 
 function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
   const target = unwrap(definition)
@@ -212,13 +211,13 @@ function checkSandboxDefinition(ctx: RuleContext, definition: unknown) {
         : `\`runtime: "${runtimeName}"\` is not a Sandbox runtime. \`resolveSandbox()\` throws \`SANDBOX_R0031\` on each call.`,
       fix: runtimeName === "cloudflare"
         ? "Use `runtime: { kind: \"cloudflare\", namespace: env.SANDBOX }`."
-        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }`, or a custom runtime object.",
+        : "Use `\"crabbox\"`, `\"trusted-host\"`, `\"vercel\"`, a tagged configuration such as `{ kind: \"cloudflare\", namespace }` or `{ kind: \"container\", image }`, or a custom runtime object.",
     }), { range: ctx.range(runtimeProperty) })
   }
   if (kind !== undefined && !runtimeKinds.has(kind)) {
     ctx.report(diagnostics.VHUB0027({
       why: `\`kind: "${kind}"\` is not a Sandbox runtime kind. \`resolveSandbox()\` throws \`SANDBOX_R0033\` on each call.`,
-      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, or `\"vercel\"`.",
+      fix: "Use `kind: \"crabbox\"`, `\"trusted-host\"`, `\"cloudflare\"`, `\"container\"`, or `\"vercel\"`.",
     }), { range: ctx.range(runtime) })
   }
   const cwd = hasValue(target, "cwd")
@@ -248,37 +247,9 @@ export const sandboxRuntimeOptions: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         if (calls(r, node, ["sandbox"], "resolveSandbox")) checkSandboxDefinition(ctx, callArguments(node)[0])
         else if (calls(r, node, ["agent"], "defineAgent")) checkSandboxDefinition(ctx, objectValue(callArguments(node)[0], "sandbox"))
-      },
-    }
-  },
-})
-
-
-export const defineAgentFromViteHub: DoctorRule = createRule({
-  meta: {
-    id: "vitehub/define-agent-from-vite-hub",
-    title: "Import defineAgent from vite-hub/agent",
-    category: "correctness",
-    severity: "warn",
-    requires: { script: true },
-  },
-  create(ctx) {
-    if (!dependsOn(ctx, "vite-hub")) return
-    return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "ImportDeclaration") || node.importKind === "type") return
-        if (!isNode(node.source) || node.source.value !== "@vite-hub/agent") return
-        const imports = (Array.isArray(node.specifiers) ? node.specifiers : []).some(specifier =>
-          isNode(specifier) && specifier.importKind !== "type" && isIdentifier(specifier.imported, "defineAgent"))
-        if (!imports) return
-        ctx.report(diagnostics.VHUB0028({
-          why: "This app uses `vite-hub`, but imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so Invocations of this Agent are not recorded. A string `invocations` setting such as `\"database\"` also fails when the module loads.",
-          fix: "Import `defineAgent` from `vite-hub/agent`.",
-        }), { range: ctx.range(node) })
       },
     }
   },
@@ -296,8 +267,8 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !calls(r, node, ["agent/capabilities"], "rateLimit")) return
+      CallExpression(node) {
+        if (!calls(r, node, ["agent/capabilities"], "rateLimit")) return
         const options = unwrap(callArguments(node)[0])
         if (!isNodeType(options, "ObjectExpression") || objectProperties(options).some(property => property.type === "SpreadElement")) return
         if (objectProperty(options, "limiter")) return
@@ -306,7 +277,7 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
           why: inline.length
             ? `\`rateLimit()\` no longer accepts the inline \`${inline.join("`, `")}\` options. Without \`limiter\`, the Capability throws \`AGENT_R0162\` on the first Invocation.`
             : "`rateLimit()` needs a `limiter`. Without it, the Capability throws `AGENT_R0162` on the first Invocation.",
-          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `@vite-hub/rate-limit` and `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory`.",
+          fix: "Pass a Rate Limiter: `rateLimit({ limiter: createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" }) })`, with `createRateLimiter` from `vite-hub/rate-limit` and `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory`.",
         }), { range: ctx.range(node) })
       },
     }
@@ -338,46 +309,26 @@ export const noViteHubPluginInNuxt: DoctorRule = createRule({
 })
 
 
-function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | "vite", where: string) {
+/** Feature keys that owner plugins no longer read from the top level of a Vite config. */
+const topLevelFeatureKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "workflow", "workspace"]
+
+/** Option objects, such as `cloudflare`, that hold a removed nested key. */
+const nestedRemovedParents = new Set(Object.keys(removedViteHubOptions).flatMap(key => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []))
+
+function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, parent?: string) {
   const target = unwrap(options)
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
-    const value = unwrap(property.value)
-    const isObject = isNodeType(value, "ObjectExpression")
+    if (parent === undefined && name !== undefined && nestedRemovedParents.has(name)) {
+      checkViteHubOptions(ctx, property.value, `${where}.${name}`, name)
+      continue
+    }
     let report: { why: string, fix: string } | undefined
-    if (name === "sandbox") {
-      report = {
-        why: "`sandbox` is not a ViteHub option. It was renamed to `sandboxTask`, so this key does nothing.",
-        fix: "Rename `sandbox` to `sandboxTask: true`.",
-      }
-    }
-    else if (name === "devtools") {
-      report = {
-        why: "The ViteHub `devtools` option was removed with the browser DevTools, so this key does nothing.",
-        fix: "Remove `devtools`. Use the ViteHub Console with `console: true`.",
-      }
-    }
-    else if (name === "sandboxTask" && isObject) {
-      report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the provider.",
-        fix: "Set `sandboxTask: true`.",
-      }
-    }
-    else if (name === "queue" && isObject) {
-      report = {
-        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue provider.",
-        fix: "Set `queue: true`, and choose the provider with `preset`.",
-      }
-    }
-    else if (name === "env" && host === "vite" && isObject) {
-      const sections = ["server", "public", "define"].filter(section => objectProperty(value, section))
-      if (sections.length) {
-        report = {
-          why: `\`vitehub({ env })\` takes Env integration options only. ViteHub ignores \`env.${sections.join("`, `env.")}\` here, so these declarations do not exist at runtime.`,
-          fix: "Move `server`, `public`, and `define` to the top-level `env` key of the Vite config: `defineConfig({ env: { server: { ... } }, plugins: [vitehub()] })`.",
-        }
-      }
+    const key = name !== undefined && parent !== undefined ? `${parent}.${name}` : name
+    const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
+    if (removed) {
+      report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }
@@ -395,17 +346,40 @@ export const validViteHubOptions: DoctorRule = createRule({
     if (nuxtConfigFile.test(ctx.file.relativePath)) {
       const config = configObject(ctx)
       if (!config) return
-      const module = nuxtModules(config).find(entry => entry.name === "vite-hub/nuxt")
-      if (!module) return
-      checkViteHubOptions(ctx, objectValue(config, "vitehub"), "nuxt", "the `vitehub` key")
-      checkViteHubOptions(ctx, module.options, "nuxt", "the inline `vite-hub/nuxt` options")
+      const scopes = [{ name: "", config }, ...objectProperties(config).flatMap((item) => {
+        const name = propertyName(item)
+        const scope = unwrap(item.value)
+        if (!name?.startsWith("$") || !isNodeType(scope, "ObjectExpression")) return []
+        if (name !== "$env") return [{ name, config: scope }]
+        return objectProperties(scope).flatMap((entry) => {
+          const environment = propertyName(entry)
+          const override = unwrap(entry.value)
+          return environment && isNodeType(override, "ObjectExpression") ? [{ name: `${name}.${environment}`, config: override }] : []
+        })
+      })]
+      const hasBaseModule = nuxtModules(config).some(entry => entry.name === "vite-hub/nuxt")
+      for (const scope of scopes) {
+        const module = nuxtModules(scope.config).find(entry => entry.name === "vite-hub/nuxt")
+        if (!hasBaseModule && !module) continue
+        checkViteHubOptions(ctx, objectValue(scope.config, "vitehub"), scope.name ? `the \`${scope.name}.vitehub\` key` : "the `vitehub` key")
+        checkViteHubOptions(ctx, module?.options, "the inline `vite-hub/nuxt` options")
+      }
       return
     }
     if (!viteConfigFile.test(ctx.file.relativePath)) return
+    const config = configObject(ctx)
+    for (const name of ["env", ...topLevelFeatureKeys]) {
+      const property = config ? objectProperty(config, name) : undefined
+      if (!property) continue
+      ctx.report(diagnostics.VHUB0031({
+        why: `Vite does not read a top-level \`${name}\` key. Only \`vitehub()\` reads feature options, so this value does nothing.`,
+        fix: `Move it into \`vitehub({ ${name} })\`, or pass it to the feature's own plugin, such as \`${name === "env" ? "hubEnv" : "hubKV"}(options)\`. \`npx @vite-hub/codemods vitehub-options\` moves it.`,
+      }), { range: ctx.range(property) })
+    }
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "CallExpression") && isViteHubPluginCall(r, node)) checkViteHubOptions(ctx, callArguments(node)[0], "vite", "`vitehub()`")
+      CallExpression(node) {
+        if (isViteHubPluginCall(r, node)) checkViteHubOptions(ctx, callArguments(node)[0], "`vitehub()`")
       },
     }
   },
@@ -417,7 +391,7 @@ const nuxtHubImport = /^(?:hub:(?:db(?::schema)?|kv|blob)|@nuxthub\/.+)$/
 const nuxtHubHelpers = new Map([
   ["hubAI", "ViteHub has no AI binding helper. Call the AI SDK from a route or an Agent."],
   ["hubBlob", "Use `blob` from `vite-hub/blob`. Its methods return `[error, value]` tuples."],
-  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database/drizzle`."],
+  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database`."],
   ["hubKV", "Use `kv` from `vite-hub/kv`. Its methods return `[error, value]` tuples."],
 ])
 
@@ -446,37 +420,34 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
       if (hub) {
         ctx.report(diagnostics.VHUB0032({
           why: "`vite-hub/nuxt` does not read the NuxtHub `hub` key, so these features stay off.",
-          fix: "Rename `hub` to `vitehub` and add a `preset`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { preset: \"node\", database: true }`.",
+          fix: "Rename `hub` to `vitehub` and add a `host`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { host: \"node\", database: true }`.",
         }), { range: ctx.range(hub) })
+      }
+      for (const dependent of viteHubInventory(ctx).nuxtHubDependents ?? []) {
+        const entry = modules.find(module => module.name === dependent.name)
+        ctx.report(diagnostics.VHUB0032({
+          why: `\`${dependent.name}\` lists \`@nuxthub/core\` in its ${dependent.field}, so the package manager installs NuxtHub for it, and the module can start NuxtHub next to ViteHub. ViteHub does not emulate NuxtHub's module APIs.`,
+          fix: `Remove \`${dependent.name}\` from \`package.json\` and \`modules\`, or replace it. See https://vitehub.dev/docs/compare/nuxthub#modules-that-expect-nuxthub.`,
+        }), { range: ctx.range(entry?.node ?? objectProperty(config, "modules") ?? config) })
       }
     }
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "CallExpression")) {
-          const callee = unwrap(node.callee)
-          const name = isIdentifier(callee) && !r.binding(callee) ? callee.name : undefined
-          const helper = name ? nuxtHubHelpers.get(name) : undefined
-          if (helper) {
-            ctx.report(diagnostics.VHUB0032({
-              why: `\`${name}()\` is a NuxtHub auto-import. ViteHub does not register it, so the call fails at runtime.`,
-              fix: helper,
-            }), { range: ctx.range(node) })
-          }
-          const reference = r.callee(node)
-          if (reference?.module === "blob" && reference.name === "blob" && reference.path.length === 1 && reference.path[0] === "delete") {
-            ctx.report(diagnostics.VHUB0032({
-              why: "`blob.delete()` is the NuxtHub name. ViteHub Blob has no `delete` method, so the call fails at runtime.",
-              fix: "Call `blob.del()`. It returns an `[error]` tuple: `const [error] = await blob.del(pathname)`.",
-            }), { range: ctx.range(node) })
-          }
-          return
-        }
-        const source = moduleSpecifier(node)
-        if (!source || !nuxtHubImport.test(source.specifier)) return
+      ...moduleSourceVisitors((node, source) => {
+        if (!nuxtHubImport.test(source.specifier)) return
         ctx.report(diagnostics.VHUB0032({
           why: `\`${source.specifier}\` is a NuxtHub import. ViteHub does not provide it.`,
-          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `useDatabase` from `vite-hub/database/drizzle`. Each KV and Blob method returns an `[error, value]` tuple.",
+          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `db` from `vite-hub/database`. Each KV and Blob method returns an `[error, value]` tuple.",
+        }), { range: ctx.range(node) })
+      }),
+      CallExpression(node) {
+        const callee = unwrap(node.callee)
+        const name = isIdentifier(callee) && !r.binding(callee) ? callee.name : undefined
+        const helper = name ? nuxtHubHelpers.get(name) : undefined
+        if (!helper) return
+        ctx.report(diagnostics.VHUB0032({
+          why: `\`${name}()\` is a NuxtHub auto-import. ViteHub does not register it, so the call fails at runtime.`,
+          fix: helper,
         }), { range: ctx.range(node) })
       },
     }
@@ -492,7 +463,36 @@ const removedPaths = new Map([
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
   ["vite-hub/schedule/runtime/driver", { replacement: "`startSchedule()` from `vite-hub/schedule`, with a Definition without `cron` in `server/schedules/`", note: "Runtime Schedules are started with `startSchedule()`." }],
+  ["vite-hub/database/drizzle", { replacement: "vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/database/drizzle", { replacement: "@vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["vite-hub/email/server", { replacement: "vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/email/server", { replacement: "@vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["#vitehub/env/server", { replacement: "vite-hub/env", note: "`useServerEnv()` and the other Server Env helpers moved to the Env root. `vitehub migrate` rewrites the import." }],
+  ...oneEntryPerConcept(),
 ])
+
+/** Subpaths that moved into the root of their primitive, or into `env/bridge`. `npx @vite-hub/codemods one-entry-imports` moves them. */
+function oneEntryPerConcept(): [string, { replacement: string, note: string }][] {
+  const moves: [string, string][] = [
+    ...["file", "files", "github", "glob", "markdown"].map((name): [string, string] => [`source/${name}`, "source"]),
+    ...["presets", "provider", "schema", "secret"].map((name): [string, string] => [`env/${name}`, "env"]),
+    ["env/auth", "env/bridge"],
+    ["env/http", "env/bridge"],
+    ["blob/content-type", "blob"],
+    ["blob/ensure", "blob"],
+    ["blob/reference", "blob"],
+    ["browser/actions", "browser"],
+    ["connections/http", "connections"],
+  ]
+  const note = "Each concept has one entry. Run `npx @vite-hub/codemods one-entry-imports` to move the imports."
+  return [
+    ...moves.flatMap(([from, to]): [string, { replacement: string, note: string }][] => [
+      [`vite-hub/${from}`, { replacement: `vite-hub/${to}`, note }],
+      [`@vite-hub/${from}`, { replacement: `@vite-hub/${to}`, note }],
+    ]),
+    ["vite-hub/task", { replacement: "nitro/task", note: "`vite-hub/task` only re-exported Nitro's task API. Import `defineTask` and `runTask` from `nitro/task`, and the types from `nitro/types`." }],
+  ]
+}
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */
 const renamedExports: { modules: (module: string) => boolean, renames: Map<string, string> }[] = [
@@ -539,33 +539,30 @@ export const noRemovedApis: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        const source = moduleSpecifier(node)
-        if (source) {
-          const removed = removedPaths.get(source.specifier)
-          if (removed) {
-            ctx.report(diagnostics.VHUB0033({
-              why: `\`${source.specifier}\` no longer exists. ${removed.note}`,
-              fix: `Use ${removed.replacement.includes("`") ? removed.replacement : `\`${removed.replacement}\``}.`,
-            }), { range: ctx.range(node) })
-            return
-          }
-          const module = vitehubModule(source.specifier)
-          const table = module ? renamedExports.find(entry => entry.modules(module)) : undefined
-          if (table && isNodeType(node, "ImportDeclaration") && Array.isArray(node.specifiers)) {
-            for (const specifier of node.specifiers) {
-              const imported = isNode(specifier) && isIdentifier(specifier.imported) ? specifier.imported.name : undefined
-              const replacement = imported && table.renames.get(imported)
-              if (!replacement || !isNode(specifier)) continue
-              ctx.report(diagnostics.VHUB0033({
-                why: `\`${source.specifier}\` no longer exports \`${imported}\`. It was renamed to \`${replacement}\`.`,
-                fix: `Import \`${replacement}\` from \`${source.specifier}\`.`,
-              }), { range: ctx.range(specifier) })
-            }
-          }
+      ...moduleSourceVisitors((node, source) => {
+        const removed = removedPaths.get(source.specifier)
+        if (removed) {
+          ctx.report(diagnostics.VHUB0033({
+            why: `\`${source.specifier}\` no longer exists. ${removed.note}`,
+            fix: `Use ${removed.replacement.includes("`") ? removed.replacement : `\`${removed.replacement}\``}.`,
+          }), { range: ctx.range(node) })
           return
         }
-        if (!isNodeType(node, "CallExpression")) return
+        const module = vitehubModule(source.specifier)
+        const table = module ? renamedExports.find(entry => entry.modules(module)) : undefined
+        if (table && isNodeType(node, "ImportDeclaration") && Array.isArray(node.specifiers)) {
+          for (const specifier of node.specifiers) {
+            const imported = isNode(specifier) && isIdentifier(specifier.imported) ? specifier.imported.name : undefined
+            const replacement = imported && table.renames.get(imported)
+            if (!replacement || !isNode(specifier)) continue
+            ctx.report(diagnostics.VHUB0033({
+              why: `\`${source.specifier}\` no longer exports \`${imported}\`. It was renamed to \`${replacement}\`.`,
+              fix: `Import \`${replacement}\` from \`${source.specifier}\`.`,
+            }), { range: ctx.range(specifier) })
+          }
+        }
+      }),
+      CallExpression(node) {
         const options = callArguments(node)[0]
         if (calls(r, node, ["agent/capabilities"], "gmail")) {
           const mode = objectProperty(options, "mode")
@@ -602,8 +599,8 @@ export const markdownFilePath: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !calls(r, node, ["markdown-template/file"], "renderMarkdownFile")) return
+      CallExpression(node) {
+        if (!calls(r, node, ["markdown-template/file"], "renderMarkdownFile")) return
         const path = callArguments(node)[0]
         const value = stringValue(path)
         if (value === undefined || !/^\.\.?\//.test(value)) return
@@ -661,8 +658,8 @@ export const commentsEntry: DoctorRule = createRule({
       }), { range: ctx.range(comments) })
     }
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !calls(r, node, ["comments"], "defineComments")) return
+      CallExpression(node) {
+        if (!calls(r, node, ["comments"], "defineComments")) return
         const { parent } = semanticParent(node)
         const declarator = isNodeType(parent, "VariableDeclarator") ? parent : undefined
         const exportedName = declarator && isIdentifier(declarator.id) && named.get(declarator.id.name) === declarator ? declarator.id.name : undefined
@@ -690,7 +687,6 @@ export const rules: DoctorRule[] = [
   realtimePersistence,
   forgeErrorImports,
   sandboxRuntimeOptions,
-  defineAgentFromViteHub,
   rateLimitCapabilityLimiter,
   noViteHubPluginInNuxt,
   validViteHubOptions,

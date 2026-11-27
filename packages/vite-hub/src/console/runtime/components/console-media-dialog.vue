@@ -56,10 +56,10 @@ defineExpose({ pick });
         <p v-if="files.length" class="rounded-md bg-elevated/60 px-3 py-2 text-xs text-muted">
           The Console can't upload {{ files.join(", ") }} yet. Upload it to a Blob store, then enter its path.
         </p>
-        <UFormField label="Blob path or URL" required :ui="{ label: 'text-xs' }">
-          <UInput ref="srcInput" v-model="src" class="w-full" :ui="{ base: 'font-mono text-[13px]' }" placeholder="media/launch-cover.png" autocomplete="off" />
+        <UFormField label="Blob path or URL" required>
+          <UInput ref="srcInput" v-model="src" class="w-full font-mono" placeholder="media/launch-cover.png" autocomplete="off" />
         </UFormField>
-        <UFormField label="Alt text" description="Describes the image for people who can't see it." :ui="{ label: 'text-xs', description: 'text-xs' }">
+        <UFormField label="Alt text" description="Describes the image for people who can't see it.">
           <UInput v-model="alt" class="w-full" placeholder="The Console editor with the slash menu open" autocomplete="off" />
         </UFormField>
       </form>

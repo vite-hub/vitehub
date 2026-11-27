@@ -296,7 +296,7 @@ describe("agentInvocationRerunInput", () => {
       .toMatchObject({ "agent.invoker.id": "console-owner" })
   })
 
-  it.each(["actor", "invoker"])("retains direct caller %s authority after trusted preparation", async key => {
+  it.each(["invoker"])("retains direct caller %s authority after trusted preparation", async key => {
     const input = withResolvedAgentInvokerInput({ context: { [key]: { id: "caller", kind: "user" }, invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
     expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
   })
@@ -312,7 +312,7 @@ describe("agentInvocationRerunInput", () => {
     expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-context" })
   })
 
-  it.each(["actor", "invoker"])("blocks a cloned replacement of prepared %s authority", async key => {
+  it.each(["invoker"])("blocks a cloned replacement of prepared %s authority", async key => {
     const prepared = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
     const input = { ...prepared, context: { ...prepared.context, [key]: { id: "replacement", kind: "user" } } }
     expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
@@ -405,7 +405,7 @@ describe("agentInvocationRerunInput", () => {
       .toEqual({ available: true, invokerProfileId: "reviewer", prompt: "Hi" })
   })
 
-  it.each(["invoker", "actor"])("rejects a direct %s even with a profile", async (key) => {
+  it.each(["invoker"])("rejects a direct %s even with a profile", async (key) => {
     for (const invokerProfileId of [undefined, "reviewer"]) {
       const record = await journaled({ context: { [key]: { id: "direct-user", kind: "user" }, invokerProfileId }, prompt: "Hi" })
       expect(agentInvocationRerunInput(record)).toEqual({ available: false, reason: "input-has-invoker" })

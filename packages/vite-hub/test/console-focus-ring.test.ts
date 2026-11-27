@@ -10,14 +10,16 @@ function declarations(source: string, selector: string): string[] {
     .map(([, , body]) => body!)
 }
 
-describe("Console focus rings", () => {
-  it.each([
-    ["console-session.css", ".session-inspector__surface-launcher > button:focus-visible"],
-    ["invocation/invocation.css", ".vh-invocation-preparation__action:focus-visible"],
-  ])("%s draws an outline for %s", (file, selector) => {
-    const rules = declarations(css(file), selector)
-    expect(rules.length).toBeGreaterThan(0)
-    expect(rules.some(body => /outline:\s*2px solid/.test(body))).toBe(true)
-    expect(rules.some(body => /outline:\s*none/.test(body))).toBe(false)
+// @vite-hub/ui/theme.css draws the one focus ring. These parts only make sure the focused control can be seen.
+describe("Console focus", () => {
+  it("shows a step action that hides until hover when it gets keyboard focus", () => {
+    const rules = declarations(css("invocation/invocation.css"), ".vh-invocation-preparation__action:focus-visible")
+    expect(rules.some(body => /opacity:\s*1/.test(body))).toBe(true)
+  })
+
+  it.each(["console-session.css", "invocation/invocation.css"])("%s leaves the focus ring to the theme", (file) => {
+    const focusRules = [...css(file).replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter(([, selectors]) => /:focus/.test(selectors!))
+    expect(focusRules.filter(([, , body]) => /\b(?:outline|box-shadow)\s*:/.test(body!))).toEqual([])
   })
 })

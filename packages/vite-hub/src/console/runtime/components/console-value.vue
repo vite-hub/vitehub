@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleStatusValue, consoleValueParts } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * A text value from an owner package, shown the Console way: a status word such as `Enabled` or `failed` as a status
@@ -25,11 +26,11 @@ const parts = computed(() => consoleValueParts(props.value));
 </script>
 
 <template>
-  <ConsoleStatus v-if="status" :label="status.label" :tone="status.tone" :pending="status.pending" />
+  <Status v-if="status" :label="status.label" :tone="status.tone" :pulse="status.pending" />
   <span v-else-if="statusAt" class="inline-flex min-w-0 items-center gap-1.5">
-    <ConsoleStatus :label="statusAt.status.label" :tone="statusAt.status.tone" :pending="statusAt.status.pending" />
+    <Status :label="statusAt.status.label" :tone="statusAt.status.tone" :pulse="statusAt.status.pending" />
     <span class="text-dimmed" aria-hidden="true">·</span>
     <span class="text-xs text-muted"><ConsoleRelativeTime :value="statusAt.time" /></span>
   </span>
-  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><code v-else-if="part.kind === 'code'" class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">{{ part.value }}</code><template v-else>{{ part.value }}</template></template></span>
+  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><ConsoleCodeText v-else-if="part.kind === 'code'" code :text="part.value" /><template v-else>{{ part.value }}</template></template></span>
 </template>

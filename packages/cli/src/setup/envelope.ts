@@ -34,11 +34,10 @@ function isDiagnostic(error: unknown): error is DiagnosticLike {
 }
 
 function toSetupError(error: unknown): SetupError {
-  const diagnostic = isDiagnostic(error) ? error : cliErrorDiagnostics.CLI_R0001({ message: error instanceof Error ? error.message : String(error) })
+  const diagnostic = isDiagnostic(error) ? error : cliErrorDiagnostics.CLI_SETUP_FAILED({ message: error instanceof Error ? error.message : String(error) })
   const why = diagnostic.why.replace(/^\[vitehub\] /u, "")
   return {
     code: diagnostic.code,
-    // The first sentence, for a one-line summary. `why` keeps the whole reason.
     message: /^.*?[.!?](?=\s|$)/u.exec(why)?.[0] ?? why,
     why,
     ...(diagnostic.fix ? { fix: diagnostic.fix } : {}),
@@ -69,18 +68,18 @@ export interface SetupFailureDetails {
 }
 
 /** A setup diagnostic with its exit code and the input that is missing. `writeSetupError` reports it. */
-export class SetupFailure extends Error {
-  override readonly cause: Error
-  readonly exitCode: number
-  readonly details: SetupFailureDetails
+export type SetupFailure = Error & { readonly details: SetupFailureDetails, readonly exitCode: number }
 
-  constructor(cause: Error, exitCode: number, details: SetupFailureDetails = {}) {
-    super(cause.message)
-    this.name = "SetupFailure"
-    this.cause = cause
-    this.exitCode = exitCode
-    this.details = details
-  }
+/** Adds the exit code and the missing input of a setup command to its diagnostic. */
+export function setupFailure(diagnostic: Error, exitCode: number, details: SetupFailureDetails = {}): SetupFailure {
+  return Object.assign(diagnostic, { details, exitCode })
+}
+
+/** Whether `error` is a diagnostic that `setupFailure()` gave an exit code. */
+export function isSetupFailure(error: unknown): error is SetupFailure {
+  if (!(error instanceof Error)) return false
+  const details: unknown = Reflect.get(error, "details")
+  return typeof Reflect.get(error, "exitCode") === "number" && typeof details === "object" && details !== null
 }
 
 function formatMissing(missing: readonly SetupMissing[]): string {
@@ -96,10 +95,10 @@ function formatMissing(missing: readonly SetupMissing[]): string {
  * A `SetupFailure` adds `missing`, `rerun`, and its `data` to the document. Any other error exits with 1.
  */
 export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown): number {
-  if (error instanceof SetupFailure) {
+  if (isSetupFailure(error)) {
     const { data, missing, rerun } = error.details
-    if (json) writeSetupJson(context, { ...data, error: toSetupError(error.cause), ...(missing ? { missing } : {}), ...(rerun ? { rerun } : {}) })
-    else context.stderr.write(`${formatRuntimeDiagnosticError(error.cause)}\n${formatMissing(missing ?? [])}${rerun ? `Run: ${rerun}\n` : ""}`)
+    if (json) writeSetupJson(context, { ...data, error: toSetupError(error), ...(missing ? { missing } : {}), ...(rerun ? { rerun } : {}) })
+    else context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n${formatMissing(missing ?? [])}${rerun ? `Run: ${rerun}\n` : ""}`)
     return error.exitCode
   }
   if (json) writeSetupJson(context, { error: toSetupError(error) })

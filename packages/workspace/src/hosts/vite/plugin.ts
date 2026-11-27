@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises"
-import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
+import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { getViteMode } from "@vite-hub/internal/build/mode"
-import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
+import { ownModule } from "@vite-hub/internal/build/paths"
+import { createNativePackageLoading, createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
+import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
@@ -18,7 +17,7 @@ import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { workspaceOperations } from "../../operations.ts"
-import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
+import { normalizeWorkspaceDefinition, workspaceRegistryLoadError } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
 import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
 import { inspectWorkspaceDefinitions } from "../../inspect.ts"
@@ -27,12 +26,13 @@ import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevComma
 import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { CollectedWorkspaceContribution } from "../../build/contributions.ts"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -47,8 +47,15 @@ const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
+// Skip unrelated ids while retaining native package loading in the Nitro dev environment.
+const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/workspaces(?:$|\/))/
+// The native loader decodes file: URLs before checking their package paths.
+const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
+const generatedNitroWorkspaceDurabilityRegistry = ".vitehub/nitro/workspace/durability-registry.js"
+const generatedNitroWorkspaceDurabilityFallback = ".vitehub/nitro/workspace/durability-fallback.js"
+const generatedNitroWorkspaceDurabilityLoader = ".vitehub/nitro/workspace/durability-loader.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const noExternalAddition = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
@@ -77,902 +84,21 @@ interface BabelNode {
   callee?: BabelNode
   computed?: boolean
   declaration?: BabelNode
-  declarations?: BabelNode[]
-  elements?: Array<BabelNode | null>
   expression?: BabelNode
-  init?: BabelNode
   imported?: BabelNode
-  id?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
+  kind?: string
   name?: string
-  object?: BabelNode
-  property?: BabelNode
   properties?: BabelNode[]
-  right?: BabelNode
   source?: BabelNode
-  specifiers?: BabelNode[]
-  local?: BabelNode
-  exported?: BabelNode
-  left?: BabelNode
   type?: string
   value?: BabelNode | unknown
 }
 
-interface BabelObjectPropertyPath {
-  node: BabelNode
-  parentPath?: BabelObjectPropertyPath
-  scope: BabelScope
-}
-
-type BabelNodePath = BabelObjectPropertyPath
-
-interface BabelBindingPath {
+interface BabelNodePath {
   node: BabelNode
   parentPath?: BabelNodePath
-  scope: BabelScope
-}
-
-interface BabelScope {
-  getBinding: (name: string) => { path: BabelBindingPath, referencePaths?: BabelNodePath[] } | undefined
-}
-
-type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
-
-function createSourceModuleResolver(
-  rootDir: string,
-  aliases?: Record<string, string>,
-  resolveModule?: SourceModuleResolver,
-): SourceModuleResolver | undefined {
-  if (!aliases) return resolveModule
-  return async (id, importer) => {
-    const resolved = await resolveModule?.(id, importer)
-    if (resolved) return resolved
-    for (const [find, replacement] of Object.entries(aliases)) {
-      if (id !== find && !id.startsWith(`${find}/`)) continue
-      const aliased = `${replacement}${id.slice(find.length)}`
-      return isAbsolute(aliased) ? aliased : resolve(rootDir, aliased)
-    }
-  }
-}
-
-function babelPropertyName(path: BabelObjectPropertyPath): unknown {
-  return path.node.key?.name ?? path.node.key?.value
-}
-
-function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boolean {
-  if (!name) return babelPathIsExported(path)
-  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
-    if (current.node.type !== "ExportNamedDeclaration") continue
-    const declaration = current.node.declaration
-    if (declaration?.type === "VariableDeclaration") {
-      if (declaration.declarations?.some(item => item.id?.type === "Identifier" && item.id.name === name)) return true
-    }
-    else if (
-      (declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration")
-      && declaration.id?.name === name
-    ) return true
-  }
-  const binding = path.scope.getBinding(name)
-  return binding?.referencePaths?.some(reference => babelBindingIsExportedAs(reference, name, name)) ?? false
-}
-
-function babelBindingIsExportedAs(path: BabelNodePath, localName: string, exportedName: string): boolean {
-  return path.scope.getBinding(localName)?.referencePaths?.some((reference) => {
-    const parent = reference.parentPath?.node
-    if (parent?.type !== "ExportSpecifier" || parent.local !== reference.node) return false
-    return (parent.exported?.name ?? parent.exported?.value) === exportedName
-  }) ?? false
-}
-
-function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
-  if (seen.has(path)) return false
-  seen.add(path)
-  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
-    if (current.node.type === "ExportDefaultDeclaration") return true
-    if (
-      current.node.type === "AssignmentExpression"
-      && babelMemberIsCommonJsDefaultExport(current.node.left)
-    ) return true
-    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
-      const binding = current.scope.getBinding(current.node.id.name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference, seen))) return true
-    }
-  }
-  return false
-}
-
-function babelMemberIsCommonJsDefaultExport(member: BabelNode | undefined): boolean {
-  if (member?.type !== "MemberExpression") return false
-  if (
-    member.object?.type === "Identifier"
-    && member.object.name === "module"
-    && member.property?.type === "Identifier"
-    && member.property.name === "exports"
-  ) return true
-  if ((member.property?.name ?? member.property?.value) !== "default") return false
-  return (
-    member.object?.type === "Identifier"
-    && member.object.name === "exports"
-  ) || (
-    member.object?.type === "MemberExpression"
-    && member.object.object?.type === "Identifier"
-    && member.object.object.name === "module"
-    && member.object.property?.type === "Identifier"
-    && member.object.property.name === "exports"
-  )
-}
-
-function babelPathIsDirectDefaultExport(path: BabelNodePath): boolean {
-  const parent = path.parentPath?.node
-  if (parent?.type === "ExportDefaultDeclaration") return true
-  return parent?.type === "AssignmentExpression"
-    && parent.right === path.node
-    && babelMemberIsCommonJsDefaultExport(parent.left)
-}
-
-function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
-  for (let current = path.parentPath; current; current = current.parentPath) {
-    if (current.node.type === "ObjectProperty") return false
-    if (current.node.type === "ExportDefaultDeclaration") return true
-    if (
-      current.node.type === "AssignmentExpression"
-      && babelMemberIsCommonJsDefaultExport(current.node.left)
-    ) return true
-    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
-      const binding = current.scope.getBinding(current.node.id.name)
-      return binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference)) ?? false
-    }
-  }
-  return false
-}
-
-function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
-  if (seen.has(path)) return false
-  seen.add(path)
-  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
-    if (
-      current.node.type === "ObjectProperty"
-      && !["binding", "namespace", "provider", "store"].includes(String(babelPropertyName(current)))
-    ) return false
-    if (
-      current.node.type === "ObjectProperty"
-      && babelPropertyName(current) === "store"
-      && babelPropertyIsTopLevelDefaultExport(current)
-    ) return true
-    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
-      const binding = current.scope.getBinding(current.node.id.name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
-    }
-    if (current.node.type === "FunctionDeclaration" && current.node.id?.name) {
-      let returned = false
-      for (let descendant: BabelNodePath | undefined = path; descendant && descendant !== current; descendant = descendant.parentPath) {
-        if (descendant.node.type === "ReturnStatement") returned = true
-        if (descendant !== path && (descendant.node.type === "FunctionDeclaration" || descendant.node.type === "FunctionExpression" || descendant.node.type === "ArrowFunctionExpression")) break
-      }
-      if (!returned) return false
-      const binding = current.scope.getBinding(current.node.id.name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
-    }
-  }
-  return false
-}
-
-function babelNamespaceMemberNames(
-  path: BabelNodePath,
-  reachesRequestedExport: (path: BabelNodePath) => boolean,
-  seen = new Set<BabelNodePath>(),
-): string[] {
-  if (seen.has(path)) return []
-  seen.add(path)
-  const parent = path.parentPath
-  if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
-    if (!reachesRequestedExport(parent)) return []
-    const name = parent.node.property?.name ?? parent.node.property?.value
-    return typeof name === "string" ? [name] : []
-  }
-  if (
-    parent?.node.type === "VariableDeclarator"
-    && parent.node.init === path.node
-    && parent.node.id?.type === "ObjectPattern"
-  ) {
-    // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
-    const properties = (parent.node.id as BabelNode & { properties?: BabelNode[] }).properties
-    return properties?.flatMap((property) => {
-      // SAFETY: Babel's ObjectProperty discriminator below guards the key and value fields consumed here.
-      const objectProperty = property as BabelNode & {
-        key?: { name?: unknown, value?: unknown }
-        value?: { name?: string, type?: string }
-      }
-      if (objectProperty.type !== "ObjectProperty" || objectProperty.value?.type !== "Identifier" || !objectProperty.value.name) return []
-      const references = parent.scope.getBinding(objectProperty.value.name)?.referencePaths ?? []
-      if (!references.some(reachesRequestedExport)) return []
-      const name = objectProperty.key?.name ?? objectProperty.key?.value
-      return typeof name === "string" ? [name] : []
-    }) ?? []
-  }
-  if (
-    parent?.node.type === "VariableDeclarator"
-    && parent.node.init === path.node
-    && parent.node.id?.type === "Identifier"
-    && parent.node.id.name
-  ) {
-    return parent.scope.getBinding(parent.node.id.name)?.referencePaths
-      ?.filter(reachesRequestedExport)
-      .flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport, seen)) ?? []
-  }
-  return []
-}
-
-function babelPathBelongsToExportedStore(path: BabelNodePath): boolean {
-  for (let current = path.parentPath; current; current = current.parentPath) {
-    if (
-      current.node.type === "AssignmentExpression"
-      && current.node.left?.type === "MemberExpression"
-      && current.node.left.object?.type === "Identifier"
-      && current.node.left.object.name === "module"
-      && current.node.left.property?.type === "Identifier"
-      && current.node.left.property.name === "exports"
-    ) {
-      if (path.parentPath?.parentPath === current) return true
-      for (let nested = path.parentPath; nested && nested !== current; nested = nested.parentPath) {
-        if (
-          nested.node.type === "ObjectProperty"
-          && babelPropertyName(nested) === "default"
-          && nested.parentPath?.node.type === "ObjectExpression"
-          && nested.parentPath.parentPath === current
-        ) {
-          for (let wrapped = path.parentPath; wrapped && wrapped !== nested; wrapped = wrapped.parentPath) {
-            if (
-              wrapped.node.type === "ObjectProperty"
-              && babelPropertyName(wrapped) === "store"
-              && wrapped.parentPath?.node === nested.node.value
-            ) return true
-          }
-          return false
-        }
-      }
-      return false
-    }
-    if (
-      current.node.type === "ObjectProperty"
-      && babelPropertyName(current) === "store"
-      && babelPropertyIsTopLevelDefaultExport(current)
-    ) return true
-    if (
-      current.node.type === "VariableDeclarator"
-      && current.node.id?.type === "Identifier"
-      && (
-        (current.node.id.name === "store" && babelPathOrBindingIsExported(current, current.node.id.name))
-        || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
-      )
-    ) return true
-    if (current.node.type === "ExportDefaultDeclaration") return path.parentPath?.parentPath === current
-    if (current.node.type === "FunctionDeclaration") {
-      const name = current.node.id?.name
-      if (current.parentPath?.node.type === "ExportDefaultDeclaration") return true
-      return name ? current.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference)) ?? false : false
-    }
-    if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") {
-      const declarator = current.parentPath
-      if (declarator?.node.type === "ExportDefaultDeclaration") return true
-      if (declarator?.node.type !== "VariableDeclarator" || declarator.node.init !== current.node || declarator.node.id?.type !== "Identifier") return false
-      const name = declarator.node.id.name
-      if (!name) return false
-      return babelPathOrBindingIsExported(declarator, name)
-        || declarator.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
-        || false
-    }
-  }
-  return false
-}
-
-function babelPathIsExported(path: BabelNodePath): boolean {
-  for (let current = path.parentPath; current; current = current.parentPath) {
-    if (current.node.type === "ExportNamedDeclaration" || current.node.type === "ExportDefaultDeclaration") return true
-  }
-  return false
-}
-
-function babelPathReachesNamedExport(
-  path: BabelNodePath,
-  exportedName: string,
-  seen = new Set<BabelNodePath>(),
-  mayCrossValueProperty = true,
-): boolean {
-  if (seen.has(path)) return false
-  seen.add(path)
-  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
-    if (
-      current.node.type === "ObjectProperty"
-      && babelPropertyName(current) === exportedName
-      && current.parentPath
-      && babelPathIsDirectDefaultExport(current.parentPath)
-    ) return true
-    if (current.node.type === "ObjectProperty") {
-      if (!mayCrossValueProperty) return false
-      mayCrossValueProperty = false
-    }
-    if (
-      current.node.type === "AssignmentExpression"
-      && current.node.left?.type === "MemberExpression"
-      && (
-        (current.node.left.object?.type === "Identifier" && current.node.left.object.name === "exports")
-        || (
-          current.node.left.object?.type === "MemberExpression"
-          && current.node.left.object.object?.type === "Identifier"
-          && current.node.left.object.object.name === "module"
-          && current.node.left.object.property?.type === "Identifier"
-          && current.node.left.object.property.name === "exports"
-        )
-      )
-      && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
-    ) return true
-    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
-      const name = current.node.id.name
-      if (
-        (name === exportedName && babelPathOrBindingIsExported(current, exportedName))
-        || babelBindingIsExportedAs(current, name, exportedName)
-      ) return true
-      const binding = current.scope.getBinding(name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesNamedExport(reference, exportedName, seen, false))) return true
-    }
-    if (
-      current.node.type === "FunctionDeclaration"
-      && current.node.id?.name === exportedName
-      && babelPathOrBindingIsExported(current, exportedName)
-    ) return true
-  }
-  return false
-}
-
-function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, seen = new Set<BabelBindingPath>()): unknown {
-  if (node?.type === "StringLiteral") return node.value
-  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
-    return babelStringValue(node.expression, path, seen)
-  }
-  if (node?.type === "Identifier" && node.name) {
-    const bindingPath = path.scope.getBinding(node.name)?.path
-    if (!bindingPath || seen.has(bindingPath)) return
-    return babelStringValue(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
-  }
-  if (
-    node?.type === "CallExpression"
-    && node.arguments?.length === 1
-    && babelStringValue(node.arguments[0], path, seen) === "-"
-    && node.callee?.type === "MemberExpression"
-    && node.callee.object?.type === "ArrayExpression"
-    && node.callee.property?.type === "Identifier"
-    && node.callee.property.name === "join"
-  ) {
-    const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
-    if (values?.every(value => typeof value === "string")) return values.join("-")
-  }
-}
-
-async function sourceModuleDeclaresCloudflareArtifacts(
-  file: string,
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  exportedName = "default",
-): Promise<boolean> {
-  const loaded = await readSourceModule(file)
-  if (!loaded) return false
-  let declaresCloudflareArtifacts = false
-  loader.transform({
-    filename: loaded.file,
-    jsx: extname(loaded.file).endsWith("x"),
-    source: loaded.source,
-    ts: /\.[cm]?tsx?$/.test(loaded.file),
-    babel: {
-      plugins: [() => ({
-        visitor: {
-          ObjectProperty(path: BabelObjectPropertyPath) {
-            const value = path.node.value as BabelNode | undefined
-            const belongsToRequestedExport = exportedName === "default"
-              ? babelPathBelongsToExportedStore(path)
-              : babelPathReachesNamedExport(path, exportedName)
-            if (
-              babelPropertyName(path) === "provider"
-              && belongsToRequestedExport
-            ) {
-              const provider = babelStringValue(value, path)
-              if (provider === "cloudflare-artifacts" || provider === undefined) declaresCloudflareArtifacts = true
-            }
-          },
-          VariableDeclarator(path: BabelNodePath) {
-            if (
-              exportedName === "provider"
-              && path.node.id?.type === "Identifier"
-              && path.node.id.name === "provider"
-              && babelPathIsExported(path)
-              && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
-            ) {
-              declaresCloudflareArtifacts = true
-            }
-          },
-          ExportNamedDeclaration(path: BabelNodePath) {
-            if (exportedName !== "provider") return
-            for (const specifier of path.node.specifiers ?? []) {
-              if (specifier.exported?.name !== "provider" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
-              if (babelStringValue(specifier.local, path) === "cloudflare-artifacts") declaresCloudflareArtifacts = true
-            }
-          },
-        },
-      })],
-    },
-  })
-  return declaresCloudflareArtifacts
-}
-
-async function sourceModuleMayUseCloudflareArtifacts(
-  file: string,
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  resolveModule?: SourceModuleResolver,
-  visited = new Set<string>(),
-  exportedName = "default",
-): Promise<boolean> {
-  const loaded = await readSourceModule(file)
-  if (!loaded) return false
-  const visitKey = `${loaded.file}\0${exportedName}`
-  if (visited.has(visitKey)) return false
-  visited.add(visitKey)
-  if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
-
-  for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
-    if (!importedName) return true
-    const resolvedModule = specifier.startsWith(".")
-      ? resolve(dirname(loaded.file), specifier)
-      : await resolveModule?.(specifier, loaded.file)
-    const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
-    const requestedName = selectedName ?? importedName
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)) return true
-  }
-  return false
-}
-
-function sourceImportsFeedingWorkspaceStore(
-  loaded: { file: string, source: string },
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  exportedName: string,
-): Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> {
-  const imports: Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> = []
-  loader.transform({
-    filename: loaded.file,
-    jsx: extname(loaded.file).endsWith("x"),
-    source: loaded.source,
-    ts: /\.[cm]?tsx?$/.test(loaded.file),
-    babel: {
-      plugins: [() => ({
-        visitor: {
-          ExportNamedDeclaration(path: BabelNodePath) {
-            const specifier = path.node.source?.value
-            if (typeof specifier !== "string") return
-            for (const exported of path.node.specifiers ?? []) {
-              const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
-              if (exportedAs !== exportedName) continue
-              imports.push({
-                importedName: String(exported.local?.name ?? exported.local?.value),
-                specifier,
-              })
-            }
-          },
-          ExportAllDeclaration(path: BabelNodePath) {
-            const specifier = path.node.source?.value
-            if (typeof specifier === "string" && exportedName !== "default") imports.push({ importedName: exportedName, specifier })
-          },
-          ImportDeclaration(path: BabelNodePath) {
-            const specifier = path.node.source?.value
-            if (typeof specifier !== "string") return
-            for (const imported of path.node.specifiers ?? []) {
-              if (imported.local?.type !== "Identifier" || !imported.local.name) continue
-              const binding = path.scope.getBinding(imported.local.name)
-              const referenceReachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
-                ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
-                : (() => {
-                    for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
-                      if (
-                        current.node.type === "ExportSpecifier"
-                        && current.node.local === reference.node
-                        && (current.node.exported?.name ?? current.node.exported?.value) === exportedName
-                      ) return true
-                      if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
-                    }
-                    return false
-                  })()
-              if (imported.type === "ImportNamespaceSpecifier" || imported.type === "ImportDefaultSpecifier") {
-                for (const reference of binding?.referencePaths ?? []) {
-                  const memberNames = babelNamespaceMemberNames(reference, referenceReachesRequestedExport)
-                  for (const importedName of memberNames) {
-                    imports.push(imported.type === "ImportDefaultSpecifier"
-                      ? { importedName: "default", localName: imported.local.name, selectedName: importedName, specifier }
-                      : { importedName, localName: imported.local.name, specifier })
-                  }
-                  if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
-                    imports.push({ importedName: "default", localName: imported.local.name, specifier })
-                  }
-                }
-                continue
-              }
-              const references = binding?.referencePaths?.filter(referenceReachesRequestedExport) ?? []
-              if (!references.length) continue
-              imports.push({
-                importedName: imported.type === "ImportDefaultSpecifier" ? "default" : String(imported.imported?.name ?? imported.imported?.value),
-                localName: imported.local.name,
-                specifier,
-              })
-            }
-          },
-          AssignmentExpression(path: BabelNodePath) {
-            const right = path.node.right
-            const required = right?.type === "MemberExpression" ? right.object : right
-            if (
-              required?.type !== "CallExpression"
-              || required.callee?.type !== "Identifier"
-              || required.callee.name !== "require"
-              || required.arguments?.length !== 1
-            ) return
-            const left = path.node.left
-            const commonJsExportsObject = left?.type === "MemberExpression"
-              && (
-                (left.object?.type === "Identifier" && left.object.name === "exports")
-                || (
-                  left.object?.type === "MemberExpression"
-                  && left.object.object?.type === "Identifier"
-                  && left.object.object.name === "module"
-                  && left.object.property?.type === "Identifier"
-                  && left.object.property.name === "exports"
-                )
-              )
-            const assignedName = babelMemberIsCommonJsDefaultExport(left)
-              ? "default"
-              : commonJsExportsObject
-                ? left.property?.name ?? left.property?.value
-                : undefined
-            if (assignedName !== exportedName) return
-            const specifier = required.arguments[0]?.value
-            if (typeof specifier !== "string") return
-            const importedName = right?.type === "MemberExpression"
-              ? right.property?.name ?? right.property?.value
-              : "default"
-            imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
-          },
-          VariableDeclarator(path: BabelNodePath) {
-            const selectedDynamicImportName = path.node.init?.type === "MemberExpression"
-              ? path.node.init.property?.name ?? path.node.init.property?.value
-              : undefined
-            const dynamicImportValue = path.node.init?.type === "MemberExpression"
-              ? path.node.init.object
-              : path.node.init
-            // SAFETY: Babel's AwaitExpression discriminator guarantees the argument field.
-            const awaitExpression = dynamicImportValue as BabelNode & { argument?: BabelNode }
-            const awaited = dynamicImportValue?.type === "AwaitExpression"
-              ? awaitExpression.argument
-              : dynamicImportValue
-            if (
-              awaited?.type === "CallExpression"
-              && awaited.callee?.type === "Import"
-              && awaited.arguments?.length === 1
-            ) {
-              const specifier = awaited.arguments[0]?.value
-              if (typeof specifier !== "string") return
-              if (path.node.id?.type === "ObjectPattern") {
-                // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
-                const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
-                for (const property of properties ?? []) {
-                  if (property.type !== "ObjectProperty") continue
-                  // SAFETY: The ObjectProperty discriminator guarantees a Babel-compatible value node.
-                  const propertyValue = property.value as BabelNode | undefined
-                  const local = propertyValue?.type === "AssignmentPattern" ? propertyValue.left : propertyValue
-                  const localName = local?.name
-                  if (!localName) continue
-                  const reaches = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
-                    ? babelPathReachesExportedStore(reference)
-                    : babelPathOrBindingIsExported(reference, exportedName))
-                  if (!reaches) continue
-                  const importedName = property.key?.name ?? property.key?.value
-                  imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
-                }
-              }
-              else if (path.node.id?.type === "Identifier") {
-                const localName = path.node.id.name
-                if (!localName) return
-                const binding = path.scope.getBinding(localName)
-                const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
-                  ? babelPathReachesExportedStore(reference)
-                  : babelPathOrBindingIsExported(reference, exportedName)
-                if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
-                  imports.push({ importedName: selectedDynamicImportName, localName, specifier })
-                }
-                for (const reference of binding?.referencePaths ?? []) {
-                  const memberNames = babelNamespaceMemberNames(reference, reachesRequestedExport)
-                  for (const importedName of memberNames) imports.push({ importedName, localName, specifier })
-                }
-              }
-              return
-            }
-            const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
-            if (
-              path.node.id?.type === "ObjectPattern"
-              && required?.type === "CallExpression"
-              && required.callee?.type === "Identifier"
-              && required.callee.name === "require"
-              && required.arguments?.length === 1
-            ) {
-              const specifier = required.arguments[0]?.value
-              if (typeof specifier !== "string") return
-              // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
-              const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
-              for (const property of properties ?? []) {
-                const value = property.value as BabelNode | undefined
-                const local = value?.type === "AssignmentPattern" ? value.left : value
-                const localName = local?.name
-                if (property.type !== "ObjectProperty" || !localName) continue
-                const reachesRequestedExport = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
-                  ? babelPathReachesExportedStore(reference)
-                  : babelPathOrBindingIsExported(reference, exportedName))
-                if (!reachesRequestedExport) continue
-                // SAFETY: Babel's ObjectProperty discriminator above guarantees a Babel-compatible key node.
-                const key = property.key as BabelNode | undefined
-                const importedName = property.computed
-                  ? babelStringValue(key, path)
-                  : property.key?.name ?? property.key?.value
-                imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
-              }
-              return
-            }
-            if (
-              path.node.id?.type !== "Identifier"
-              || !path.node.id.name
-            ) return
-            if (
-              required?.type !== "CallExpression"
-              || required.callee?.type !== "Identifier"
-              || required.callee.name !== "require"
-              || required.arguments?.length !== 1
-            ) return
-            const specifier = required.arguments[0]?.value
-            if (typeof specifier !== "string") return
-            const binding = path.scope.getBinding(path.node.id.name)
-            const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
-              ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
-              : babelPathOrBindingIsExported(reference, exportedName)
-            const selectedNames = binding?.referencePaths?.flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport)) ?? []
-            const direct = binding?.referencePaths?.some(reachesRequestedExport)
-            if (!direct && !selectedNames.length) return
-            const selectedName = path.node.init?.type === "MemberExpression"
-              ? path.node.init.property?.name ?? path.node.init.property?.value
-              : "default"
-            if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
-            for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, specifier })
-          },
-        },
-      })],
-    },
-  })
-  return imports
-}
-
-type InlineWorkspaceStoreOperation =
-  | { kind: "spread", localName: string, position: number, selectedName?: string }
-  | { environmentValue: boolean, kind: "property", localName?: string, name: string, position: number, value?: string }
-
-function importedWorkspaceValueKey(localName: string, selectedName?: string): string {
-  return selectedName === undefined ? localName : `${localName}\0${selectedName}`
-}
-
-function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
-  const bindingPath = path.scope.getBinding(name)?.path
-  if (!bindingPath || seen.has(bindingPath)) return name
-  seen.add(bindingPath)
-  if (
-    bindingPath.node.type !== "VariableDeclarator"
-    || bindingPath.node.init?.type !== "Identifier"
-    || !bindingPath.node.init.name
-  ) return name
-  return babelResolveIdentifierAlias(bindingPath, bindingPath.node.init.name, seen)
-}
-
-function babelEnvironmentKey(
-  node: BabelNode | undefined,
-  path: BabelBindingPath,
-  seen = new Set<BabelBindingPath>(),
-): string | undefined {
-  if (node?.type === "Identifier" && node.name) {
-    const bindingPath = path.scope.getBinding(node.name)?.path
-    if (!bindingPath || seen.has(bindingPath)) return
-    return babelEnvironmentKey(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
-  }
-  if (
-    node?.type !== "MemberExpression"
-    || node.object?.type !== "MemberExpression"
-    || node.object.object?.type !== "Identifier"
-    || node.object.object.name !== "process"
-    || node.object.property?.type !== "Identifier"
-    || node.object.property.name !== "env"
-  ) return
-  const key = node.property?.name ?? node.property?.value
-  return typeof key === "string" ? key : undefined
-}
-
-function babelEnvironmentValue(
-  node: BabelNode | undefined,
-  path: BabelBindingPath,
-  env: Record<string, string | undefined>,
-): string | undefined {
-  const key = babelEnvironmentKey(node, path)
-  return key === undefined ? undefined : env[key]
-}
-
-function sourceHasUnresolvedWorkspaceRoot(
-  loaded: { file: string, source: string },
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-): boolean {
-  let unresolved = false
-  loader.transform({
-    filename: loaded.file,
-    jsx: extname(loaded.file).endsWith("x"),
-    source: loaded.source,
-    ts: /\.[cm]?tsx?$/.test(loaded.file),
-    babel: {
-      plugins: [() => ({
-        visitor: {
-          ObjectProperty(path: BabelObjectPropertyPath) {
-            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
-            const valueNode = path.node.value as BabelNode | undefined
-            if (
-              babelPropertyName(path) === "root"
-              && babelPropertyIsTopLevelDefaultExport(path)
-              && babelStringValue(valueNode, path) === undefined
-            ) unresolved = true
-          },
-        },
-      })],
-    },
-  })
-  return unresolved
-}
-
-function sourceInlineWorkspaceStoreOperations(
-  loaded: { file: string, source: string },
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  env: Record<string, string | undefined>,
-): InlineWorkspaceStoreOperation[] {
-  const operations: InlineWorkspaceStoreOperation[] = []
-  loader.transform({
-    filename: loaded.file,
-    jsx: extname(loaded.file).endsWith("x"),
-    source: loaded.source,
-    ts: /\.[cm]?tsx?$/.test(loaded.file),
-    babel: {
-      plugins: [() => ({
-        visitor: {
-          SpreadElement(path: BabelNodePath) {
-            // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
-            const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
-            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
-            const position = (path.node as BabelNode & { start?: number }).start
-            if (position === undefined || !babelPathReachesExportedStore(path)) return
-            const localName = argument?.type === "Identifier"
-              ? argument.name
-              : argument?.type === "MemberExpression" && argument.object?.type === "Identifier"
-                ? argument.object.name
-                : undefined
-            const selectedName = argument?.type === "MemberExpression"
-              ? argument.property?.name ?? argument.property?.value
-              : undefined
-            if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
-            const operation: InlineWorkspaceStoreOperation = {
-              kind: "spread",
-              localName: babelResolveIdentifierAlias(path, localName),
-              position,
-            }
-            if (selectedName !== undefined) operation.selectedName = selectedName
-            operations.push(operation)
-          },
-          ObjectProperty(path: BabelObjectPropertyPath) {
-            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
-            const position = (path.node as BabelNode & { start?: number }).start
-            if (position === undefined) return
-            if (!babelPathReachesExportedStore(path)) return
-            const name = babelPropertyName(path)
-            if (name === "store" && babelPropertyIsTopLevelDefaultExport(path)) return
-            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
-            const valueNode = path.node.value as BabelNode | undefined
-            let value = babelStringValue(valueNode, path)
-            const environmentValue = value === undefined && babelEnvironmentKey(valueNode, path) !== undefined
-            if (environmentValue) value = babelEnvironmentValue(valueNode, path, env)
-            const stringValue = typeof value === "string" ? value : undefined
-            if (typeof name === "string") {
-              operations.push({
-                kind: "property",
-                localName: valueNode?.type === "Identifier" && valueNode.name
-                  ? babelResolveIdentifierAlias(path, valueNode.name)
-                  : undefined,
-                name,
-                position,
-                environmentValue,
-                value: stringValue,
-              })
-            }
-          },
-        },
-      })],
-    },
-  })
-  return operations
-    .sort((left, right) => left.position - right.position
-      || (left.kind === "property" && right.kind === "property"
-        ? Number(right.localName !== undefined) - Number(left.localName !== undefined)
-        : 0))
-    .filter((operation, index, sorted) => {
-      const previous = sorted[index - 1]
-      if (!previous || operation.position !== previous.position || operation.kind !== previous.kind) return true
-      if (operation.kind === "spread" || previous.kind === "spread") return false
-      return operation.name !== previous.name
-    })
-}
-
-function reconstructCloudflareArtifactStore(
-  operations: InlineWorkspaceStoreOperation[],
-  importedValues = new Map<string, unknown>(),
-): WorkspaceDefinitionInput["store"] | undefined {
-  let reconstructed: Record<string, unknown> = {}
-  for (const operation of operations) {
-    if (operation.kind === "spread") {
-      const imported = importedValues.get(importedWorkspaceValueKey(operation.localName, operation.selectedName))
-      reconstructed = isRecord(imported) ? { ...reconstructed, ...imported } : {}
-      continue
-    }
-    const imported = operation.localName === undefined ? undefined : importedValues.get(operation.localName)
-    if (typeof imported === "string") {
-      reconstructed[operation.name] = imported
-      continue
-    }
-    if (operation.value === undefined && !operation.environmentValue) return
-    reconstructed[operation.name] = operation.value
-  }
-  if (reconstructed.provider !== "cloudflare-artifacts") return
-  // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
-  return reconstructed as WorkspaceDefinitionInput["store"]
-}
-
-async function loadFactoredCloudflareArtifactStore(
-  definition: DiscoveredWorkspaceDefinition,
-  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  resolveModule?: SourceModuleResolver,
-  env: Record<string, string | undefined> = process.env,
-): Promise<WorkspaceDefinitionInput["store"] | undefined> {
-  const loaded = await readSourceModule(definition.path)
-  if (!loaded) return
-  const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
-  const importedValues = new Map<string, unknown>()
-  let importedArtifactStore: WorkspaceDefinitionInput["store"] | undefined
-  for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
-    if (!importedName) continue
-    const resolvedModule = specifier.startsWith(".")
-      ? resolve(dirname(loaded.file), specifier)
-      : await resolveModule?.(specifier, loaded.file)
-    if (!resolvedModule) continue
-    try {
-      // SAFETY: Jiti has no generic import contract; the record guard below validates the module namespace before access.
-      const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
-      const sourceExport = importedName === "default" ? imported.default : imported[importedName]
-      const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
-      if (localName) {
-        importedValues.set(localName, store)
-        if (selectedName) importedValues.set(importedWorkspaceValueKey(localName, selectedName), store)
-      }
-      // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
-      if (isRecord(store) && store.provider === "cloudflare-artifacts") {
-        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
-        importedArtifactStore = store as WorkspaceDefinitionInput["store"]
-      }
-    }
-    catch {}
-  }
-  return operations.length
-    ? reconstructCloudflareArtifactStore(operations, importedValues)
-    : importedArtifactStore
+  scope: { getBinding: (name: string) => { path: BabelNodePath } | undefined }
 }
 
 function vercelFunctionRuntimePackages() {
@@ -1020,22 +146,113 @@ function resolveOwnedCloudflareArtifacts(
   })
 }
 
+function unwrapBabelExpression(node: BabelNode | undefined): BabelNode | undefined {
+  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
+    return unwrapBabelExpression(node.expression)
+  }
+  return node
+}
+
+function babelCallsWorkspaceImport(node: BabelNode | undefined, path: BabelNodePath, name: string, entry = ""): boolean {
+  if (node?.type !== "CallExpression" || node.callee?.type !== "Identifier" || !node.callee.name) return false
+  const binding = path.scope.getBinding(node.callee.name)?.path
+  return binding?.node.type === "ImportSpecifier"
+    && binding.node.imported?.name === name
+    && [
+      `@vite-hub/workspace${entry}`,
+      `vite-hub/workspace${entry}`,
+    ].includes(String(binding.parentPath?.node.source?.value))
+}
+
+function babelStaticObjectProperties(node: BabelNode | undefined): BabelNode[] | undefined {
+  if (node?.type !== "ObjectExpression") return
+  if (node.properties?.some(property => property.type === "SpreadElement" || property.computed || (property.key?.name ?? property.key?.value) === "__proto__")) return
+  return node.properties
+}
+
+/**
+ * Reads a store from the source of a Definition's default export when its driver cannot change when the module runs
+ * again: `{}` for no store or a custom Store, `{ driver }` for a hosted store, and `undefined` when the source does not
+ * show it. Comments do not count, because this reads the syntax tree.
+ */
+async function readStaticWorkspaceStore(
+  file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName = "default",
+): Promise<{ driver?: string } | undefined> {
+  // Indirect and contributed exports keep every loader unless we can establish their store contract here.
+  if (exportedName !== "default") return
+  const loaded = await readSourceModule(file)
+  if (!loaded) return
+  let staticStore: { driver?: string } | undefined
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ExportDefaultDeclaration(path: BabelNodePath) {
+            let definition = unwrapBabelExpression(path.node.declaration)
+            if (babelCallsWorkspaceImport(definition, path, "defineWorkspace") && definition?.arguments?.length === 1) {
+              definition = unwrapBabelExpression(definition.arguments[0])
+            }
+            const properties = babelStaticObjectProperties(definition)
+            if (!properties) return
+            const storeProperty = properties.findLast(property => (property.key?.name ?? property.key?.value) === "store")
+            if (!storeProperty) {
+              staticStore = {}
+              return
+            }
+            if (storeProperty.type !== "ObjectProperty") return
+            // SAFETY: An ObjectProperty's value is an expression node.
+            const store = unwrapBabelExpression(storeProperty.value as BabelNode)
+            // This public factory always returns a custom Store, independent of its runtime arguments.
+            if (babelCallsWorkspaceImport(store, path, "createBlobDatabaseWorkspaceStore", "/blob-database")) {
+              staticStore = {}
+              return
+            }
+            const storeProperties = babelStaticObjectProperties(store)
+            if (!storeProperties) return
+            const readFile = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "readFile")
+            if (readFile) {
+              // A custom Store must remain a custom Store when the module is evaluated in production.
+              if (readFile.type === "ObjectMethod" && readFile.kind === "method") staticStore = {}
+              return
+            }
+            const driver = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "driver")
+            // SAFETY: An ObjectProperty's value is an expression node.
+            const driverValue = driver?.type === "ObjectProperty" ? unwrapBabelExpression(driver.value as BabelNode) : undefined
+            if (driverValue?.type === "StringLiteral" && typeof driverValue.value === "string") staticStore = { driver: driverValue.value }
+          },
+        },
+      })],
+    },
+  })
+  return staticStore
+}
+
+/**
+ * Reads each Definition's store by loading the Definition, as the runtime does. When the build cannot load a Definition,
+ * it skips it only if the source shows that its store needs no Artifacts binding. Otherwise the build cannot write the
+ * binding that the store may need, so it fails and tells the developer to set the store in the `workspace` config.
+ */
 async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
-  options: ResolvedWorkspaceModuleOptions,
-  resolveModule?: SourceModuleResolver,
-  aliases?: Record<string, string>,
-  inspection?: { artifactsOnly?: boolean },
-  resolution?: { env?: Record<string, string | undefined>, hosting?: string },
-  definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
+  options: {
+    aliases?: Record<string, string>
+    definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
+    env?: Record<string, string | undefined>
+    hosting?: string
+    storeUsage?: WorkspaceDefinitionStoreUsage
+  },
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
-  const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
-  const sourceModuleResolver = createSourceModuleResolver(rootDir, aliases, resolveModule)
+  const loader = createWorkspaceDefinitionLoader(rootDir, options.aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
     const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
@@ -1043,33 +260,46 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
-      const source = await readSourceModule(definitionFile)
-      if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
-      // Factored store analysis reads the default export only.
-      const store = definition.export
-        ? undefined
-        : await loadFactoredCloudflareArtifactStore({ ...definition, path: definitionFile }, loader, sourceModuleResolver, resolution?.env || process.env)
-      if (!store) {
-        if (inspection?.artifactsOnly) continue
-        throw error
+      const store = await readStaticWorkspaceStore(definitionFile, loader, definition.export)
+      if (!store || store.driver === "cloudflare") {
+        throw workspaceErrorDiagnostics.WORKSPACE_B0005({
+          cause: error,
+          message: `[vitehub] Workspace "${definition.name}" sets a store that may need a Cloudflare Artifacts binding, but the build cannot load ${definitionFile} to read it: ${error instanceof Error ? error.message : String(error)}`,
+        })
       }
-      loaded = { store }
+      options.storeUsage?.add("unknown")
+      if (store.driver === "github") options.storeUsage?.add("github")
+      continue
+    }
+    if (options.storeUsage && !await readStaticWorkspaceStore(definitionFile, loader, definition.export)) {
+      options.storeUsage.add("unknown")
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
+    if (!workspace.store) options.storeUsage?.add("default")
     if (!workspace.store || isWorkspaceStore(workspace.store)) continue
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
-      env: resolution?.env || process.env,
-      hosting: resolution?.hosting ?? process.env.VITEHUB_HOSTING,
+      env: options.env || process.env,
+      hosting: options.hosting ?? process.env.VITEHUB_HOST,
       rootDir: workspace.rootDir || rootDir,
     })
-    if (config && config.store.provider === "cloudflare-artifacts") {
+    if (config && isHostedWorkspaceStore(config.store)) options.storeUsage?.add(config.store.driver)
+    if (config && config.store.driver === "cloudflare") {
       configs.push(config)
-      definitionOverrides?.set(definition.name, config)
+      options.definitionOverrides?.set(definition.name, config)
     }
   }
   return configs
+}
+
+/**
+ * The Definitions that the config loads to find their Cloudflare Artifacts stores. A build loads all of them to learn
+ * which stores it bundles. `vite dev` and CLI calls (`serve`) load them only on the Cloudflare host, because only a
+ * Cloudflare server binds Artifacts. Loading runs app code outside Nitro, so its Nitro runtime imports would print
+ * Nitro's "stub implementation" warning on every command.
+ */
+function definitionsToLoad(definitions: DiscoveredWorkspaceDefinition[], command: string | undefined, hosting: string | undefined): DiscoveredWorkspaceDefinition[] {
+  return command !== "serve" || getHostingProvider(hosting) === "cloudflare" ? definitions : []
 }
 
 async function resolveCloudflareArtifactsConfigs(
@@ -1078,25 +308,15 @@ async function resolveCloudflareArtifactsConfigs(
   rootDir: string,
   options: {
     aliases?: Record<string, string>
-    artifactsOnly?: boolean
+    definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
     env?: Record<string, string | undefined>
     hosting?: string
-    resolveModule?: SourceModuleResolver
-    definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
+    storeUsage?: WorkspaceDefinitionStoreUsage
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   return [
-    ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
-    ...await resolveDefinitionCloudflareArtifactsConfigs(
-      definitions,
-      rootDir,
-      config,
-      options.resolveModule,
-      options.aliases,
-      { artifactsOnly: options.artifactsOnly },
-      { env: options.env, hosting: options.hosting },
-      options.definitionOverrides,
-    ),
+    ...(config.store.driver === "cloudflare" ? [config] : []),
+    ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, options),
   ]
 }
 
@@ -1107,11 +327,10 @@ async function writeCloudflareArtifactsProviderOutput(
   definitions: DiscoveredWorkspaceDefinition[],
   readCloudflareState: CloudflareProviderDeploymentOutputStateReader,
   write: ProviderDeploymentOutputWriter,
-  resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
 ): Promise<void> {
   const configs = config
-    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
+    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
   const wranglerConfigOwnership = {
@@ -1177,7 +396,7 @@ export interface WorkspaceNitroConfigOptions {
   plugins?: readonly unknown[]
   serverDirs?: string[]
   viteRoot?: string
-  workspace?: false | WorkspaceModuleOptions
+  workspace?: false | WorkspaceOptions
 }
 
 export type NitroConfig = {
@@ -1210,7 +429,7 @@ function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
 
-function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined): WorkspacePluginRoots {
+function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceOptions | undefined): WorkspacePluginRoots {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
@@ -1241,8 +460,43 @@ function workspaceDefinitionLoaderAliases(aliases: AliasOptions): Record<string,
   ))
 }
 
-function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
-  return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
+type HostedWorkspaceStoreDriver = "cloudflare" | "github" | "vercel"
+
+const hostedWorkspaceStoreDrivers: readonly HostedWorkspaceStoreDriver[] = ["cloudflare", "github", "vercel"]
+
+/**
+ * What a build learned about the stores of the discovered definitions: a hosted driver, `default` for a definition
+ * without a store, or `unknown` for a definition the build could not load or whose store may change at runtime.
+ */
+type WorkspaceDefinitionStoreUsage = Set<HostedWorkspaceStoreDriver | "default" | "unknown">
+
+function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): store is Extract<ResolvedWorkspaceModuleOptions["store"], { driver: HostedWorkspaceStoreDriver }> {
+  return store.driver === "cloudflare" || store.driver === "github" || store.driver === "vercel"
+}
+
+/**
+ * The hosted stores the Nitro plugin installs. Each store pulls its client into the server startup, so a build installs
+ * only the stores that its definitions use. Without `storeUsage` (dev) it installs every store.
+ */
+function resolveNitroHostedStoreProviders(
+  config: false | ResolvedWorkspaceModuleOptions,
+  definitionCount: number,
+  storeUsage: WorkspaceDefinitionStoreUsage | undefined,
+): Set<HostedWorkspaceStoreDriver> {
+  const configProvider = config && isHostedWorkspaceStore(config.store) ? config.store.driver : undefined
+  if (!storeUsage) return new Set(configProvider || definitionCount > 0 ? hostedWorkspaceStoreDrivers : [])
+  if (storeUsage.has("unknown")) return new Set(hostedWorkspaceStoreDrivers)
+  const providers = new Set<HostedWorkspaceStoreDriver>(configProvider ? [configProvider] : [])
+  for (const usage of storeUsage) {
+    if (usage === "unknown") continue
+    // A definition without a store uses the runtime config. Without one, `BLOB_STORE_ID` at runtime selects Vercel Blob.
+    if (usage === "default") {
+      if (!config) providers.add("vercel")
+      continue
+    }
+    providers.add(usage)
+  }
+  return providers
 }
 
 function acceptsWorkspaceDevStream(req: IncomingMessage): boolean {
@@ -1269,7 +523,7 @@ function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">
 
 async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status
-  for (const [name, value] of response.headers) res.setHeader(name, value)
+  setViteHubDevResponseHeaders(res, response.headers)
   if (!response.body) {
     res.end()
     return
@@ -1344,9 +598,12 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
   const registry = isWorkspaceRegistry(mod.default) ? mod.default : {}
-  const load = registry[command.workspace]
-  if (!load) return new Response(`Unknown Workspace Dev target: ${command.workspace}`, { status: 404 })
-  const definition = (await load()).default
+  const workspace = command.workspace
+  const load = registry[workspace]
+  if (!load) return new Response(`Unknown Workspace Dev target: ${workspace}`, { status: 404 })
+  const definition = (await (async () => load())().catch((error: unknown) => {
+    throw workspaceRegistryLoadError(workspace, error)
+  })).default
   if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some(arg => typeof arg !== "string"))) {
     return new Response("Workspace Dev command args must be strings.", { status: 400 })
   }
@@ -1387,13 +644,13 @@ function hasNitroConfig(config: UserConfig): boolean {
   return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
-function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
+function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceOptions | undefined): boolean {
   return Boolean(options && (options.root || options.store))
 }
 
 function shouldInstallNitroWorkspacePlugin(
   config: UserConfig,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   normalized: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
 ): boolean {
@@ -1402,30 +659,49 @@ function shouldInstallNitroWorkspacePlugin(
     || (hasNitroConfig(config) && definitions.length > 0)
 }
 
-function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
+function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
-  kit.addPlugin(generatedNitroWorkspacePlugin, dev ? "start" : "end")
+  // Nitro resolves a relative plugin from its own rootDir, which is not the project root when `projectRoot` is set.
+  const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
+  kit.addPlugin(pluginFile, dev ? "start" : "end")
+  if (!dev) {
+    const modules = Array.isArray(kit.config.modules) ? kit.config.modules : []
+    kit.config.modules = [...modules, {
+      name: "vitehub-workspace-durability-registry",
+      setup({ options }: { options: { plugins: string[], buildPlugins: unknown[] } }) {
+        if (!options.plugins.some(file => file.replaceAll("\\", "/").endsWith("/.vitehub/nitro/durability/plugin.mjs"))) return
+        const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+        const fallback = resolve(root, generatedNitroWorkspaceDurabilityFallback)
+        const importerFile = pluginFile.replaceAll("\\", "/")
+        const registryImport = moduleImportSpecifier(pluginFile, resolve(root, generatedNitroWorkspaceRegistry))
+        const plugin: Plugin = {
+          name: "vitehub-workspace-durability-registry",
+          resolveId: {
+            order: "pre",
+            handler(id, importer) {
+              if (id === WORKSPACE_REGISTRY_ID) return fallback
+              if (id === registryImport && importer === importerFile) return registry
+            },
+          },
+        }
+        options.buildPlugins = [...options.buildPlugins, plugin]
+      },
+    }]
+  }
+  // A failed request drops the cached Stores that hold only its staged writes.
+  kit.addHandler({ handler: ownModule(import.meta.url, "runtime/request"), middleware: true, route: "/**" }, "start")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }
 
 function configureNitroWorkspaceAssets(nitro: NitroConfig, root: string): void {
-  // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
-  // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
+  // Nitro can bundle the server outside Vite (Nuxt with `experimental.nitroViteEnvironment: false`), so `resolveId`
+  // below never sees the assets registry. The alias gives that bundle the files that `buildStart` writes, for hosts
+  // without a file system.
   // The Nitro types of the host decide the alias type, so read it as a plain record.
   const alias: unknown = nitro.alias
   nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(root, workspaceAssetsRegistryPath) }
-}
-
-function mergeNitroExternal(value: unknown, addition: string): unknown {
-  if (typeof value === "undefined") return [addition]
-  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  if (typeof value === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
 }
 
 function configureCloudflareNitroRuntime(nitro: NitroConfig): void {
@@ -1441,7 +717,7 @@ function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   return specifier.startsWith(".") ? specifier : `./${specifier}`
 }
 
-function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
+function shouldConfigureRuntime(options: false | WorkspaceOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
@@ -1465,79 +741,70 @@ function renderRuntimeValue(value: unknown, depth = 0): string {
 
 function runtimeWorkspaceConfig(
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
-  if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
+  if (!cloudflareRuntime || !config || config.store.driver !== "github" || !options) return config
   const store = options.store
-  if (!store || isWorkspaceStore(store) || store.provider !== "github") return config
+  if (!store || isWorkspaceStore(store) || store.driver !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
-  for (const key of ["branch", "root", "token"] as const) {
+  for (const key of ["branch", "repo", "root", "token"] as const) {
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
-    else if (isAbsent(store[key])) {
+    // `root: ""` is the repository root, a value and not a missing option.
+    else if (isAbsent(store[key]) && !(key === "root" && store.root === "")) {
       delete runtimeStore[key]
     }
   }
-  if (typeof store.repository === "function") {
-    runtimeStore.repository = store.repository
-  }
-  else if (typeof store.repo === "function") {
-    runtimeStore.repo = store.repo
-    delete runtimeStore.repository
-  }
-  else if (isAbsent(store.repository) && isAbsent(store.repo)) {
-    delete runtimeStore.repository
-    delete runtimeStore.repo
-  }
   return { ...config, store: runtimeStore }
+}
+
+const hostedStoreInstallers: Record<HostedWorkspaceStoreDriver, { entry: string, name: string }> = {
+  "cloudflare": { entry: "hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
+  "github": { entry: "hosted", name: "installHostedGitHubWorkspaceStore" },
+  "vercel": { entry: "hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
 }
 
 function renderNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   registryImport: string,
-  installHostedRuntime: boolean,
+  hostedStores: ReadonlySet<HostedWorkspaceStoreDriver>,
   cloudflareRuntime: boolean,
-  importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
-  const hostedRuntimeImport = `${importBase}/internal/runtime/hosted`
-  const hostedVercelBlobRuntimeImport = `${importBase}/internal/runtime/hosted-vercel-blob`
-  const runtimeImport = `${importBase}/runtime`
+  // A light module: the Workspace core loads on the first Workspace call, not at server startup.
+  const runtimeImport = ownModule(import.meta.url, "runtime/registry")
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
-  const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
-  const runtimeImports = hostedConfig
-    ? [
-        isVercelBlobStore
-          ? `import { configureHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`
-          : `import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`,
-        isVercelBlobStore
-          ? `import { installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`
-          : `import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`,
-        `import { setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
-      ]
-    : [
-        ...(installHostedRuntime ? [`import { installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`] : []),
-        ...(installHostedRuntime ? [`import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`] : []),
-        `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
-      ]
+  const isVercelBlobStore = hostedConfig?.store.driver === "vercel"
+  const configure = hostedConfig
+    ? isVercelBlobStore
+      ? { entry: "hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
+      : { entry: "hosted", name: "configureHostedWorkspaceRuntime" }
+    : undefined
+  // `configure*` installs the store of the runtime config itself.
+  const installers = hostedWorkspaceStoreDrivers
+    .filter(driver => hostedStores.has(driver) && driver !== hostedConfig?.store.driver)
+    .map(driver => hostedStoreInstallers[driver])
+  const importsByEntry = new Map<string, string[]>()
+  for (const { entry, name } of [...(configure ? [configure] : []), ...installers]) {
+    importsByEntry.set(entry, [...importsByEntry.get(entry) ?? [], name])
+  }
+  const runtimeImports = [
+    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from ${JSON.stringify(ownModule(import.meta.url, entry))}`),
+    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from ${JSON.stringify(runtimeImport)}`,
+  ]
   if (cloudflareRuntime) {
     runtimeImports.unshift(
       "import { env as vitehubEnv } from 'cloudflare:workers'",
-      `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
+      `import { setActiveCloudflareEnv } from ${JSON.stringify(ownModule(import.meta.url, "runtime/state"))}`,
     )
   }
-  const runtimeSetup = hostedConfig
-    ? [
-        `  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`,
-        `  ${isVercelBlobStore ? "installHostedWorkspaceRuntime" : "installHostedVercelBlobWorkspaceRuntime"}()`,
-      ]
-    : [
-        ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
-        ...(installHostedRuntime ? ["  installHostedVercelBlobWorkspaceRuntime()"] : []),
-        ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
-      ]
+  const runtimeSetup = [
+    ...(configure && hostedConfig ? [`  ${configure.name}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`] : []),
+    ...installers.map(({ name }) => `  ${name}()`),
+    ...(config && !hostedConfig ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
+  ]
 
   return [
     ...runtimeImports,
@@ -1546,7 +813,8 @@ function renderNitroWorkspacePlugin(
     "setWorkspaceRuntimeRegistry(registry)",
     "",
     "export default function vitehubWorkspacePlugin() {",
-    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
+    // `Cloudflare.Env` from `cloudflare:workers` has no index signature.
+    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)"] : []),
     ...runtimeSetup,
     "}",
     "",
@@ -1556,24 +824,36 @@ function renderNitroWorkspacePlugin(
 async function writeNitroWorkspacePlugin(
   root: string,
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
   cloudflareRuntime = false,
-  importBase = WORKSPACE_PACKAGE_NAME,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
+  storeUsage?: WorkspaceDefinitionStoreUsage,
 ): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
   await writeFileIfChanged(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides))
+  // Durability reads Definitions synchronously at boot. Awaited imports here can cycle back through `nitro/app`.
+  const durabilityRegistryFile = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+  await writeFileIfChanged(durabilityRegistryFile, createWorkspaceRegistryContents(durabilityRegistryFile, definitions, definitionOverrides, true))
+  const fallbackFile = resolve(root, generatedNitroWorkspaceDurabilityFallback)
+  const loaderFile = resolve(root, generatedNitroWorkspaceDurabilityLoader)
+  const names = JSON.stringify(definitions.map(definition => definition.name))
+  await writeFileIfChanged(loaderFile, `export { default } from ${JSON.stringify(moduleImportSpecifier(loaderFile, durabilityRegistryFile))}\n`)
+  await writeFileIfChanged(fallbackFile, [
+    `const names = ${names}`,
+    `const loadRegistry = () => import(${JSON.stringify(moduleImportSpecifier(fallbackFile, loaderFile))})`,
+    "export default Object.fromEntries(names.map(name => [name, async () => (await loadRegistry()).default[name]()]))",
+    "",
+  ].join("\n"))
   await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
       runtimeConfig,
       moduleImportSpecifier(pluginFile, registryFile),
-      definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store)),
+      resolveNitroHostedStoreProviders(runtimeConfig, definitions.length, storeUsage),
       cloudflareRuntime,
-      importBase,
     ),
   )
 }
@@ -1596,17 +876,18 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
-  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+  const storeUsage: WorkspaceDefinitionStoreUsage | undefined = options.command === "build" ? new Set() : undefined
+  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, hosting ? options.command : undefined, hosting), roots.projectRoot, {
     aliases: options.aliases,
-    artifactsOnly: true,
     env: options.env,
     hosting,
     definitionOverrides,
+    storeUsage,
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
-  const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, definitionOverrides, storeUsage)
+  const nitro = mergeNitroWorkspaceConfig(options.nitro, roots.projectRoot, options.command !== "build")
   if (options.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
   if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
@@ -1618,7 +899,7 @@ export interface WorkspaceVitePluginAPI {
 }
 
 interface WorkspaceCliContributingPlugin {
-  vitehub?: ViteHubInspectionPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
 }
 
 const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHosting")
@@ -1626,6 +907,8 @@ const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHo
 type WorkspacePluginHosting = string | (() => string | undefined)
 
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & {
+  /** Nitro module that reads the app's dev runner. Typed here because a program without Nitro's Vite types has no `nitro` on `Plugin`. */
+  nitro?: ReturnType<typeof createNativePackageLoading>["nitro"]
   [setWorkspacePluginHosting]?: (hosting: WorkspacePluginHosting) => void
   api: WorkspaceVitePluginAPI
 }
@@ -1638,22 +921,23 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
   return true
 }
 
-interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+interface InternalWorkspaceModuleOptions extends WorkspaceOptions {
+  assertGitHubStoreAvailable?: () => void
   hosting?: WorkspacePluginHosting
-  importBase?: string
 }
 
-function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
-  if (!options || (!Object.hasOwn(options, "hosting") && !Object.hasOwn(options, "importBase"))) return options
+function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undefined): false | WorkspaceOptions | undefined {
+  if (!options || !["hosting", "assertGitHubStoreAvailable"].some(key => Object.hasOwn(options, key))) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
+  delete publicOptions.assertGitHubStoreAvailable
   delete publicOptions.hosting
-  delete publicOptions.importBase
   return publicOptions
 }
 
-export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
-  let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
-  const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
+export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
+  const packageLoading = createNativePackageLoading([import.meta.resolve(WORKSPACE_PACKAGE_NAME)])
+  const internalOptions = options as InternalWorkspaceModuleOptions | false | undefined
+  let hosting = internalOptions ? internalOptions.hosting : undefined
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1667,6 +951,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let server: ViteDevServer | undefined
   let serverDirs: string[] | undefined
   let contributions: CollectedWorkspaceContribution[] = []
+  let hasArtifacts = false
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
     const definitions = discoverDefinitions(roots, serverDirs, contributions)
@@ -1677,11 +962,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
 
   function invalidateVirtualWorkspaceModules() {
     if (!server) return
-    const moduleGraph = server.moduleGraph
     const ids = [RESOLVED_WORKSPACE_REGISTRY_ID, RESOLVED_WORKSPACES_ID, ...manifest.workspaces.map(w => `${RESOLVED_WORKSPACE_PREFIX}${w.name}`)]
-    for (const id of ids) {
-      const mod = moduleGraph.getModuleById(id)
-      if (mod) moduleGraph.invalidateModule(mod)
+    // `server.moduleGraph` covers only `client` and `ssr`. Nuxt 5 loads these modules in the `nitro` environment.
+    for (const { moduleGraph } of Object.values(server.environments)) {
+      for (const id of ids) {
+        const mod = moduleGraph.getModuleById(id)
+        if (mod) moduleGraph.invalidateModule(mod)
+      }
     }
   }
 
@@ -1693,6 +980,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
 
   return {
     name: "@vite-hub/workspace/vite",
+    nitro: packageLoading.nitro,
     enforce: "pre",
     [setWorkspacePluginHosting](value) {
       hosting = value
@@ -1701,10 +989,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       getWorkspaces: () => manifest.workspaces,
     },
     async config(config, env) {
+      hasArtifacts = false
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
       const resolvedHosting = resolveHostPreset({
         hosting: typeof hosting === "function" ? hosting() : hosting,
@@ -1716,7 +1003,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
-      const runtimeOptions = resolvedHosting && normalized && normalized.store.provider !== "local"
+      const runtimeOptions = resolvedHosting && normalized && normalized.store.driver !== "local"
         ? { ...workspaceOptions, store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
       const viteConfig: Omit<UserConfig, "plugins"> = {
@@ -1728,22 +1015,47 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       }
       if (normalized) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
       const definitions = normalized ? discoverDefinitions(roots, serverDirs, contributions) : []
+      const assertGitHubStoreAvailable = internalOptions && isProductionBuild(config, env)
+        ? internalOptions.assertGitHubStoreAvailable
+        : undefined
+      if (normalized && normalized.store.driver === "github") assertGitHubStoreAvailable?.()
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
-        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
-          aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
-          artifactsOnly: true,
+        const aliases = config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined
+        // Dev regenerates the plugin when definitions change, so it keeps every hosted store.
+        const storeUsage: WorkspaceDefinitionStoreUsage | undefined = env?.command === "build" ? new Set() : undefined
+        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, env?.command, resolvedHosting), roots.projectRoot, {
+          aliases,
           hosting: resolvedHosting,
           definitionOverrides,
+          storeUsage,
         })
-        const usesCloudflareArtifacts = artifacts.length > 0
-        const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
-        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
+        if (normalized.store.driver !== "github" && storeUsage?.has("github")) assertGitHubStoreAvailable?.()
+        hasArtifacts = artifacts.length > 0
+        const usesCloudflareRuntime = hasArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, definitionOverrides, storeUsage)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, roots.projectRoot, env?.command === "serve")
         if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
+        if (env?.command === "serve" && definitions.length && getHostingProvider(resolvedHosting) !== "cloudflare") {
+          const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+          nitro.modules = [...modules, {
+            async setup({ options }: { options: NitroConfig & { preset?: string } }) {
+              if (getHostingProvider(options.preset) !== "cloudflare") return
+              const configs = await resolveDefinitionCloudflareArtifactsConfigs(definitions, roots.projectRoot, {
+                aliases,
+                definitionOverrides,
+                hosting: options.preset,
+              })
+              hasArtifacts ||= configs.length > 0
+              for (const artifactConfig of configs) configureCloudflareArtifacts(options, artifactConfig)
+              configureCloudflareNitroRuntime(options)
+              await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, true, definitionOverrides)
+            },
+          }]
+        }
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
       }
@@ -1752,9 +1064,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
@@ -1782,7 +1092,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          ...(loadsViteHubPackagesNatively(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
+          ...(packageLoading.configureEnvironment(name, env, config) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
         },
       }
     },
@@ -1804,7 +1114,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command)) return
       const workspaceOptions = resolvedOptions
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
@@ -1813,12 +1123,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       providerOutputGenerations.defer(this, providerOutput, {
         owner: "workspace",
         rootDir: roots.projectRoot,
-        write: async ({ readCloudflareState, signal, write }) => {
+        write: async ({ addVercelRuntimePackages, readCloudflareState, write }) => {
           const definitions = discoverDefinitions(roots, serverDirs, contributions)
-          await copyVercelFunctionRuntimePackages({
+          addVercelRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
-            signal,
           })
           await writeCloudflareArtifactsProviderOutput(
             roots.projectRoot,
@@ -1827,7 +1136,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
             definitions,
             readCloudflareState,
             write,
-            resolved!.createResolver?.(),
             resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
           )
         },
@@ -1840,12 +1148,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       order: "post",
       sequential: true,
       async handler() {
-        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
         providerOutputGenerations.ready(this)
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
     async configureServer(devServer) {
+      publishViteHubDevServer(devServer)
       server = devServer
       installHostedWorkspaceRuntime()
       installHostedVercelBlobWorkspaceRuntime()
@@ -1873,8 +1182,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       })
     },
     vitehub: {
+      durability: () => {
+        if (!resolvedOptions) return []
+        const root = projectRoot ?? process.cwd()
+        const module = resolve(root, ".vitehub/nitro/workspace/durability.mjs")
+        const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+        const definitions = discoverDefinitions({ projectRoot: root, viteRoot: viteRoot ?? root }, serverDirs, contributions)
+        const config = shouldConfigureRuntime(publicOptions, resolvedOptions) ? resolvedOptions : false
+        writeFileIfChangedSync(module, [
+          `import { workspaceDefinitionsDurability${definitions.length ? ", workspaceRegistryDefinitions" : ""} } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
+          ...(definitions.length ? [
+            `import registry from ${JSON.stringify(registry)}`,
+          ] : []),
+          "export function workspaceDurability(_input, context) {",
+          definitions.length
+            ? "  const definitions = workspaceRegistryDefinitions(registry)"
+            : "  const definitions = {}",
+          `  return workspaceDefinitionsDurability(definitions, ${renderRuntimeValue(config)}, context)`,
+          "}",
+          "",
+        ].join("\n"))
+        return [{ export: "workspaceDurability", input: {}, module, primitive: "workspace" }]
+      },
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: "@vite-hub/workspace/operations" }],
+      operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: ownModule(import.meta.url, "operations") }],
       cli: async () => {
         return createWorkspaceCliContributor()
       },
@@ -1883,12 +1214,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const roots = projectRoot && viteRoot
           ? { projectRoot, viteRoot }
           : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
-        const artifacts = resolvedOptions
-          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
-              aliases: resolved?.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
-              resolveModule: resolved?.createResolver?.(),
-            })
-          : []
+        const reportsArtifacts = hasArtifacts || (resolved?.command === "build" && resolvedOptions
+          && (await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
+            aliases: resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
+          })).length > 0)
         return {
           definitions: [{
             kind: "workspace",
@@ -1900,7 +1229,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
               return inspectWorkspaceDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
             },
           }],
-          providerOutput: artifacts.length > 0
+          providerOutput: reportsArtifacts
             ? [{
                 description: "Generated Cloudflare Workspace artifacts config",
                 owner: "workspace",
@@ -1917,28 +1246,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         viteRoot: viteRoot || resolve(resolved.root),
       }, ctx.file)
     },
-    resolveId(id) {
-      if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
-      if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
-      if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
-      if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+    resolveId: {
+      filter: { id: WORKSPACE_ID_PATTERN },
+      handler(id) {
+        if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
+        if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
+        if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
+        if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
+      },
     },
-    load(id) {
-      if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
-      if (id === RESOLVED_WORKSPACES_ID) {
-        return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
-      }
-      if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
-        const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
-        const workspace = manifest.workspaces.find(item => item.name === name)
-        return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
-      }
+    load: {
+      filter: { id: new RegExp(`${WORKSPACE_LOAD_ID_PATTERN.source}|/vitehub-grants(?:-[\\w-]+)?\\.js$`) },
+      handler(id) {
+        if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
+        if (id === RESOLVED_WORKSPACES_ID) {
+          return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
+        }
+        if (id.startsWith(RESOLVED_WORKSPACE_PREFIX)) {
+          const name = id.slice(RESOLVED_WORKSPACE_PREFIX.length)
+          const workspace = manifest.workspaces.find(item => item.name === name)
+          return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
+        }
+        // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+        return packageLoading.load(id, this.environment?.name)
+      },
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    workspace?: false | WorkspaceModuleOptions
   }
 }

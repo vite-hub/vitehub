@@ -1,6 +1,7 @@
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 import { withStatelessUserId } from "./stateless-user-id.ts"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 import type { AuthStatelessPreset } from "./presets.ts"
 
@@ -18,10 +19,6 @@ const statelessOwnedOptions = [
   ["account", "storeStateStrategy"],
 ] as const
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
-
 function readPath(value: unknown, path: readonly string[]): unknown {
   let current = value
   for (const key of path) {
@@ -35,7 +32,7 @@ function readStatelessPreset(value: unknown): AuthStatelessPreset {
   if (isPlainObject(value) && value.name === "stateless" && typeof value.maxAge === "number" && Number.isSafeInteger(value.maxAge) && value.maxAge > 0) {
     return { name: "stateless", maxAge: value.maxAge }
   }
-  throw authErrorDiagnostics.AUTH_C0043({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `@vite-hub/auth/presets`." })
+  throw authErrorDiagnostics.AUTH_C0043({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `vite-hub/auth/presets`." })
 }
 
 function storedPluginId(plugin: unknown): string | undefined {

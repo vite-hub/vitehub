@@ -12,7 +12,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
-| `deployment.json` | All built-in presets | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. |
+| `deployment.json` | All built-in hosts | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. `env` lists the host variable names of each Server Env declaration, and the names that primitives read themselves, such as `VITEHUB_SECRET`, `TURSO_DATABASE_URL`, or `BLOB_READ_WRITE_TOKEN` for the host. Each entry has required, secret, and default flags, `owners` for a primitive, and `prefix` for a name family such as `VITEHUB_CONSOLE_KEY_`. It never holds values. |
 | Worker bundle | Cloudflare | Packages with Cloudflare output | Runs server and primitive code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state | Bindings, crons, durable objects, queues, Rate Limiting bindings, and other Worker config. |
 | Vercel Build Output | Vercel | Packages with Vercel output | Functions, static files, routes, and function config in `.vercel/output`. |
@@ -28,11 +28,11 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
 
-`vitehub inspect provider-output` lists the files of the active packages and the preset, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/cli/inspect#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 find .vitehub -maxdepth 4 -type f | sort
 find .vercel/output -maxdepth 4 -type f | sort
 find dist -maxdepth 4 -type f | sort
@@ -42,7 +42,7 @@ find dist -maxdepth 4 -type f | sort
 
 Rate Limit writes `.vitehub/rate-limit/manifest.json` when Vite resolves its config, and updates it with the rest of Provider Output. This `schemaVersion: 2` file holds sorted `rateLimits` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy. Do not import it.
 
-On Cloudflare, each `requireRateLimit()` policy in a handler adds a `ratelimits` entry to `wrangler.json`, with a ViteHub binding name, a stable namespace id, the static `limit`, and a 10-second or 60-second period.
+On Cloudflare, each `requireRateLimit()` policy with a `10s` or `1m` window adds a `ratelimits` entry to `wrangler.json`, with a ViteHub binding name, a stable namespace id, the static `limit`, and a 10-second or 60-second period. A policy with another window counts in KV and adds no entry.
 
 Rate Limit owns only the binding names it makes from declared stable IDs. It keeps other entries. It removes old ones when you rename or delete a handle, or build for another provider with Rate Limit still on.
 
@@ -67,8 +67,8 @@ Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/
 
 | Do | Avoid |
 | --- | --- |
-| Call `runQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
-| Import `useServerEnv()` from `#vitehub/env/server`. | Import `.vitehub/env/server.mjs` directly. |
+| Call `sendQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
+| Import `useServerEnv()` from `vite-hub/env`. | Import `.vitehub/env/server.mjs` directly. |
 | Inspect `.vercel/output` to debug a deploy. | Edit `.vercel/output` files as source. |
 
 ## Related

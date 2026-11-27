@@ -21,6 +21,7 @@ async function staticInputs(entry: string) {
       alias: {
         "#vitehub/database/databases": stub,
         "#vitehub/database/definition-defaults": stub,
+        "#vitehub/database/libsql": join(packageRoot, "src/runtime/libsql.ts"),
       },
       bundle: true,
       conditions: ["workerd", "worker", "browser"],
@@ -73,6 +74,18 @@ describe("libSQL at startup", () => {
     client.close()
     expect(client.closed).toBe(true)
     await expect(client.execute("select 1")).rejects.toThrow()
+  })
+
+  it("loads @libsql/client again on the next query after a failed load", async () => {
+    const { createClient } = await import("@libsql/client")
+    vi.mocked(createClient).mockImplementationOnce(() => {
+      throw new Error("transient libSQL failure")
+    })
+    const client = localLibsql.createClient({ url: ":memory:" })
+
+    await expect(client.execute("select 1 as one")).rejects.toThrow("transient libSQL failure")
+    expect((await client.execute("select 1 as one")).rows[0]?.one).toBe(1)
+    client.close()
   })
 
   it("reconnects after close(), before and after the first query", async () => {

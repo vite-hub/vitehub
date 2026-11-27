@@ -1,3 +1,7 @@
+import { askOnce } from "./ask-model.ts"
+import { gatewayDiagnostics } from "./diagnostics.ts"
+
+import type { AskCall } from "./ask-model.ts"
 
 /** A JSON value that TypeSafe Jev can read. */
 export type AskJson = string | number | boolean | null | AskJson[] | { [key: string]: AskJson }
@@ -13,9 +17,7 @@ export type AskScoreCriteria = readonly [AskEntry, AskEntry, ...AskEntry[]]
 /** Optional descriptions of what counts as true or false. */
 export type AskChanceCriteria = { false?: AskEntry, true?: AskEntry } | null
 
-/** Labels become criteria with `null` descriptions. An object stays as it is. */
 type AskNamedCriteria<T> = T extends AskChoiceLabels ? { [K in T[number]]: null } : T
-/** Score level keys: the tuple indices for a fixed rubric, otherwise any numeric string. */
 type AskScoreLevel<T extends AskScoreCriteria> = number extends T["length"] ? `${number}` : Extract<keyof T, `${number}`>
 
 export interface AskChoiceAnswer<T extends AskChoiceCriteria = AskChoiceCriteria> {
@@ -127,8 +129,8 @@ function chance(instructions: AskEntry, criteria?: AskChanceCriteria): AskChance
 
 function askIf(instructions: string, options: { threshold?: number } = {}): AskIfQuestion {
   const threshold = options.threshold ?? 0.5
-  if (!Number.isFinite(threshold)) throw new TypeError("ask.if threshold must be a finite number")
-  if (threshold < 0 || threshold > 1) throw new TypeError("ask.if threshold must be between 0 and 1")
+  if (!Number.isFinite(threshold)) throw gatewayDiagnostics.GATEWAYS_ASK_THRESHOLD_INVALID({ problem: "finite" })
+  if (threshold < 0 || threshold > 1) throw gatewayDiagnostics.GATEWAYS_ASK_THRESHOLD_INVALID({ problem: "range" })
   return { instructions, threshold, type: "if" }
 }
 
@@ -140,10 +142,10 @@ function each<T, Q extends AskQuestion>(
   for (const item of items) {
     const key = options.key(item)
     if (typeof key !== "string" || !key.trim()) {
-      throw new TypeError("ask.each keys must be non-empty strings")
+      throw gatewayDiagnostics.GATEWAYS_ASK_EACH_KEY_INVALID()
     }
     if (Object.hasOwn(questions, key)) {
-      throw new TypeError(`ask.each produced duplicate key ${JSON.stringify(key)}`)
+      throw gatewayDiagnostics.GATEWAYS_ASK_EACH_KEY_DUPLICATE({ key: JSON.stringify(key) })
     }
     questions[key] = options.question(item)
   }
@@ -151,27 +153,34 @@ function each<T, Q extends AskQuestion>(
 }
 
 /**
- * Builds TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
+ * Asks a model one question and returns validated, typed data as `[error, data]`: `ask(prompt, { model, schema })`.
+ * Use it for one structured answer, such as extracted fields, without an Agent. Leave out `schema` to get the answer as text.
+ *
+ * Its properties build TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
  * Each builder returns a plain question object. The Driver sends questions in deterministic sequential batches when needed; the combined serialized shared state and each question must fit below 30,000 bytes, including request overhead.
+ *
+ * @example
+ * import * as z from 'zod'
+ * import { ask, openrouter } from '@vite-hub/gateways'
+ * import { languageModel } from '@vite-hub/gateways/ai-sdk'
+ *
+ * const [error, receipt] = await ask('MERCADONA 23.10 -34.90 EUR', {
+ *   model: languageModel(openrouter(), 'google/gemini-3-flash'),
+ *   schema: z.object({ merchant: z.string(), amount: z.number() }),
+ * })
  */
-export const ask: {
+export const ask: AskCall & {
   chance: typeof chance
   choice: typeof choice
   each: typeof each
   if: typeof askIf
   score: typeof score
   switch: typeof askSwitch
-} = {
-  /** A yes or no question. Answers `{ chance }`, the probability of yes. */
+} = Object.assign(askOnce, {
   chance,
-  /** Selects one option. Answers `{ choice, confidence, probabilities }`. */
   choice,
-  /** Builds a keyed question map from a list. */
   each,
-  /** A yes or no question. Answers `true` when the probability of yes is above `threshold` (0 to 1, default `0.5`). */
   if: askIf,
-  /** Rates the state against 2 to 10 ordered levels. Answers `{ score, ratio, confidence, legend, probabilities }`. */
   score,
-  /** Selects one option. Answers with the selected label only. */
   switch: askSwitch,
-}
+})

@@ -10,9 +10,9 @@ The CMS has four roles. Each role has the permissions of the one above it:
 
 | Role | Content | Comments |
 | --- | --- | --- |
-| `viewer` | Read drafts | None |
-| `commenter` | Read drafts | Read, comment, and resolve |
-| `editor` | Read drafts, and save, remove, and restore them | Read, comment, and resolve |
+| `viewer` | Read `/api/content/**` and drafts | None |
+| `commenter` | Read `/api/content/**` and drafts | Read, comment, and resolve |
+| `editor` | All `viewer` actions, and save, remove, and restore drafts | Read, comment, and resolve |
 | `publisher` | All `editor` actions, and publish | Read, comment, resolve, and delete threads |
 
 Two roles come from Better Auth:
@@ -20,7 +20,15 @@ Two roles come from Better Auth:
 - `admin` has every CMS and Better Auth admin permission.
 - `user` is the role of each new user. It has no CMS permission, so a new user cannot read drafts until you give them a role.
 
-Published documents stay public through `/api/content/**`. The roles control drafts, edits, publishes, and comments.
+The role policy also decides `read`, the [`/api/content/**` route](/docs/content/configure#public-access), so a visitor without a role gets `401`. When visitors read that route, set `access: 'public'`. The roles still decide drafts, writes, and publishing:
+
+```ts [server/content.ts] fragment
+export default defineContent({
+  extends: [cms, { roles: true }],
+  collections: { posts },
+  access: 'public',
+})
+```
 
 ## Set up the roles
 
@@ -29,9 +37,11 @@ Install the Better Auth [`admin` plugin](https://www.better-auth.com/docs/plugin
 ```ts [server/auth.ts]
 import { admin } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { cmsAccess } from 'vite-hub/cms/access'
 
 export default defineAuth({
+  database: authDatabase(),
   plugins: [admin(cmsAccess)],
 })
 ```
@@ -43,12 +53,18 @@ export default defineAuth({
 Call the Better Auth admin API from server code. Better Auth checks that the session in the headers is an `admin`:
 
 ```ts [server/routes/api/roles.post.ts]
-import { defineHandler } from 'h3'
-import { auth } from 'vite-hub/auth/server'
+import { defineHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { useAuth } from 'vite-hub/auth/server'
+
+const body = v.object({
+  userId: v.string(),
+  role: v.picklist(['user', 'viewer', 'commenter', 'editor', 'publisher', 'admin']),
+})
 
 export default defineHandler(async (event) => {
-  const { userId, role } = await event.req.json()
-  return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
+  const { userId, role } = await readValidatedBody(event, body)
+  return useAuth(event).api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```
 
@@ -71,10 +87,10 @@ export default defineAuth({
 
 ## Opt into the role policy
 
-Set `extends: [cms, { access: 'roles' }]` so the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that it acts for.
+Set `extends: [cms, { roles: true }]` so the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that it acts for.
 
 > [!NOTE]
-> With `extends: cms` alone, every action is denied, even if your app has an unrelated `user.role` field. Turn on the role policy with `access: 'roles'` or `authorize: cmsContentAuthorize`. It then loads Better Auth only for a user with a string role. A missing or unknown role is denied.
+> With `extends: cms` alone, every action is denied, even if your app has an unrelated `user.role` field. Turn on the role policy with `roles: true` or `authorize: cmsContentAuthorize`. It then loads Better Auth only for a user with a string role. A missing or unknown role is denied.
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 
@@ -83,7 +99,7 @@ import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   // Agents may draft, but only people publish.
@@ -109,7 +125,7 @@ import { cmsCommentsAuthorize } from 'vite-hub/cms/access'
 export const comments = defineComments({ authorize: cmsCommentsAuthorize })
 ```
 
-`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
+`cmsConsoleAuthorize` decides which [Console sections](/docs/console/access#what-authorize-returns) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
@@ -118,7 +134,7 @@ import { cmsConsoleAuthorize } from 'vite-hub/cms/access'
 export default defineConsoleAuthorize(cmsConsoleAuthorize)
 ```
 
-Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `vitehub()` so the Console uses the app's signed-in user.
+Set `console: { authorize: './server/console-authorize.ts' }` in `vitehub()`. The Console signs the person who calls, and `authorize` gets that user.
 
 ## Inspect the roles
 

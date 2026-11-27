@@ -8,11 +8,11 @@ icon: i-lucide-cloud-cog
 
 ## Host output
 
-Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to the generated `wrangler.json`. Put bucket names, tokens, and bindings in integration config or deployment setup. Your code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
+Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the store and loads its driver. On a Cloudflare host, it also adds the R2 bucket bindings to the generated `wrangler.json`. Put bucket names, tokens, and bindings in integration config or deployment setup. Your code keeps importing `blob` from `vite-hub/blob` when you switch providers.
 
 ## Read and write blobs during development
 
-`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+`vite dev` uses a local store unless the store sets `remote: true`, or an explicit `driver` other than `cloudflare`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 `hubBlob()` adds the `vitehub blob` CLI commands. Start the dev server, then run them from another terminal.
 
@@ -21,7 +21,7 @@ pnpm vitehub blob list --prefix avatars/
 pnpm vitehub blob head avatars/ada.png --json
 pnpm vitehub blob put avatars/ada.png ./ada.png
 pnpm vitehub blob get avatars/ada.png --output ./copy.png
-pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob delete avatars/ada.png
 pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png
 ```
@@ -34,11 +34,11 @@ pnpm vitehub blob variants avatars/ada.png
 - `put` sends the file as base64 JSON, so `put` and `get` handle files up to 8 MiB.
 - The commands do not print blob URLs.
 
-Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every option.
+Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/cli/primitives#read-and-write-blobs) for every option.
 
 ## Cloudflare R2 bucket
 
-An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`.
+An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`. The driver is `cloudflare`: the former `cloudflare-r2` fails with `BLOB_C0001`, and `npx @vite-hub/codemods driver-key` renames it. A store key that its driver does not read, such as `token` on an `fs` store, fails with `BLOB_UNKNOWN_STORE_OPTION`. Without `driver`, every store accepts `remote`, an inferred Cloudflare store also accepts `binding`, `bucketName`, and `jurisdiction`, and an inferred Netlify store also accepts `name`. If `S3_*` selects S3 instead of the host driver, set `driver` explicitly to use Cloudflare or Netlify options.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -47,7 +47,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       binding: 'BLOB',
       bucketName: 'assets',
     },
@@ -66,7 +66,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -86,7 +86,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -108,7 +108,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       bucketName: 'assets',
       jurisdiction: 'eu',
     },
@@ -127,7 +127,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },
@@ -147,7 +147,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },
@@ -260,7 +260,7 @@ export default defineConfig({
 :::
 ::
 
-Keep S3 credentials in Server Env or the S3 SDK credential chain. Put `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
+Keep S3 credentials in Server Env or the S3 SDK credential chain. Put `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config. Without `credentials`, the SDK reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at runtime. With `credentials` set from `process.env`, ViteHub writes only the variable names into the build output and reads the values at runtime. A literal credential fails the build with `BLOB_C0019`. Read [Credentials](/docs/blob/configure#credentials).
 
 With an R2 binding or R2 HTTP credentials, use Cloudflare R2 instead. To test S3 behavior locally or in Docker Compose, use MinIO.
 
@@ -324,7 +324,7 @@ A Cloudflare Preview uses only the bindings in the Wrangler `previews` block. Tw
 
 For a separate preview Worker, set `BLOB_BUCKET_NAME` in its build and leave `bucketName` unset, or set `bucketName` to the preview bucket. `bucketName` wins over `BLOB_BUCKET_NAME`.
 
-On Vercel, a preview uses the Blob store connected in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production files. To separate them, connect a second store to Preview in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+On Vercel, a preview uses the Blob store connected in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --host vercel` connects one store to Production, Preview, and Development, so previews share production files. To separate them, connect a second store to Preview in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Related guides
 

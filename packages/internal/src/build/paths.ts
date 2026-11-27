@@ -1,4 +1,5 @@
 import { existsSync, realpathSync } from "node:fs"
+import { invariant } from "../invariant.ts"
 import { fileURLToPath } from "node:url"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -34,6 +35,31 @@ export function computePackageDir(importMetaUrl: string): string {
 export function resolveRuntimeModule(packageDir: string, modulePath: string): string {
   const distFile = resolve(packageDir, "dist", `${modulePath}.js`)
   return existsSync(distFile) ? distFile : resolve(packageDir, "src", `${modulePath}.ts`)
+}
+
+const packageDirs = new Map<string, string>()
+
+function findPackageDir(file: string): string {
+  const start = dirname(file)
+  const cached = packageDirs.get(start)
+  if (cached) return cached
+  let dir = start
+  while (!existsSync(resolve(dir, "package.json"))) {
+    const parent = dirname(dir)
+    invariant(parent !== dir, `a file that a package resolver found has a package.json above it (${file})`)
+    dir = parent
+  }
+  packageDirs.set(start, dir)
+  return dir
+}
+
+/**
+ * The absolute path of a module that the calling package builds, such as `ownModule(import.meta.url, "runtime/state")`.
+ * Owner plugins write this path into generated code, so the module needs no package export, and an app resolves it
+ * only when the owner's feature is on. It is the `dist` file, or the `src` file before the package is built.
+ */
+export function ownModule(importMetaUrl: string, modulePath: string): string {
+  return resolveRuntimeModule(findPackageDir(fileURLToPath(importMetaUrl)), modulePath)
 }
 
 export function createImportPath(fromFile: string, targetFile: string): string {

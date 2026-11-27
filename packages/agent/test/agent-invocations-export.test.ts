@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/internal/agent-invocations-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 function stream() {
   let value = ""
@@ -36,19 +37,19 @@ type Summary = ReturnType<typeof summary>
 
 const observation = (sequence: number, name: string, attributes: Record<string, unknown>): Observation => ({ attributes, name, sequence, timestamp: now.toISOString() })
 
-/** A local invocation endpoint that filters the list by status and answers each detail request. */
-function invocationEndpoint(records: Summary[], observations: Record<string, Observation[]> = {}) {
+const app = "https://agent.example.com"
+
+/** The Console of a deployed app. It lists every record on one page and answers each detail request. */
+function appConsole(records: Summary[], observations: Record<string, Observation[]> = {}) {
   const details: string[] = []
-  const fetch = vi.fn(async (input: string) => {
-    const url = new URL(input)
-    const id = /\/api\/invocations\/([^/]+)$/.exec(url.pathname)?.[1]
-    if (id) {
-      details.push(id)
-      return Response.json({ invocation: records.find(record => record.id === id), observations: observations[id] ?? [] })
+  const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+    const { input, operation } = operationRpcRequest(init?.body) as { input: { id?: string }, operation: string }
+    if (operation === "invocations.get" && input.id) {
+      details.push(input.id)
+      return operationRpcResponse(init?.body, { ok: true, value: { invocation: records.find(record => record.id === input.id), observations: observations[input.id] ?? [] } })
     }
-    // The CLI asks for every status in one request with repeated status parameters (#2600).
-    const statuses = url.searchParams.getAll("status")
-    return Response.json({ invocations: records.filter(record => statuses.includes(record.status)) })
+    // The Console has no status filter, so the CLI filters the records.
+    return operationRpcResponse(init?.body, { ok: true, value: { invocations: records } })
   })
   // SAFETY: The mock implements the fetch call shape that the CLI uses.
   return { details, fetch: fetch as unknown as typeof globalThis.fetch }
@@ -57,7 +58,7 @@ function invocationEndpoint(records: Summary[], observations: Record<string, Obs
 async function run(args: string[], fetch: typeof globalThis.fetch) {
   const stdout = stream()
   const stderr = stream()
-  const exitCode = await runAgentInvocationsCli(args, { env: {}, stderr, stdout }, { fetch })
+  const exitCode = await runAgentInvocationsCli(args, { env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" }, stderr, stdout }, { fetch })
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
 
@@ -74,7 +75,7 @@ afterEach(() => {
 
 describe("vitehub agent invocations export", () => {
   it("prints one JSON line per Invocation, oldest first, with the prompt, final text, and deliveries", async () => {
-    const endpoint = invocationEndpoint([summary("b", { createdAt: daysAgo(1) }), summary("a", { createdAt: daysAgo(2), status: "failed" })], {
+    const endpoint = appConsole([summary("b", { createdAt: daysAgo(1) }), summary("a", { createdAt: daysAgo(2), status: "failed" })], {
       a: [
         observation(1, "agent.invocation.start", { "agent.run.id": "run-a", "input.prompt": "Why did the import fail?" }),
         observation(2, "agent.message.delta", { "message.content": "Draft", "message.phase": "commentary" }),
@@ -89,7 +90,7 @@ describe("vitehub agent invocations export", () => {
         observation(3, "agent.invocation.finish", { "result.text": "Hello there." }),
       ],
     })
-    const result = await run(["export"], endpoint.fetch)
+    const result = await run(["export", "--url", app], endpoint.fetch)
 
     expect(result.exitCode).toBe(0)
     expect(lines(result.stdout)).toEqual([
@@ -113,31 +114,31 @@ describe("vitehub agent invocations export", () => {
 
   it("includes every observation with --observations", async () => {
     const observations = [observation(1, "agent.invocation.start", { "input.prompt": "Hi" })]
-    const result = await run(["export", "--observations"], invocationEndpoint([summary("a")], { a: observations }).fetch)
+    const result = await run(["export", "--url", app, "--observations"], appConsole([summary("a")], { a: observations }).fetch)
     expect(lines(result.stdout)[0].observations).toEqual(observations)
   })
 
   it("uses the last assistant turn for delta fallback and preserves unknown channels", async () => {
-    const endpoint = invocationEndpoint([summary("a")], {
+    const endpoint = appConsole([summary("a")], {
       a: [
         observation(1, "agent.message.delta", { "message.id": "first", "message.phase": "final", "message.content": "Earlier" }),
         observation(2, "agent.message.delta", { "message.id": "last", "message.phase": "final", "message.content": "Final" }),
         observation(3, "agent.channel.delivery.effect", { "channel.effect.content": "Delivered", "channel.effect.kind": "reply" }),
       ],
     })
-    const result = await run(["export"], endpoint.fetch)
+    const result = await run(["export", "--url", app], endpoint.fetch)
     expect(lines(result.stdout)[0]).toMatchObject({ final: "Final", deliveries: [{ channel: "unknown" }] })
   })
 
   it("filters by origin, Agent, status, and creation time before it reads any record", async () => {
-    const endpoint = invocationEndpoint([
+    const endpoint = appConsole([
       summary("match", { agentName: "support", createdAt: daysAgo(2), origin: "teams" }),
       summary("old", { agentName: "support", createdAt: daysAgo(9), origin: "teams" }),
       summary("other-origin", { agentName: "support", createdAt: daysAgo(2), origin: "schedule" }),
       summary("other-agent", { agentName: "triage", createdAt: daysAgo(2), origin: "teams" }),
       summary("failed", { agentName: "support", createdAt: daysAgo(2), origin: "teams", status: "failed" }),
     ])
-    const result = await run(["export", "--origin", "teams", "--agent=support", "--since", "7d", "--status", "completed"], endpoint.fetch)
+    const result = await run(["export", "--url", app, "--origin", "teams", "--agent=support", "--since", "7d", "--status", "completed"], endpoint.fetch)
 
     expect(result.exitCode).toBe(0)
     expect(lines(result.stdout).map(line => line.id)).toEqual(["match"])
@@ -151,8 +152,8 @@ describe("vitehub agent invocations export", () => {
     ["2026-10-05T06:30:00+02:00", "2026-10-05T04:30:00.000Z"],
   ])("selects Invocations created at or after --since %s", async (since, time) => {
     const before = new Date(Date.parse(time) - 1).toISOString()
-    const endpoint = invocationEndpoint([summary("at", { createdAt: time }), summary("before", { createdAt: before })])
-    const result = await run(["export", "--since", since], endpoint.fetch)
+    const endpoint = appConsole([summary("at", { createdAt: time }), summary("before", { createdAt: before })])
+    const result = await run(["export", "--url", app, "--since", since], endpoint.fetch)
     expect(lines(result.stdout).map(line => line.id)).toEqual(["at"])
   })
 
@@ -163,13 +164,13 @@ describe("vitehub agent invocations export", () => {
     ]
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      const { input, operation } = JSON.parse(String(init?.body))
+      const { input, operation } = operationRpcRequest(init?.body) as { input: { id: string }, operation: string }
       methods.push(operation)
-      if (operation === "invocations.get") return Response.json({ ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
-      return Response.json({ ok: true, value: pages.shift() })
+      if (operation === "invocations.get") return operationRpcResponse(init?.body, { ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
+      return operationRpcResponse(init?.body, { ok: true, value: pages.shift() })
     })
     // SAFETY: The mock implements the fetch call shape that the CLI uses.
-    const result = await run(["export", "--url", "https://agent.example.com"], fetch as unknown as typeof globalThis.fetch)
+    const result = await run(["export", "--url", app], fetch as unknown as typeof globalThis.fetch)
 
     expect(lines(result.stdout).map(line => line.id)).toEqual(["a", "b"])
     expect(methods).toEqual(["invocations.list", "invocations.list", "invocations.get", "invocations.get"])

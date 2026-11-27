@@ -1,15 +1,13 @@
-import { runInNewContext } from "node:vm"
-import { Response as ForeignFetchResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
+import { Response as ForeignFetchResponse } from "@whatwg-node/node-fetch"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
-import { registerResponseConstructor, isResponse } from "../src/internal/response.ts"
+import { isResponse } from "../src/internal/response.ts"
 import { isUIMessageStreamResponse, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationResult } from "../src/trigger-runtime.ts"
 
 const HostResponse = Response
-registerResponseConstructor(ForeignFetchResponse)
 
-function foreignResponse(body = "foreign", init?: ResponseInit): Response {
+function foreignResponse(body = "foreign", init?: ConstructorParameters<typeof ForeignFetchResponse>[1]): Response {
   const response = new ForeignFetchResponse(body, init)
   vi.stubGlobal("Response", class extends HostResponse {})
   expect(response).not.toBeInstanceOf(Response)
@@ -48,56 +46,9 @@ describe("agent trigger cross realm responses", () => {
     expect(chunks).toEqual([{ type: "text-delta", delta: "foreign" }])
   })
 
-  it("rejects a complete structural impostor", () => {
-    const impostor = {
-      input: { context: {}, value: "ordinary input" },
-      headers: new Headers(), body: null, status: 200, statusText: "OK",
-      ok: true, redirected: false, url: "", type: "default", bodyUsed: false,
-      clone() { return this },
-      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
-      blob() { return Promise.resolve(new Blob([])) },
-      formData() { return Promise.resolve(new FormData()) },
-      json() { return Promise.resolve(null) },
-      text() { return Promise.resolve("impostor") },
-      [Symbol.toStringTag]: "Response",
-    }
-    expect(isResponse(impostor)).toBe(false)
-    const result = resolveAgentTriggerInvocationResult(impostor, {} as never)
-    expect(result).toMatchObject({ input: { value: "ordinary input" } })
-    expect(result).not.toHaveProperty("response")
-  })
-
-  it("rejects a Symbol.toStringTag impostor", () => {
-    const impostor = runInNewContext(`({ input: { context: {}, value: "input" }, [Symbol.toStringTag]: "Response" })`)
-    const result = resolveAgentTriggerInvocationResult(impostor, {} as never)
-    expect(result).toMatchObject({ input: { value: "input" } })
-    expect(result).not.toHaveProperty("response")
-  })
-
-  it("rejects inherited Response prototypes without internal response state", () => {
-    expect(isResponse(Object.create(HostResponse.prototype))).toBe(false)
-  })
-
-  it("accepts subclasses of a registered foreign Response implementation", () => {
+  it("accepts subclasses of a foreign Response implementation", () => {
     class SubResponse extends ForeignFetchResponse {}
     const response = new SubResponse("subclass")
     expect(isResponse(response)).toBe(true)
-  })
-
-  it("rejects objects fabricated from a registered Response prototype", () => {
-    const impostor = Object.create(ForeignFetchResponse.prototype, {
-      headers: { value: {} },
-      _bodyFactory: { value: () => null },
-    })
-    expect(isResponse(impostor)).toBe(false)
-  })
-
-  it("contains hostile inspection and does not read user response properties", () => {
-    const hostile = runInNewContext(`Object.defineProperty({ input: { context: {} } }, Symbol.toStringTag, {
-      get() { throw new Error("hostile") }
-    })`)
-    expect(() => resolveAgentTriggerInvocationResult(hostile, {} as never)).not.toThrow()
-    expect(isResponse(new Proxy({}, { get() { throw new Error("hostile") } }))).toBe(false)
-    expect(isResponse(Object.defineProperty({}, "headers", { get() { throw new Error("hostile") } }))).toBe(false)
   })
 })

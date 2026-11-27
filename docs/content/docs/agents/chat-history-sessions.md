@@ -103,8 +103,10 @@ that only looks similar, or a header later in the answer, stays.
 
 ## Send recent history photos
 
-History messages keep their text, but their attachments are not sent by
-default. Set `maxImages` to send the newest history photos again:
+History messages keep their text. Codex and Claude Code Drivers also get the
+4 newest history photos again, because they read images. Other Drivers get no
+history photos, because ViteHub cannot tell whether their model reads images.
+Set `maxImages` to change the number, or `0` to send none:
 
 ```ts [server/utils/meal-chat.ts]
 import { chat } from 'vite-hub/agent/capabilities'
@@ -133,6 +135,33 @@ Provider Drivers, such as Codex and Claude Code, attach these photos to the
 turn that starts a new provider thread. A resumed provider thread already has
 the earlier turns, so it gets only attachments from the current message and
 any queued or coalesced messages. A Sandbox provider gets no history photos.
+
+### Check which photos went to the provider
+
+A Provider Driver, such as Codex or Claude Code, records one
+`agent.input.attachments` observation on the Invocation once the provider
+accepts the turn. It lists what ViteHub handed to the provider with that turn.
+A provider can still drop an image it accepted, for example when Claude Code's
+own input budget is full. The Console shows the record as one row, such as
+`Sent 3 images (2.1 MB), skipped 1: byte-budget`. Open the row to see each
+attachment. The AI SDK Driver does not record it.
+
+| Attribute | Value |
+| --- | --- |
+| `input.attachments.sent` | Each attachment handed to the provider: `messageId`, `partId`, `name`, `mediaType`, `bytes`, and `origin` (`current` or `history`). |
+| `input.attachments.skipped` | Each attachment left out, with the same fields and a `reason`. |
+| `input.attachments.sentCount`, `sentBytes`, `skippedCount` | Totals. |
+
+| Reason | Why the attachment was left out |
+| --- | --- |
+| `max-images` | More history images than `maxImages`. |
+| `max-age` | Sent longer than `maxAgeMs` before the current message. |
+| `not-image` | A history file that is not an image. |
+| `byte-budget` | It does not fit in the remaining `driver.execution.attachments.maxBytes`. |
+| `fetch-failed:<code>` | The download failed. `<code>` is the error code, HTTP status, or error name. |
+| `no-data` | The part has no data and no `fetchData()`. |
+| `sandbox` | A Sandbox provider cannot read history images. |
+| `not-inline` | The provider takes only GIF, JPEG, PNG, and WebP images as image input. Codex gets the path of the saved file for other image types. |
 
 ## Add a session
 
@@ -186,7 +215,8 @@ order, retention, and deletion.
 | Host output | Default Agent State |
 | --- | --- |
 | Cloudflare | The generated Durable Object binding, also for Channel handlers that generated Workflows call. An explicit state provider wins. A state configuration with only `url` keeps automatic libSQL selection. |
-| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. |
+| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. A Vercel or Netlify build warns if State needs a URL and the variable is not visible to the build. This does not check the deployed function's environment. If the function also lacks the URL, State fails with `AGENT_R0893`. On Netlify, use the Functions scope for the target deploy context. |
+| `vite dev` | Local SQLite at `.vitehub/data/agent-state.sqlite`. On Nitro's `miniflare` dev runner, which cannot open files, none: conversations stay in memory, and queued Channel tasks and triggers are off. |
 
 Cloudflare, Vercel, and Netlify production output reject `file:` URLs, because
 their filesystems are temporary.
@@ -194,14 +224,15 @@ their filesystems are temporary.
 ## Keep SQLite transcripts
 
 Pass `transcripts: { retention: 'forever' }` to `createLibsqlAgentState()` from
-`vite-hub/agent/state/sqlite`. Startup cleanup then clears transcript expiry,
-also on rows that already expired, and later transcript TTLs are ignored. Other
-cached state expires as usual. Rows deleted before you set this are lost.
+`vite-hub/agent/state`. The adapter then clears transcript expiry during
+startup cleanup, including rows that already expired, and ignores later
+transcript TTLs. Other cached state keeps its normal expiry. ViteHub cannot
+recover rows that it deleted before you enabled this option.
 
 ## Inspect the result
 
 Send two messages in the same thread or session. Inspect the second
-Invocation with the [CLI](/docs/development/cli). Its input has the earlier
+Invocation with the [CLI](/docs/cli). Its input has the earlier
 messages in the window and the current message. Another thread or session
 starts with no history.
 

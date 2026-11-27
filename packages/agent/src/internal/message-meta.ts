@@ -4,7 +4,7 @@ import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { chatTriggerUserMeta, derivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvoker, withoutResolvedAgentInvokerInput } from "../invoker.ts"
-import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentInvoker, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -86,7 +86,6 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
       ...unresolved,
       context: {
         ...unresolved.context,
-        actor: state.derivedInvoker,
         invoker: state.derivedInvoker,
       },
     })
@@ -120,7 +119,7 @@ function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_O
   run?: AgentRunMetadata,
 ) {
   const trigger = invocationContext.get("agent.trigger")
-  const triggerChannelId = isRuntimeObject(trigger) && hasRuntimeType(trigger.channelId, "string") ? trigger.channelId : undefined
+  const triggerChannelId = isRuntimeObject(trigger) && typeof trigger.channelId === "string" ? trigger.channelId : undefined
   const channelId = run?.channelId || triggerChannelId
   const configuredChannelMessages = channelId ? definition?.channels?.[channelId]?.messages : undefined
   const channelMessages = configuredChannelMessages || undefined
@@ -137,7 +136,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   if (!schema) return
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
   if (receipt && invocationContext.get(parsedAgentMessageMetaContextKey) === receipt) return
-  if (!schema["~standard"] || !hasRuntimeType(schema["~standard"].validate, "function")) {
+  if (!schema["~standard"] || typeof schema["~standard"].validate !== "function") {
     throw agentDiagnostics.AGENT_R0564({ message: "[vitehub] defineAgent({ messages: { meta } }) requires a Standard Schema." })
   }
   const channel = invocationContext.get("channel")
@@ -164,7 +163,6 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
     derivedChatTriggerInvoker(invocationContext.get("invoker")),
   )
   if (invoker !== invocationContext.get("invoker")) {
-    invocationContext.set("actor", invoker, { overwrite: true })
     invocationContext.set("invoker", invoker, { overwrite: true })
   }
   if (receipt) invocationContext.set(parsedAgentMessageMetaContextKey, receipt, { overwrite: true })

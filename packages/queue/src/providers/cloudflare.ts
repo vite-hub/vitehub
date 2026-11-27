@@ -1,20 +1,22 @@
+import { readQueueTimes } from "../duration.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { normalizePublicQueueIdentifier, queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
+import { parseDuration } from "@vite-hub/runtime"
+
 import type { Result } from "@vite-hub/runtime"
 
-import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
+import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueDriverOptions, QueueEnqueueOptions } from "../types.ts"
 
 interface CloudflareSendOptions {
   contentType?: QueueEnqueueOptions["contentType"]
   delaySeconds?: number
 }
 
-// Worker binding names are identifiers. Only those go into the error `why`, which can reach public responses.
 const cloudflareBindingName = /^[A-Z_]\w{0,127}$/i
 
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
@@ -58,19 +60,24 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
   return hasCallableMethod("send") && hasCallableMethod("sendBatch")
 }
 
-function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSendOptions, "QUEUE_UNSUPPORTED_OPTION"> {
+function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSendOptions, "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"> {
   const error = queueUnsupportedOptionsError(options, "cloudflare")
   if (error) return [error, undefined]
+  const [timeError, times] = readQueueTimes(options, "ceil")
+  if (timeError) return [timeError, undefined]
 
   return [undefined, {
     contentType: options.contentType,
-    delaySeconds: options.delaySeconds,
+    delaySeconds: times.delaySeconds,
   }]
 }
 
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
-    message.retry(action.retry)
+    const removed = queueRemovedOptionsError("cloudflare", action.retry)
+    if (removed) throw removed
+    const delay = action.retry?.delay
+    message.retry(delay === undefined ? undefined : { delaySeconds: Math.ceil(parseDuration(delay, "delay", undefined, "s") / 1000) })
     return
   }
 
@@ -104,7 +111,7 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
             attempts: message.attempts,
             id: message.id,
             provider: "cloudflare",
-            queue: getCloudflareQueueDefinitionName(batch.queue),
+            queue: normalizePublicQueueIdentifier(options.queue) ?? normalizePublicQueueIdentifier(getCloudflareQueueDefinitionName(batch.queue)) ?? batch.queue,
           } as const
           reportQueueDeliveryError(error, reportContext)
           let action: CloudflareQueueBatchErrorAction | void = undefined
@@ -116,7 +123,13 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
               reportQueueDeliveryError(hookError, reportContext)
             }
           }
-          resolveAction(action, message, isNonRetryableQueueError(error) ? "ack" : "retry")
+          try {
+            resolveAction(action, message, isNonRetryableQueueError(error) ? "ack" : "retry")
+          }
+          catch (actionError) {
+            reportQueueDeliveryError(actionError, reportContext)
+            message.retry()
+          }
         }
       }
     }
@@ -125,9 +138,8 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
   }
 }
 
-export function createCloudflareQueueClient(provider: CloudflareQueueProviderOptions): CloudflareQueueClient {
+export function createCloudflareQueueClient(provider: CloudflareQueueDriverOptions): CloudflareQueueClient {
   if (typeof provider.binding === "undefined" || typeof provider.binding === "string") {
-    // A binding name means the runtime looked it up in the request env and did not find it.
     const binding = typeof provider.binding === "string" && cloudflareBindingName.test(provider.binding) ? provider.binding : undefined
     throw queueErrorDiagnostics.QUEUE_BINDING_NOT_FOUND({ binding })
   }
@@ -147,18 +159,20 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
       if (optionsError) return [optionsError, undefined]
       const [error] = await queueProviderResult("cloudflare", "send", () => binding.send(normalized.payload, sendOptions))
       if (error) return [error, undefined]
-      return [undefined, { status: "queued", messageId: normalized.id }]
+      return [undefined, { status: "queued" }]
     },
     async sendBatch(items, options) {
-      const messages: (typeof items[number] & CloudflareSendOptions)[] = []
+      const removed = queueRemovedOptionsError("cloudflare", options, items)
+      if (removed) return [removed, undefined]
+      const messages: ({ body: unknown } & CloudflareSendOptions)[] = []
       for (const item of items) {
         const [optionsError, sendOptions] = toSendOptions({
           ...options,
           contentType: item.contentType || options?.contentType,
-          delaySeconds: item.delaySeconds ?? options?.delaySeconds,
+          delay: item.delay ?? options?.delay,
         })
         if (optionsError) return [optionsError, undefined]
-        messages.push({ ...item, ...sendOptions })
+        messages.push({ body: item.body, ...sendOptions })
       }
       const [error] = await queueProviderResult("cloudflare", "send-batch", () => binding.sendBatch(messages))
       if (error) return [error, undefined]

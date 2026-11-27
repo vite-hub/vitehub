@@ -2,8 +2,9 @@ import { and, eq, gt, inArray, lt, ne, sql } from "drizzle-orm"
 
 import { contentSessionsSchema } from "./database.ts"
 
-import type { BlobDatabaseWorkspaceStoreOptions } from "@vite-hub/workspace/blob-database"
+import type { BlobDatabaseWorkspaceStoreTarget } from "@vite-hub/workspace/blob-database"
 import type { SQL } from "drizzle-orm"
+import type { BatchItem } from "drizzle-orm/batch"
 
 const { contentSessions: table } = contentSessionsSchema
 
@@ -58,7 +59,7 @@ export interface ReportInput extends SessionKey {
   takeover: boolean
 }
 
-type Database = BlobDatabaseWorkspaceStoreOptions["database"]
+type Database = Extract<BlobDatabaseWorkspaceStoreTarget, { dialect: "sqlite" }>["database"]
 
 const selection = {
   collection: table.collection,
@@ -100,7 +101,7 @@ export function createSessionStore(database: Database, workspace: string, timeou
     async report(input) {
       const key: SessionKey = { collection: input.collection, document: input.document, session: input.session }
       const presenceUntil = sql`${now} + ${timeouts.presence}`
-      const statements: unknown[] = []
+      const statements: BatchItem<"sqlite">[] = []
       if (input.lease) {
         // A lease that expired or went idle is gone: the session views until it claims again.
         statements.push(database.update(table).set({ kind: "view", acquiredAt: null }).where(and(mine(key), inArray(table.kind, ["edit", "live"]), sql`not (${liveLease})`)))
@@ -156,13 +157,12 @@ export function createSessionStore(database: Database, workspace: string, timeou
       }
       // Rows long past expiry carry nothing; drop them while the batch already writes.
       statements.push(database.delete(table).where(and(eq(table.workspace, workspace), lt(table.expiresAt, sql`${now} - 3600000`))))
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Drizzle types a batch as a tuple of its statements; this one is built at runtime from the same table.
       const results = await database.batch([
         ...statements,
         database.select(selection).from(table).where(and(document(key), gt(table.expiresAt, now))),
-      ] as unknown as Parameters<Database["batch"]>[0])
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The last statement of the batch is the select above.
-      return results.at(-1) as unknown as SessionRow[]
+      ])
+      // SAFETY: The last statement of the batch is the select above.
+      return results.at(-1) as SessionRow[]
     },
 
     async release(key) {

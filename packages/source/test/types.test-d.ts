@@ -1,17 +1,13 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
 import {
-  combineSources,
   type CollectionQuery,
-  createSource,
   defineCollection,
   defineSource,
-  defineSources,
-  registerSources,
   sourceIgnores,
   type Source,
   type FileSource,
@@ -24,9 +20,8 @@ import {
   type SourceRevision,
   useSource,
 } from "../src/index.ts"
-import { file } from "../src/file.ts"
-import { github } from "../src/github.ts"
-import { glob } from "../src/glob.ts"
+import { file, github, glob } from "../src/index.ts"
+import { registerSources } from "../src/internal/registry.ts"
 import { mcpResources, type McpResourcesClient, type McpResourcesTransport } from "../src/mcp.ts"
 
 interface Meal {
@@ -60,174 +55,6 @@ declare global {
 }
 
 describe("@vite-hub/source types", () => {
-  it("infers Collection aliases, keys, values, and enumerable items", async () => {
-    function reader<const TKey extends string, TData>(key: TKey, data: TData) {
-      return {
-        async get(requested: TKey) {
-          return { data, key: requested }
-        },
-        async items() {
-          return [{ data, key }]
-        },
-      }
-    }
-
-    const keyedDefinition = (context: SourceContext) => ({
-      async get(month: "2026-07") {
-        return { month, rootDir: context.rootDir }
-      },
-    })
-    const collection = combineSources({
-      sources: {
-        count: reader("same", 1),
-        keyed: keyedDefinition({ rootDir: "/recaps" }),
-        title: reader("same", "Title"),
-      },
-    })
-
-    expectTypeOf(await collection.get(["count", "same"])).toEqualTypeOf<{
-      data: number
-      key: "same"
-    }>()
-    expectTypeOf(await collection.get(["keyed", "2026-07"])).toEqualTypeOf<{
-      month: "2026-07"
-      rootDir: string
-    }>()
-    // @ts-expect-error A get-only input cannot enumerate.
-    collection.items()
-
-    const variants = combineSources({
-      sources: {
-        variant: {
-          async get(key: "a" | "b") {
-            return key
-          },
-          async items(): Promise<Array<{ key: "a"; a: number } | { key: "b"; b: string }>> {
-            return [{ key: "a", a: 1 }]
-          },
-        },
-      },
-    })
-    const variant = (await variants.items())[0]!
-    if (variant.key === "a") expectTypeOf(variant.a).toBeNumber()
-    else expectTypeOf(variant.b).toBeString()
-
-    // @ts-expect-error Collection aliases are inferred
-    await collection.get(["missing", "same"])
-    // @ts-expect-error Source keys are inferred per alias
-    await collection.get(["count", "different"])
-    // SAFETY: This widens a known alias to exercise correlation across a union.
-    const source = "count" as "count" | "keyed"
-    // @ts-expect-error A union alias must remain correlated with its Source key
-    await collection.get([source, "2026-07"])
-    const conditionalReader =
-      Math.random() > 0.5
-        ? {
-            async get(key: "a" | "shared") {
-              return key
-            },
-          }
-        : {
-            async get(key: "b" | "shared") {
-              return key
-            },
-          }
-    const conditionalCollection = combineSources({ sources: { conditional: conditionalReader } })
-    await conditionalCollection.get(["conditional", "shared"])
-    // @ts-expect-error A key must be accepted by every possible reader variant
-    await conditionalCollection.get(["conditional", "a"])
-    const enumerableUnion =
-      Math.random() > 0.5
-        ? {
-            async get(key: "a" | "shared") {
-              return key
-            },
-            async items() {
-              return [{ key: "shared" as const }]
-            },
-          }
-        : {
-            async get(key: "b" | "shared") {
-              return key
-            },
-            async items() {
-              return [{ key: "shared" as const }]
-            },
-          }
-    const enumerableCollection = combineSources({ sources: { enumerable: enumerableUnion } })
-    const emittedIdentity = (await enumerableCollection.items())[0]!.identity
-    await enumerableCollection.get(emittedIdentity)
-    combineSources({
-      // @ts-expect-error Enumerable union readers cannot emit a variant-only key
-      sources: { invalidUnion: Math.random() > 0.5 ? reader("a", 1) : reader("b", 2) },
-    })
-    const mixedUnion =
-      Math.random() > 0.5
-        ? {
-            async get(key: "a" | "shared") {
-              return key
-            },
-            async items() {
-              return [{ key: "shared" as const }]
-            },
-          }
-        : {
-            async get(key: "b" | "shared") {
-              return key
-            },
-          }
-    const mixedCollection = combineSources({ sources: { mixed: mixedUnion } })
-    // @ts-expect-error Every possible reader variant must support enumeration.
-    mixedCollection.items()
-    combineSources({
-      sources: {
-        // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
-        invalidMixed:
-          Math.random() > 0.5
-            ? reader("a", 1)
-            : {
-                async get(key: "b") {
-                  return key
-                },
-              },
-      },
-    })
-    interface OverloadedReader {
-      get(key: "a"): Promise<{ a: number }>
-      get(key: "b"): Promise<{ b: string }>
-    }
-    const overloadedReader: OverloadedReader = undefined!
-    // @ts-expect-error Overloaded get methods have an ambiguous Collection contract
-    combineSources({ sources: { overloaded: overloadedReader } })
-    const conditionalGeneric: {
-      get<TKey extends string>(key: TKey): Promise<TKey extends "a" ? { a: number } : never>
-    } = undefined!
-    // @ts-expect-error Generic key-dependent get methods cannot be represented by the Collection return type
-    combineSources({ sources: { conditionalGeneric } })
-    interface GenericItems {
-      a: { a: number }
-      b: { b: string }
-    }
-    const indexedGeneric: {
-      get<TKey extends keyof GenericItems>(key: TKey): Promise<GenericItems[TKey]>
-    } = undefined!
-    // @ts-expect-error Generic key-dependent get methods must use an explicit union-parameter contract
-    combineSources({ sources: { indexedGeneric } })
-    combineSources({
-      sources: {
-        // @ts-expect-error enumerable item keys must be accepted by the Source reader
-        invalid: {
-          async get(_key: "one") {},
-          async items() {
-            return [{ key: "two" as const }]
-          },
-        },
-      },
-    })
-    // @ts-expect-error Collection aliases must be strings
-    combineSources({ sources: { 0: reader("same", 1) } })
-  })
-
   it("infers direct reader records and restricts file methods to readable items", async () => {
     const records = defineSource({
       name: "records",
@@ -237,7 +64,7 @@ describe("@vite-hub/source types", () => {
       },
       async getMeta() { return { revision: "1" } },
     })
-    const reader = createSource(records)
+    const reader = useSource(records)
     const item = await reader.get("article_1")
     expectTypeOf(item.data).toEqualTypeOf<{ title: string; count: number }>()
     expectTypeOf(item.metadata).toEqualTypeOf<{ revision: string }>()
@@ -252,20 +79,20 @@ describe("@vite-hub/source types", () => {
     // @ts-expect-error The reader retains the definition's key type.
     reader.get("other")
 
-    const docs = createSource(file("README.md"))
+    const docs = useSource(file("README.md"))
     expectTypeOf(await docs.read("README.md")).toBeString()
     expectTypeOf(await docs.read("README.md", { encoding: "binary" })).toEqualTypeOf<Uint8Array>()
     // @ts-expect-error File keys stay inferred without a global map.
     docs.read("missing.md")
     // @ts-expect-error Definitions describe loaders; keyed readers are plain objects.
     defineSource({ get: async (key: string) => key })
-    // @ts-expect-error createSource opens a definition, not an arbitrary reader factory.
-    createSource(() => ({ get: async (key: string) => key }))
+    // @ts-expect-error useSource opens a definition, not an arbitrary reader factory.
+    useSource(() => ({ get: async (key: string) => key }))
   })
 
   it("accepts only shared keys when a direct definition is a union", async () => {
     const definition = Math.random() > 0.5 ? file("a.md") : file("b.md")
-    const reader = createSource(definition)
+    const reader = useSource(definition)
     expectTypeOf(await reader.keys()).toEqualTypeOf<"a.md"[] | "b.md"[]>()
     // @ts-expect-error A key must be valid for every possible definition.
     reader.get("a.md")
@@ -283,12 +110,12 @@ describe("@vite-hub/source types", () => {
         async getMeta() { return { revision: "1" } },
       } : {}),
     })
-    const reader = createSource(source)
+    const reader = useSource(source)
     expectTypeOf(await reader.items()).toEqualTypeOf<
       Array<{ key: string; data: { title: string } }> | Array<{ key: string; data: { count: number } }>
     >()
     expectTypeOf(await reader.meta("one")).toEqualTypeOf<{ revision: string } | undefined>()
-    const noMeta = createSource(defineSource({
+    const noMeta = useSource(defineSource({
       name: "records",
       async getKeys() { return ["one"] },
       async getItem(key: string) { return { key, data: { title: "One" } } },
@@ -305,6 +132,7 @@ describe("@vite-hub/source types", () => {
         return [{ createdAt: 1, id: "meal_1", photoPath: "private/original" }]
       },
       {
+        access: "public",
         cursor: row => [row.createdAt, row.id] as const,
         cursorSchema: v.tuple([v.number(), v.string()]),
         querySchema: v.object({ day: v.optional(v.string()) }),
@@ -326,6 +154,7 @@ describe("@vite-hub/source types", () => {
         return [{ id: query.search }]
       },
       {
+        access: "public",
         cursor: row => row.id,
         cursorSchema: v.string(),
         querySchema: v.pipe(
@@ -344,13 +173,15 @@ describe("@vite-hub/source types", () => {
       {
         cursor: row => row.id,
         cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
+        route: false,
       },
     )
   })
 
   it("types Collection authorize callbacks", () => {
     const collection = defineCollection(async () => [{ id: 1 }], {
-      authorize: ({ request, session, user }) => {
+      authorize: ({ event, request, session, user }) => {
+        expectTypeOf(event).toEqualTypeOf<Request & ViteHubContext>()
         expectTypeOf(request.url).toBeString()
         expectTypeOf(session).toEqualTypeOf<Record<string, unknown>>()
         expectTypeOf(user.id).toBeString()
@@ -359,10 +190,19 @@ describe("@vite-hub/source types", () => {
       cursor: row => row.id,
       cursorSchema: v.number(),
     })
-    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption | undefined>()
+    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption<Request & ViteHubContext> | undefined>()
+    expectTypeOf(collection.access).toEqualTypeOf<"public" | undefined>()
     defineCollection(async () => [{ id: 1 }], { authorize: true, cursor: row => row.id, cursorSchema: v.number() })
-    // @ts-expect-error Omit authorize for a public Collection.
+    defineCollection(async () => [{ id: 1 }], { access: "public", cursor: row => row.id, cursorSchema: v.number() })
+    defineCollection(async () => [{ id: 1 }], { cursor: row => row.id, cursorSchema: v.number(), route: false })
+    // @ts-expect-error A routed Collection must set authorize.
+    defineCollection(async () => [{ id: 1 }], { cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error `false` is not a public opt-in. Use access: "public".
     defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error A public Collection has no authorize rule.
+    defineCollection(async () => [{ id: 1 }], { access: "public", authorize: true, cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error A server-only Collection has no public route to open.
+    defineCollection(async () => [{ id: 1 }], { access: "public", cursor: row => row.id, cursorSchema: v.number(), route: false })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {
@@ -399,10 +239,10 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(
       mcpResources({ ignore: sourceIgnores.media, server: { transport: { type: "http", url: "https://example.com/mcp" } } }),
     ).toMatchTypeOf<Source<string>>()
-    const sources = defineSources({
+    const sources = {
       docs: staticSource,
       dynamic: github({ auth: false, repo: "acme/app" }),
-    })
+    }
 
     registerSources(sources)
 
@@ -417,6 +257,7 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(await docs.meta("README.md")).toEqualTypeOf<Record<string, unknown> | undefined>()
     expectTypeOf(await docs.revision()).toEqualTypeOf<SourceRevision | undefined>()
     expectTypeOf(await dynamic.keys()).toEqualTypeOf<string[]>()
+    expectTypeOf(await useSource(github({ auth: false, repo: "acme/app" })).keys()).toEqualTypeOf<string[]>()
     expectTypeOf<SourceData<ViteHubSourceMap["meals"]>>().toEqualTypeOf<Meal>()
     expectTypeOf<SourceMetadata<ViteHubSourceMap["meals"]>>().toEqualTypeOf<MealMetadata>()
 

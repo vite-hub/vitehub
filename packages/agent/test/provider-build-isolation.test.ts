@@ -16,7 +16,6 @@ vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => 
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyNodeRuntimePackages: vi.fn(async () => undefined),
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
 const roots: string[] = []
@@ -32,8 +31,8 @@ it.each([
   { retainMetadata: false, sameRoot: false, cloneBuild: false },
   { retainMetadata: false, sameRoot: true, cloneBuild: false },
 ])("keeps Agent output in its owning catalog across environment clones %j", async ({ retainMetadata, sameRoot, cloneBuild }) => {
-  vi.stubEnv("VITEHUB_HOSTING", "netlify")
-  const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+  vi.stubEnv("VITEHUB_HOST", "netlify")
+  const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
   const configs: ResolvedConfig[] = []
   for (const name of ["first", "second"]) {
     const root = sameRoot && roots[0] ? roots[0] : await mkdtemp(join(tmpdir(), "vitehub-agent-build-isolation-"))
@@ -66,6 +65,7 @@ it.each([
     expect(contributions[0]?.rootDir).toBe(config.root)
     const write = vi.fn<ProviderDeploymentOutputWriter>(async () => undefined)
     await contributions[0]!.write({
+      addVercelRuntimePackages: () => {},
       readCloudflareState: async () => ({ wranglerConfig: {} }),
       signal: new AbortController().signal,
       write,

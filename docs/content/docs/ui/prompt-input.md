@@ -3,7 +3,7 @@ title: Prompt Input
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 24
 navigation.group: Chat
-icon: i-ph-paper-plane-tilt-light
+icon: i-lucide-send
 ---
 
 `PromptInput` is a chat input with attachments, like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input). It has a textarea that grows with its text, [Attachment](/docs/ui/attachment) parts above it, and round attach and send buttons below it. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds file paste and one `submit` payload with the text and AI SDK file parts.
@@ -13,16 +13,16 @@ icon: i-ph-paper-plane-tilt-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`. The `PromptInputSubmit` type comes from `vite-hub/ui`:
 
 ```ts
-import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { PromptInput } from "@vite-hub/ui";
+import { PromptInput } from "vite-hub/ui";
 ```
 
 ```vue
@@ -131,8 +131,11 @@ Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 | ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
 | `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and handling. |
+| `attachVariant` | `"outline" \| "ghost"`                       | `"outline"` | The attach button's look. `ghost` is a muted icon, for a box that has its own frame. |
+| `disabled`    | `boolean`                                      | `false`   | The prompt takes no input, such as when the user has no questions left. The field, the attach button, Send, and Retry are disabled. Stop stays pressable. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
+| `readonly`      | `boolean`                                     | `false`   | The text is being sent: the field is read-only, Enter does nothing, and Send shows a spinner. |
 | `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and rule. |
 | `accept`      | `string`                                       |           | File types for the picker, in `<input accept>` format. |
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |

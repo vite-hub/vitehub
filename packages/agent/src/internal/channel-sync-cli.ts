@@ -1,17 +1,23 @@
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
+import { serverVariable } from "./server-variable.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
+import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
+import type { ViteDevServer } from "vite"
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
 
 interface ChannelSyncCliContext {
   cwd: string
@@ -60,7 +66,7 @@ export interface LoadedChannelTarget {
 }
 
 /** A serializable webhook signature: a preset name, or the HMAC-SHA256 preset with its options. Verifier callbacks are omitted. */
-export type ChannelTargetSignature = string | Pick<Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>, "encoding" | "prefix" | "preset" | "secretEncoding">
+export type ChannelTargetSignature = string | Pick<Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { type: "hmac-sha256" }>, "encoding" | "prefix" | "secretEncoding" | "type">
 
 export interface LoadedChannelSyncTarget extends LoadedChannelTarget {
   sync: AgentChannelSyncProvider
@@ -120,7 +126,7 @@ function sanitizedUrl(url: string): string {
   return String(sanitizedProviderState({ url }).url)
 }
 
-const defaultWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
+const defaultWebhookRoute = "/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
   context.stdout.write(
@@ -274,7 +280,8 @@ export async function channelRegistration(
         : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.` })
   }
   const registration = matching[0]!
-  const secretToken = await resolvedChannelValue(registration.secretToken, context)
+  // A string `secret` names the server variable that holds the secret.
+  const secretToken = typeof registration.secret === "string" ? serverVariable(registration.secret) : await resolvedChannelValue(registration.secret, context)
   const result: {
     id: string
     path?: string
@@ -289,11 +296,11 @@ export async function channelRegistration(
   if (registration.secretHeader) result.secretHeader = registration.secretHeader
   if (secretToken === false || typeof secretToken === "string") result.secretToken = secretToken
   if (typeof registration.signature === "string") result.signature = registration.signature
-  else if (registration.signature && "preset" in registration.signature && registration.signature.preset === "hmac-sha256") {
+  else if (registration.signature && "type" in registration.signature && registration.signature.type === "hmac-sha256") {
     const { encoding, prefix, secretEncoding } = registration.signature
-    result.signature = { preset: "hmac-sha256", ...(encoding ? { encoding } : {}), ...(prefix ? { prefix } : {}), ...(secretEncoding ? { secretEncoding } : {}) }
+    result.signature = { type: "hmac-sha256", ...(encoding ? { encoding } : {}), ...(prefix ? { prefix } : {}), ...(secretEncoding ? { secretEncoding } : {}) }
   }
-  else if (registration.signature && "preset" in registration.signature) result.signature = registration.signature.preset
+  else if (registration.signature && "type" in registration.signature) result.signature = registration.signature.type
   if (registration.url) result.url = registration.url
   return result
 }
@@ -320,12 +327,55 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
+/**
+ * Keep Vite's server plugin lifecycle, but load modules only in a runnable SSR environment.
+ * The client container supports Vite's server APIs; Nitro workers and other runtime environments are unused.
+ */
+async function createStageModuleLoader(vite: typeof import("vite"), config: ViteStageServerConfig) {
+  const nitro = createCliDiscoveryNitroCloser()
+  let server: ViteDevServer | undefined
+  try {
+    const resolved = await vite.resolveConfig({ ...config, plugins: [nitro.plugin, {
+      name: "vite-hub/channel-stage-server",
+      configureServer: { order: "pre", handler: (value) => { server = value } },
+    }] }, "serve")
+    // Nitro's server hook requires its worker environment. Keep its config hooks and generated modules,
+    // while Vite runs the remaining plugins' configureServer hooks with a real server.
+    for (const plugin of resolved.plugins) {
+      if (plugin.name === "nitro:main") delete plugin.configureServer
+    }
+    for (const name of Object.keys(resolved.environments)) {
+      if (name !== "client" && name !== "ssr") delete resolved.environments[name]
+    }
+    resolved.environments.client.dev.createEnvironment = (name, config) => new vite.DevEnvironment(name, config, { hot: false })
+    resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
+    server = await vite.createServer(resolved)
+    const environment = server.environments.ssr
+    invariant(vite.isRunnableDevEnvironment(environment), "the Channel target loader creates its ssr environment with createRunnableDevEnvironment()")
+    const stageServer = server
+    return {
+      close: async () => {
+        try { await stageServer.close() }
+        finally { await nitro.close() }
+      },
+      config: resolved,
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await environment.runner.import(url),
+    }
+  }
+  catch (error) {
+    try { await server?.close() }
+    finally { await nitro.close() }
+    throw error
+  }
+}
+
 async function loadQueuedChannelTargets(
   input: ChannelSyncLoadInput,
   syncOnly: boolean,
 ): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const vite = await import("vite")
-  return await withViteStageServer(vite, input, async (server) => {
+  const stageVite = { createServer: async (config: ViteStageServerConfig) => await createStageModuleLoader(vite, config), loadEnv: vite.loadEnv }
+  return await withViteStageServer(stageVite, input, async (server) => {
     const targets: Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }> = []
     const stageRoot = server.config.root
     const stageServerDirs = (server.config as typeof server.config & {
@@ -506,7 +556,7 @@ export async function runAgentChannelSyncCli(
     if (parsed.apply && origin) for (const item of planned) {
       if (item.plan.action !== "delete" && item.plan.action !== "update") continue
       const currentUrl =
-        item.target.sync.currentWebhookUrl?.(item.plan) ?? (hasRuntimeType(item.plan.current.url, "string") ? item.plan.current.url : "")
+        item.target.sync.currentWebhookUrl?.(item.plan) ?? (typeof item.plan.current.url === "string" ? item.plan.current.url : "")
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {
@@ -560,7 +610,7 @@ export async function runAgentChannelSyncCli(
     return 0
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
 }

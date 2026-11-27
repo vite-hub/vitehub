@@ -1,4 +1,4 @@
-import { defineDiagnostics } from "nostics";
+import { defineDiagnostics, type InferDiagnosticCodes } from "nostics";
 import { ViteHubError, isViteHubError } from "@vite-hub/runtime";
 const messages = {
   denied: "Env access denied.",
@@ -16,7 +16,6 @@ export function envBridgeError(code: keyof typeof messages): ViteHubError {
 
 const guidance = (fix: string) => ({ why: ({ message }: { message: string }) => message, fix });
 
-/** Repair guidance that the management route adds to each bridge error body. */
 const envBridgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
@@ -38,8 +37,8 @@ export function envBridgeErrorBody(error: ViteHubError): { code: string; docs?: 
   return { code, docs: diagnostic.docs, fix: diagnostic.fix, message: error.message };
 }
 
-function isEnvBridgeDiagnosticCode(code: string): code is keyof typeof envBridgeDiagnostics {
-  return Object.hasOwn(envBridgeDiagnostics, code);
+function isEnvBridgeDiagnosticCode(code: string): code is InferDiagnosticCodes<typeof envBridgeDiagnostics> {
+  return Object.keys(envBridgeDiagnostics).includes(code);
 }
 
 export function sanitizeEnvBridgeError(error: unknown): ViteHubError {

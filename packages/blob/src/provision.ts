@@ -2,7 +2,7 @@ import {
   createCloudflareProvisionClient,
   createVercelProvisionClient,
   isShellSafeProvisionValue,
-  ProvisionRequestError,
+  isProvisionRequestError,
   resolveCloudflareProvisionConfig,
   resolveVercelProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -11,7 +11,7 @@ import { readEnv } from "@vite-hub/internal/env"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
-import type { BlobModuleOptions, CloudflareR2Jurisdiction, ResolvedBlobStoreConfig } from "./types.ts"
+import type { BlobOptions, CloudflareR2Jurisdiction, ResolvedBlobStoreConfig } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareR2Bucket {
@@ -105,7 +105,7 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, { j
     await request("/r2/buckets", { method: "POST", body: { name: bucketName }, headers })
   }
   catch (error) {
-    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
+    if (!isProvisionRequestError(error) || error.kind !== "conflict") throw error
     const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
       headers,
       parse: parseCloudflareBucket,
@@ -231,7 +231,7 @@ async function ensureVercelBlobConnection(
   catch (error) {
     // Vercel does not document the code of an existing connection, so a rejected input also reads
     // the store again. The read decides: an equivalent connection is success, anything else fails.
-    if (!(error instanceof ProvisionRequestError) || (error.kind !== "conflict" && error.kind !== "invalid")) throw error
+    if (!isProvisionRequestError(error) || (error.kind !== "conflict" && error.kind !== "invalid")) throw error
     const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
     if (current === "equivalent") return
     if (current === "mismatched") {
@@ -241,28 +241,28 @@ async function ensureVercelBlobConnection(
   }
 }
 
-function resolvedStoreEntries(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): [string, ResolvedBlobStoreConfig][] {
+function resolvedStoreEntries(options: BlobOptions | undefined, env: Record<string, string | undefined>): [string, ResolvedBlobStoreConfig][] {
   const config = resolveBlobViteConfig(options, { env })
   if (config.blob === false) return []
   return Object.entries(config.blob.stores ?? { default: config.blob.store })
 }
 
-function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
+function resolvedStores(options: BlobOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
   return resolvedStoreEntries(options, env).map(([, store]) => store)
 }
 
-export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModuleOptions | undefined): ProvisionStep {
+export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobOptions | undefined): ProvisionStep {
   return {
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
     recordedState(context) {
-      const stores = new Map(resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2"))
+      const stores = new Map(resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare"))
       return [{
         category: BLOB_R2_PROVISION_CATEGORY,
         declared: [...stores.keys()],
         declaredResourceIdentity: key => {
           const store = stores.get(key)
-          return store?.driver === "cloudflare-r2" && store.bucketName ? `r2:${store.jurisdiction ?? "default"}/${store.bucketName}` : undefined
+          return store?.driver === "cloudflare" && store.bucketName ? `r2:${store.jurisdiction ?? "default"}/${store.bucketName}` : undefined
         },
         // Older state recorded only the name, which cannot establish whether two buckets share a jurisdiction.
         resourceIdentity: ({ id }) => parseRecordedR2Bucket(id) ? `r2:${id}` : undefined,
@@ -279,7 +279,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       // A bucket name is unique only inside its jurisdiction.
       const buckets = new Map<string, CloudflareR2BucketTarget>()
       for (const [storeName, store] of resolvedStoreEntries(resolveOptions(), context.env)) {
-        if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
+        if (store.driver !== "cloudflare" || !store.bucketName) continue
         const key = `${store.jurisdiction ?? "default"}/${store.bucketName}`
         const bucket = buckets.get(key)
         if (bucket) bucket.stores.push(storeName)
@@ -316,13 +316,13 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
   }
 }
 
-export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOptions | undefined): ProvisionStep {
+export function createBlobVercelProvisionStep(resolveOptions: () => BlobOptions | undefined): ProvisionStep {
   return {
     id: "blob:vercel-blob",
     provider: "vercel",
     async plan(context) {
-      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel-blob")
-      if (!requested || requested.driver !== "vercel-blob") return []
+      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel")
+      if (!requested || requested.driver !== "vercel") return []
 
       const config = resolveVercelProvisionConfig(context.env)
       const projectId = readEnv(context.env, "VERCEL_PROJECT_ID")

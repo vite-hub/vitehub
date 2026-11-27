@@ -1,13 +1,13 @@
+import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { Diagnostic } from "nostics"
 
 import { consoleRpcHeader } from "../rpc"
 import { projectFetch } from "./project"
 
-import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
+import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode, type ConsoleDiagnosticData } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/_vitehub/api/"
-const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -58,18 +58,20 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+/** Whether the project refused a Console request with `401`, such as a signature that it does not accept. */
 export function isConsoleSignInRequired(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.status === 401
 }
 
 const textField = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined
 
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
 export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   const body = record(value)
+  // An Auth guard refusal only has the HTTP phrase as its message. The Console code and sentence of the status say more.
+  const authRefusal = record(body?.data)?.code
+  if (body?.code === undefined && (authRefusal === "SIGNED_OUT" || authRefusal === "FORBIDDEN")) return {}
   const nested = record(body?.error)
   const source = nested ?? body
   const docs = textField(source?.docs)
@@ -85,7 +87,6 @@ export function consoleErrorFields(value: unknown): ConsoleErrorFields {
 function consoleFailureFields(value: unknown): { code?: string, details?: Record<string, unknown> } {
   const body = record(value)
   return {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     code: typeof body?.code === "string" ? body.code : undefined,
     details: record(body?.details),
   }
@@ -128,12 +129,14 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "blob": { booleans: { folded: "true", showVitehub: "true" }, numbers: ["limit"], operation: "blob.list", strings: ["cursor", "prefix", "store"] },
   "channels": { operation: "channels.list" },
   "channels/conversation": { numbers: ["limit"], operation: "channels.conversation", strings: ["agent", "channel", "cursor", "thread"] },
+  "channels/deliveries": { numbers: ["limit"], operation: "channels.deliveries", strings: ["agent", "channel"] },
   "channels/export": { booleans: { media: "true" }, operation: "conversations.export", strings: ["agent", "channel", "format", "thread"] },
   "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
-  "env": { booleans: { status: "1" }, operation: "env.get" },
+  "env": { operation: "env.get" },
   "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
+  "invocations-usage": { operation: "invocations.usage", strings: ["agent", "cursor", "search", "status", "window"] },
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
   "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
@@ -141,6 +144,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "status": { operation: "status.get", strings: ["agent"] },
   "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
+  "workspace-files": { operation: "workspaces.files", strings: ["cursor", "name", "path", "ref", "revision"] },
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -204,15 +208,15 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
     if (call.method === "POST") {
       const { action, ...input } = body
-      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      if (action === "set" || action === "delete") return { input, operation: `kv.${action}` }
       return { input: { ...input, preview: true }, operation: "kv.get" }
     }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
   if (route === "blob" && call.method === "POST") {
-    // The Blob page uploads and deletes through the same route as it lists.
+    // The Blob page uploads, deletes, and opens files through the same route as it lists.
     const { action, ...input } = body
-    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    if (action === "put" || action === "delete" || action === "get") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
   if (route === "rate-limit" && call.method === "POST") {
@@ -233,16 +237,13 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
   return { input: inputFromQuery(known, call.query), operation: known.operation }
 }
 
-/** A fetch failure known to originate at the network boundary. */
-export class ConsoleNetworkError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
-    this.name = "ConsoleNetworkError"
-  }
+/** A fetch failure known to originate at the network boundary: `CONSOLE_UNAVAILABLE` with the message and cause of the fetch error. */
+export function consoleNetworkError(cause: unknown): Diagnostic<ConsoleDiagnosticData> {
+  return Object.assign(consoleDiagnostic("CONSOLE_UNAVAILABLE", cause instanceof Error ? cause.message : "Console network request failed."), { cause })
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
+  if (!(error instanceof ConsoleRequestError)) return error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE"
   const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
   if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
   return transientStatus
@@ -277,34 +278,55 @@ export async function requestConsole(
 export async function requestConsoleOperation(
   operation: string,
   input: Record<string, unknown>,
-  options: { keepalive?: boolean, signal?: AbortSignal } = {},
+  options: { keepalive?: boolean, path?: string, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  // The operation comes first so the server can find large calls within the first bytes.
-  const requestBody = JSON.stringify({ operation, input })
-  let response: Response
+  const outcome = await callOperationRpc(operation, input, async (body) => {
+    let response: Response
+    try {
+      response = await projectFetch(options.path ?? operationRpcPath, {
+        body,
+        cache: "no-store",
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        ...(options.keepalive ? { keepalive: true } : {}),
+        method: "POST",
+        signal: options.signal,
+      })
+    }
+    catch (error) {
+      // Aborted requests are intentional (for example when a view unmounts); preserve
+      // the original error so callers that ignore AbortError can do so reliably.
+      if (error instanceof Error && error.name === "AbortError") throw error
+      throw consoleNetworkError(error)
+    }
+    // The clone keeps the body readable for the error of an answer that is not a reply.
+    return { body: await response.clone().json().catch(() => undefined), response }
+  })
+  if (outcome.ok) return outcome.value
+  const { response } = outcome.answer
+  if (outcome.error) {
+    // The HTTP status of a failed response wins over the status in the body.
+    const status = !response.ok ? response.status : outcome.error.status >= 400 ? outcome.error.status : 502
+    throw new ConsoleRequestError(status, consoleErrorFields(outcome.error), consoleFailureFields(outcome.error))
+  }
+  throw await consoleResponseError(response)
+}
+
+/**
+ * Read usage that the app adds up from its journal at request time. An app that has no `invocations.usage` yet, or
+ * again after a rollback, answers with `usage.get`. Each call asks the new operation first.
+ */
+export async function requestConsoleUsage(
+  usagePath: string,
+  options: { query?: Record<string, unknown>, signal?: AbortSignal } = {},
+): Promise<unknown> {
   try {
-    response = await projectFetch(consoleRpcCallPath, {
-      body: requestBody,
-      cache: "no-store",
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      ...(options.keepalive ? { keepalive: true } : {}),
-      method: "POST",
-      signal: options.signal,
-    })
+    return await requestConsole(usagePath.replace(/\/usage$/, "/invocations-usage"), options)
   }
   catch (error) {
-    // Aborted requests are intentional (for example when a view unmounts); preserve
-    // the original error so callers that ignore AbortError can do so reliably.
-    if (error instanceof Error && error.name === "AbortError") throw error
-    throw new ConsoleNetworkError(error)
+    if (!(error instanceof ConsoleRequestError) || error.status !== 404 || error.code !== "CONSOLE_NOT_FOUND") throw error
+    return await requestConsole(usagePath, options)
   }
-  if (!response.ok) throw await consoleResponseError(response)
-  const result = record(await response.json().catch(() => undefined))
-  if (result?.ok === true) return result.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
-  throw new ConsoleRequestError(status, consoleErrorFields(result), consoleFailureFields(result))
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
@@ -316,9 +338,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function assertConsolePage(page: Record<string, unknown>): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const message = typeof page.error === "string" ? page.error : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const code = typeof page.errorCode === "string" ? page.errorCode : undefined
   if (!message && !code) return
   const error = viteHubErrorDiagnostics.VITE_HUB_R0041({ message: message ?? `Console request failed with error code ${code}.` })
@@ -347,7 +367,6 @@ export async function loadConsoleKVPages(
     if (!page) break
     assertConsolePage(page)
     pages.push(page)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
     if (cursor === undefined) {
       hasMore = false

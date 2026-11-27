@@ -2,76 +2,78 @@
 title: Workspace
 layout: landing
 navigation.title: Overview
-description: One folder of files for your server and AI agents, with rules for each path and a record of every change.
+description: One folder of files for your server and AI Agents, with rules for each path and a record of every change.
 seo.title: AI agent workspace with path rules and diffs
 navigation.order: 1
 icon: i-lucide-folder-git-2
 ---
 
 ::product-hero{tagline="A folder of files your server can read and write, with rules for each path and a record of every change." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::code-tree
-  ```ts [server/workspaces/docs.ts]
-  import { defineWorkspace, glob } from 'vite-hub/workspace'
+  :hero-figure{name="workspace"}
+::
 
-  // This file defines the docs Workspace.
-  export default defineWorkspace({
-    sources: {
-      // Markdown from your docs folder
-      docs: glob({ cwd: 'docs', include: '**/*.md' }),
-    },
-    rules: {
-      // Your files stay read-only
-      'docs/**': { write: false },
-    },
-  })
-  ```
+::code-tree
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace, glob } from 'vite-hub/workspace'
 
-  ```ts [server/workspaces/handbook.ts]
-  import { defineWorkspace, github } from 'vite-hub/workspace'
+// This file defines the docs Workspace.
+export default defineWorkspace({
+  sources: {
+    // Markdown from your docs folder
+    docs: glob({ cwd: 'docs', include: '**/*.md' }),
+  },
+  rules: {
+    // Your files stay read-only
+    'docs/**': { write: false },
+  },
+})
+```
 
-  // Files from a GitHub repository.
-  // Private repositories read GITHUB_TOKEN.
-  export default defineWorkspace({
-    sources: {
-      handbook: github({
-        repo: 'acme/handbook',
-        ref: 'main',
-      }),
-    },
-  })
-  ```
+```ts [server/workspaces/handbook.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
 
-  ```ts [server/api/docs.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { useWorkspace } from 'vite-hub/workspace'
+// Files from a GitHub repository.
+// Private repositories read GITHUB_TOKEN.
+export default defineWorkspace({
+  sources: {
+    handbook: github({
+      repo: 'acme/handbook',
+      ref: 'main',
+    }),
+  },
+})
+```
 
-  // List every Markdown file
-  export default defineEventHandler(async () => {
-    const docs = useWorkspace('docs')
-    return docs.fs.glob('**/*.md')
-  })
-  ```
+```ts [server/api/docs.get.ts]
+import { defineEventHandler } from 'h3'
+import { useWorkspace } from 'vite-hub/workspace'
 
-  ```ts [server/api/drafts.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { useWorkspace } from 'vite-hub/workspace'
+// List every Markdown file
+export default defineEventHandler(async () => {
+  const docs = useWorkspace('docs')
+  return docs.fs.glob('**/*.md')
+})
+```
 
-  // Write a draft, return the change
-  export default defineEventHandler(async () => {
-    const docs = useWorkspace('docs', { mode: 'write' })
+```ts [server/api/drafts.post.ts]
+import { defineEventHandler } from 'h3'
+import { useWorkspace } from 'vite-hub/workspace'
 
-    await docs.fs.writeFile('drafts/hello.md', '# Hello')
-    return docs.diff()
-  })
-  ```
+// Write a draft, return the change
+export default defineEventHandler(async () => {
+  const docs = useWorkspace('docs', { mode: 'write' })
 
-  ```md [docs/intro.md]
-  # Welcome
+  await docs.fs.writeFile('drafts/hello.md', '# Hello')
+  return docs.diff()
+})
+```
 
-  This file is in your project.
-  The Workspace shows it under docs/intro.md.
-  ```
-  :::
+```md [docs/intro.md]
+# Welcome
+
+This file is in your project.
+The Workspace shows it under docs/intro.md.
+```
 ::
 
 ::product-features
@@ -96,14 +98,14 @@ icon: i-lucide-folder-git-2
   :::
 
   :::product-feature-item{title="Same code in development and production" icon="i-lucide-server" to="/docs/workspace/hosts"}
-  Files stay on disk in development. Routes do not change when you deploy.
+  Files stay on disk in dev, and your routes stay the same when you deploy.
   :::
 ::
 
 ::agent-only{skill="workspace"}
 Use Workspace for persistent file-tree state, Sources, access rules, snapshots, diffs, and sessions. A Workspace is the boundary for file authority and write-back.
 
-Set the root, provider, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
+Set the root, store driver, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
 
 Prove read, scoped write, diff, and restart or provider recovery. Inspect snapshots and generated Workspace state before relying on persistence.
 ::

@@ -1,5 +1,6 @@
-import { getCloudflareRateLimitBindingName } from "../integrations/cloudflare.ts"
+import { getCloudflareRateLimitBindingName, isCloudflareRateLimitWindow } from "../integrations/cloudflare.ts"
 import { normalizeRateLimitPolicy } from "../policy.ts"
+import { resolveKVRateLimitDriver } from "./kv-provider.ts"
 
 import type { RateLimitDeclaration } from "../types.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
@@ -23,29 +24,41 @@ function namespaceId(namespace: string, rateLimitId: string): string {
   return String((hash >>> 0) || 1)
 }
 
-// Cloudflare documents `period` as 10 or 60 seconds: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+/** True when the Cloudflare Rate Limiting binding counts this Rate Limit. Other windows count in KV. */
+export function usesCloudflareBinding(declaration: RateLimitDeclaration): boolean {
+  return isCloudflareRateLimitWindow(normalizeRateLimitPolicy(declaration.policy).windowMs)
+}
+
 function cloudflareSimpleLimit(declaration: RateLimitDeclaration): { limit: number, period: 10 | 60 } {
   const policy = normalizeRateLimitPolicy(declaration.policy)
   if (policy.enforcement === "strict") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0015({ message: `Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.` })
   }
-  const period = policy.windowMs / 1_000
-  if (period !== 10 && period !== 60) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0016({ message: `Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.` })
-  }
-  return { limit: policy.limit, period }
+  // SAFETY: usesCloudflareBinding() selected a 10 or 60 second window.
+  return { limit: policy.limit, period: policy.windowMs / 1_000 as 10 | 60 }
 }
 
-/** Throws the build error for the first policy that a Cloudflare Rate Limiting binding cannot run. */
-export function assertCloudflareRateLimitPolicies(declarations: RateLimitDeclaration[]): void {
-  for (const declaration of declarations) cloudflareSimpleLimit(declaration)
+/**
+ * Throws the build error for the first policy that Cloudflare cannot run: strict enforcement on the binding, or a
+ * window other than 10 or 60 seconds when the default KV store, which uses `kvDriver`, cannot share its counts.
+ */
+export function assertCloudflareRateLimitPolicies(declarations: RateLimitDeclaration[], kvDriver: string | undefined): void {
+  for (const declaration of declarations) {
+    if (usesCloudflareBinding(declaration)) {
+      cloudflareSimpleLimit(declaration)
+      continue
+    }
+    if (resolveKVRateLimitDriver(kvDriver) === "kv") continue
+    const store = kvDriver ? `the default KV store uses ${kvDriver}, which has no shared atomic increment` : "the app has no KV store"
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0016({ message: `Rate Limit "${declaration.name}" uses ${declaration.policy.window}. Cloudflare Rate Limiting supports only 10s and 1m windows, so ViteHub counts other windows in KV, but ${store}.` })
+  }
 }
 
 export function createCloudflareRateLimitBindings(
   declarations: RateLimitDeclaration[],
   namespace: string,
 ): CloudflareRateLimitBindingConfig[] {
-  return declarations.map(declaration => ({
+  return declarations.filter(usesCloudflareBinding).map(declaration => ({
     name: getCloudflareRateLimitBindingName(declaration.name),
     namespace_id: namespaceId(namespace, declaration.name),
     simple: cloudflareSimpleLimit(declaration),

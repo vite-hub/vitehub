@@ -5,7 +5,7 @@ import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { defineAgent, defineCapability } from "../src/index.ts"
 import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
 
 const outputSchema = {
@@ -19,7 +19,7 @@ const outputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return isRuntimeRecord(value) && hasRuntimeType(value.text, "string")
+      return isRuntimeRecord(value) && typeof value.text === "string"
         ? { value: { text: value.text } }
         : { issues: [{ message: "Expected text to be a string" }] }
     },
@@ -40,9 +40,9 @@ function model(responses: ModelResponse[]) {
       calls.push(options)
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
-      const resolved = hasRuntimeType(response, "function") ? await response(options) : response
+      const resolved = typeof response === "function" ? await response(options) : response
       return {
-        content: hasRuntimeType(resolved, "string") ? [{ text: resolved, type: "text" }] : resolved,
+        content: typeof resolved === "string" ? [{ text: resolved, type: "text" }] : resolved,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -95,7 +95,7 @@ const toolInputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return isRuntimeRecord(value) && hasRuntimeType(value.query, "string")
+      return isRuntimeRecord(value) && typeof value.query === "string"
         ? { value: { query: value.query } }
         : { issues: [{ message: "Expected query to be a string" }] }
     },
@@ -110,7 +110,7 @@ function languageModel(fakeModel: ReturnType<typeof model>) {
 }
 
 function textResult(result: unknown): { text: string } {
-  if (!isRuntimeRecord(result) || !hasRuntimeType(result.text, "string")) {
+  if (!isRuntimeRecord(result) || typeof result.text !== "string") {
     throw new TypeError("Expected a text Agent result")
   }
   return { text: result.text }
@@ -207,7 +207,7 @@ describe("AI SDK recovery", () => {
     await expect(runAgentInline(agent, runtime, {
       executionBudget: { maxRetries: 1 },
       prompt: "Respond",
-    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    })).rejects.toMatchObject({ counter: "retries", code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" })
     expect(fakeModel.calls).toHaveLength(2)
   })
 
@@ -242,7 +242,7 @@ describe("AI SDK recovery", () => {
     await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn()), runtime, {
       executionBudget: { maxRetries: 0 },
       prompt: "Search",
-    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    })).rejects.toMatchObject({ counter: "retries", code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" })
     expect(fakeModel.calls).toHaveLength(1)
   })
 
@@ -256,7 +256,7 @@ describe("AI SDK recovery", () => {
     await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(), repair), runtime, {
       executionBudget: { maxRetries: 0 },
       prompt: "Search",
-    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    })).rejects.toMatchObject({ counter: "retries", code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" })
     expect(repair).not.toHaveBeenCalled()
     expect(fakeModel.calls).toHaveLength(1)
   })
@@ -274,7 +274,7 @@ describe("AI SDK recovery", () => {
     if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
     await expect((async () => {
       for await (const _event of result) { /* consume until the budget error aborts the stream */ }
-    })()).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    })()).rejects.toMatchObject({ counter: "retries", code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" })
     expect(repair).not.toHaveBeenCalled()
     expect(fakeModel.calls).toHaveLength(1)
   })
@@ -356,7 +356,7 @@ describe("AI SDK recovery", () => {
     await expect(consume().catch((error: unknown) => {
       terminalError = error
       throw error
-    })).rejects.toMatchObject({ name: "ExecutionBudgetExceededError", counter: "retries", limit: 1 })
+    })).rejects.toMatchObject({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED", counter: "retries", limit: 1 })
     expect(fakeModel.calls.at(-1)?.abortSignal?.aborted).toBe(true)
     expect(fakeModel.calls.at(-1)?.abortSignal?.reason).toBe(terminalError)
     expect(events).not.toContainEqual(expect.objectContaining({ type: "finish" }))
@@ -385,7 +385,7 @@ describe("AI SDK recovery", () => {
     await expect(consume().catch((error: unknown) => {
       terminalError = error
       throw error
-    })).rejects.toMatchObject({ name: "ExecutionBudgetExceededError", counter: "outputBytes", limit: 1 })
+    })).rejects.toMatchObject({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED", counter: "outputBytes", limit: 1 })
     expect(fakeModel.calls.at(-1)?.abortSignal?.aborted).toBe(true)
     expect(fakeModel.calls.at(-1)?.abortSignal?.reason).toBe(terminalError)
     expect(events).not.toContainEqual(expect.objectContaining({ type: "text-delta" }))
@@ -434,7 +434,7 @@ describe("AI SDK recovery", () => {
     if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
     await expect((async () => {
       for await (const _event of result) { /* consume until the budget error aborts the stream */ }
-    })()).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    })()).rejects.toMatchObject({ counter: "retries", code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" })
     expect(fakeModel.calls).toHaveLength(1)
   })
 

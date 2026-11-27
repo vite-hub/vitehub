@@ -17,7 +17,7 @@ async function createTempProject() {
 }
 
 async function writeDefinition(rootDir: string, name: string, cloudflare: string) {
-  const file = join(rootDir, "server", "databases", name, "config.ts")
+  const file = join(rootDir, "server", "databases", name, "index.ts")
   const table = `${name.replace(/[^a-z0-9_]/gi, "_")}Items`
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
@@ -225,7 +225,7 @@ describe("Cloudflare D1 binding projections", () => {
     for (const name of ["alpha", "beta"]) {
       await writeDefinition(rootDir, name, `databaseId: '${name}-id', databaseName: '${name}-db',`)
     }
-    const config = resolveDBViteConfig({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db" }, rootDir)!
+    const config = resolveDBViteConfig({ driver: "cloudflare", binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db" }, rootDir)!
 
     expect(resolveCloudflareD1Bindings(config).d1Databases).toMatchObject([
       { binding: "DB_ALPHA", database_id: "alpha-id", database_name: "alpha-db" },
@@ -304,7 +304,7 @@ describe("Cloudflare D1 binding projections", () => {
 })
 
 describe("resolveDevRemoteConfig", () => {
-  const base = { connection: { url: "file:.vitehub/data/database/sqlite.db" }, drizzle: {}, name: "default" }
+  const base = { connection: { url: "file:.vitehub/data/database/sqlite.db" }, name: "default" }
 
   it("keeps local SQLite when nothing asks for the remote database", () => {
     const config = { ...base, cloudflare: { binding: "DB", databaseId: "database-id" } }

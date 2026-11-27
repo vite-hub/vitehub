@@ -6,16 +6,15 @@
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/ui": "workspace:*",
     "vue": "catalog:ui",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@iconify-json/ph": "catalog:ui",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

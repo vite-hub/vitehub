@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 
 /**
@@ -10,7 +11,7 @@ export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
   icon: "i-vitehub-email",
   id: "email",
   label: "Email",
-  runtime: { export: "readEmailOutboxConsoleRecords", module: "@vite-hub/email/runtime/console" },
+  runtime: { export: "readEmailOutboxConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [
       { key: "subject", label: "Subject" },
@@ -20,6 +21,6 @@ export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
       { key: "captured", label: "Captured" },
     ],
     kind: "record-table",
-    notice: "Messages come from the in-memory development outbox of this server runtime on each request. The outbox exists only in `vite dev`, keeps the newest messages up to its limit, and a restart clears it. HTML is shown as escaped source and is never rendered. Use `vitehub email outbox show <id> --html` for the full source.",
+    notice: "Messages come from the in-memory development outbox of this server runtime on each request. The outbox exists only in `vite dev`, keeps the newest messages up to its limit, and a restart clears it. HTML is shown as escaped source and is never rendered. Use `vitehub email outbox get <id> --html` for the full source.",
   },
 }

@@ -1,3 +1,4 @@
+import { configuredConsoleOrigin } from "./hosted-console-origin.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */
@@ -34,46 +35,50 @@ function applicationBasePath(): string {
   return segments.length ? `/${segments.join("/")}` : ""
 }
 
-function configuredAgentUrl(config: PublicUrlConfig, name: string): string | undefined {
-  return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
+/**
+ * The origins of `vitehub({ publicUrl })`: the one origin, or the origin of each Agent of the function form. Empty when
+ * `publicUrl` is not set, such as in `vite dev` without a signed Console.
+ */
+export function configuredPublicOrigins(): string[] {
+  const config = publicUrlConfig()
+  return config.url ? [config.url] : [...new Set(Object.values(config.agents ?? {}))]
 }
 
-function isInternalRequestHost(hostname: string): boolean {
-  const host = hostname.toLowerCase()
-  if (host === "internal") return true
-  if (host.endsWith(".internal") || host.endsWith(".svc")) return true
-  const octets = host.split(".").map(Number)
-  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
-  return octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168)
+function configuredAgentUrl(config: PublicUrlConfig, name: string): string | undefined {
+  return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
 }
 
 /**
  * Resolve the public origin of this deployment.
  *
- * Order: the Agent's origin from `vitehub({ publicUrl })`, the single configured
- * origin, the configured origin with the same host as the request, the configured
- * origin for an internal request host, and then the request origin.
+ * A configured origin always wins over the request: the single `vitehub({ publicUrl })` origin, then the origin of
+ * the Agent, then, for a request, the configured origin with the same host as the request or the only configured origin. When
+ * `publicUrl` configures several origins and none of them fits, the result is `undefined`: the request Host cannot
+ * name a new origin. Only when nothing is configured, such as in `vite dev`, the request origin is the result.
+ * Set `configuredOnly` when the request must not supply it in that case either.
  */
-export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url"> }): string
-export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url"> }): string | undefined
-export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url"> } = {}): string | undefined {
+export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url">, configuredOnly?: boolean } = {}): string | undefined {
   const config = publicUrlConfig()
+  if (config.url) return config.url
   const discoveredName = options.agentName ? publicUrlAgentNames.get(options.agentName) : undefined
   const agentUrl = options.agentName
     ? configuredAgentUrl(config, options.agentName) ?? (discoveredName ? configuredAgentUrl(config, discoveredName) : undefined)
     : undefined
-  if (config.url) return config.url
-  if (!options.request) return agentUrl
+  if (agentUrl || !options.request) return agentUrl
   const request = new URL(options.request.url)
-  const configuredAgents = Object.values(config.agents ?? {})
-  const requestHostUrl = configuredAgents.find(url => new URL(url).host === request.host)
-  if (requestHostUrl) return requestHostUrl
-  if (isInternalRequestHost(request.hostname)) return agentUrl ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
-  return request.origin
+  const configured = [...new Set(Object.values(config.agents ?? {}))]
+  if (configured.length) return configured.find(url => new URL(url).host === request.host) ?? (configured.length === 1 ? configured[0] : undefined)
+  return options.configuredOnly ? undefined : request.origin
 }
 
-/** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */
+/**
+ * Build the hosted Console URL that opens one Agent invocation, such as
+ * `https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid`.
+ * `origin` must not include the application base path. The hosted Console checks the project URL when it opens the link.
+ * A self-hosted Console of `vitehub({ console: { url } })` replaces the hosted origin.
+ */
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
-  const path = `${applicationBasePath()}/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  return new URL(path, origin).href
+  const project = `${new URL(origin).origin}${applicationBasePath()}`
+  const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
+  return `${configuredConsoleOrigin()}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }

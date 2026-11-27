@@ -1,21 +1,21 @@
-import { forgeGitCredentials } from "@vite-hub/forge"
 import { defineCachedFunction } from "ocache"
 
 import { sourceError } from "../../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../../core/path.ts"
-import { matchesAny } from "../path.ts"
+import { createPathMatcher } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
-import { createGitHubClient, githubEnvToken, githubErrorStatus } from "./client.ts"
+import { createGitHubClient, githubEnvToken, githubErrorStatus, loadForge } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
-import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubFile, GitHubSourceOptions } from "./types.ts"
+import { normalizeGitHubRoot } from "./root.ts"
 
-function normalizeGitHubRoot(path = "") {
-  const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
-  return normalizeSafeSourcePath(root, { allowEmpty: true, allowReserved: true }).split("/").filter(Boolean).join("/")
-}
+import type { SourceContext, SourceRevision } from "../../core/types.ts"
+import type { GitHubFile, GitHubFileCommit, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
+
+const historyBatch = 150
+const historyBatchMin = 20
+const historyConcurrency = 4
 
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
@@ -42,7 +42,7 @@ async function waitForCachedGitHubResult<TResult>(load: () => Promise<TResult>, 
   })
 }
 
-export function github(options: GitHubSourceOptions): FileSource<string> {
+export function github(options: GitHubSourceOptions): GitHubSource {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
@@ -66,18 +66,15 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   function keyForRepoPath(path: string) {
-    let normalized: string
     try {
-      normalized = normalizeSafeSourcePath(path)
+      const normalized = normalizeSafeSourcePath(path)
+      if (!root) return normalized
+      if (!normalized.startsWith(`${root}/`)) return
+      return normalizeSafeSourcePath(normalized.slice(root.length + 1))
     }
     catch {
       return
     }
-    if (!root) return normalized
-    if (!normalized.startsWith(`${root}/`)) return undefined
-    const key = normalized.slice(root.length + 1)
-    if (!key || key.startsWith("/")) return undefined
-    return normalizeSafeSourcePath(key)
   }
 
   function repoPathForKey(key: string) {
@@ -85,10 +82,20 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return root ? `${root}/${normalized}` : normalized
   }
 
-  function shouldInclude(key: string) {
-    if (options.include && !matchesAny(key, options.include)) return false
-    if (options.ignore && matchesAny(key, options.ignore)) return false
-    return true
+  function keyFilter() {
+    const include = createPathMatcher(options.include)
+    const ignore = options.ignore ? createPathMatcher(options.ignore) : () => false
+    return (key: string) => include(key) && !ignore(key)
+  }
+
+  function sourceKeys(paths: readonly string[]) {
+    const shouldInclude = keyFilter()
+    const keys = new Set<string>()
+    for (const path of paths) {
+      const key = keyForRepoPath(path)
+      if (key && shouldInclude(key)) keys.add(key)
+    }
+    return [...keys]
   }
 
   async function resolveRef(token: string | undefined) {
@@ -117,7 +124,6 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
   }
 
-  // Rate limited API reads fall back to the archive. Anonymous archives come from codeload, which has no API limit.
   function shouldResolveMainFallback(error: unknown) {
     const status = githubErrorStatus(error)
     return status === 403 || status === 429
@@ -148,8 +154,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     await client.resolveCommit(configuredRef, token)
   }
 
-  async function loadArchiveFiles(token: string | undefined, resolvedRef?: string) {
-    const ref = resolvedRef ?? await getRef(token)
+  async function loadArchiveFiles(token: string | undefined, ref: string, shouldInclude: (key: string) => boolean) {
     return parseGitHubArchive(await client.archive(ref, token))
       .map((entry): GitHubFile<string> | undefined => {
         const key = keyForRepoPath(entry.path)
@@ -167,10 +172,11 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
 
   async function loadFiles(token: string | undefined, resolvedRef?: string) {
     const ref = resolvedRef ?? await getRef(token)
+    const shouldInclude = keyFilter()
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
-          credentials: forgeGitCredentials({ forge: "github", repository: options.repo, token }),
+          credentials: (await loadForge()).forgeGitCredentials({ forge: "github", repository: options.repo, token }),
           keyForRepoPath,
           ref,
           shouldInclude,
@@ -180,7 +186,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       }
       catch {}
     }
-    return await loadArchiveFiles(token, ref)
+    return await loadArchiveFiles(token, ref, shouldInclude)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<string>[]>>()
@@ -211,7 +217,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     catch {
       return
     }
-    if (!normalizedKey || !shouldInclude(normalizedKey)) return
+    if (!normalizedKey || !keyFilter()(normalizedKey)) return
     const ref = resolvedRef ?? await getRef(token)
     const repoPath = repoPathForKey(normalizedKey)
     let file: Awaited<ReturnType<typeof client.metadata>>
@@ -254,7 +260,6 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
         () => loadFileMetadata(key, token, resolvedRef),
       )
 
-  // A missing path and a missing ref both answer 404.
   function isGitHubAccessError(error: unknown) {
     return githubErrorStatus(error) === 404
   }
@@ -267,7 +272,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     catch {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
-    if (!normalizedKey || !shouldInclude(normalizedKey)) {
+    if (!normalizedKey || !keyFilter()(normalizedKey)) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
     const ref = resolvedRef ?? await getRef(token, signal)
@@ -319,6 +324,73 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       root,
     },
     name: "github",
+    async authenticated() {
+      return Boolean(await resolveAuth())
+    },
+    async history(key, historyOptions) {
+      return await client.commits(repoPathForKey(normalizeSafeSourcePath(key)), historyOptions, await resolveAuth())
+    },
+    async latest(keys, latestOptions) {
+      const token = await resolveAuth()
+      const paths = keys.map(key => repoPathForKey(normalizeSafeSourcePath(key)))
+      const found = new Map<string, GitHubFileCommit>()
+      async function read(start: number, end: number): Promise<void> {
+        try {
+          const commits = await client.latestCommits(paths.slice(start, end), latestOptions.sha, token)
+          commits.forEach((commit, index) => commit && found.set(keys[start + index]!, commit))
+        }
+        catch (error) {
+          const status = githubErrorStatus(error)
+          if ((status !== 502 && status !== 504) || end - start <= historyBatchMin) throw error
+          const middle = start + Math.ceil((end - start) / 2)
+          await Promise.all([read(start, middle), read(middle, end)])
+        }
+      }
+      const batches = Array.from({ length: Math.ceil(paths.length / historyBatch) }, (_, index) => index * historyBatch)
+      let next = 0
+      await Promise.all(Array.from({ length: Math.min(historyConcurrency, batches.length) }, async () => {
+        while (next < batches.length) {
+          const start = batches[next++]!
+          await read(start, Math.min(start + historyBatch, paths.length))
+        }
+      }))
+      return found
+    },
+    async changes(base, head) {
+      const paths = await client.changedPaths(base, head, await resolveAuth())
+      if (!paths) return
+      return sourceKeys(paths)
+    },
+    async pullChanges(number) {
+      const paths = await client.pullPaths(number, await resolveAuth())
+      if (!paths) return
+      return sourceKeys(paths)
+    },
+    async resolveRef(ref, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      if ("pull" in ref) {
+        const pull = await client.pull(ref.pull, token, signal)
+        return pull && { sha: pull.sha, pull: pull.pull }
+      }
+      const sha = "branch" in ref ? await client.branch(ref.branch, token, signal) : await client.commit(ref.sha, token, signal)
+      return sha === undefined ? undefined : { sha }
+    },
+    async contains(sha, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const base = configuredRef ?? await client.defaultBranch(token, signal)
+      const status = await client.compare(base, sha, token, signal)
+      return status === "identical" || status === "behind"
+    },
+    async pullsAt(sha, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const at = (entries: Array<{ sha: string, pull: GitHubPullRequest }>) => entries.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
+      const pulls = at(await client.commitPulls(sha, token, signal))
+      if (pulls.length) return pulls
+      return at(await client.openPulls(token, signal))
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)

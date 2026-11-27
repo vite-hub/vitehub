@@ -1,3 +1,5 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+
 /**
  * Shared checks for the `extends: preset` and `extends: [preset, options]` forms. Each package keeps its own merge
  * rules; these helpers only validate the selection shape and option keys so every product reports them the same way.
@@ -13,7 +15,6 @@ export interface PresetSelection {
 /** Whether a value is a plain options object: an object literal or a null-prototype record. */
 export function isPresetOptionsRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || Object(value) !== value || Array.isArray(value)) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preset options are untyped input; this boundary rejects callables.
   if (typeof value !== "object") return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
@@ -26,7 +27,7 @@ export function isPresetOptionsRecord(value: unknown): value is Record<string, u
 export function readPresetSelection(extension: unknown, owner: string): PresetSelection {
   if (!Array.isArray(extension)) return { preset: extension }
   if (extension.length !== 2 || !isPresetOptionsRecord(extension[1])) {
-    throw new TypeError(`[vitehub] ${owner} extends tuple requires [preset, options] with an options object.`)
+    throw internalErrorDiagnostics.INTERNAL_PRESET_TUPLE_INVALID({ owner })
   }
   return { preset: extension[0], options: extension[1] }
 }
@@ -36,9 +37,8 @@ export function readPresetSelection(extension: unknown, owner: string): PresetSe
  * `Unknown <label> option "<key>".`, such as `Agent preset`.
  */
 export function assertKnownPresetOptions(defaults: unknown, supplied: Record<string, unknown>, label: string): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preset defaults are untyped input; only plain objects declare options.
   if (defaults === null || typeof defaults !== "object") return
   for (const key of Object.keys(supplied)) {
-    if (!Object.hasOwn(defaults, key)) throw new TypeError(`[vitehub] Unknown ${label} option "${key}".`)
+    if (!Object.hasOwn(defaults, key)) throw internalErrorDiagnostics.INTERNAL_PRESET_OPTION_UNKNOWN({ key, label })
   }
 }

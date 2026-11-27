@@ -23,76 +23,93 @@ export interface EmailTag {
   value: string
 }
 
-export interface EmailPersonalization {
-  to: EmailAddressList
-  cc?: EmailAddressList
-  bcc?: EmailAddressList
-  subject?: string
-  variables?: Record<string, unknown>
-  sendAt?: Date | string
-  customArgs?: Record<string, string>
-}
-
-export interface EmailDsnOptions {
-  notify?: readonly ("SUCCESS" | "FAILURE" | "DELAY" | "NEVER")[]
-  ret?: "FULL" | "HDRS"
-  envid?: string
-  orcpt?: string
-}
-
-export interface EmailTemplateOptions {
-  id?: string
-  alias?: string
-  variables?: Record<string, unknown>
-  locale?: string
-}
-
-export interface EmailTrackingOptions {
-  opens?: boolean
-  clicks?: boolean
-  unsubscribes?: boolean
-}
-
 export interface EmailUnsubscribeOptions {
   url?: string
   mailto?: string
   oneClick?: boolean
 }
 
-export interface EmailMessage {
+/** The body of a message. Each message has `text`, `html`, or both. Render templates to these strings before you send. */
+export type EmailBody =
+  | { text: string, html?: string }
+  | { html: string, text?: string }
+
+/** The fields of a message other than its body. */
+export interface EmailEnvelope {
   from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
   bcc?: EmailAddressList
   replyTo?: EmailAddressList
   subject: string
-  preheader?: string
-  text?: string
-  html?: string
   headers?: Record<string, string>
   attachments?: readonly EmailAttachment[]
   tags?: readonly EmailTag[]
   idempotencyKey?: string
   scheduledAt?: string | Date
   unsubscribe?: EmailUnsubscribeOptions
-  template?: EmailTemplateOptions
-  tracking?: EmailTrackingOptions
-  sandbox?: boolean
   metadata?: Record<string, string>
-  personalizations?: readonly EmailPersonalization[]
-  amp?: string
-  dsn?: EmailDsnOptions
-  raw?: string | Uint8Array
-  react?: unknown
-  jsx?: unknown
-  mjml?: string
-  handlebars?: string
-  handlebarsVars?: Record<string, unknown>
-  liquid?: string
-  liquidVars?: Record<string, unknown>
-  locale?: string
-  stream?: string
 }
+
+/**
+ * A message that ViteHub Email sends. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` are sent only by the
+ * Resend driver. The Cloudflare Email driver rejects them.
+ */
+export type EmailMessage = EmailBody & EmailEnvelope
+
+/**
+ * What every Email template returns. `subject` is set when the template has one, such as `subject:` frontmatter in
+ * Markdown.
+ */
+export interface RenderedEmail {
+  subject?: string
+  html: string
+  text: string
+}
+
+/**
+ * The templates under `server/emails`, by name. `.vitehub/types/email-templates.d.ts` adds each template with the
+ * `data` type that it reads, and `subject: true` when the template sets its own subject.
+ */
+export interface EmailTemplateRegistry {}
+
+/** The name of a template under `server/emails`, for example `welcome` or `monthly/recap`. */
+export type EmailTemplateName = Extract<keyof EmailTemplateRegistry, string>
+
+interface EmailTemplateEntry {
+  data: unknown
+  subject: boolean
+}
+
+type EmailTemplateEntryOf<TName extends EmailTemplateName> = EmailTemplateRegistry[TName] extends EmailTemplateEntry
+  ? EmailTemplateRegistry[TName]
+  : never
+
+type EmailTemplateData<TData> = {} extends TData
+  ? { data?: TData }
+  : { data: TData }
+
+type EmailTemplateSubject<TSubject extends boolean> = TSubject extends true
+  ? { subject?: string }
+  : { subject: string }
+
+/**
+ * A message whose body `email.send()` renders from a template under `server/emails`. `subject` overrides the subject
+ * of the template, and is required when the template has none.
+ */
+export type EmailTemplateMessage<TName extends EmailTemplateName = EmailTemplateName> = {
+  [TTemplate in TName]: Omit<EmailEnvelope, "subject">
+    & EmailTemplateData<EmailTemplateEntryOf<TTemplate>["data"]>
+    & EmailTemplateSubject<EmailTemplateEntryOf<TTemplate>["subject"]>
+    & {
+      template: TTemplate
+      html?: never
+      text?: never
+    }
+}[TName]
+
+/** What `email.send()` takes: a message with a body, or a template name and its `data`. */
+export type EmailSendMessage = (EmailMessage & { template?: undefined }) | EmailTemplateMessage
 
 /**
  * `NOT_CONFIGURED` marks invalid driver options, for example a missing API key. `INVALID_OPTIONS` marks a message
@@ -121,19 +138,18 @@ export interface EmailProviderResult {
   driver: string
   id: string
   provider?: Record<string, unknown>
-  stream?: string
 }
 
+/** What `EmailDriver.send()` returns: `[error, data]`, the same order as `email.send()`. */
 export type EmailDriverResult =
-  | { data: EmailProviderResult, error: null }
-  | { data: null, error: EmailProviderError }
+  | [error: undefined, data: EmailProviderResult]
+  | [error: EmailProviderError, data: undefined]
 
 export interface EmailDriverContext {
   attempt: number
   driver: string
   meta: Record<string, unknown>
   signal?: AbortSignal
-  stream?: string
 }
 
 export interface EmailDriver {
@@ -161,12 +177,14 @@ export type EmailErrorCode =
   | "EMAIL_NETWORK"
   | "EMAIL_PROVIDER_FAILED"
   | "EMAIL_RATE_LIMITED"
+  | "EMAIL_TEMPLATE_RENDER_FAILED"
   | "EMAIL_TIMEOUT"
 
-export interface EmailClient {
+/** `createEmail()` clients take an `EmailMessage`. The `email` helper also takes an `EmailTemplateMessage`. */
+export interface EmailClient<TMessage = EmailMessage> {
   /**
    * Sends one message and returns `[error, data]`. `data` tells that the provider accepted the message.
    * `EMAIL_NOT_CONFIGURED` and an invalid driver throw, because the config must change.
    */
-  send: (message: EmailMessage) => Promise<Result<EmailSendResult, EmailErrorCode>>
+  send: (message: TMessage) => Promise<Result<EmailSendResult, EmailErrorCode>>
 }

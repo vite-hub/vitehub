@@ -1,29 +1,16 @@
-import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it } from "vitest"
+import { runOperation } from "@vite-hub/internal/operations"
 
-import {
-  consoleDefinitionsKey,
-  consoleDefinitionsRegistryKey,
-  consoleDefinitionsRootKey,
-  installConsoleDefinitionScope,
-  resolveConsoleDefinitions,
-} from "../src/console/internal.ts"
-import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
+import { consoleState } from "../src/console/internal.ts"
+import { listConsoleDefinitions } from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
+import { consoleOperationRegistry } from "../src/console/runtime/server/operation-contributions.ts"
 
 import type { ConsoleDefinitionSummary, ConsoleSectionCatalog } from "../src/console/runtime/definitions.ts"
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
-import { allowed } from "./support/console-access.ts"
-import { consoleEvent } from "./console-event.ts"
+import { consoleAccess } from "./support/console-access.ts"
 
-const definitionsHandler = allowed(definitionsHandlerRoute)
-
-// SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
-const scope = globalThis as ConsoleInvocationScope
-
-function event(query = "", method = "GET"): ConsoleRequestEvent {
-  return consoleEvent({ method, url: `http://localhost/_vitehub/api/definitions${query}` })
+async function definitions(section: string) {
+  return listConsoleDefinitions({ section }, await consoleAccess())
 }
 
 function catalog(name: string): ConsoleSectionCatalog["content"] {
@@ -41,7 +28,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
       ],
       file: `server/databases/${name}.ts`,
       name,
-      source: "server-database-default",
+      source: "server-databases",
     }],
     queues: [{
       fields: [],
@@ -96,18 +83,14 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
 }
 
 afterEach(() => {
-  delete scope[consoleDefinitionsKey]
-  delete scope[consoleDefinitionsRootKey]
-  Reflect.deleteProperty(process, consoleDefinitionsKey)
-  Reflect.deleteProperty(process, consoleDefinitionsRootKey)
-  Reflect.deleteProperty(process, consoleDefinitionsRegistryKey)
+  delete consoleState().definitions
 })
 
 describe("Console definition inspection", () => {
   it("returns the installed read-only Workflow Definition catalog", async () => {
     installConsoleDefinitions("/project", catalog("release"))
 
-    expect(await definitionsHandler(event("?section=workflows"))).toEqual({
+    expect(await definitions("workflows")).toEqual({
       definitions: [{
         fields: [{ label: "Steps", value: "prepare, publish" }],
         file: "server/workflows/release.workflow.ts",
@@ -117,7 +100,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "workflows",
     })
-    expect(await definitionsHandler(event("?section=databases"))).toEqual({
+    expect(await definitions("databases")).toEqual({
       definitions: [{
         fields: [
           { label: "Mode", value: "Default" },
@@ -125,12 +108,12 @@ describe("Console definition inspection", () => {
         ],
         file: "server/databases/release.ts",
         name: "release",
-        source: "server-database-default",
+        source: "server-databases",
       }],
       kind: "definition-catalog",
       section: "databases",
     })
-    expect(await definitionsHandler(event("?section=rate-limits"))).toEqual({
+    expect(await definitions("rate-limits")).toEqual({
       definitions: [{
         fields: [
           { label: "Limit", value: "10" },
@@ -146,7 +129,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "rate-limits",
     })
-    expect(await definitionsHandler(event("?section=workspaces"))).toEqual({
+    expect(await definitions("workspaces")).toEqual({
       definitions: [{
         fields: [
           { label: "Kind", value: "Workspace Definition" },
@@ -159,7 +142,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "workspaces",
     })
-    expect(await definitionsHandler(event("?section=queues"))).toEqual({
+    expect(await definitions("queues")).toEqual({
       definitions: [{
         fields: [],
         file: "server/queues/release.ts",
@@ -169,7 +152,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "queues",
     })
-    expect(await definitionsHandler(event("?section=schedules"))).toEqual({
+    expect(await definitions("schedules")).toEqual({
       definitions: [{
         fields: [
           { label: "Kind", value: "Static schedule" },
@@ -183,7 +166,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "schedules",
     })
-    expect(await definitionsHandler(event("?section=sandbox-tasks"))).toEqual({
+    expect(await definitions("sandbox-tasks")).toEqual({
       definitions: [{
         fields: [{ label: "Kind", value: "Definition" }],
         file: "src/release.sandbox-task.ts",
@@ -195,15 +178,14 @@ describe("Console definition inspection", () => {
     })
   })
 
-  it("validates methods and definition sections", async () => {
+  it("validates definition sections", async () => {
     installConsoleDefinitions("/project", { workflows: { definitions: [], kind: "definition-catalog" } })
 
-    await expect(definitionsHandler(event("?section=workflows", "POST"))).rejects.toThrow(expect.objectContaining({ statusCode: 405 }))
-    // Console access cannot scope a request without a section, so it rejects the request before the route runs.
-    await expect(definitionsHandlerRoute(event())).resolves.toMatchObject({ status: 403 })
-    await expect(definitionsHandler(event("?section=Future"))).rejects.toThrow(expect.objectContaining({ statusCode: 400 }))
-    await expect(definitionsHandler(event("?section=future"))).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))
-    await expect(definitionsHandler(event("?section=constructor"))).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))
+    // Console access cannot scope a call without a section, so it rejects the call before the reader runs.
+    await expect(runOperation(consoleOperationRegistry(), "definitions.list", { section: "" }, { access: await consoleAccess(), surface: "console", user: null })).resolves.toMatchObject({ ok: false, status: 403 })
+    await expect(definitions("Future")).rejects.toThrow(expect.objectContaining({ statusCode: 400 }))
+    await expect(definitions("future")).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))
+    await expect(definitions("constructor")).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))
   })
 
   it("merges request-time records into record-table sections", async () => {
@@ -222,7 +204,7 @@ describe("Console definition inspection", () => {
       workflows: () => [{ cells: {}, fields: [], id: "ignored" }],
     })
 
-    expect(await definitionsHandler(event("?section=schedules"))).toEqual({
+    expect(await definitions("schedules")).toEqual({
       kind: "record-table",
       records: [
         { cells: { schedule: "daily" }, fields: [], id: "definition:daily" },
@@ -230,10 +212,10 @@ describe("Console definition inspection", () => {
       ],
       section: "schedules",
     })
-    expect(await definitionsHandler(event("?section=workflows"))).toEqual({ definitions: [], kind: "definition-catalog", section: "workflows" })
+    expect(await definitions("workflows")).toEqual({ definitions: [], kind: "definition-catalog", section: "workflows" })
 
     runtimeRecords = []
-    expect(await definitionsHandler(event("?section=schedules"))).toEqual({
+    expect(await definitions("schedules")).toEqual({
       kind: "record-table",
       records: [
         { cells: { schedule: "daily" }, fields: [], id: "definition:daily" },
@@ -261,7 +243,7 @@ describe("Console definition inspection", () => {
       }],
     })
 
-    expect(await definitionsHandler(event("?section=schedules"))).toEqual({
+    expect(await definitions("schedules")).toEqual({
       kind: "record-table",
       records: [{
         cells: { manual: "No", schedule: "brief", timing: "15 6 * * 1-5 (Europe/Madrid)" },
@@ -279,62 +261,8 @@ describe("Console definition inspection", () => {
       },
     })
 
-    const failure = definitionsHandler(event("?section=schedules"))
+    const failure = definitions("schedules")
     await expect(failure).rejects.toThrow(expect.objectContaining({ statusCode: 503, statusMessage: "Runtime records are unavailable." }))
     await expect(failure).rejects.not.toThrow(/secret/)
-  })
-
-  it("resolves a refreshed project catalog before an older local fallback", () => {
-    const processRegistry = {}
-    const firstScope: ConsoleInvocationScope = { process: processRegistry }
-    const nextScope: ConsoleInvocationScope = { process: processRegistry }
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const next: ConsoleSectionCatalog = { content: catalog("next"), sections: [] }
-
-    expect(installConsoleDefinitionScope("/project", first, firstScope)).toBe(first)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBe(first)
-    installConsoleDefinitionScope("/project", next, nextScope)
-
-    expect(resolveConsoleDefinitions(firstScope)).toBe(next)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBe(next)
-    expect(resolveConsoleDefinitions({ [consoleDefinitionsKey]: first })).toBe(first)
-  })
-
-  it("retains catalogs registered through a different JavaScript realm", () => {
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const second: ConsoleSectionCatalog = { content: catalog("second"), sections: [] }
-    const foreignRegistry: unknown = runInNewContext("new Map(entries)", { entries: [["/first", first]] })
-    const processRegistry = { [consoleDefinitionsRegistryKey]: foreignRegistry }
-    const scope: ConsoleInvocationScope = { process: processRegistry }
-
-    installConsoleDefinitionScope("/second", second, scope)
-
-    expect(resolveConsoleDefinitions({ process: processRegistry, [consoleDefinitionsRootKey]: "/first" })).toBe(first)
-    expect(resolveConsoleDefinitions(scope)).toBe(second)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBeUndefined()
-  })
-
-  it("uses the local catalog when the shared process has no matching project", () => {
-    const processRegistry = {}
-    const local: ConsoleSectionCatalog = { content: catalog("local"), sections: [] }
-    const scope: ConsoleInvocationScope = { [consoleDefinitionsKey]: local, [consoleDefinitionsRootKey]: "/local", process: processRegistry }
-    installConsoleDefinitionScope("/other", { content: catalog("other"), sections: [] }, { process: processRegistry })
-
-    expect(resolveConsoleDefinitions(scope)).toBe(local)
-  })
-
-  it("isolates concurrent project catalogs across runtime realms", () => {
-    const processRegistry = {}
-    const firstScope: ConsoleInvocationScope = { process: processRegistry }
-    const secondScope: ConsoleInvocationScope = { process: processRegistry }
-    const first: ConsoleSectionCatalog = { content: catalog("first"), sections: [] }
-    const second: ConsoleSectionCatalog = { content: catalog("second"), sections: [] }
-
-    installConsoleDefinitionScope("/first", first, firstScope)
-    installConsoleDefinitionScope("/second", second, secondScope)
-
-    expect(resolveConsoleDefinitions(firstScope)).toBe(first)
-    expect(resolveConsoleDefinitions(secondScope)).toBe(second)
-    expect(resolveConsoleDefinitions({ process: processRegistry })).toBeUndefined()
   })
 })

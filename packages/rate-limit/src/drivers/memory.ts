@@ -1,4 +1,4 @@
-import type { RateLimitDriver } from "../types.ts"
+import type { RateLimitDriver, RateLimitDriverInput } from "../types.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface MemoryEntry {
@@ -14,11 +14,16 @@ export interface MemoryRateLimitDriverOptions {
 export interface MemoryRateLimitDriver extends RateLimitDriver {
   clear: () => void
   peek: NonNullable<RateLimitDriver["peek"]>
+  refund: NonNullable<RateLimitDriver["refund"]>
   reset: NonNullable<RateLimitDriver["reset"]>
   size: () => number
 }
 
 const defaultMaxEntries = 100_000
+
+function entryKey(input: RateLimitDriverInput): string {
+  return JSON.stringify([input.name ?? "default", input.windowMs, input.key])
+}
 
 export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}): MemoryRateLimitDriver {
   const entries = new Map<string, MemoryEntry>()
@@ -51,7 +56,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
     consume(input) {
       const timestamp = now()
       prune(timestamp)
-      const key = JSON.stringify([input.name ?? "default", input.key])
+      const key = entryKey(input)
       const current = entries.get(key)
       if (!current && entries.size >= maxEntries) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0008({ message: `[vitehub] Memory Rate Limit driver reached maxEntries (${maxEntries}) while active counters remain.` })
@@ -65,7 +70,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
         entry = { count: 0, resetAt }
       }
       if (entry.count >= input.limit) {
-        return [null, {
+        return [undefined, {
           allowed: false,
           remaining: 0,
           resetAt: entry.resetAt,
@@ -76,7 +81,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
       entry.count += 1
       entries.set(key, entry)
       nextExpiry = Math.min(nextExpiry, entry.resetAt)
-      return [null, {
+      return [undefined, {
         allowed: true,
         remaining: input.limit - entry.count,
         resetAt: entry.resetAt,
@@ -86,15 +91,20 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
     peek(input) {
       const timestamp = now()
       prune(timestamp)
-      const key = JSON.stringify([input.name ?? "default", input.key])
+      const key = entryKey(input)
       const entry = entries.get(key)
-      return [null, { resetAt: entry && entry.resetAt > timestamp ? entry.resetAt : undefined, used: entry && entry.resetAt > timestamp ? entry.count : 0 }]
+      return [undefined, { resetAt: entry && entry.resetAt > timestamp ? entry.resetAt : undefined, used: entry && entry.resetAt > timestamp ? entry.count : 0 }]
     },
     name: "memory",
+    refund(input) {
+      const entry = entries.get(entryKey(input))
+      if (entry && entry.resetAt > now() && entry.count > 0) entry.count -= 1
+      return [undefined, undefined]
+    },
     reset(input) {
-      const key = JSON.stringify([input.name ?? "default", input.key])
+      const key = entryKey(input)
       entries.delete(key)
-      return [null]
+      return [undefined, undefined]
     },
     size() {
       return entries.size

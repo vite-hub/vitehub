@@ -1,12 +1,20 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
+import { docsUi } from "../../packages/docs/src/theme";
+
+import type { Unstable_RawConfig } from "wrangler";
+
 const docsRoot = resolve(import.meta.dirname, "..");
+const serverRoot = resolve(docsRoot, ".output/server");
+const workerConfig: Unstable_RawConfig = JSON.parse(readFileSync(resolve(serverRoot, "wrangler.json"), "utf8"));
 const server = createTestHarness({
-  root: docsRoot,
-  workers: [{ configPath: ".output/server/wrangler.json" }],
+  root: serverRoot,
+  // Nitro 3 emits thousands of modules. Bundle them for the local runtime to avoid
+  // Miniflare's slow serialization of the separate modules into its config.
+  workers: [{ config: { ...workerConfig, no_bundle: false, rules: [] } }],
 });
 
 beforeAll(async () => {
@@ -15,6 +23,15 @@ beforeAll(async () => {
 afterAll(() => server.close());
 
 describe("Cloudflare docs artifact", () => {
+  it("excludes Worker sourcemaps from the deployment", () => {
+    const serverDir = resolve(docsRoot, ".output/server");
+    const config: unknown = JSON.parse(readFileSync(resolve(serverDir, "wrangler.json"), "utf8"));
+    expect(config).toMatchObject({ upload_source_maps: false });
+    // Zero maps keeps the upload below Cloudflare's 60 MiB encoded-sourcemap limit.
+    // Wrangler's test harness writes its own maps under .wrangler after server.listen().
+    expect(readdirSync(serverDir, { recursive: true }).filter(file => !file.startsWith(`.wrangler${sep}`) && file.endsWith(".map"))).toEqual([]);
+  });
+
   it.each([
     { name: "HTML docs", path: "/docs", status: 200, type: "text/html", content: "<title", accept: "text/html" },
     { name: "raw Markdown", path: "/raw/docs/getting-started.md", status: 200, type: "text/markdown", content: "# Introduction", accept: "text/markdown" },
@@ -32,11 +49,48 @@ describe("Cloudflare docs artifact", () => {
     expect(await response.text()).toContain(content);
   });
 
+  it("writes one _redirects rule for each path, as Cloudflare rejects a second one", () => {
+    const sources = readFileSync(resolve(docsRoot, ".output/public/_redirects"), "utf8")
+      .split("\n")
+      .map(line => line.trim().split(/\s+/)[0])
+      .filter(source => source && !source.startsWith("#"));
+    expect(sources).toContain("/docs/server-primitives/kv/");
+    expect(sources.filter((source, index) => sources.indexOf(source) !== index)).toEqual([]);
+  });
+
+  it.each(["/docs/server-primitives/kv", "/docs/server-primitives/kv/"])("redirects the removed page %s to its new page", async (path) => {
+    let location = path;
+    for (let hop = 0; hop < 3 && location.startsWith("/docs/server-primitives/"); hop++) {
+      const response = await server.fetch(location, { headers: { accept: "text/html" }, redirect: "manual" });
+      expect(response.status).toBe(301);
+      location = new URL(response.headers.get("location") ?? "", "http://localhost").pathname;
+    }
+    expect(location).toBe("/docs/kv");
+  });
+
+  it("redirects a removed primitive landing's Markdown URL to Markdown in one hop", async () => {
+    const options = { headers: { accept: "*/*" }, redirect: "manual" } as const;
+    const redirect = await server.fetch("/forms.md", options);
+    expect(redirect.status).toBe(301);
+    const target = new URL(redirect.headers.get("location") ?? "", "http://localhost").pathname;
+    expect(target).toBe("/raw/docs/forms.md");
+
+    const markdown = await server.fetch(target, options);
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toContain("text/markdown");
+    expect(await markdown.text()).toContain("# Forms");
+  });
+
   it("serves the OpenAPI document", async () => {
     const response = await server.fetch("/openapi.json");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(await response.json()).toMatchObject({ openapi: "3.1.0" });
+  });
+
+  it("server-renders the color mode button", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    expect(await response.text()).toContain(`aria-label="Switch to dark mode"`);
   });
 
   it.each([
@@ -48,6 +102,14 @@ describe("Cloudflare docs artifact", () => {
     expect(response.headers.get("content-type")).toContain(contentType);
     expect(response.headers.get("vary")?.toLowerCase()).toContain("accept");
     if (contentType === "text/markdown") expect(await response.text()).toMatch(/^# Introduction/);
+  });
+
+  it("server-renders Markdown with the prose components", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    const html = await response.text();
+    const content = html.slice(html.indexOf(`class="comark-content"`), html.indexOf(`class="vh-product-footer`));
+    // Nuxt UI's prose link, as the browser renders it after hydration.
+    expect(content).toMatch(/<a href="\/docs\/[^"]+" class="[^"]*underline/);
   });
 
   it("serves a prerendered robots.txt before the Worker for AhrefsBot", async () => {
@@ -64,5 +126,17 @@ describe("Cloudflare docs artifact", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
     expect(await response.text()).toBe(robots);
+  });
+
+  it("builds the CSS of every class in the docs design", () => {
+    const cssDir = resolve(docsRoot, ".output/public/_nuxt");
+    const css = readdirSync(cssDir).filter(file => file.endsWith(".css")).map(file => readFileSync(resolve(cssDir, file), "utf8")).join("\n");
+    const strings = (value: unknown): string[] => typeof value === "string"
+      ? value.split(/\s+/)
+      : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+    // Utilities only: icon names and plain words such as `vertical` are not classes.
+    const classes = new Set(strings(docsUi("ViteHub")).filter(name => /[-:[]/.test(name) && !name.startsWith("i-")));
+    const selector = (name: string) => `.${name.replace(/[^\w-]/g, character => `\\${character}`)}`;
+    expect([...classes].filter(name => !css.includes(selector(name)))).toEqual([]);
   });
 });

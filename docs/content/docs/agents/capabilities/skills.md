@@ -88,11 +88,11 @@ Tell the model when to use the Skill in the Agent Driver Instructions or determi
 
 ## Verify the Skill
 
-1. Run `vitehub agent info --agent <name> --json` and check that the metadata shows the normalized `path` and `skillPath`, plus `sourceKey` with `source`.
+1. Run `vitehub agent get <name> --json` and check that the metadata shows the normalized `path` and `skillPath`, plus `sourceKey` with `source`.
 2. Clear any `instruction-coverage:skill:<path>` entry in `warnings` with a `::skill{path="<path>"}` block.
 3. Remove the Skill file and check that the run fails before the model runs, with a Workspace path requirement error.
 
-To try this, enable the Workspace with `vitehub({ preset: 'node', agent: true, workspace: true })` (see [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace)). With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
+To try this, enable the Workspace with `vitehub({ agent: true, workspace: true })` (see [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace)). With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -117,7 +117,7 @@ export default defineAgent({
 Start the Vite development server and inspect the Capability:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent support --json \
+pnpm vitehub agent get support --json \
   | jq '.capabilities[] | select(.id == "skills") | .metadata'
 ```
 

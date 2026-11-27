@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { resolveServerEnv, SecretEnv, typesafeEnv } from "../src/index.ts"
+import { SecretEnv, typesafeEnv } from "../src/index.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { describeServerEnv } from "../src/server.ts"
 
@@ -34,8 +35,8 @@ describe("typesafeEnv()", () => {
     const registry = createRuntimeRegistry({ typesafe: typesafeEnv() })
 
     expect(describeServerEnv(registry).entries).toEqual([
-      { path: "env.server.typesafe.apiKey", canonicalName: "VITEHUB_TYPESAFE_API_KEY", source: "env", secret: true, required: false, hasDefault: false, type: "string" },
-      { path: "env.server.typesafe.model", canonicalName: "VITEHUB_TYPESAFE_MODEL", source: "env", secret: false, required: true, hasDefault: true, type: "string" },
+      { path: "env.server.typesafe.apiKey", names: ["VITEHUB_TYPESAFE_API_KEY", "TYPESAFE_API_KEY"], source: "env", secret: true, required: false, hasDefault: false, type: "string" },
+      { path: "env.server.typesafe.model", names: ["VITEHUB_TYPESAFE_MODEL", "TYPESAFE_DEFAULT_MODEL"], source: "env", secret: false, required: true, hasDefault: true, type: "string" },
     ])
   })
 })

@@ -1,5 +1,5 @@
 import { h } from "vue";
-import { brandIcons, type BrandIconId } from "./brand-icons.ts";
+import { brandColors, brandIcons, type BrandIconId } from "./brand-icons.ts";
 
 const brands = {
   alibaba: { icon: "qwen", label: "Alibaba" },
@@ -8,6 +8,7 @@ const brands = {
   azure: { icon: "azure", label: "Azure" },
   bedrock: { icon: "bedrock", label: "Amazon Bedrock" },
   cerebras: { icon: "cerebras", label: "Cerebras" },
+  "claude-code": { icon: "claude", label: "Claude Code" },
   cloudflare: { icon: "cloudflare", label: "Cloudflare" },
   codex: { icon: "openai", label: "Codex" },
   cohere: { icon: "cohere", label: "Cohere" },
@@ -27,6 +28,7 @@ const brands = {
   perplexity: { icon: "perplexity", label: "Perplexity" },
   qwen: { icon: "qwen", label: "Qwen" },
   replicate: { icon: "replicate", label: "Replicate" },
+  t3: { icon: "t3", label: "T3 Code" },
   together: { icon: "together", label: "Together AI" },
   xai: { icon: "xai", label: "xAI" },
   zai: { icon: "zai", label: "Z.AI" },
@@ -47,6 +49,7 @@ const providerAliases: Readonly<Record<string, BrandId>> = {
   "fireworks-ai": "fireworks",
   "google-vertex": "google",
   "hugging-face": "huggingface",
+  "t3-code": "t3",
   "microsoft-azure": "azure",
   mistralai: "mistral",
   "moonshot-ai": "moonshot",
@@ -138,11 +141,37 @@ export function invocationBrandMark(value: InvocationBrand | undefined, classNam
     "aria-hidden": "true",
     class: `vh-invocation-brand__logo ${className}`,
     "data-brand": value.id,
+    fill: "currentColor",
     "fill-rule": "evenodd",
+    style: brandColors[value.icon] ? { color: brandColors[value.icon] } : undefined,
     viewBox: "0 0 24 24",
   }, paths.map(path => h("path", {
     "clip-rule": path.clipRule,
     d: path.d,
     "fill-opacity": path.fillOpacity,
   })));
+}
+
+/**
+ * A readable name for a model id: `claude-haiku-5-5` is "Claude Haiku 5.5", `gpt-6-luna` is "GPT 6 Luna". Version
+ * numbers that the id splits with dashes join with a dot, and a trailing date snapshot such as `20250929` is dropped.
+ */
+export function invocationModelName(value: string): string {
+  const slug = value.split("/").at(-1) ?? "";
+  const parts = slug.split("-").filter(Boolean);
+  if (parts.length > 1 && /^\d{8}$/.test(parts.at(-1) ?? "")) parts.pop();
+  const words: string[] = [];
+  for (const part of parts) {
+    const previous = words.at(-1);
+    if (previous !== undefined && /^\d{1,2}$/.test(part) && /^\d+(\.\d+)*$/.test(previous)) words[words.length - 1] = `${previous}.${part}`;
+    else words.push(part);
+  }
+  return words
+    .map((part) => {
+      const lower = part.toLocaleLowerCase();
+      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
+      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
+      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
+    })
+    .join(" ") || "Configured model";
 }

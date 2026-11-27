@@ -6,7 +6,7 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-This page covers generated output and the Cloudflare Artifacts Store. A Store keeps Workspace files. [Store providers](/docs/workspace/configure#store-providers) lists each host's default.
+This page covers generated output and the Cloudflare Artifacts Store. A Store keeps Workspace files. [Store drivers](/docs/workspace/configure#store-drivers) lists each host's default.
 
 ## Provider output
 
@@ -30,23 +30,23 @@ Add the generated types so `useWorkspace()` accepts only discovered Workspace na
 
 ## Blob + Database history
 
-The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps history the same way on D1, D1 HTTP, and local or hosted libSQL. It publishes with one atomic batch of conditional SQL statements, not interactive transactions, which D1 does not support.
+The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps history the same way on D1, D1 HTTP, local or hosted libSQL, and Postgres. On D1 and libSQL, it publishes with one atomic batch of conditional SQL statements, not interactive transactions, which D1 does not support. On Postgres, it publishes in one transaction that first locks the Workspace row, so commits to one Workspace run one after another across all instances. Postgres uses the schema from `vite-hub/workspace/blob-database/postgres`, with the same table names. If the Postgres Database uses Hyperdrive, disable query caching so all instances read the current head.
 
 | Table | Stores |
 | --- | --- |
 | `workspace_history_workspaces` | Workspace namespace and deletion tombstone. |
 | `workspace_history_refs` | One row per Workspace and ref name, with head id and sequence. |
-| `workspace_history_revisions` | Immutable file manifests, their ref, parent ids, timestamps, messages, metadata, counts, and commit status. |
+| `workspace_history_revisions` | Immutable file manifests, their ref, parent ids, timestamps, messages, metadata, counts, and commit status. On Postgres, `file_index` holds the fields used in queries, separate from opaque file metadata. |
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 
-Blob keys are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>`. The digest is the SHA-256 of the full file bytes.
+For new Workspace identities, Blob keys for new objects are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>-<generation>` (existing Workspace identities keep their existing namespace, such as `vitehub/workspace-history/`, for new writes, and existing digest-only keys stay readable). The digest is the SHA-256 of the full file bytes.
 
 - Identical files at any path share one object within a workspace.
 - Each workspace has its own namespace. There are no cross-workspace reference counts, so deleting one workspace cannot remove another's bytes.
 - MIME types and file metadata belong to each manifest entry.
 
-A commit uploads only missing digests. Two writers can both write the same bytes to one key. The Database batch creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and commits only the winning revision. A failed batch rolls back the head. Losing candidates are not in `list()`, `open()`, or `usage()`.
+A commit uploads only missing digests. Two writers can both write the same bytes to one key. The Database batch or transaction creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and commits only the winning revision. When two commits start from the same head, one wins and the other fails with `WORKSPACE_CONFLICT`. A failed batch or transaction rolls back the head. Losing candidates are not in `list()`, `open()`, or `usage()`.
 
 - `open()` on a revision reads the manifest without downloading the tree.
 - `readFile()` downloads one object and checks its size and hash.
@@ -68,10 +68,10 @@ Select Cloudflare Artifacts when a deployed Worker must keep Workspace state:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     workspace: {
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },
@@ -90,10 +90,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },
@@ -113,10 +113,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },
@@ -128,9 +128,9 @@ export default defineConfig({
 :::
 ::
 
-The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
+The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. It reads the `store` of a definition when it loads the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store whose `driver` is not `cloudflare`. Then set the store in the `workspace` config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
 
-`workspace.snapshot()` commits and pushes the current file tree. The snapshot id is the pushed Git commit SHA. File metadata lives in the repository with the tree, so Source write protection and media types survive a new Worker instance.
+`workspace.snapshot()` commits and pushes the current file tree. The snapshot id is the pushed Git commit SHA. When another Worker instance pushed first, the snapshot loads the new head, writes your changes on it again, and pushes once more. An instance without unsaved changes checks the branch head again when it loaded it more than 5 seconds ago, so one Store can serve many requests. Unsaved changes belong to the request, Schedule run, or Queue job that made them: when one throws before `workspace.snapshot()`, the next one does not commit its changes. Two requests that run at the same time in one instance share their unsaved changes. File metadata lives in the repository with the tree, so Source write protection and media types survive a new Worker instance.
 
 The Artifacts adapter does not implement `history.commit`, `head`, `list`, `open`, or `usage` yet. They throw the retained-history capability error. Git snapshots stay available through `history.checkpoint()`.
 

@@ -1,6 +1,5 @@
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 // Workspace internals own these metadata keys:
 // - `source:`: Source Sync state and legacy Source snapshots.
@@ -18,7 +17,7 @@ export function isInternalWorkspaceMetaKey(key: string): boolean {
 
 /** Rejects keys that Workspace internals own. Public `setMeta` calls this before it writes. */
 export function assertPublicWorkspaceMetaKey(key: unknown): string {
-  if (!hasRuntimeType(key, "string")) throw workspaceError("[vitehub] Workspace metadata keys must be strings.")
+  if (typeof key !== "string") throw workspaceError("[vitehub] Workspace metadata keys must be strings.")
   if (isInternalWorkspaceMetaKey(key)) {
     throw workspaceError(`[vitehub] Workspace metadata key ${JSON.stringify(key)} is reserved for Workspace internals.`)
   }

@@ -1,10 +1,10 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: ["#vitehub/connections/registry", "vite", "@vite-hub/env/internal/access", "@vite-hub/env/internal/connections"],
@@ -14,9 +14,9 @@ export default defineConfig({
       "src/index.ts",
       "src/agent.ts",
       "src/google.ts",
+      "src/operations.ts",
       "src/chatgpt.ts",
       "src/cli.ts",
-      "src/http.ts",
       "src/runtime/empty-registry.ts",
       "src/server.ts",
       "src/vite.ts",
@@ -29,10 +29,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

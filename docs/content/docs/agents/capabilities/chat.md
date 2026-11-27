@@ -82,7 +82,7 @@ Delivery options match the Agent-level `messages` settings in [Channels](/docs/a
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read this configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Chat History window sent to the trigger. `maxMessages` includes the current message. `maxImages` (default `0`) resends that many of the newest history images. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Chat History window sent to the trigger. `maxMessages` includes the current message. `maxImages` resends that many of the newest history images: default `4` for Codex and Claude Code Drivers, `0` for other Drivers. |
 | `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). Invalid values use UTC. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Does not set model input. |
 | `messageHistory` | Chat SDK message-history configuration | inherited | Passed to the Chat SDK. |
@@ -107,7 +107,7 @@ Delivery options match the Agent-level `messages` settings in [Channels](/docs/a
 | `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message, then remove the loading message. |
 | `allowSilentReply` | `boolean` | `false` | Add a `skip_reply` tool. Calling it ends the run with no final reply and removes the loading message. The trace records a skipped `chat.final-reply` effect with the reason. Requires `loading` without `delivery: "manual"`. |
 | `timeout` | `number` | none | Positive limit in milliseconds for inline runs and the durable handoff's typing indicator. |
-| `wrapUp` | `false \| { beforeMs?: number; prompt?: string }` | on for a `timeout` of 5 minutes or more | `beforeMs` (default 2 minutes) before `timeout` cancels an inline run, steer it to reply with what it found. Needs a Driver that accepts mid-turn steering, such as Provider Drivers; otherwise only the timeout applies. `false` turns it off. |
+| `wrapUp` | `false \| { beforeMs?: number; prompt?: string }` | on for a `timeout` of 5 minutes or more | `beforeMs` (default 2 minutes) before `timeout` cancels an inline run, steer it to reply with what it found. Model Drivers read it at their next model step, and Provider Drivers add it to the active turn. A Driver that cannot steer keeps only the timeout. `false` turns it off. |
 | `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`, and `concurrency: "parallel"` or `"steer"`. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function gets `error`, `publicError`, `invocation` (`{ id, consoleUrl? }` when the error belongs to a run), and `defaultText`, the text sent when this is unset. |
 | `consoleLink` | `boolean` | `false` | For internal users, link the run in the Console. Error replies end with `Details: <Console URL>`, also after custom `errorFallbackText`. An inline `loading` message ends with `[Details](<Console URL>)`, kept when `updates: "commentary"` replaces the text. No link when the run is unknown or no [public URL](/docs/development/integrations-and-output#public-url) is set, and no error link when the reply has the URL. Keep it off for external users: the link shows internal details. Durable Workflow error replies and loading messages have no link yet. |
@@ -119,5 +119,4 @@ Delivery options match the Agent-level `messages` settings in [Channels](/docs/a
 - [Chat History and sessions](/docs/agents/chat-history-sessions)
 - [access()](/docs/agents/capabilities/access)
 - [title()](/docs/agents/capabilities/title)
-- [chatSummary()](/docs/agents/capabilities/chat-summary)
 - [Official Capabilities](/docs/agents/capabilities/official)

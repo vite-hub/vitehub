@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest"
 import { bundleCliContributor } from "../src/cli.ts"
 import { collectEnvironmentReport } from "../src/collect.ts"
 import { compareBundleReports, readSavedBundleReport } from "../src/compare.ts"
-import { writeEnvironmentReport } from "../src/files.ts"
+import { writeBundleReportRoot, writeEnvironmentReport } from "../src/files.ts"
 import { createBundleReport } from "../src/report.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -19,7 +19,6 @@ const zod = `${root}/node_modules/.pnpm/zod@4.1.0/node_modules/zod/index.js`
 const h3 = `${root}/node_modules/h3/dist/index.mjs`
 const route = `${root}/server/routes/report.ts`
 
-/** A server build. `modules` maps a module to its bytes in the entry file; `lazy` goes to a file that loads on demand. */
 function serverBuild(build: string, modules: Record<string, number>, lazy: Record<string, number> = {}): BundleEnvironmentReport {
   const size = (values: Record<string, number>) => Object.values(values).reduce((sum, bytes) => sum + bytes, 0)
   const chunks = {
@@ -35,7 +34,6 @@ function serverBuild(build: string, modules: Record<string, number>, lazy: Recor
 }
 
 const before = serverBuild("2026-11-07T10:00:00.000Z", { [entry]: 100, [h3]: 400, [route]: 200 })
-// The change: the route moves behind `import()` and starts to import zod. h3 does not change.
 const after = serverBuild("2026-11-07T11:00:00.000Z", { [entry]: 120, [h3]: 400 }, { [route]: 200, [zod]: 300 })
 
 describe("compareBundleReports", () => {
@@ -111,6 +109,25 @@ describe("vitehub bundle --against", () => {
     expect(readSavedBundleReport(copy)!.build).toBe("2026-11-07T10:00:00.000Z")
     expect(JSON.parse(run(dir, ["--against", copy, "--json"]).stdout).server.delta.bytes).toBe(320)
     expect(JSON.parse(run(dir, ["--against", otherRoot, "--json"]).stdout).server.delta.bytes).toBe(320)
+  })
+
+  it("follows the report root of another checkout, like a monorepo build in a nested app", () => {
+    const dir = project()
+    writeEnvironmentReport(dir, after)
+    const checkout = mkdtempSync(join(tmpdir(), "vitehub-bundle-checkout-"))
+    writeEnvironmentReport(join(checkout, "apps/web"), before)
+    writeBundleReportRoot(checkout, join(checkout, "apps/web"))
+    expect(JSON.parse(run(dir, ["--against", checkout, "--json"]).stdout).server.delta.bytes).toBe(320)
+  })
+
+  it("uses the root report of another checkout when its report root has no report", () => {
+    const dir = project()
+    writeEnvironmentReport(dir, after)
+    const checkout = mkdtempSync(join(tmpdir(), "vitehub-bundle-checkout-"))
+    writeEnvironmentReport(checkout, before)
+    mkdirSync(join(checkout, "apps/web/.vitehub/bundle"), { recursive: true })
+    writeBundleReportRoot(checkout, join(checkout, "apps/web"))
+    expect(JSON.parse(run(dir, ["--against", checkout, "--json"]).stdout).server.delta.bytes).toBe(320)
   })
 
   it("says when both reports are from the same build", () => {

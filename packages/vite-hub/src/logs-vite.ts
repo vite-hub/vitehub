@@ -1,15 +1,11 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
+import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
-import type { ObservabilityEvlogOptions } from "./observability-vite.ts";
-
-export type LogsEvlogOptions = ObservabilityEvlogOptions;
-export type LogsOptions =
-  | { source: string }
-  | { evlog?: LogsEvlogOptions; maxEntries?: number; maxEntryBytes?: number };
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts";
+import type { LogsOptions } from "./observability-vite.ts";
 
 export function renderLogsPlugin(
   projectRoot: string,
@@ -35,8 +31,8 @@ export function renderLogsPlugin(
   ].join("\n");
 }
 
-export function logsVitePlugin(input: true | LogsOptions): Plugin {
-  const options = input === true ? {} : input;
+/** Installs the log source of `vitehub({ logs })`. The observability plugin registers Evlog. */
+export function logsVitePlugin(options: LogsOptions): Plugin {
   return {
     name: "vite-hub/logs",
     async config(config, environment) {
@@ -46,29 +42,13 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
           ? resolve(rootValue)
           : resolveViteHubProjectRoot(config.root ?? process.cwd());
       const source = "source" in options ? resolve(root, options.source) : undefined;
-      if (!source && environment.command === "build") {
-        throw new Error(
-          '[vitehub] Production Logs needs an existing source. Set logs: { source: "./server/logs.ts" }. The local buffer is per process and has no durable history.',
-        );
+      if (!source && isProductionBuild(config, environment)) {
+        throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_MISSING();
       }
       const nitroValue: unknown = Reflect.get(config, "nitro");
       const kit = createNitroServerKit(
         nitroValue instanceof Object ? Object.fromEntries(Object.entries(nitroValue)) : undefined,
       );
-      if (!source) {
-        const { default: evlogModule } = await import("evlog/nitro/v3");
-        const modules = Array.isArray(kit.config.modules) ? kit.config.modules : [];
-        if (
-          !modules.some(
-            (module) => module instanceof Object && "name" in module && module.name === "evlog",
-          )
-        ) {
-          kit.config.modules = [
-            ...modules,
-            evlogModule("evlog" in options ? options.evlog : undefined),
-          ];
-        }
-      }
       const file = resolve(root, ".vitehub/nitro/logs/plugin.mjs");
       // A `vitehub` command loads this config while the dev server runs. A rewrite of the same bytes reloads the
       // dev server's Nitro worker, and the reloaded plugin starts a new, empty log buffer.

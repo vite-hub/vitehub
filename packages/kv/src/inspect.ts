@@ -4,16 +4,18 @@ import { KV_CLOUDFLARE_PROVISION_CATEGORY } from "./integrations/cloudflare.ts"
 import { resolveKVViteConfig } from "./vite-config.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
-import type { KVModuleOptions, ResolvedCloudflareKVStoreConfig, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
+import type { KVOptions, ResolvedCloudflareKVStoreConfig, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
 
 function describeDevelopment(store: ResolvedKVStoreConfig): string {
   switch (store.driver) {
     case "upstash": return "Remote. `vite dev` uses the real Upstash database, so writes change real data."
-    case "cloudflare-kv-binding": return store.localBase
+    case "cloudflare": return store.localBase
       ? `Local. \`vite dev\` uses the \`${store.binding}\` binding of the dev runtime, or \`fs-lite\` in \`${store.localBase}\` when the runtime has no binding.`
       : `Remote. \`vite dev\` uses the real Cloudflare KV namespace through the \`${store.binding}\` binding, so writes change real data.`
     case "deno-kv": return "Local. Deno KV."
     case "fs-lite": return `Local. \`fs-lite\` in \`${store.base}\`.`
+    case "redis": return `The Redis server of \`${store.url.startsWith("env:") ? store.url.slice(4) : "url"}\`, the same as in production when it points there.`
+    case "database": return `The table \`vitehub_kv\` in the Database "${store.database}" of \`vite dev\`.`
   }
 }
 
@@ -34,22 +36,21 @@ export function inspectKVStores(build: ResolvedKVModuleOptions, dev: ResolvedKVM
   })
 }
 
-function cloudflareStores(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): Map<string, ResolvedCloudflareKVStoreConfig> {
+function cloudflareStores(options: KVOptions | undefined, env: Record<string, string | undefined>, hosting?: string): Map<string, ResolvedCloudflareKVStoreConfig> {
   const stores = new Map<string, ResolvedCloudflareKVStoreConfig>()
-  const kv = resolveKVViteConfig(options, { env }).kv
+  const kv = resolveKVViteConfig(options, { env, hosting }).kv
   if (!kv) return stores
   for (const [name, store] of Object.entries(kv.stores || { default: kv.store })) {
-    if (store.driver === "cloudflare-kv-binding") stores.set(name, store)
+    if (store.driver === "cloudflare") stores.set(name, store)
   }
   return stores
 }
 
 /** Lists the Workers KV namespaces that KV Stores bind, with where each id comes from. Reads local config and Provision State only. */
-export function inspectKVResources(options: KVModuleOptions | undefined, provisionRoot: string, env: Record<string, string | undefined> = process.env): ViteHubResourceSummary[] {
-  const stores = cloudflareStores(options, env)
+export function inspectKVResources(options: KVOptions | undefined, provisionRoot: string, env: Record<string, string | undefined> = process.env, hosting?: string): ViteHubResourceSummary[] {
+  const stores = cloudflareStores(options, env, hosting)
   if (!stores.size) return []
-  // `KV_NAMESPACE_ID` fills only a store without a configured id, so resolving without it shows which ids config sets.
-  const configured = cloudflareStores(options, { ...env, KV_NAMESPACE_ID: undefined })
+  const configured = cloudflareStores(options, { ...env, KV_NAMESPACE_ID: undefined }, hosting)
   const provisionState = readProvisionStateSync(provisionRoot)
   return [...stores].map(([storeName, store]): ViteHubResourceSummary => {
     const configuredId = configured.get(storeName)?.namespaceId

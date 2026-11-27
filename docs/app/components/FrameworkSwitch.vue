@@ -44,8 +44,4 @@ const framework = useFramework()
   box-shadow: 0 0 0 1px var(--ui-border);
 }
 
-.vh-framework-switch button:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 1px;
-}
 </style>

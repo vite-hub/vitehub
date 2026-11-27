@@ -21,11 +21,11 @@ it("defines a ChatGPT Connection and Agent through the published distribution", 
   expect(JSON.parse(stdout)).toEqual({ provider: "chatgpt", gateway: { kind: "chatgpt", name: "chatgpt", connection: "chatgpt" }, agent: "object" })
 })
 
-it.each(["@vite-hub/connections/http", "vite-hub/connections/http"])("imports the published HTTP contract through %s", async (specifier) => {
+it.each(["@vite-hub/connections", "vite-hub/connections"])("imports the published HTTP contract through %s", async (specifier) => {
   const source = `
     const module = await import(process.argv[1])
     const handler = module.createConnectionsHandler({ actor: () => "user:owner", runtime: () => ({ list: async () => [] }) })
-    const response = await handler(new Request("http://localhost" + module.CONNECTIONS_ROUTE, {
+    const response = await handler.fetch(new Request("http://localhost" + module.CONNECTIONS_ROUTE, {
       method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ action: "list" }),
     }))
     console.log(JSON.stringify({ status: response.status, body: await response.json() }))

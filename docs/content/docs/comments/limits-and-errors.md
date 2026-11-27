@@ -16,12 +16,12 @@ The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error,
 - `docs`: a link to the code in [Comments diagnostics](/docs/comments/diagnostics).
 
 ```ts [server/api/threads/[id].get.ts] fragment
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { comments } from '../../comments'
 
 export default defineEventHandler(async (event) => {
   const [error, thread] = await comments.get(getRouterParam(event, 'id')!)
-  if (error?.code === 'COMMENTS_NOT_FOUND') throw createError({ status: 404, message: error.why })
+  if (error?.code === 'COMMENTS_NOT_FOUND') throw new HTTPError({ status: 404, message: error.why })
   if (error) throw error
   return thread
 })
@@ -46,6 +46,7 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Threads in the Console section | The 500 with the newest activity |
 | Page path | 1,024 characters, starting with `/` |
 | Guest name | 64 characters |
+| Guest writes | None by default. `defineComments({ rateLimit: { limit, window } })` limits each guest address |
 | GitHub sign-in session | 7 days from sign-in |
 | GitHub push access | Checked again every 5 minutes |
 | GitHub App callback URLs | 10, so one App serves 10 sites |
@@ -53,7 +54,24 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Edited field value | 20,000 characters |
 | Thread refresh without presence | On tab focus, and every 30 seconds while visible |
 | Cursor updates | One every 80 ms per person |
-| Presence rooms with `authority: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
+| Presence rooms with `driver: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
+
+## See hook and sync failures in logs
+
+A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Comments logs each one with a `comments` field:
+
+```json
+{ "path": "/_vitehub/comments/threads", "status": 200, "level": "warn", "comments": { "hook": "onComment", "thread": "thr_7f3c", "code": "EMAIL_REFUSED" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `hook` | `onComment`, `onMention`, or `forgeSync`. |
+| `step` | The sync step that failed: `sync`, `summary`, `delete-comment`, `hide-comment`, `show-comment`, or `author-token`. |
+| `thread` | The thread id. |
+| `code` | The `code` of the error, else its class name. |
+
+`onComment` runs before the answer, so its failure goes on the wide event of the request. `onMention` and the sync run after the answer, so each failure is its own evlog event, `{ action: "comments", message, comments }`. The event has a fixed message and the `code`, never the error's message, the comment text, or a token. Without evlog, or with evlog's `enabled: false`, Comments prints the failure to the server console.
 
 ## Runtime errors
 
@@ -79,17 +97,17 @@ The API also returns it for a `POST` or `DELETE` from another origin. Behind a p
 
 ### COMMENTS_POLICY_MISSING
 
-`server/comments.ts` has no `authorize`, so a production build refused a person signed in with ViteHub Auth or `identify`. Without a policy, only GitHub users who can push to the repository, and people the Console admits to its Comments section, get in. Pass `authorize` to `defineComments()`. The status is `403`, and the log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
+`server/comments.ts` has no `authorize`, so a production build refused a person signed in with ViteHub Auth or `identify`. Without a policy, only GitHub users who can push to the repository, and, for comment operations, callers that the Console admits to its Comments section, get in. Pass `authorize` to `defineComments()`. The status is `403`, and the log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
 
 ### COMMENTS_SIGN_IN_OFF
 
-A request reached `/api/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
+A request reached `/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
 
 ### COMMENTS_SIGN_IN_FAILED
 
 GitHub sign-in could not start. Check that the client ID and secret belong to the same GitHub App. In production, `VITEHUB_SECRET` must be set, with at least 32 characters.
 
-When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/api/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
+When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
 
 ### COMMENTS_RESOLVED
 
@@ -107,7 +125,7 @@ The `data-content-field` value is not a Content field address, its collection or
 
 ### COMMENTS_FIELD_NOT_EDITABLE
 
-The field's draft value is not a string, so the page cannot edit it as text. Use the Console Content editor.
+The field's draft value is not a string, so the page cannot edit it as text. Edit it in the Content section of the Console.
 
 ### COMMENTS_FIELD_FORBIDDEN
 
@@ -119,4 +137,4 @@ The document changed after the page read it, for example in the Console or anoth
 
 ### COMMENTS_FIELD_LOCKED
 
-Another person holds this document's edit lease in the Console. `why` names them. Wait until they close it, or edit it together in the Console. See [Editing together](/docs/content/editing-together).
+Another person holds this document's edit lease in the Console. `why` names them. Wait until they close it. See [Editing together](/docs/content/editing-together).

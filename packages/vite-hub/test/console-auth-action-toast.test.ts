@@ -13,7 +13,7 @@ const renderer = createRenderer({
 })
 
 async function submit(props: Record<string, unknown>): Promise<void> {
-  const app = renderer.createApp({ ...Action, render: () => null }, { base: "/manage", userId: "u1", ...props })
+  const app = renderer.createApp({ ...Action, render: () => null }, { userId: "u1", ...props })
   app.provide(ssrContextKey, {})
   const instance = app.mount({})
   try {

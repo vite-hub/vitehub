@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { defineCommentSubject, defineComments } from "@vite-hub/comments"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { commentsOperations } from "@vite-hub/comments/operations"
+import { commentsOperations } from "../../comments/dist/operations.js"
 import { commentsOperationsConsoleSection as commentsConsoleSection } from "@vite-hub/comments/vite"
 import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
@@ -24,6 +24,8 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"
 import type { CommentsStore } from "@vite-hub/comments/server"
@@ -33,6 +35,7 @@ const ana: CommentUser = { id: "ana", name: "Ana" }
 const ben: CommentUser = { id: "ben", name: "Ben" }
 let signedIn: CommentUser | undefined = ana
 const mentions: unknown[] = []
+let signer: Awaited<ReturnType<typeof signedConsoleAccess>>
 const pending: Promise<unknown>[] = []
 
 /** Installs the runtime of the comment operations with a definition, on a store. */
@@ -44,22 +47,27 @@ async function setup(definition: Comments = defineComments({ authorize: () => tr
   const client = createClient({ url: ":memory:" })
   for (const statement of commentsTables) await client.execute(statement)
   // SAFETY: The test database has the tables of the comments schema.
-  const store = createCommentsStore(drizzle(client) as never)
+  const store = createCommentsStore(drizzle({ client: client }) as never)
   install(definition, store)
   return { client, store }
 }
 
-function call(operation: string, input: unknown = {}) {
-  return handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+/** Sign a request as the ViteHub Console does for the person in `signedIn`, or as the CLI for nobody. */
+function signed(request: Request): Promise<Request> {
+  return signer.sign(request, signedIn)
+}
+
+async function call(operation: string, input: unknown = {}) {
+  return handleConsoleRpcRequest(await signed(new Request("http://localhost/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
-  }), { waitUntil: task => void pending.push(task) })
+  })), { waitUntil: task => void pending.push(task) })
 }
 
 async function value<T>(operation: string, input?: unknown): Promise<T> {
   const response = await call(operation, input)
-  const body = await response.json() as { ok: boolean, value: T, code?: string, message?: string }
+  const body = await operationRpcResponseResult(response) as { ok: boolean, value: T, code?: string, message?: string }
   if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
   return body.value
 }
@@ -67,20 +75,21 @@ async function value<T>(operation: string, input?: unknown): Promise<T> {
 async function failure(operation: string, input?: unknown) {
   const response = await call(operation, input)
   expect(response.ok).toBe(false)
-  return await response.json() as { code: string, fix?: string, message: string, status: number }
+  return await operationRpcResponseResult(response) as { code: string, fix?: string, message: string, status: number }
 }
 
 const page = { id: "/pricing", kind: "page" }
 const create = (body = "Too small.", extra: Record<string, unknown> = {}) => value<CommentThread>("comments.create", { anchor: { kind: "page" }, body, subject: page, ...extra })
 
-beforeEach(() => {
+beforeEach(async () => {
   signedIn = ana
   mentions.length = 0
   installConsoleOperations([{ operations: commentsOperations, plugin: "@vite-hub/comments" }])
-  installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => signedIn as never })
+  signer = await signedConsoleAccess()
 })
 
 afterEach(async () => {
+  signer.restore()
   installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   await Promise.all(pending.splice(0))
@@ -91,6 +100,16 @@ afterEach(async () => {
 })
 
 describe("comment operations over the Console RPC", () => {
+  it("resolves a full batch with replies above the default signed RPC byte limit", async () => {
+    await setup()
+    const reply = "直".repeat(500)
+    const threads = []
+    for (let index = 0; index < 50; index++) threads.push({ threadId: (await create()).id, reply })
+    const result = await value<CommentThread[]>("comments.resolve", { threads })
+    expect(result.map(thread => ({ id: thread.id, status: thread.status, reply: thread.messages.at(-1)?.body })))
+      .toEqual(threads.map(entry => ({ id: entry.threadId, status: "resolved", reply })))
+  })
+
   it("creates, lists, and gets threads in the shapes of the client types", async () => {
     await setup()
     const thread = await create()
@@ -100,9 +119,9 @@ describe("comment operations over the Console RPC", () => {
     expect(typeof thread.createdAt).toBe("number")
     expect(await value<CommentThread[]>("comments.list", { page: "/pricing" })).toEqual([thread])
     expect(await value<CommentThread[]>("comments.list", { page: "/other" })).toEqual([])
-    expect(await value("comments.get", { id: thread.id })).toEqual(thread)
+    expect(await value("comments.get", { threadId: thread.id })).toEqual(thread)
     expect(await value("comments.get", { n: 1, scope: "site" })).toEqual(thread)
-    expect(await value("comments.get", { id: "thread_missing" })).toBeNull()
+    expect(await value("comments.get", { threadId: "thread_missing" })).toBeNull()
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toHaveLength(1)
     signedIn = ben
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toEqual([])
@@ -116,16 +135,16 @@ describe("comment operations over the Console RPC", () => {
     expect(await value("comments.list")).toEqual([])
   })
 
-  it("gives the policy the user, the action, and the thread", async () => {
+  it("gives the policy the user, action, thread, and development flag", async () => {
     const authorize = vi.fn(() => true)
     await setup(defineComments({ authorize }))
     const thread = await create()
     // `create` has no thread yet, so it gets the subject that the thread starts on.
-    expect(authorize).toHaveBeenCalledWith({ action: "write", subject: page, user: ana })
+    expect(authorize).toHaveBeenCalledWith({ console: true, development: false, action: "write", subject: page, user: ana })
     await value("comments.resolve", { threadId: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
-    await value("comments.get", { id: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, development: false, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    await value("comments.get", { threadId: thread.id })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, development: false, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
   })
 
   it("filters the list by what authorize lets the user read", async () => {
@@ -209,7 +228,7 @@ describe("comment operations over the Console RPC", () => {
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0009", status: 403 })
     signedIn = ana
     expect(await value("comments.delete", { messageId: mine.messages[0]!.id, threadId: mine.id })).toBeNull()
-    expect(await value("comments.get", { id: mine.id })).toBeNull()
+    expect(await value("comments.get", { threadId: mine.id })).toBeNull()
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
   })
 
@@ -250,24 +269,27 @@ describe("comment operations over the Console RPC", () => {
 })
 
 describe("comments in the CLI, the Console, and the browser transport", () => {
-  it("prints the threads for `vitehub comments list --json`", async () => {
+  it.each(["list", "get", "resolve"] as const)("runs `vitehub comments %s` with flags", async (command) => {
     await setup()
     const thread = await create()
     installConsoleProjectRoot("/app")
     let output = ""
     let errors = ""
     const code = await runViteHubCli({
-      args: ["comments", "list", "--json"],
+      args: ["comments", command, "--json", ...(command === "list" ? [] : ["--thread-id", thread.id])],
       cwd: "/app",
       env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
-      fetch: ((url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(new Request(String(url), init))) as typeof fetch,
-      loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "@vite-hub/comments/operations" }] } }], root: "/app" }),
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(await signed(new Request(String(url), init)))) as typeof fetch,
+      loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "/comments/dist/operations.js" }] } }], root: "/app" }),
       loadNuxtViteConfig: async () => undefined,
       stderr: { write: (chunk: string | Uint8Array) => { errors += String(chunk); return true } },
       stdout: { write: (chunk: string | Uint8Array) => { output += String(chunk); return true } },
     })
     expect(code, errors || output).toBe(0)
-    expect(JSON.parse(output)).toEqual([thread])
+    const result: unknown = JSON.parse(output)
+    if (command === "list") expect(result).toEqual([thread])
+    else if (command === "get") expect(result).toEqual(thread)
+    else expect(result).toMatchObject({ id: thread.id, status: "resolved" })
   })
 
   it("describes the Console section as a list of comments.list with filter chips and page links", () => {
@@ -308,12 +330,12 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     installConsoleDevelopment("/test/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
+      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
+        body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }), { remoteAddress: "127.0.0.1" })
-      const body = await response.json() as { ok: boolean, value: CommentThread }
+      const body = await operationRpcResponseResult(response) as { ok: boolean, value: CommentThread }
       expect(body.ok).toBe(true)
       expect(body.value.author).toEqual({ id: "local", name: "You" })
     }
@@ -328,14 +350,14 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     const seen: string[] = []
     const transport = createRpcTransport({
       base: "/portal",
-      fetch: ((url: string | URL | Request, init?: RequestInit) => {
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
         seen.push(String(url))
         expect(init?.credentials).toBe("same-origin")
-        return handleConsoleRpcRequest(new Request(new URL(String(url), "http://localhost"), init))
+        return handleConsoleRpcRequest(await signed(new Request(new URL(String(url), "http://localhost"), init)))
       }) as typeof fetch,
     })
     const thread = await transport.create({ anchor: { kind: "page" }, body: "Hi", subject: page })
-    expect(seen[0]).toBe("/portal/_vitehub/rpc/__call")
+    expect(seen[0]).toBe("/portal/_vitehub/rpc")
     expect(await transport.list({ page: "/pricing" })).toEqual([thread])
     expect(await transport.get({ n: 1, scope: "site" })).toEqual(thread)
     expect((await transport.reply({ body: "Again", threadId: thread.id })).messages).toHaveLength(2)
@@ -344,8 +366,8 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(await transport.users({ query: "an" })).toEqual([ana])
     expect(await transport.delete({ threadId: thread.id })).toBeNull()
     expect(transport.subscribe).toBeUndefined()
-    await expect(transport.get({ id: "x" })).resolves.toBeNull()
-    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", name: "CommentsRpcError", status: 404 })
+    await expect(transport.get({ threadId: "x" })).resolves.toBeNull()
+    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", fix: expect.stringMatching(/\S/), status: 404 })
   })
 })
 
@@ -380,7 +402,7 @@ async function asAgent<T>(name: string, input: unknown, user: CommentUser | null
 
 function database() {
   const client = createClient({ url: ":memory:" })
-  return { client, db: drizzle(client) }
+  return { client, db: drizzle({ client: client }) }
 }
 
 async function ready() {
@@ -413,7 +435,7 @@ describe("who can see and change a thread", () => {
     ] as const) expect(await failure(name, input), name).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     expect(await failure("comments.reply", { body: "Hi", threadId: "thread_missing" })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     // get answers null for a hidden thread and for a missing one, by id and by number.
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toBeNull()
     signedIn = ana
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toEqual(thread)
@@ -425,7 +447,7 @@ describe("who can see and change a thread", () => {
     install(defineComments(), store)
     signedIn = undefined
     const messageId = thread.messages[0]!.id
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.list", {})).toEqual([])
     for (const [name, input] of [
       ["comments.users", { query: "an" }],

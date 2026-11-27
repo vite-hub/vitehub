@@ -1,9 +1,9 @@
 # @vite-hub/shell
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Shell" src="https://comark-ui.onmax.me/badge.svg?label=Shell&amp;value=controlled+runtime">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Shell" src="https://img.shields.io/static/v1?label=Shell&amp;message=controlled+runtime&amp;color=blue">
 </p>
 
 `@vite-hub/shell` gives server code structured command analysis and execution with explicit filesystem, network, process, and timeout boundaries.
@@ -28,11 +28,11 @@ console.log(analysis.hasPipelines); // false
 console.log(analysis.ok); // true
 ```
 
-Analysis reports command names, pipelines, redirects, heredocs, and command substitution. It does not make a command safe to run. The caller's policy and the execution provider remain the enforcement boundaries.
+Analysis reports command names, pipelines, redirects, heredocs, and command substitution. It does not make a command safe to run. The caller's policy and the Shell driver remain the enforcement boundaries.
 
 ## Run against a Workspace
 
-The built-in Just Bash provider executes Bash-compatible commands against the filesystem adapter you give it. This example mounts a ViteHub Workspace read-only, permits four inspection commands, and returns a structured observation.
+The built-in Just Bash driver executes Bash-compatible commands against the filesystem adapter you give it. This example mounts a ViteHub Workspace read-only, permits four inspection commands, and returns a structured observation.
 
 ```sh
 pnpm add @vite-hub/shell @vite-hub/workspace
@@ -41,7 +41,7 @@ pnpm add @vite-hub/shell @vite-hub/workspace
 ```ts
 // server/tasks/search-docs.ts
 import { createShellRuntime } from "@vite-hub/shell";
-import { createJustBashProvider } from "@vite-hub/shell/providers/just-bash";
+import { createJustBashDriver } from "@vite-hub/shell/providers/just-bash";
 import { createReadonlyWorkspaceFs, workspaceMountPoint } from "@vite-hub/shell/workspace";
 import { useWorkspace } from "@vite-hub/workspace";
 
@@ -53,7 +53,7 @@ export async function searchDocs() {
       maxShellCalls: 1,
       timeout: 30_000,
     },
-    provider: createJustBashProvider({
+    driver: createJustBashDriver({
       commands: ["cat", "ls", "pwd", "rg"],
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace.fs),
@@ -64,22 +64,22 @@ export async function searchDocs() {
 }
 ```
 
-`shell.exec()` creates a short-lived Shell Session and returns a Shell Observation with `event`, `exitCode`, `stdout`, and `stderr`. The provider above has no network access, background processes, or interactive processes, and its Workspace filesystem cannot write.
+`shell.exec()` creates a short-lived Shell Session and returns a Shell Observation with `event`, `exitCode`, `stdout`, and `stderr`. The driver above has no network access, background processes, or interactive processes, and its Workspace filesystem cannot write.
 
 For writable access, pass `useWorkspace(name, { mode: "write" }).fs` directly to `createWritableWorkspaceFs()`. The adapter accepts Workspace writes that return revision receipts. Its `writeFile()` and `appendFile()` methods wait for the write and return `void`.
 
-## Providers and boundaries
+## Drivers and boundaries
 
 - `@vite-hub/shell/providers/just-bash` runs selected commands in `just-bash` against a supplied filesystem adapter.
-- A custom `ShellExecutionProvider` declares its boundary and implements execution for another host.
+- A custom `ShellDriver` declares its boundary and implements execution for another host.
 
-Custom providers can return Shell Processes as class instances. Sessions read the process ID, command, and working directory from the provider handle when inspected. These public metadata fields are readonly. A failed metadata read does not prevent process cleanup.
+Custom drivers can return Shell Processes as class instances. Sessions read the process ID, command, and working directory from the driver handle when inspected. These public metadata fields are readonly. A failed metadata read does not prevent process cleanup.
 
-Shell policy can bound calls, processes, output size, and timeouts. A declared boundary describes the provider contract; it is not proof of operating-system isolation. Use [Sandbox](https://vitehub.dev/docs/sandbox) when work needs provider-managed isolation.
+Shell policy can bound calls, processes, output size, and timeouts. A declared boundary describes the driver contract; it is not proof of operating-system isolation. Use [Sandbox](https://vitehub.dev/docs/sandbox) when work needs provider-managed isolation.
 
-`runtime.boundary.execution` and `runtime.boundary.resources` expose the provider's execution model and resource controls. The Just Bash provider runs in a virtual in-process filesystem and truncates completed output before it creates a Shell Observation. It buffers the full result first, so this is not an execution memory limit. Pass an `AbortSignal` to `exec()` to cancel the command and any controlled Source request it starts.
+`runtime.boundary.execution` and `runtime.boundary.resources` expose the driver's execution model and resource controls. The Just Bash driver runs in a virtual in-process filesystem and truncates completed output before it creates a Shell Observation. It buffers the full result first, so this is not an execution memory limit. Pass an `AbortSignal` to `exec()` to cancel the command and any controlled Source request it starts.
 
-Custom providers can return Shell Observations as class instances. Sessions preserve every declared observation field, including fields exposed through getters.
+Custom drivers can return Shell Observations as class instances. Sessions preserve every declared observation field, including fields exposed through getters.
 
 The Workspace filesystem has a virtual root at `/workspace`. Root existence checks return true. On a writable filesystem, recursive directory creation at the root succeeds without changing the Workspace. Creating the root without `recursive` fails because it already exists.
 
@@ -87,7 +87,7 @@ Directory paths may end in `/`. Listing or copying `models/` preserves each chil
 
 The Just Bash `commands` list also applies to controlled `curl` requests. A Source network grant permits access to its declared target, but `curl` must still be included when you configure a command list.
 
-The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
+The driver copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
 
 Pass `executionLimits` or `executionLimitProfile: "hardened"` to bound Just Bash interpreter work such as loop iterations, command count, and retained bytes. Both options pass through to Just Bash and are copied at creation. Controlled `curl` runs as a Just Bash command through Source network grants, so interpreter output limits and command deadlines apply, including in pipelines and substitutions. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal forwarded to the Source request. The Source executor must honor that signal. `maxOutputLength` truncates returned output characters. Source responses are buffered before interpreter output checks and Shell truncation; enforce response byte or memory limits while reading the response in the Source executor.
 
@@ -95,7 +95,7 @@ The writable Workspace filesystem leaves content unchanged when a move resolves 
 
 Workspace filesystem adapters preserve binary output from redirection and `tee`. Their read, write, and append methods honor Just Bash encoding options.
 
-Just Bash defaults to `/workspace`. A provider `cwd` changes that default, and an `exec` `cwd` takes precedence. The provider reports the selected directory in its observations. Set `cwd` for a custom filesystem with another root.
+Just Bash defaults to `/workspace`. A driver `cwd` changes that default, and an `exec` `cwd` takes precedence. The driver reports the selected directory in its observations. Set `cwd` for a custom filesystem with another root.
 
 Appending creates an absent Workspace file. A read failure for an existing file fails the append before changing its content.
 
@@ -103,6 +103,6 @@ Appending creates an absent Workspace file. A read failure for an existing file 
 
 `workspaceShell()` in [`@vite-hub/agent`](../agent/README.md) exposes scoped shell work through an Agent Capability. It attaches Workspace Scope, Shell policy, metadata, and tools to the Agent Definition; do not expose an unrestricted raw runtime to a model.
 
-Built on [just-bash](https://www.npmjs.com/package/just-bash) for the built-in shell provider and [sh-syntax](https://www.npmjs.com/package/sh-syntax) for command analysis.
+Built on [just-bash](https://www.npmjs.com/package/just-bash) for the built-in Shell driver and [sh-syntax](https://www.npmjs.com/package/sh-syntax) for command analysis.
 
 Read the complete [Shell guide](https://vitehub.dev/docs/shell), the [Workspace shell Capability](https://vitehub.dev/docs/workspace/agent-capability), and the [official Capabilities guide](https://vitehub.dev/docs/agents/capabilities/official).

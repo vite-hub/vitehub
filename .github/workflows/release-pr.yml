@@ -56,13 +56,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          merged_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
-            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
-          if [[ -z "$merged_branch" ]]; then
-            exit 0
-          fi
-          release_tag="${merged_branch#release/}"
-          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          # Main at an untagged version means a merged release still waits for its tag.
+          # A revert of the release PR moves main back to a tagged version.
+          version="$(node -p "require('./package.json').version")"
+          release_tag="v${version}"
+          tag_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
             --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
           for entry in "${stale_prs[@]}"; do
@@ -75,19 +73,21 @@ jobs:
             fi
             gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
           done
-          if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
+          if [[ -z "$tag_sha" ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::main is at ${version} and ${release_tag} is not tagged. Rerun the failed verify jobs, or follow the rollback procedure in CONTRIBUTING.md."
           fi
-      - uses: danielroe/uppt/pr@6c1a9b480b0f02a3f535dedaf1a113f590aa56f2 # v0.6.12
+      - uses: danielroe/uppt/pr@2c9a289359311b9661cc99886a71121209b89d17 # v0.6.14
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           checkout: "false"
           packages: |
             packages/*
+      # uppt's version commit is the only commit on the release branch, so uppt can rebuild it on every push to main.
       # GitHub starts no workflows for branches and PRs that GITHUB_TOKEN
       # writes, so dispatch each required check once per release PR commit.
-      - name: Update release versions and run required checks
+      - name: Check the release PR and run required checks
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -109,39 +109,35 @@ jobs:
           git worktree add --detach "$release_directory" FETCH_HEAD
           (
             cd "$release_directory"
-            node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch" --bump
-            if ! git diff --quiet; then
-              corepack pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
-              git add package.json packages pnpm-lock.yaml
-              git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-                commit -m "chore: sync release dependency versions"
-              git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-                push origin "HEAD:refs/heads/$release_branch"
-            fi
+            node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch"
           )
           git worktree remove "$release_directory"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
-          # ci.yml reports "ci" and pkg-pr-new.yml reports "publish preview packages".
-          for workflow in ci.yml pkg-pr-new.yml; do
-            successful_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=100" \
-              --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
-            if [[ "$successful_runs" == "0" ]]; then
+          # ci.yml reports "ci" and "publish preview packages".
+          for workflow in ci.yml; do
+            reusable_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&event=workflow_dispatch&per_page=100" \
+              --jq '.workflow_runs[]
+                | select(.status == "requested" or .status == "queued" or .status == "pending"
+                    or .status == "waiting" or .status == "in_progress"
+                    or (.status == "completed" and .conclusion == "success"))
+                | .id' --paginate)"
+            if [[ -z "$reusable_runs" ]]; then
               gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"
             else
-              echo "$workflow already succeeded for $release_branch at $head_sha"
+              echo "$workflow already has an active or successful run for $release_branch at $head_sha"
             fi
           done
 
-  recover-release:
+  resolve-recovery:
     if: github.event_name == 'workflow_dispatch' && inputs.recover_failed_release && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
-    concurrency:
-      group: release-recovery
-      cancel-in-progress: false
     permissions:
-      contents: write
-      actions: write
+      contents: read
       pull-requests: read
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -198,19 +194,60 @@ jobs:
             echo "Tag $release_tag already exists; dispatch release.yml on that tag instead" >&2
             exit 1
           fi
-          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "sha=$recovery_sha" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
-      - run: vp run verify
+          {
+            echo "tag=$release_tag"
+            echo "sha=$recovery_sha"
+            echo "version=${release_tag#v}"
+          } >> "$GITHUB_OUTPUT"
+
+  verify-recovery:
+    needs: resolve-recovery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.verified.outputs.sha }}
+      version: ${{ steps.verified.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-recovery.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact release
+        id: verified
+        uses: ./.github/actions/verify-release
+        with:
+          version: ${{ needs.resolve-recovery.outputs.version }}
+          exact: "true"
+          source-sha: ${{ needs.resolve-recovery.outputs.sha }}
+
+  recover-release:
+    needs: [resolve-recovery, verify-recovery]
+    if: needs.verify-recovery.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-recovery
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    steps:
       - name: Tag corrected main and dispatch release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ needs.resolve-recovery.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve-recovery.outputs.sha }}
+          RELEASE_VERSION: ${{ needs.resolve-recovery.outputs.version }}
+          VERIFIED_SHA: ${{ needs.verify-recovery.outputs.sha }}
+          VERIFIED_VERSION: ${{ needs.verify-recovery.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "$RELEASE_SHA" || "$VERIFIED_SHA" != "$RELEASE_SHA" || -z "$RELEASE_VERSION" || "$VERIFIED_VERSION" != "$RELEASE_VERSION" || "$RELEASE_TAG" != "v${VERIFIED_VERSION}" ]]; then
+            echo "Release verification passed for ${VERIFIED_VERSION:-no version} at ${VERIFIED_SHA:-no commit}, not ${RELEASE_TAG} at ${RELEASE_SHA}" >&2
+            exit 1
+          fi
           status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...main" --jq .status)"
           if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
             echo "Reviewed recovery commit is no longer on main" >&2
@@ -235,19 +272,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      sha: ${{ steps.verified.outputs.sha }}
+      version: ${{ steps.verified.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
+      - name: Resolve the release version
+        id: release
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: echo "version=${RELEASE_BRANCH#release/v}" >> "$GITHUB_OUTPUT"
+      - name: Verify the exact release
+        id: verified
+        uses: ./.github/actions/verify-release
+        with:
+          version: ${{ steps.release.outputs.version }}
+          exact: "true"
+          source-sha: ${{ github.event.pull_request.merge_commit_sha }}
       - name: Check release candidate
         env:
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
-      - run: vp run verify
 
   tag-release:
     needs: verify-release
@@ -263,21 +313,49 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Check release candidate again
         env:
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      # A revert of the release PR rolls the release back, so a late or rerun job must not tag it.
+      - name: Check that main still carries this release
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          VERIFIED_VERSION: ${{ needs.verify-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD; then
+            echo "Release merge ${RELEASE_SHA} is not on main. No tag is created." >&2
+            exit 1
+          fi
+          commits="$(git rev-list --first-parent "${RELEASE_SHA}..FETCH_HEAD" -- package.json)"
+          for sha in $commits; do
+            version="$(git show "${sha}:package.json" | jq -r .version)"
+            if [[ "$version" != "$VERIFIED_VERSION" ]]; then
+              echo "main changed to ${version} in ${sha} after this release merged. The release was rolled back. No tag is created." >&2
+              exit 1
+            fi
+          done
       - name: Create tag and dispatch verified release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
           RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          VERIFIED_SHA: ${{ needs.verify-release.outputs.sha }}
+          VERIFIED_VERSION: ${{ needs.verify-release.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           release_tag="${RELEASE_BRANCH#release/}"
-          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          if [[ -z "$RELEASE_SHA" || "$VERIFIED_SHA" != "$RELEASE_SHA" || "$release_tag" != "v${VERIFIED_VERSION}" ]]; then
+            echo "Release verification passed for ${VERIFIED_VERSION:-no version} at ${VERIFIED_SHA:-no commit}, not ${release_tag} at ${RELEASE_SHA}" >&2
+            exit 1
+          fi
+          existing_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
             echo "Tag $release_tag already points to $existing_sha" >&2
             exit 1

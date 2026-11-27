@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -102,7 +102,7 @@ function createWorkspace(
   }
 
   return {
-    history: createRuntimeWorkspace({ name: "access-fixture", store: { provider: "memory" } }).history,
+    history: createRuntimeWorkspace({ name: "access-fixture", store: { driver: "memory" } }).history,
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     tools: asUnknownBoundary({
@@ -346,7 +346,7 @@ describe("access capability", () => {
       await rm(root, { recursive: true, force: true })
       await rm(`${root}.meta.json`, { force: true })
     })
-    registerWorkspace(name, { sources: { docs: source }, store: { provider, root } })
+    registerWorkspace(name, { sources: { docs: source }, store: { driver: provider, root } })
     const workspace = useWorkspace(name)
     await workspace.fs.list("")
     const resolved = await resolveAgentCapabilities({
@@ -458,7 +458,7 @@ describe("access capability", () => {
           workspace: {
             resolve({ invoker }) {
               if (invoker.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
-              const customer = hasRuntimeType(invoker.meta?.customer, "string") ? invoker.meta.customer : "public"
+              const customer = typeof invoker.meta?.customer === "string" ? invoker.meta.customer : "public"
               return { role: "viewer", scope: customer }
             },
             scopes: {
@@ -497,7 +497,7 @@ describe("access capability", () => {
             resolve: ({ input }) => {
               // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               const context = input.get().context as { customer?: unknown } | undefined
-              const customer = hasRuntimeType(context?.customer, "string")
+              const customer = typeof context?.customer === "string"
                 ? context.customer
                 : "public"
               return {
@@ -886,7 +886,7 @@ describe("access capability", () => {
 
     expect(result.stdout).toBe("native rg\n")
     expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
     expect(close).toHaveBeenCalled()
   })
 
@@ -1094,7 +1094,7 @@ describe("access capability", () => {
           async resolve({ invocation }) {
             const scope = invocation.context.get("support.customerScope")
             resolverScopes.push(scope)
-            const customer = isTestRecord(scope) && Array.isArray(scope.customers) && hasRuntimeType(scope.customers[0], "string")
+            const customer = isTestRecord(scope) && Array.isArray(scope.customers) && typeof scope.customers[0] === "string"
               ? scope.customers[0]
               : undefined
             if (!customer) return false
@@ -1212,7 +1212,7 @@ describe("access capability", () => {
       sources: {
         ingestion: github(({ channel, selectedWorkspaceScope }) => {
           const customer = channel?.meta?.customer
-          if (!hasRuntimeType(customer, "string") || !customer) return false
+          if (typeof customer !== "string" || !customer) return false
           resolutions.push({ customer, scope: selectedWorkspaceScope?.name, sources: selectedWorkspaceScope?.sources })
           return {
             auth: false,

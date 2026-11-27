@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 
 import { consoleMcpEndpoint, requestConsoleMcp } from "../client/mcp-client";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMcpCandidate, ConsoleMcpConnection } from "../mcp-client";
@@ -33,7 +33,7 @@ const pending = ref(false);
 const error = ref<unknown>();
 
 // The app origin, where the Console's own session lives.
-const appOrigin = new URL(projectUrl("/"), window.location.href).origin;
+const appOrigin = new URL(projectAppUrl("/"), window.location.href).origin;
 const sameOrigin = computed(() => {
   try {
     return new URL(server.value.trim() || "/", appOrigin).origin === appOrigin;
@@ -106,16 +106,16 @@ async function submit(): Promise<void> {
             autocomplete="off"
             placeholder="https://example.com/mcp or /mcp"
             spellcheck="false"
-            :ui="{ base: 'font-mono text-base sm:text-sm' }"
+            :ui="{ base: 'font-mono' }"
           />
           <div v-if="servers.length" class="mt-2 flex flex-wrap items-center gap-1.5">
             <span class="text-xs text-dimmed">This app:</span>
             <UButton
               v-for="candidate in servers"
               :key="candidate.url"
-              color="neutral"
               size="xs"
-              variant="soft"
+              variant="outline"
+              :class="server === candidate.url ? 'bg-elevated' : undefined"
               :aria-pressed="server === candidate.url"
               :label="`${candidate.label} · ${consoleMcpEndpoint(candidate.url)}`"
               @click="server = candidate.url"
@@ -140,11 +140,11 @@ async function submit(): Promise<void> {
             : 'The authorization server shows its sign-in even when this browser is signed in.'"
         />
         <UFormField v-else-if="!usesSession" label="Bearer token" description="Sent in the Authorization header. The Console never shows it again." name="token" required>
-          <UInput v-model="token" class="w-full" type="password" autocomplete="off" spellcheck="false" :ui="{ base: 'font-mono text-base sm:text-sm' }" />
+          <UInput v-model="token" class="w-full" type="password" autocomplete="off" spellcheck="false" :ui="{ base: 'font-mono' }" />
         </UFormField>
 
         <UFormField v-if="!usesSession" label="Name" description="Optional. A sign-in names the connection after its account." name="label">
-          <UInput v-model="label" class="w-full" maxlength="80" :placeholder="method === 'token' ? 'Lucía (API key)' : undefined" :ui="{ base: 'text-base sm:text-sm' }" />
+          <UInput v-model="label" class="w-full" maxlength="80" :placeholder="method === 'token' ? 'Lucía (API key)' : undefined" />
         </UFormField>
 
         <div aria-live="polite">
@@ -154,7 +154,7 @@ async function submit(): Promise<void> {
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" label="Cancel" variant="ghost" @click="open = false" />
+        <UButton label="Cancel" variant="ghost" @click="open = false" />
         <UButton form="vitehub-mcp-connect" type="submit" :label="method === 'oauth' && !usesSession ? 'Continue' : 'Connect'" :loading="pending" :disabled="!canSubmit" />
       </div>
     </template>

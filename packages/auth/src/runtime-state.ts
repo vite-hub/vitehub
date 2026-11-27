@@ -1,15 +1,17 @@
-import type { ViteHubContext } from "@vite-hub/runtime"
-import type { AuthAuthorization, AuthDefinition, AuthRequestInput, ViteHubAuth } from "./types.ts"
+import type { AccessAuthorizationContext, ViteHubContext } from "@vite-hub/runtime"
+import type { AuthDefinition, AuthRequestInput, ViteHubAuth } from "./types.ts"
 
 // The Vite plugin resets this state without loading Better Auth. Keep this module free of provider imports.
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
 export type AuthRuntimeEnvResolver = (event?: ViteHubContext) => Record<string, unknown>
-export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestInput, hasSession: boolean) => Promise<AuthAuthorization["user"] | Response | undefined>
+export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestInput, hasSession: boolean) => Promise<AccessAuthorizationContext<unknown, false>["user"] | Response | undefined>
 
 export interface AuthRuntimeState {
   auth?: ViteHubAuth
   definition?: AuthDefinition
+  /** The request instances of each Auth Definition, by the key of their resolved options. Oldest first. */
+  providers?: WeakMap<object, Map<string, ViteHubAuth>>
   /**
    * Set once by the generated Nitro plugin. It lives here, not in the server module, because a dev reload re-runs the
    * server module when the app's Auth Definition changes, and the plugin does not run again.
@@ -37,4 +39,5 @@ export function resetAuth(): void {
   const state = getAuthRuntimeState()
   state.auth = undefined
   state.definition = undefined
+  state.providers = undefined
 }

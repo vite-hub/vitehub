@@ -57,8 +57,8 @@ The guard rejects input with several statements before it reaches the handle. A 
 
 ## Requirements
 
-- Configure Database. With `hubDb()` active, generated Agent routes pass `agentDb` from `@vite-hub/database/drizzle` to the Capability.
-- Without a `db` handle, the Capability imports `agentDb` from `@vite-hub/database/drizzle`. If that fails, the Agent Driver gets no Database tools.
+- Configure Database. With `hubDatabase()` active, generated Agent routes pass `agentDb` from `@vite-hub/database/runtime/registry` to the Capability.
+- Without a `db` handle, the Capability imports `agentDb` from `@vite-hub/database/runtime/registry`. If that fails, the Agent Driver gets no Database tools.
 - The handle must have a raw string `query()` for `db_query` and `exec()` for `db_exec`.
 - A `database` other than `"default"` needs a handle with `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
 
@@ -83,7 +83,7 @@ The guard rejects input with several statements before it reaches the handle. A 
 ## Verify database access
 
 1. Start the dev server.
-2. Run `vitehub agent info --agent support --json`. Check that `tools` has an entry with `name: "db"`, and `capabilities` has `{ id: "db", metadata: { schemaMode: "read" } }`.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "db"`, and `capabilities` has `{ id: "db", metadata: { schemaMode: "read" } }`.
 3. Run `vitehub agent dev "How many users are there?" --agent support`. Check for a `[tool] db_query` call.
 4. Ask the Agent to run two statements in one `db_query` call. Check that the tool rejects it before it reaches the database.
 

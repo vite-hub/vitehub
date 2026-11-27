@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@vite-hub/email": "^<version>",
     "nuxt": "npm:nuxt-nightly@5x",
-    "vite-hub": "^0.1.0"
+    "vite-hub": "^<version>"
   }
 }

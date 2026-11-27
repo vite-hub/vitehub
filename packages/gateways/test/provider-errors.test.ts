@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ask, typesafe, vercel } from "../src/index.ts"
+import { askAiGateway } from "../src/internal.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -18,14 +19,14 @@ describe("Jev provider errors", () => {
       .mockResolvedValueOnce(failed(429))
       .mockResolvedValueOnce(answered())
     vi.stubGlobal("fetch", fetch)
-    await expect(typesafe({ apiKey: "test-sdk-key" }).ask("state", questions)).resolves.toEqual({ accepted: true })
+    await expect(typesafe({ apiKey: "test-sdk-key" }).ask("state", questions)).resolves.toEqual([undefined, { accepted: true }])
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
   it("names a provider that keeps failing and keeps its response as the cause", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => failed(503))
     vi.stubGlobal("fetch", fetch)
-    const error = await typesafe({ apiKey: "test-sdk-key" }).ask("state", questions).catch((error: unknown) => error)
+    const [error] = await typesafe({ apiKey: "test-sdk-key" }).ask("state", questions)
     expect(fetch).toHaveBeenCalledTimes(3)
     expect(error).toMatchObject({ code: "GATEWAYS_R0009", status: 502, providerStatus: 503, requestId: "request-503" })
     expect(String((error as Error).message)).toContain("failed with HTTP 503 after 3 attempts")
@@ -36,7 +37,7 @@ describe("Jev provider errors", () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", "expired-key")
     const fetch = vi.fn<typeof globalThis.fetch>(async () => failed(status))
     vi.stubGlobal("fetch", fetch)
-    const error = await vercel().ask("state", questions).catch((error: unknown) => error)
+    const [error] = await vercel().ask("state", questions)
     expect(fetch).toHaveBeenCalledOnce()
     expect(error).toMatchObject({ code: "GATEWAYS_R0008", status: 503, providerStatus: status })
     expect(String((error as Error).message)).toContain(`Vercel AI Gateway Jev provider rejected the API key with HTTP ${status}`)
@@ -69,5 +70,16 @@ describe("Jev provider errors", () => {
     const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)
     expect(headers.get("authorization")).toBe("Bearer oidc-token")
     expect(headers.get("ai-gateway-auth-method")).toBe("oidc")
+  })
+
+  it("warns with the cause when a trace observer throws and still returns the answer", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => answered()))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const thrown = new Error("trace store is down")
+    const observe = vi.fn(async () => { throw thrown })
+    await expect(askAiGateway(typesafe({ apiKey: "test-sdk-key" }), "state", questions, { observe })).resolves.toEqual([undefined, { accepted: true }])
+    expect(observe).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "GATEWAYS_TRACE_OBSERVER_FAILED", cause: thrown }))
+    warn.mockRestore()
   })
 })

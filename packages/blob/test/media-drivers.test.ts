@@ -1,5 +1,4 @@
 import { BlobNotFoundError } from "@vercel/blob"
-import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -25,6 +24,14 @@ const vercel = vi.hoisted(() => {
     calls: [] as Array<Record<string, unknown>>,
     objects,
     module: {
+      async copy(from: string, to: string, options: Record<string, unknown>) {
+        const source = objects.get(toPathname(from))
+        if (!source) throw missing()
+        if (options.allowOverwrite === false && objects.has(to)) throw new Error("Vercel Blob: This blob already exists")
+        // Like the service, the copy keeps only the content type that the call passes.
+        objects.set(to, { body: source.body, contentType: options.contentType as string | undefined, etag: `"v${++version}"`, uploadedAt: new Date() })
+        return describe(to)
+      },
       async del(pathnames: string | string[]) {
         for (const pathname of [pathnames].flat()) objects.delete(toPathname(pathname))
       },
@@ -75,7 +82,7 @@ function photo(width: number, height: number) {
 }
 
 function request() {
-  return new H3Event(new Request("https://example.test/photo"))
+  return new Request("https://example.test/photo")
 }
 
 describe("media on Vercel Blob", () => {
@@ -85,7 +92,7 @@ describe("media on Vercel Blob", () => {
   })
 
   it("keeps records in sidecars, never in custom metadata, even when overwrites are forbidden", async () => {
-    const driver = createBundledVercelBlobDriver({ access: "public", allowOverwrite: false, driver: "vercel-blob", token: "token" })
+    const driver = createBundledVercelBlobDriver({ access: "public", allowOverwrite: false, driver: "vercel", token: "token" })
     const storage = createBlobStorage(driver, "default", { images: { transformer: "passthrough" } })
     const record = ok(await storage.media.put("posts/cover.jpg", await photo(320, 200), { alt: "Cover" }))
     expect(record).toMatchObject({ alt: "Cover", etag: "\"v1\"", height: 200, width: 320 })
@@ -101,7 +108,7 @@ describe("media on Vercel Blob", () => {
   })
 
   it("lists folded folders and moves media with copy and delete", async () => {
-    const storage = createBlobStorage(createBundledVercelBlobDriver({ access: "public", driver: "vercel-blob", token: "token" }), "default", { images: { transformer: "passthrough" } })
+    const storage = createBlobStorage(createBundledVercelBlobDriver({ access: "public", driver: "vercel", token: "token" }), "default", { images: { transformer: "passthrough" } })
     ok(await storage.media.put("a/one.jpg", await photo(20, 20)))
     ok(await storage.media.createFolder("a/empty"))
     const listed = ok(await storage.media.list({ prefix: "a/" }))
@@ -188,32 +195,30 @@ describe("media on a Cloudflare R2 binding", () => {
     const bucket = createMemoryBucket()
     const images = createImagesBinding()
     setActiveCloudflareEnv({ BLOB: bucket, IMAGES: images })
-    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default")
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default")
     const record = ok(await storage.media.put("photos/wide.jpg", await photo(1600, 800), { crops: { mobile: { aspect: "4:5", focal: { x: 0, y: 0.5 } } } }))
     expect(record).toMatchObject({ color: expect.stringMatching(/^#[0-9a-f]{6}$/), height: 800, width: 1600 })
     expect(images.requests[0]).toEqual({ output: { format: "image/png" }, transform: { fit: "cover", height: 1, width: 1 } })
 
-    const event = request()
-    const [, body] = await storage.serve(event, "photos/wide.jpg", { variant: { crop: "mobile", format: "avif", quality: 50, width: 384 } })
+    const response = await storage.serve(request(), "photos/wide.jpg", { variant: { crop: "mobile", format: "avif", quality: 50, width: 384 } })
     expect(images.requests[1]).toEqual({
       output: { format: "image/avif", quality: 50 },
       transform: { fit: "cover", height: 480, trim: { bottom: 800, left: 0, right: 640, top: 0 }, width: 384 },
     })
-    expect(event.res.headers.get("content-type")).toBe("image/avif")
-    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ height: 480, width: 384 })
+    expect(response.headers.get("content-type")).toBe("image/avif")
+    expect(await sharp(new Uint8Array(await response.arrayBuffer())).metadata()).toMatchObject({ height: 480, width: 384 })
     expect([...bucket.objects.keys()].some(key => key.startsWith("_vitehub/derived/"))).toBe(true)
   })
 
   it("falls back to sharp or the original when the Worker has no Images binding", async () => {
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
-    const passthrough = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "passthrough" } })
+    const passthrough = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default", { images: { transformer: "passthrough" } })
     ok(await passthrough.media.put("a.jpg", await photo(100, 50)))
-    const event = request()
-    await passthrough.serve(event, "a.jpg", { variant: { width: 64 } })
-    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
+    const response = await passthrough.serve(request(), "a.jpg", { variant: { width: 64 } })
+    expect(response.headers.get("content-type")).toBe("image/jpeg")
+    await response.body?.cancel()
 
-    const explicit = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "cloudflare-images" } })
-    const [error] = await explicit.serve(request(), "a.jpg", { variant: { width: 64 } })
-    expect(error?.cause).toMatchObject({ code: "BLOB_R0034" })
+    const explicit = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default", { images: { transformer: "cloudflare-images" } })
+    await expect(explicit.serve(request(), "a.jpg", { variant: { width: 64 } })).rejects.toMatchObject({ cause: { code: "BLOB_R0034" } })
   })
 })

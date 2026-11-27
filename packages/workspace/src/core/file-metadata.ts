@@ -1,26 +1,30 @@
 import { workspaceError } from "./errors.ts"
 
+function invalidMetadata(path: string) {
+  return workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. Metadata must contain only JSON-safe plain objects, dense arrays, strings, booleans, null, and finite numbers other than negative zero.`)
+}
+
 // Validate without invoking getters or toJSON hooks that can change ownership.
-function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional = false): unknown {
+function copyJsonValue(path: string, value: unknown, ancestors: Set<object>, normalizeOptional = false): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
-  if (typeof value !== "object" || ancestors.has(value)) throw new Error("Invalid JSON metadata")
+  if (typeof value !== "object" || ancestors.has(value)) throw invalidMetadata(path)
   const array = Array.isArray(value)
   const prototype = Object.getPrototypeOf(value)
-  if (!array && prototype !== Object.prototype && prototype !== null) throw new Error("Invalid JSON metadata")
+  if (!array && prototype !== Object.prototype && prototype !== null) throw invalidMetadata(path)
   ancestors.add(value)
   try {
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const keys = Reflect.ownKeys(descriptors).filter(key => !array || key !== "length")
-    if (array && !normalizeOptional && keys.length !== descriptors.length?.value) throw new Error("Invalid JSON metadata")
+    if (array && !normalizeOptional && keys.length !== descriptors.length?.value) throw invalidMetadata(path)
     const copy = array ? [] : {}
     for (const [index, key] of keys.entries()) {
-      if (typeof key !== "string" || (array && (normalizeOptional ? !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length?.value : key !== String(index)))) throw new Error("Invalid JSON metadata")
+      if (typeof key !== "string" || (array && (normalizeOptional ? !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length?.value : key !== String(index)))) throw invalidMetadata(path)
       const descriptor = descriptors[key]!
-      if (!descriptor.enumerable || !("value" in descriptor)) throw new Error("Invalid JSON metadata")
+      if (!descriptor.enumerable || !("value" in descriptor)) throw invalidMetadata(path)
       if (normalizeOptional && descriptor.value === undefined && !array) continue
       Object.defineProperty(copy, key, {
-        value: normalizeOptional && descriptor.value === undefined ? null : copyJsonValue(descriptor.value, ancestors, normalizeOptional), enumerable: true, writable: true, configurable: true,
+        value: normalizeOptional && descriptor.value === undefined ? null : copyJsonValue(path, descriptor.value, ancestors, normalizeOptional), enumerable: true, writable: true, configurable: true,
       })
     }
     if (array && normalizeOptional) {
@@ -41,11 +45,11 @@ export function copyJsonWorkspaceMetadata(path: string, metadata: Record<string,
   try {
     if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
       // SAFETY: The non-null, non-array input is copied into a plain object; copyJsonValue rejects unsupported prototypes and recursively validates every property.
-      copy = copyJsonValue(metadata, new Set(), normalizeOptional) as Record<string, unknown>
+      copy = copyJsonValue(path, metadata, new Set(), normalizeOptional) as Record<string, unknown>
     }
   }
   catch { /* Deep or exotic objects are not a portable metadata representation. */ }
-  if (!copy) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. Metadata must contain only JSON-safe plain objects, dense arrays, strings, booleans, null, and finite numbers other than negative zero.`)
+  if (!copy) throw invalidMetadata(path)
   return copy
 }
 

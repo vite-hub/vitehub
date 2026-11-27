@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { findProperty } from "@vite-hub/internal/ast"
 
-import { CodemodError } from "../types.ts"
+import { isCodemodError } from "../error-diagnostics.ts"
 import { findModuleEntry, readNuxtConfig } from "./nuxt-config.ts"
 
 import type { Detection } from "../types.ts"
@@ -42,7 +42,7 @@ export async function detectNuxtModule(cwd: string, moduleName: string, configKe
     if (key) return { reason: `${config.fileName} sets ${key}` }
   }
   catch (error) {
-    if (!(error instanceof CodemodError)) throw error
+    if (!isCodemodError(error)) throw error
   }
   if (dependencies.has(moduleName)) return { reason: `package.json depends on ${moduleName}` }
   return undefined

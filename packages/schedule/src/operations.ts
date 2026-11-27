@@ -1,19 +1,12 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ManualScheduleRunSummary, ScheduleAttemptsResult, ScheduleListResult, ScheduleRunAttemptSummary, ScheduleRunResult, ScheduleRunSummary, ScheduleRunsResult, StartedScheduleResult, StartedScheduleSummary } from "./runtime/operations.ts"
 
-// The runtime module reads the run store and the registry of the Nitro runtime. The operations load it when they run, so
-// the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const id = v.pipe(v.string(), v.minLength(1))
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function formatRuns({ runs }: { runs: readonly ScheduleRunSummary[] }): string {
   if (runs.length === 0) return "No runs.\n"
@@ -41,12 +34,11 @@ function formatRun({ run }: { run: ManualScheduleRunSummary }): string {
 }
 
 function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The run store answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "schedules", user: false })
 }
 
 const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRunsResult>({
-  cli: { command: "runs", format: formatRuns, namespace: "schedule", positional: ["id"] },
+  cli: { command: "runs list", format: formatRuns, namespace: "schedule", positional: ["id"] },
   description: "List the recorded runs of one Schedule Definition, newest first.",
   input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
   kind: "read",
@@ -55,8 +47,8 @@ const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRun
 })
 
 const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>({
-  cli: { command: "attempts", format: formatAttempts, namespace: "schedule", positional: ["id"] },
-  description: "List the attempts of one Schedule Run, oldest first.",
+  cli: { command: "runs get", format: formatAttempts, namespace: "schedule", positional: ["id"] },
+  description: "Show one Schedule Run with its attempts, oldest first.",
   input: v.object({ id }),
   kind: "read",
   name: "schedule.attempts",
@@ -64,7 +56,7 @@ const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>
 })
 
 const run = defineScheduleOperation<{ at?: string, name: string }, ScheduleRunResult>({
-  cli: { command: "run", dispatch: "/_vitehub/schedules/run", format: formatRun, namespace: "schedule", positional: ["name"] },
+  cli: { command: "run", format: formatRun, namespace: "schedule", positional: ["name"] },
   description: "Run a Static Schedule Definition now. The definition must set `manual: true`. `at` runs it as if the cron fired at that ISO 8601 date-time.",
   input: v.object({ at: v.optional(v.string()), name: id }),
   invoke: true,
@@ -78,12 +70,25 @@ function timingOf(schedule: StartedScheduleSummary): string {
   return schedule.timeZone && schedule.timeZone !== "UTC" ? `${schedule.cron} (${schedule.timeZone})` : schedule.cron ?? "-"
 }
 
-function formatSchedules({ schedules }: { schedules: readonly StartedScheduleSummary[] }): string {
-  if (schedules.length === 0) return "No started Schedules.\n"
-  return `${table([
-    ["ID", "SCHEDULE", "RUNS", "STARTED AT"],
-    ...schedules.map(schedule => [schedule.id, schedule.name, timingOf(schedule), schedule.createdAt]),
-  ])}\n`
+function formatSchedules({ definitions = [], schedules }: {
+  definitions?: ScheduleListResult["definitions"]
+  schedules: ScheduleListResult["schedules"]
+}): string {
+  if (definitions.length === 0 && schedules.length === 0) return "No Schedules.\n"
+  const parts: string[] = []
+  if (definitions.length > 0) {
+    parts.push(table([
+      ["SCHEDULE", "CRON"],
+      ...definitions.map(definition => [definition.name, definition.timeZone && definition.timeZone !== "UTC" ? `${definition.cron} (${definition.timeZone})` : definition.cron]),
+    ]))
+  }
+  if (schedules.length > 0) {
+    parts.push(table([
+      ["ID", "SCHEDULE", "RUNS", "STARTED AT"],
+      ...schedules.map(schedule => [schedule.id, schedule.name, timingOf(schedule), schedule.createdAt]),
+    ]))
+  }
+  return `${parts.join("\n\n")}\n`
 }
 
 function formatStartedSchedule(verb: string) {
@@ -92,7 +97,7 @@ function formatStartedSchedule(verb: string) {
 
 const list = defineScheduleOperation<{ name?: string }, ScheduleListResult>({
   cli: { command: "list", format: formatSchedules, namespace: "schedule", positional: ["name"] },
-  description: "List the Schedules that code started with startSchedule(), oldest first. `name` keeps the Schedules of one Definition.",
+  description: "List the Static Schedule Definitions with their cron, and the Schedules that code started with startSchedule(), oldest first. `name` keeps one Definition and its started Schedules.",
   input: v.object({ name: v.optional(id) }),
   kind: "read",
   name: "schedule.list",

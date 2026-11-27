@@ -6,6 +6,7 @@ import { agentConnectionsRuntime, connectionNameSchema, useAgentConnectionClient
 import type {
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityRuntimeContext,
   AgentRunInput,
   AgentRuntimeConfig,
 } from "../types.ts"
@@ -13,11 +14,13 @@ import type { McpToolServerConnection } from "../internal/mcp-tool-capability.ts
 import type { McpAvailabilityWarning, McpCapabilityOptions, McpClient, McpClientConfig, McpConnectionServerConfig } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 const mcpWarningSchema = v.object({
   phase: v.picklist(["discovery", "resolve"]),
   server: v.string(),
   statusCode: v.optional(v.pipe(v.number(), v.integer(), v.minValue(400), v.maxValue(599))),
+  code: v.optional(v.string()),
 })
 
 /** Return valid MCP availability warnings recorded in an Agent run input. */
@@ -37,10 +40,6 @@ function normalizeMcpToolName(serverName: string, toolName: string) {
   return `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function isMcpClientConfig(value: McpClient | McpClientConfig | McpConnectionServerConfig): value is McpClientConfig | McpConnectionServerConfig {
   return ("transport" in value || "connection" in value)
     && !("tools" in value && typeof value.tools === "function"
@@ -49,6 +48,19 @@ function isMcpClientConfig(value: McpClient | McpClientConfig | McpConnectionSer
 
 function namesConnection(value: McpClientConfig | McpConnectionServerConfig): value is McpConnectionServerConfig | (McpClientConfig & { connection: string }) {
   return value.connection !== undefined
+}
+
+/**
+ * Whether a server's `channels` admit the Channel that started the Invocation. A server without
+ * `channels` applies to every Invocation.
+ */
+function serverAppliesToChannel(context: Pick<AgentCapabilityRuntimeContext, "context" | "run">, server: string, config: McpClientConfig | McpConnectionServerConfig): boolean {
+  if (config.channels === undefined) return true
+  if (!Array.isArray(config.channels) || config.channels.some(channel => typeof channel !== "string")) {
+    throw agentDiagnostics.AGENT_R0083({ message: `[vitehub] mcp({ servers }) server "${server}" requires channels to be an array of Channel names.` })
+  }
+  const channelId = context.run?.channelId || context.context.get("agent.trigger")?.channelId
+  return channelId !== undefined && config.channels.includes(channelId)
 }
 
 /** A static server config that names a Connection. A resolver can also return `connection`; `useAgentConnectionClient()` checks the primitive when it runs. */
@@ -206,6 +218,7 @@ function createMcpCapability<
         const owned = typeof server === "function"
         const connection = owned ? await server(context) : server
         if (connection === false || connection === null || connection === undefined) return
+        if (isMcpClientConfig(connection) && !serverAppliesToChannel(context, name, connection)) return
         let resolved: McpClient | McpClientConfig
         let bound: Awaited<ReturnType<typeof withMcpConnection>> | undefined
         if (!isMcpClientConfig(connection)) resolved = connection

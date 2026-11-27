@@ -39,11 +39,12 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 420, height: 800 
       const page = await browser.newPage({ viewport });
       for (const entry of cases) {
         await page.unrouteAll();
-        await page.route("**/_vitehub/rpc/__call", async (route) => {
-          if (route.request().postDataJSON().operation !== entry.operation) return route.continue();
-          if (entry.fail) return route.fulfill({ status: 500, json: { ok: false, status: 500, code: "CONSOLE_REQUEST_FAILED", message: "Synthetic failure." } });
+        await page.route("**/_vitehub/rpc", async (route) => {
+          const { m, i } = route.request().postDataJSON();
+          if (m !== entry.operation) return route.continue();
+          if (entry.fail) return route.fulfill({ status: 500, json: { t: "s", i, e: { status: 500, code: "CONSOLE_REQUEST_FAILED", message: "Synthetic failure." } } });
           const fixture = await (await route.fetch()).json();
-          return route.fulfill({ json: { ok: true, value: entry.value(fixture.value) } });
+          return route.fulfill({ json: { t: "s", i, r: entry.value(fixture.r) } });
         });
         await page.goto(`${origin}/_vitehub/${entry.path}`);
         await page.getByRole("heading", { name: entry.title }).waitFor();

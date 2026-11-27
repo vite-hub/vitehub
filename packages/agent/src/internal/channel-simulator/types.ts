@@ -42,7 +42,6 @@ export interface SimulatorElement {
   readonly clientHeight: number
   readonly scrollHeight: number
   scrollTop: number
-  readonly style: { height: string }
   textContent: string | null
   addEventListener: (type: string, listener: (event: SimulatorEvent) => void) => void
   after: (node: SimulatorElement) => void

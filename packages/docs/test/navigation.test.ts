@@ -22,6 +22,7 @@ import {
   docsSectionHome,
   docsSectionGroup,
   docsSectionIcon,
+  docsStartPage,
   docsSidebarGroup,
   docsSidebarGroups,
   docsSidebarSections,
@@ -32,7 +33,7 @@ import {
   isDocsPath,
 } from "../src/navigation.ts"
 
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 const categories = ["Start", "Data", "Reference"]
 
 function section(id: string) {
@@ -80,8 +81,11 @@ describe("docs paths", () => {
   it("resolves trailing slashes and `/index` to the same page", () => {
     expect(normalizeDocsPath("/docs/kv/")).toBe("/docs/kv")
     expect(normalizeDocsPath("/docs/kv/index")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/docs/kv/index/")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/docs/kv//index")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/index/")).toBe("/")
     expect(normalizeDocsPath("/")).toBe("/")
-    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index"]) {
+    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index", "/docs/kv/index/", "/docs/kv//index"]) {
       expect(findDocsPage(manifest, path)).toMatchObject({ page: { path: "/docs/kv" }, section: { id: "kv" } })
     }
   })
@@ -237,9 +241,11 @@ describe("docs groups", () => {
   })
 })
 
+// The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
+const small = await createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
+const vitehub = await createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
+
 describe("docs home links", () => {
-  // The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
-  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
 
   it("opens the docs base page when it exists", () => {
     expect(docsHomePath(manifest)).toBe("/docs")
@@ -251,6 +257,22 @@ describe("docs home links", () => {
     expect(docsHomePath({ base: "/docs", root: null, sections: [], pages: [] })).toBeNull()
   })
 
+  it("skips a home landing at the docs base for the first start link that is a docs page, else the start section", () => {
+    const landing = { ...small, root: { ...small.sections[0]!.pages[0]!, path: "/docs", layout: "home" as const } }
+    const intro = { ...small.sections[0]!.pages[0]!, path: "/docs/introduction", layout: "article" as const }
+    const withIntro = { ...landing, pages: [...landing.pages, intro] }
+    expect(docsHomePath(withIntro, { section: "guides", links: [{ to: "/playground" }, { to: "/docs/introduction/" }] })).toBe("/docs/introduction")
+    expect(docsHomePath(landing, { section: "guides", links: [{ to: "/playground" }] })).toBe("/docs/guides/configuration")
+    expect(docsHomePath(landing, "")).toBe("/docs/getting-started")
+    expect(docsHomePath(manifest, { section: "guides", links: [] })).toBe("/docs")
+    expect(docsStartPage(withIntro, { section: "guides", links: [{ to: "/docs" }, { to: "/docs/introduction" }] })).toBe("/docs/introduction")
+    expect(docsStartPage(withIntro, "")).toBeNull()
+  })
+
+  it("skips a start link to a playground or a lesson, so the start section opens its own page", () => {
+    expect(docsStartPage(vitehub, { section: "getting-started", links: [{ to: "/learn/first-agent" }, { to: "/playground" }] })).toBeNull()
+  })
+
   it("opens the first listed page of a section without an Overview", () => {
     expect(docsSectionHome(section("kv"))).toBe("/docs/kv")
     const guides = small.sections.find(candidate => candidate.id === "guides")
@@ -260,8 +282,6 @@ describe("docs home links", () => {
 
 describe("docs rail", () => {
   const noIcons = { rail: {}, sections: {} }
-  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
-  const vitehub = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
 
   it("drops the rail for three sections or fewer", () => {
     expect(docsHasRail(small, noIcons)).toBe(false)
@@ -364,6 +384,7 @@ describe("docs icons", () => {
     family: "i-ph-",
     page: "i-ph-file-light",
     section: "i-ph-folder-light",
+    stroke: 1.5,
   }
 
   it("prefers explicit maps, then aliases, then icons inside the family", () => {

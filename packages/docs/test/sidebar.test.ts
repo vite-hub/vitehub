@@ -70,7 +70,7 @@ it("shows one rail item per group and lists every section of the group in its si
         ],
       }]],
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     await build(nuxt)
     const page = (path: string) => readFile(join(root, ".output/public", `${path}.html`), "utf8")
     const currentRailLabels = (html: string) => {

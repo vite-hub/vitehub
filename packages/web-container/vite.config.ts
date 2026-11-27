@@ -1,12 +1,12 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
-      neverBundle: ["vite", "@webcontainer/api", "@msgpack/msgpack"],
+      neverBundle: ["vite", "vue", "@webcontainer/api", "@msgpack/msgpack"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
@@ -16,15 +16,7 @@ export default defineConfig({
       "src/env.ts",
       "src/snapshot.ts",
       "src/vite.ts",
+      "src/vue.ts",
     ],
-    exports: {
-      customExports: normalizePackageExports,
-      inlinedDependencies: false,
-    },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

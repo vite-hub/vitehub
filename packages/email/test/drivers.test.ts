@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
+import cloudflareEmail from "../src/drivers/cloudflare.ts";
 import resend from "../src/drivers/resend.ts";
 import { emailProviderError } from "../src/provider.ts";
 
@@ -60,10 +60,7 @@ describe("Resend Email driver", () => {
     const request = vi.fn(async () => { throw abortError });
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: null,
-      error: { code: "CANCELLED" },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "CANCELLED" }, undefined]);
   });
 
   it("rejects inherited provider options", () => {
@@ -83,7 +80,7 @@ describe("Resend Email driver", () => {
         Object.create({ endpoint: "https://inherited.example.test", fetch: inheritedFetch }),
         { apiKey: "re_secret" },
       ) as ResendEmailDriverOptions;
-      await expect(resend(options).send(message, context)).resolves.toMatchObject({ error: null });
+      await expect(resend(options).send(message, context)).resolves.toMatchObject([undefined, expect.anything()]);
       expect(request).toHaveBeenCalledWith("https://api.resend.com/emails", expect.any(Object));
       expect(inheritedFetch).not.toHaveBeenCalled();
     }
@@ -99,7 +96,7 @@ describe("Resend Email driver", () => {
     delete (options as Partial<ResendEmailDriverOptions>).apiKey;
     Object.setPrototypeOf(options, { apiKey: "re_inherited" });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({ error: null });
+    await expect(driver.send(message, context)).resolves.toMatchObject([undefined, expect.anything()]);
     expect(request).toHaveBeenCalledWith(
       "https://api.resend.com/emails",
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer re_secret" }) }),
@@ -115,10 +112,7 @@ describe("Resend Email driver", () => {
     expect(request).not.toBeInstanceOf(Function);
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: { driver: "resend", id: "email-1" },
-      error: null,
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([undefined, { driver: "resend", id: "email-1" }]);
   });
 
   it("rejects credentials that do not match Resend's API key shape", () => {
@@ -186,10 +180,7 @@ describe("Resend Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({
-      data: { driver: "resend", id: "email-1" },
-      error: null,
-    });
+    ).resolves.toMatchObject([undefined, { driver: "resend", id: "email-1" }]);
     const [url, init = {}] = request.mock.calls[0]!;
     expect(url).toBe("https://api.resend.com/emails");
     expect(init.headers).toMatchObject({
@@ -217,7 +208,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, scheduledAt: crossRealmDate }, context),
-    ).resolves.toMatchObject({ data: { id: "email-1" }, error: null });
+    ).resolves.toMatchObject([undefined, { id: "email-1" }]);
     const [, init = {}] = request.mock.calls[0]!;
     expect(JSON.parse(init.body as string).scheduled_at).toBe("2026-08-26T12:00:00.000Z");
   });
@@ -231,7 +222,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, scheduledAt: spoofedDate as Date }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -293,7 +284,7 @@ describe("Resend Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ data: { driver: "resend", id: "email-1" }, error: null });
+    ).resolves.toMatchObject([undefined, { driver: "resend", id: "email-1" }]);
 
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0]?.[1]?.body).toBe(
@@ -357,9 +348,7 @@ describe("Resend Email driver", () => {
     );
     const driver = resend({ apiKey: "re_secret", fetch: async () => response });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      error: { code: "NETWORK", retryable: false },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "NETWORK", retryable: false }, undefined]);
   });
 
   it.each([
@@ -376,9 +365,7 @@ describe("Resend Email driver", () => {
         fetch: async () => new Response("{}", { status }),
       });
 
-      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({
-        error: { code, retryable },
-      });
+      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject([{ code, retryable }, undefined]);
     },
   );
 
@@ -399,9 +386,7 @@ describe("Resend Email driver", () => {
       );
       const driver = resend({ apiKey: "re_secret", fetch: async () => response });
 
-      await expect(driver.send(message, context)).resolves.toMatchObject({
-        error: { code, retryable, status },
-      });
+      await expect(driver.send(message, context)).resolves.toMatchObject([{ code, retryable, status }, undefined]);
     },
   );
 
@@ -427,7 +412,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, attachments: [{ content: "hello", filename: "  " }] }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -442,7 +427,7 @@ describe("Resend Email driver", () => {
           { ...message, attachments: [{ content: "hello", contentType, filename: "report.txt" }] },
           context,
         ),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -460,9 +445,7 @@ describe("Resend Email driver", () => {
         },
       });
 
-      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({
-        error: { code: "NETWORK", retryable },
-      });
+      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject([{ code: "NETWORK", retryable }, undefined]);
     },
   );
 
@@ -475,7 +458,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, context);
     await vi.advanceTimersByTimeAsync(30_000);
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: false } });
+    await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT", retryable: false }, undefined]);
     expect(cancel).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
@@ -495,7 +478,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, context);
     await vi.advanceTimersByTimeAsync(30_000);
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: false } });
+    await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT", retryable: false }, undefined]);
     vi.useRealTimers();
   });
 
@@ -514,9 +497,7 @@ describe("Resend Email driver", () => {
       const delivery = driver.send(message, context);
       await vi.advanceTimersByTimeAsync(30_000);
 
-      await expect(delivery).resolves.toMatchObject({
-        error: { code: "TIMEOUT", retryable: false },
-      });
+      await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT", retryable: false }, undefined]);
       expect(cancel).toHaveBeenCalledOnce();
       vi.useRealTimers();
     },
@@ -542,7 +523,7 @@ describe("Resend Email driver", () => {
       const delivery = driver.send({ ...message, idempotencyKey }, context);
       await vi.advanceTimersByTimeAsync(30_000);
 
-      await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable } });
+      await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT", retryable }, undefined]);
       expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
       vi.useRealTimers();
     },
@@ -556,7 +537,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send({ ...message, idempotencyKey: "send-1" }, context);
     await vi.advanceTimersByTimeAsync(30_000);
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT", retryable: true } });
+    await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT", retryable: true }, undefined]);
     vi.useRealTimers();
   });
 
@@ -628,7 +609,7 @@ describe("Resend Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { mailto } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -646,7 +627,7 @@ describe("Resend Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -663,7 +644,7 @@ describe("Resend Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -685,7 +666,7 @@ describe("Resend Email driver", () => {
           },
           context,
         ),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -697,9 +678,7 @@ describe("Resend Email driver", () => {
       const driver = resend({ apiKey: "re_secret", fetch: request });
       const invalidMessage: EmailMessage = { ...message, ...options };
 
-      await expect(driver.send(invalidMessage, context)).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "resend" },
-      });
+      await expect(driver.send(invalidMessage, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -713,7 +692,7 @@ describe("Resend Email driver", () => {
         { ...message, unsubscribe: { mailto: "leave@example.com", oneClick: true } },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -725,7 +704,7 @@ describe("Resend Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: true, url } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -738,7 +717,7 @@ describe("Resend Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { url } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -751,7 +730,7 @@ describe("Resend Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: false, url } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -792,9 +771,7 @@ describe("Resend Email driver", () => {
     );
     const driver = resend({ apiKey: "re_secret", fetch: async () => response });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      error: { code: "PROVIDER", retryable: undefined },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "PROVIDER", retryable: undefined }, undefined]);
     expect(cancel).toHaveBeenCalledOnce();
   });
 
@@ -806,9 +783,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send(message, { ...context, signal: controller.signal }),
-    ).resolves.toMatchObject({
-      error: { code: "CANCELLED", driver: "resend", retryable: false },
-    });
+    ).resolves.toMatchObject([{ code: "CANCELLED", driver: "resend", retryable: false }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -820,9 +795,7 @@ describe("Resend Email driver", () => {
     const delivery = driver.send(message, { ...context, signal: controller.signal });
     controller.abort();
 
-    await expect(delivery).resolves.toMatchObject({
-      error: { code: "CANCELLED", driver: "resend", retryable: false },
-    });
+    await expect(delivery).resolves.toMatchObject([{ code: "CANCELLED", driver: "resend", retryable: false }, undefined]);
   });
 
   it.each(["request", "response"] as const)(
@@ -851,9 +824,7 @@ describe("Resend Email driver", () => {
 
       await expect(
         driver.send(message, { ...context, signal: controller.signal }),
-      ).resolves.toMatchObject({
-        error: { code: "CANCELLED", driver: "resend", retryable: false },
-      });
+      ).resolves.toMatchObject([{ code: "CANCELLED", driver: "resend", retryable: false }, undefined]);
     },
   );
 
@@ -863,9 +834,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, idempotencyKey: "invalid\nvalue" }, context),
-    ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "resend" },
-    });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -875,7 +844,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -891,9 +860,7 @@ describe("Resend Email driver", () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
-    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "resend" },
-    });
+    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -901,9 +868,7 @@ describe("Resend Email driver", () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
-    await expect(driver.send(null as never, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "resend" },
-    });
+    await expect(driver.send(null as never, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -913,9 +878,7 @@ describe("Resend Email driver", () => {
       const request = vi.fn();
       const driver = resend({ apiKey: "re_secret", fetch: request });
 
-      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "resend" },
-      });
+      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
       expect(request).not.toHaveBeenCalled();
     },
   );
@@ -929,121 +892,12 @@ describe("Resend Email driver", () => {
       );
       const driver = resend({ apiKey: "re_secret", fetch: request });
 
-      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject({
-        error: null,
-      });
+      await expect(driver.send({ ...message, idempotencyKey }, context)).resolves.toMatchObject([undefined, expect.anything()]);
       expect(request.mock.calls[0]![1]?.headers).toMatchObject({
         "Idempotency-Key": idempotencyKey,
       });
     },
   );
-
-  it("rejects raw message payloads before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send({ ...message, raw: "From: hello@example.com\r\n\r\nHello" }, context),
-    ).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects template payloads before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send({ ...message, template: { id: "welcome" } }, context),
-    ).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["tracking preferences", { tracking: { opens: false } }],
-    ["AMP content", { amp: "<html amp4email>" }],
-    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
-    ["preheaders", { preheader: "Preview" }],
-    ["locales", { locale: "en" }],
-  ])("rejects unsupported %s before fetch", async (_name, unsupported) => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      // SAFETY: this table contains public EmailMessage option fragments for runtime rejection tests.
-      driver.send({ ...message, ...unsupported } as typeof message, context),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects stream selection before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send(message, { ...context, stream: "transactional" }),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { react: {} },
-    { jsx: {} },
-    { mjml: "<mjml />" },
-    { handlebars: "Hello {{name}}" },
-    { handlebarsVars: { name: "Maxi" } },
-    { liquid: "Hello {{ name }}" },
-    { liquidVars: { name: "Maxi" } },
-  ])("rejects unsupported renderer payloads before fetch", async (renderer) => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(driver.send({ ...message, ...renderer }, context)).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects unsupported personalizations before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com", variables: { name: "One" } }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("applies one address and subject personalization", async () => {
-    const request = vi.fn(
-      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
-        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
-    );
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await driver.send(
-      { ...message, personalizations: [{ subject: "Personal welcome", to: "one@example.com" }] },
-      context,
-    );
-
-    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
-    expect(JSON.parse(request.mock.calls[0]![1]?.body as string)).toMatchObject({
-      subject: "Personal welcome",
-      to: ["one@example.com"],
-    });
-  });
 
   it("rejects an invalid scheduled date without making a request", async () => {
     const request = vi.fn();
@@ -1051,7 +905,7 @@ describe("Resend Email driver", () => {
 
     await expect(
       driver.send({ ...message, scheduledAt: new Date("invalid") }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -1059,19 +913,7 @@ describe("Resend Email driver", () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
-    await expect(driver.send({ ...message, scheduledAt: "" }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects sandbox delivery before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(driver.send({ ...message, sandbox: true }, context)).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
+    await expect(driver.send({ ...message, scheduledAt: "" }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "resend" }, undefined]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -1086,9 +928,7 @@ describe("Resend Email driver", () => {
       apiKey: "re_secret",
       fetch: async () => new Response(JSON.stringify({ message: "failed" }), { status }),
     });
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      error: { code, driver: "resend", status },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code, driver: "resend", status }, undefined]);
   });
 
   it.each([200, 400])("handles a JSON null response with HTTP %s", async (status) => {
@@ -1096,10 +936,7 @@ describe("Resend Email driver", () => {
       apiKey: "re_secret",
       fetch: async () => new Response("null", { status }),
     });
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: null,
-      error: { code: "PROVIDER", driver: "resend" },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "PROVIDER", driver: "resend" }, undefined]);
   });
 
   it.each(["", "   "])("rejects an empty message id in a successful response", async (id) => {
@@ -1107,10 +944,7 @@ describe("Resend Email driver", () => {
       apiKey: "re_secret",
       fetch: async () => new Response(JSON.stringify({ id }), { status: 200 }),
     });
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: null,
-      error: { code: "PROVIDER", driver: "resend" },
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "PROVIDER", driver: "resend" }, undefined]);
   });
 });
 
@@ -1179,9 +1013,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { mailto } }, context),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1201,9 +1033,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1222,9 +1052,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1248,9 +1076,7 @@ describe("Cloudflare Email driver", () => {
           },
           context,
         ),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1264,9 +1090,7 @@ describe("Cloudflare Email driver", () => {
       const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
       const invalidMessage: EmailMessage = { ...message, ...options };
 
-      await expect(driver.send(invalidMessage, context)).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      await expect(driver.send(invalidMessage, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1282,7 +1106,7 @@ describe("Cloudflare Email driver", () => {
         { ...message, unsubscribe: { mailto: "leave@example.com", oneClick: true } },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1296,9 +1120,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: true, url } }, context),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1313,9 +1135,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { url } }, context),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1330,9 +1150,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, unsubscribe: { oneClick: false, url } }, context),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1356,18 +1174,6 @@ describe("Cloudflare Email driver", () => {
     expect(String(Constructor.mock.calls[0]?.[2])).not.toContain("List-Unsubscribe-Post:");
   });
 
-  it("rejects stream selection before delivery", async () => {
-    const send = vi.fn();
-    const Constructor = vi.fn();
-    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
-
-    await expect(
-      driver.send(message, { ...context, stream: "transactional" }),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
-    expect(Constructor).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-  });
-
   it("omits empty optional recipient headers", async () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
@@ -1385,7 +1191,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, attachments: [{ content: "hello", filename: "  " }] }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1402,29 +1208,11 @@ describe("Cloudflare Email driver", () => {
           { ...message, attachments: [{ content: "hello", contentType, filename: "report.txt" }] },
           context,
         ),
-      ).resolves.toMatchObject({
-        error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-      });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
   );
-
-  it("rejects multiple personalizations before delivery", async () => {
-    const send = vi.fn();
-    const Constructor = vi.fn();
-    // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
-    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
-
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
-    expect(Constructor).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-  });
 
   it("rejects an empty primary recipient list before delivery", async () => {
     const send = vi.fn();
@@ -1433,7 +1221,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, to: [], cc: ["copy@example.com"] }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1451,9 +1239,7 @@ describe("Cloudflare Email driver", () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1463,9 +1249,7 @@ describe("Cloudflare Email driver", () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-    await expect(driver.send({ ...message, from: { email } as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, from: { email } as never }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1477,7 +1261,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, from: { email: "hello@example.com", name } as never }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1493,9 +1277,7 @@ describe("Cloudflare Email driver", () => {
     });
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1511,9 +1293,7 @@ describe("Cloudflare Email driver", () => {
     });
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1529,9 +1309,7 @@ describe("Cloudflare Email driver", () => {
     });
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1549,10 +1327,7 @@ describe("Cloudflare Email driver", () => {
     // SAFETY: this test constructor implements the required runtime constructor behavior.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({
-      data: { driver: "cloudflare-email" },
-      error: null,
-    });
+    await expect(driver.send(message, context)).resolves.toMatchObject([undefined, { driver: "cloudflare" }]);
     expect(Constructor).toHaveBeenCalledWith(
       "hello@example.com",
       "maxi@example.com",
@@ -1631,7 +1406,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "UNSUPPORTED", driver: "cloudflare" }, undefined]);
 
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
@@ -1665,7 +1440,12 @@ describe("Cloudflare Email driver", () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
 
-    await driver.send({ ...message, html: undefined, text: undefined, [field]: content }, context);
+    await driver.send(
+      field === "text"
+        ? { ...message, html: undefined, text: content }
+        : { ...message, html: content, text: undefined },
+      context,
+    );
 
     // SAFETY: the Cloudflare Email constructor receives the generated raw MIME string as argument 3.
     const raw = Constructor.mock.calls[0]![2] as string;
@@ -1716,16 +1496,14 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, scheduledAt: new Date("2026-08-26T12:00:00.000Z") }, context),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "UNSUPPORTED", driver: "cloudflare" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
 
   const unsupportedCloudflarePayloads = [
     ["scheduledAt", "scheduled delivery"],
-    ["raw", "raw message payloads"],
     ["idempotencyKey", "idempotency keys"],
-    ["template", "template payloads"],
   ] as const;
 
   it.each(unsupportedCloudflarePayloads)(
@@ -1737,14 +1515,11 @@ describe("Cloudflare Email driver", () => {
 
       for (const value of ["", false, 0, null]) {
         const input = Object.defineProperty({ ...message }, key, { value });
-        await expect(driver.send(input, context)).resolves.toMatchObject({
-          data: null,
-          error: {
-            code: "UNSUPPORTED",
-            driver: "cloudflare-email",
-            message: `Cloudflare Email does not support ${description}.`,
-          },
-        });
+        await expect(driver.send(input, context)).resolves.toMatchObject([{
+          code: "UNSUPPORTED",
+          driver: "cloudflare",
+          message: `Cloudflare Email does not support ${description}.`,
+        }, undefined]);
       }
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -1774,14 +1549,11 @@ describe("Cloudflare Email driver", () => {
         },
       });
 
-      await expect(driver.send(input, context)).resolves.toMatchObject({
-        data: null,
-        error: {
-          code: "UNSUPPORTED",
-          driver: "cloudflare-email",
-          message: `Cloudflare Email does not support ${description}.`,
-        },
-      });
+      await expect(driver.send(input, context)).resolves.toMatchObject([{
+        code: "UNSUPPORTED",
+        driver: "cloudflare",
+        message: `Cloudflare Email does not support ${description}.`,
+      }, undefined]);
       expect(reads).toEqual(
         unsupportedCloudflarePayloads.slice(0, selected + 1).map(([key]) => key),
       );
@@ -1800,30 +1572,26 @@ describe("Cloudflare Email driver", () => {
     const send = vi.fn();
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() });
 
-    await expect(driver.send(input, context)).resolves.toMatchObject({
-      data: null,
-      error: {
-        cause,
-        code: "PROVIDER",
-        driver: "cloudflare-email",
-        message: "Cloudflare Email send failed.",
-      },
-    });
+    await expect(driver.send(input, context)).resolves.toMatchObject([{
+      cause,
+      code: "PROVIDER",
+      driver: "cloudflare",
+      message: "Cloudflare Email send failed.",
+    }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
   it.each([
-    [true, true, "CANCELLED", "Cloudflare Email send was cancelled."],
-    [false, true, "UNSUPPORTED", "Cloudflare Email does not support sandbox delivery."],
-    [false, false, "INVALID_OPTIONS", "Cloudflare Email owns the SuBjEcT header."],
+    [true, "CANCELLED", "Cloudflare Email send was cancelled."],
+    [false, "INVALID_OPTIONS", "Cloudflare Email owns the SuBjEcT header."],
   ] as const)(
-    "preserves earlier diagnostics with aborted=%s and sandbox=%s",
-    async (aborted, sandbox, code, diagnostic) => {
+    "preserves earlier diagnostics with aborted=%s",
+    async (aborted, code, diagnostic) => {
       const getter = vi.fn(() => {
         throw new Error("option must not be read");
       });
       const input = Object.defineProperty(
-        { ...message, sandbox, headers: { SuBjEcT: "custom" } },
+        { ...message, headers: { SuBjEcT: "custom" } },
         "scheduledAt",
         { get: getter },
       );
@@ -1832,10 +1600,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send(input, { ...context, signal: aborted ? AbortSignal.abort() : undefined }),
-      ).resolves.toMatchObject({
-        data: null,
-        error: { code, driver: "cloudflare-email", message: diagnostic },
-      });
+      ).resolves.toMatchObject([{ code, driver: "cloudflare", message: diagnostic }, undefined]);
       expect(getter).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1850,9 +1615,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send(message, { ...context, signal: controller.signal }),
-    ).resolves.toMatchObject({
-      error: { code: "CANCELLED", driver: "cloudflare-email", retryable: false },
-    });
+    ).resolves.toMatchObject([{ code: "CANCELLED", driver: "cloudflare", retryable: false }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -1874,29 +1637,11 @@ describe("Cloudflare Email driver", () => {
     controller.abort();
     resolveSend?.();
 
-    await expect(delivery).resolves.toMatchObject({
-      data: { driver: "cloudflare-email" },
-      error: null,
-    });
+    await expect(delivery).resolves.toMatchObject([undefined, { driver: "cloudflare" }]);
   });
 
   const unsupportedCloudflareOptions: [string, Partial<EmailMessage>][] = [
-    ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
     ["idempotency keys", { idempotencyKey: "send-1" }],
-    ["sandbox delivery", { sandbox: true }],
-    ["template payloads", { template: { id: "welcome" } }],
-    ["React renderer payloads", { react: {} }],
-    ["JSX renderer payloads", { jsx: {} }],
-    ["MJML renderer payloads", { mjml: "<mjml />" }],
-    ["Handlebars renderer payloads", { handlebars: "Hello {{name}}" }],
-    ["Handlebars variables", { handlebarsVars: { name: "Maxi" } }],
-    ["Liquid renderer payloads", { liquid: "Hello {{ name }}" }],
-    ["Liquid variables", { liquidVars: { name: "Maxi" } }],
-    ["tracking preferences", { tracking: { opens: false } }],
-    ["AMP content", { amp: "<html amp4email>" }],
-    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
-    ["preheaders", { preheader: "Preview" }],
-    ["locales", { locale: "en" }],
     ["tags", { tags: [{ name: "kind", value: "welcome" }] }],
     ["metadata", { metadata: { campaign: "welcome" } }],
   ];
@@ -1908,9 +1653,7 @@ describe("Cloudflare Email driver", () => {
       const Constructor = vi.fn();
       const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
-      await expect(driver.send({ ...message, ...unsupported }, context)).resolves.toMatchObject({
-        error: { code: "UNSUPPORTED", driver: "cloudflare-email" },
-      });
+      await expect(driver.send({ ...message, ...unsupported }, context)).resolves.toMatchObject([{ code: "UNSUPPORTED", driver: "cloudflare" }, undefined]);
       expect(Constructor).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
     },
@@ -1925,7 +1668,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, headers, scheduledAt: undefined, subject }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -1935,7 +1678,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, headers: { "message-id": "<stable@example.com>" } }, context),
-    ).resolves.toMatchObject({ data: { id: "<stable@example.com>" }, error: null });
+    ).resolves.toMatchObject([undefined, { id: "<stable@example.com>" }]);
     expect(Constructor.mock.calls[0]![2]).toContain("Message-ID: <stable@example.com>");
   });
 
@@ -1945,9 +1688,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, headers: { "message-id": "  " } }, context),
-    ).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -1966,7 +1707,7 @@ describe("Cloudflare Email driver", () => {
 
     await expect(
       driver.send({ ...message, headers: { "message-id": id } }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS" }, undefined]);
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
@@ -2006,7 +1747,7 @@ describe("Cloudflare Email driver", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -2016,7 +1757,7 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() as never });
     await expect(
       driver.send({ ...message, subject: "Hello\r\nBcc: attacker@example.com" }, context),
-    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -2030,9 +1771,7 @@ describe("Cloudflare Email driver", () => {
     // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: class {} as never });
 
-    await expect(driver.send({ ...message, ...invalid }, context)).resolves.toMatchObject({
-      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
-    });
+    await expect(driver.send({ ...message, ...invalid }, context)).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -2045,7 +1784,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, headers: { [header]: "custom" } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(send).not.toHaveBeenCalled();
     },
   );
@@ -2059,7 +1798,7 @@ describe("Cloudflare Email driver", () => {
 
       await expect(
         driver.send({ ...message, headers: { [header]: "value" } }, context),
-      ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+      ).resolves.toMatchObject([{ code: "INVALID_OPTIONS", driver: "cloudflare" }, undefined]);
       expect(send).not.toHaveBeenCalled();
     },
   );

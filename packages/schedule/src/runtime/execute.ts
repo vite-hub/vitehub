@@ -1,17 +1,25 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
-import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { emitLogEvent, errorCode } from "@vite-hub/internal/runtime/request-log"
+import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
+import { serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
-import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
+import { logScheduleRun } from "./log.ts"
+import { markLoggedScheduleError, normalizeScheduleRuntimeError } from "./static.ts"
+import { getScheduleRunStore } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
 interface ExecuteScheduleOptions {
-  /** Return the persisted failed run when the handler throws. Guards still throw. */
   captureHandlerFailure?: boolean
+  claimed?: boolean
   definition: ScheduleDefinition
+  onExecution?: () => void
+  onRunLogged?: () => void
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
@@ -22,16 +30,17 @@ interface ExecuteScheduleOptions {
 }
 
 interface ExecuteStaticScheduleOptions {
+  claimed?: boolean
   cron: string
   definition: ScheduleDefinition
   name: string
+  onExecution?: () => void
+  onRunLogged?: () => void
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
-  registry?: ScheduleDefinitionRegistry
   /**
    * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a
    * time zone, such as `"2026-01-31T23:59:00Z"`. Defaults to now. The run records this time.
@@ -62,9 +71,13 @@ function toRunError(error: unknown): ScheduleRunError {
     return { message: String(error) }
   }
   catch {
-    // Error reporting must not prevent the run and attempt from reaching failed.
     return { message: "[unprintable thrown value]" }
   }
+}
+
+function errorCodeField(error: unknown): { code?: string } {
+  const code = errorCode(error)
+  return code ? { code } : {}
 }
 
 function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecord {
@@ -177,6 +190,19 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
   }))
 }
 
+const stoppedAttemptError: ScheduleRunError = {
+  message: "The process that ran this attempt stopped before the attempt finished.",
+  name: "ScheduleAttemptStopped",
+}
+
+async function failStoppedAttempts(run: ScheduleRunRecord, store: ScheduleRunStore): Promise<void> {
+  const now = new Date()
+  for (const attempt of await store.listAttempts(run.id)) {
+    if (attempt.status !== "running") continue
+    await store.updateAttempt(attempt.id, { completedAt: now, error: stoppedAttemptError, status: "failed", updatedAt: now })
+  }
+}
+
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition" | "waitUntil">): Promise<ScheduleRunRecord> {
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   return (await createOrGetRun({ ...options, scheduledAt })).run
@@ -186,32 +212,62 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
-  // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
-  // delivery for one scheduled occurrence, and an existing run never overlaps or retries.
+  const runStore = options.runStore ?? getScheduleRunStore()
   if (!created) {
-    return run
+    if (!options.claimed || run.status === "succeeded" || run.status === "failed") {
+      options.onExecution?.()
+      return run
+    }
+    await failStoppedAttempts(run, runStore)
   }
 
-  const runStore = options.runStore ?? getScheduleRunStore()
   const attempt = await startAttempt(run, runStore)
+  options.onExecution?.()
+  const runLog = {
+    name: run.target,
+    ...(run.scheduleId === run.target ? {} : { id: run.scheduleId }),
+    runId: run.id,
+    source: normalizeRunSource(options.source),
+    scheduledAt: run.scheduledAt,
+    attempt: run.attemptCount + 1,
+  }
+  const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
+  const recordRun = async (write: () => Promise<ScheduleRunRecord>) => {
+    try {
+      return await write()
+    }
+    catch (error) {
+      const recorded = emitLogEvent({ field: "schedule", fields: { op: "record-run", name: run.target, runId: run.id, ...errorCodeField(error) }, level: "error", message: "Schedule could not record a finished run", ...waitUntil })
+      throw recorded ? markLoggedScheduleError(error) : error
+    }
+  }
+  const startedAt = performance.now()
+  let response: ScheduleRunRecord["response"]
   try {
-    const value = await runWithScheduleWaitUntil(
+    const value = await runInRunScopes(() => runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
       options.waitUntil,
-    )
-    const response = await serializeResponse(toResponse(value))
-    return await completeRun(run, attempt, response, runStore)
+    ))
+    response = await serializeResponse(toResponse(value))
   }
   catch (error) {
-    const failed = await failRun(run, attempt, error, runStore)
+    const logged = logScheduleRun(runLog, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), ...waitUntil })
+    const failed = await recordRun(() => failRun(run, attempt, error, runStore))
+    await emitRunFailed({ event: "schedule.failed", schedule: failed.scheduleId, runId: failed.id, error: toRunFailedError(error), failedAt: (failed.completedAt ?? new Date()).toISOString() })
     if (options.captureHandlerFailure) return failed
+    if (logged) options.onRunLogged?.()
     throw error
   }
+  logScheduleRun(runLog, startedAt, "success", waitUntil)
+  return await recordRun(() => completeRun(run, attempt, response, runStore))
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
   return await executeSchedule({
+    ...(options.claimed ? { claimed: true } : {}),
     definition: options.definition,
+    onExecution: options.onExecution,
+    ...(options.onRunLogged ? { onRunLogged: options.onRunLogged } : {}),
     scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,
@@ -220,28 +276,16 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
     && Object.hasOwn(value, "cron")
 }
 
-async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry | undefined): Promise<ScheduleDefinition | undefined> {
-  let loaded: unknown
-  if (registry) {
-    const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
-    loaded = typeof entry === "function" ? await entry() : undefined
-  }
-  else {
-    loaded = await loadScheduleDefinition(name)
-  }
+export async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
+  const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
+  const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined
   const definition = record && isStaticScheduleDefinition(record)
     ? record
@@ -251,24 +295,31 @@ async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefi
   return definition
 }
 
-/** Runs a manually dispatchable static Schedule Definition immediately. */
-export async function runSchedule(name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
-  const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, options.registry) : undefined
+export async function resolveManualSchedule(registry: ScheduleDefinitionRegistry, name: string): Promise<ScheduleDefinition> {
+  const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, registry) : undefined
   if (!definition) {
     throw createScheduleError("SCHEDULE_DEFINITION_NOT_FOUND")
   }
   if (definition.options?.manual !== true) {
     throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
   }
-  const scheduledAt = parseScheduledAt(options.scheduledAt)
-  const runStore = getScheduleRunStore()
-  const runIdSuffix = randomId("manual")
-  try {
-    return await executeSchedule({ definition, runIdSuffix, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
-  }
-  catch (error) {
-    const run = await runStore.getRun(toRunId("manual", name, scheduledAt, runIdSuffix))
-    if (run?.status === "failed") return run
-    throw error
-  }
+  return definition
+}
+
+export function executeManualSchedule(definition: ScheduleDefinition, name: string, scheduledAt: Date): Promise<ScheduleRunRecord> {
+  return executeSchedule({
+    captureHandlerFailure: true,
+    definition,
+    runIdSuffix: randomId("manual"),
+    scheduleId: name,
+    scheduledAt,
+    source: "manual",
+    target: name,
+  })
+}
+
+/** Runs a manually dispatchable static Schedule Definition of `registry` immediately. */
+export async function runScheduleFrom(registry: ScheduleDefinitionRegistry, name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
+  const definition = await resolveManualSchedule(registry, name)
+  return await executeManualSchedule(definition, name, parseScheduledAt(options.scheduledAt))
 }

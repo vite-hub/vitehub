@@ -3,7 +3,8 @@ import type { CommentThread } from "@vite-hub/comments/client";
 
 const ana = { id: "ana", name: "Ana Ruiz" };
 const ben = { id: "ben", name: "Ben Soto" };
-const now = Date.now();
+// The prerender and the first browser render share this time, so the comment times hydrate without a mismatch.
+const now = useState("comment-thread-slots-example-now", () => Date.now()).value;
 
 const thread: CommentThread = {
   id: "thread-3",
@@ -25,7 +26,7 @@ const thread: CommentThread = {
   <div class="w-full max-w-sm overflow-hidden rounded-lg border border-default bg-default">
     <CommentThread :thread :user="ana" :people="[ana, ben]" :dismissible="false" :attachments="false">
       <template #actions>
-        <UButton aria-label="Copy link" color="neutral" icon="i-ph-link" size="xs" variant="ghost" />
+        <UButton aria-label="Copy link" color="neutral" icon="i-lucide-link" size="xs" variant="ghost" />
       </template>
       <template #anchor>
         <p class="mx-3 mt-3 text-xs text-muted">

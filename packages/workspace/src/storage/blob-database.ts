@@ -1,28 +1,42 @@
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { is } from "drizzle-orm"
+import { PgAsyncDatabase } from "drizzle-orm/pg-core/async/db"
 import { ViteHubError } from "@vite-hub/runtime"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
-import { workspaceError } from "../core/errors.ts"
+import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
-import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, validateHistoryMessage } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, readHistoryDeleteRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
-import { workspaceHistorySchema, type HistoryManifestFile } from "./history-schema.ts"
+import { blobDatabaseSources } from "./blob-database-sources.ts"
+import { postgresHistoryIndex } from "./history-index-postgres.ts"
+import { sqliteHistoryIndex } from "./history-index-sqlite.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
-import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
+import type { HistoryManifestFile } from "./history-schema.ts"
+import type { HistoryIndex, HistoryRevisionRow } from "./history-index.ts"
+import type { PostgresHistoryDatabase } from "./history-index-postgres.ts"
+import type { SqliteHistoryDatabase } from "./history-index-sqlite.ts"
+import type { BlobDatabaseSources } from "./blob-database-sources.ts"
+import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryDeleteRefOptions, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
 
-const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
-type RevisionRow = typeof revisions.$inferSelect
+type HistoryDatabase = SqliteHistoryDatabase | PostgresHistoryDatabase
 
 export interface BlobDatabaseWorkspaceStoreOptions {
-  blob: BlobStorage
-  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+  /**
+   * The Blob store name, such as `"default"`, or a Blob store. With a name, ViteHub can report whether every instance
+   * reads the same files.
+   */
+  blob: string | BlobStorage
+  /**
+   * The Database name, such as `"history"`, or its Drizzle database, or a function that returns it. The Store opens the
+   * Database on first use. SQLite, libSQL, D1, and Postgres work. Add `workspaceHistorySchema` from
+   * `@vite-hub/workspace/blob-database` (SQLite) or `@vite-hub/workspace/blob-database/postgres` to the Database.
+   */
+  database: string | HistoryDatabase | (() => HistoryDatabase)
   /** Stable workspace identity. Deleted identities cannot be reused. */
   workspace: string
   /**
@@ -36,10 +50,14 @@ export interface BlobDatabaseWorkspaceStoreOptions {
  * Where a Blob + Database Store keeps history. `database` lets owners that keep their own tables next to the history,
  * such as Content edit sessions, use the same Database without a second setting.
  */
-export interface BlobDatabaseWorkspaceStoreTarget {
-  provider: "blob-database"
-  workspace: string
-  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+export type BlobDatabaseWorkspaceStoreTarget =
+  | { provider: "blob-database", workspace: string, dialect: "sqlite", database: SqliteHistoryDatabase }
+  | { provider: "blob-database", workspace: string, dialect: "postgresql", database: PostgresHistoryDatabase }
+
+interface Backend {
+  blob: BlobStorage
+  index: HistoryIndex
+  target: BlobDatabaseWorkspaceStoreTarget
 }
 
 export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
@@ -48,7 +66,7 @@ export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
   delete(): Promise<void>
 }
 
-function publicRevision(row: RevisionRow): WorkspaceRevision {
+function publicRevision(row: HistoryRevisionRow): WorkspaceRevision {
   const revision: WorkspaceRevision = {
     id: row.id,
     ref: row.ref,
@@ -70,9 +88,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   #dirty = false
   #baseline?: WorkspaceSnapshot
   #queue: Promise<void> = Promise.resolve()
+  #backend?: Promise<Backend>
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
-    if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
+    if (typeof options.workspace !== "string" || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
     if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
     // ViteHub owns every history object, so a custom prefix only nests below the owned root.
     const root = `${vitehubOwnedPrefix}workspace-history`
@@ -85,10 +104,47 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const legacy = `${legacyPrefix}/${digest}`
       return legacy === current ? [current] : [current, legacy]
     })
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget())
   }
 
-  [workspaceStoreTarget](): BlobDatabaseWorkspaceStoreTarget {
-    return { provider: "blob-database", workspace: this.options.workspace, database: this.options.database }
+  async #storeTarget(): Promise<BlobDatabaseWorkspaceStoreTarget> {
+    return (await this.#backendReady()).target
+  }
+
+  [blobDatabaseSources](): BlobDatabaseSources {
+    const { blob, database } = this.options
+    return { blob: typeof blob === "string" ? blob : undefined, database: typeof database === "string" ? database : undefined }
+  }
+
+  #backendReady(): Promise<Backend> {
+    this.#backend ??= this.#connect().catch((error: unknown) => {
+      this.#backend = undefined
+      throw error
+    })
+    return this.#backend
+  }
+
+  async #connect(): Promise<Backend> {
+    const { blob, database, workspace } = this.options
+    const storage = typeof blob === "string" ? await useBlobStore(blob) : blob
+    const db: unknown = typeof database === "string"
+      ? (await useNamedDatabase())(database).db
+      : typeof database === "function" ? database() : database
+    if (is(db, PgAsyncDatabase)) {
+      return { blob: storage, index: postgresHistoryIndex(db), target: { provider: "blob-database", workspace, dialect: "postgresql", database: db } }
+    }
+    if (isSqliteDatabase(db)) {
+      return { blob: storage, index: sqliteHistoryIndex(db), target: { provider: "blob-database", workspace, dialect: "sqlite", database: db } }
+    }
+    throw workspaceErrorDiagnostics.WORKSPACE_R0077({ message: `[vitehub] The \`database\` of the Blob + Database Store for workspace "${workspace}" is not a Drizzle database.` })
+  }
+
+  async #index() {
+    return (await this.#backendReady()).index
+  }
+
+  async #blob() {
+    return (await this.#backendReady()).blob
   }
 
   history: WorkspaceStoreHistory = {
@@ -96,19 +152,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     list: async options => await this.#listHistory(options),
     refs: async () => await this.#refs(),
     open: async id => await this.#open(id),
-    usage: async () => {
-      const workspace = await this.#key()
-      const [result] = await this.options.database.values<[number, number]>(sql`
-        select coalesce(sum(size), 0) as bytes, count(*) as objects from (
-          select distinct json_extract(file.value, '$.digest') as digest,
-            json_extract(file.value, '$.size') as size
-          from ${revisions}, json_each(${revisions.entries}) as file
-          where ${revisions.workspace} = ${workspace} and ${revisions.committed} = 1
-            and ${this.#active(workspace)}
-        )
-      `)
-      return { bytes: result?.[0] ?? 0, objects: result?.[1] ?? 0 }
-    },
+    usage: async () => await (await this.#index()).usage(await this.#key()),
     commit: async options => await this.#mutate(async () => {
       const revision = await this.#commit(options)
       if (revision.ref === defaultWorkspaceHistoryRef) {
@@ -118,49 +162,28 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       }
       return revision
     }),
+    deleteRef: async options => await this.#mutate(async () => await this.#deleteRef(readHistoryDeleteRef(options))),
   }
 
   async #key() {
-    const candidates = await this.#namespace
-    this.#ready ??= this.options.database.batch([
-      // Read existing identities before claiming the new one. This preserves
-      // legacy history when an installation upgrades, while the insert below
-      // atomically claims the owned identity for new workspaces.
-      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
-      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
-      // Claim the owned identity only when no legacy identity exists. Keeping
-      // this condition in the atomic batch avoids leaving an empty current row
-      // that would shadow legacy history on the next process restart.
-      this.options.database.insert(workspaces).select(sql`
-        select ${candidates[0]!}, 0
-        where not exists (
-          select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
-        )
-      `).onConflictDoNothing(),
-    ]).then((results: [Array<{ workspace: string }>, Array<{ workspace: string }>, unknown]) => {
-      const [current, legacy] = results
-      return current[0]?.workspace ?? legacy[0]?.workspace ?? candidates[0]!
-    }).catch((error: unknown) => {
-      this.#ready = undefined
-      throw error
-    })
+    this.#ready ??= Promise.all([this.#namespace, this.#index()])
+      .then(([candidates, index]) => index.claim(candidates[0]!, candidates[1]))
+      .catch((error: unknown) => {
+        this.#ready = undefined
+        throw error
+      })
     return await this.#ready
-  }
-
-  #active(workspace: string) {
-    return sql`exists (select 1 from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0)`
   }
 
   async #isDeleted() {
     const workspace = await this.#key()
-    const [row] = await this.options.database.select({ deleted: workspaces.deleted }).from(workspaces).where(eq(workspaces.workspace, workspace))
-    if (!row) throw workspaceError("[vitehub] Workspace history identity is missing.")
-    return row.deleted
+    const deleted = await (await this.#index()).deleted(workspace)
+    if (deleted === undefined) throw workspaceError("[vitehub] Workspace history identity is missing.")
+    return deleted
   }
 
   async #ref(workspace: string, ref: string) {
-    const [row] = await this.options.database.select().from(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), this.#active(workspace)))
-    return row
+    return await (await this.#index()).ref(workspace, ref)
   }
 
   async #head(ref: string) {
@@ -171,17 +194,8 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #refs(): Promise<WorkspaceHistoryRef[]> {
     const workspace = await this.#key()
-    const heads = await this.options.database.select({ ref: refs.ref, head: refs.head }).from(refs)
-      .where(and(eq(refs.workspace, workspace), isNotNull(refs.head), this.#active(workspace)))
-    if (!heads.length) return []
-    const rows = await this.options.database.select().from(revisions).where(and(
-      eq(revisions.workspace, workspace), eq(revisions.committed, true), inArray(revisions.id, heads.map(row => row.head!)), this.#active(workspace),
-    ))
-    const byId = new Map(rows.map(row => [row.id, row]))
-    return heads.flatMap(({ ref, head }) => {
-      const row = byId.get(head!)
-      return row ? [{ name: ref, head: publicRevision(row) }] : []
-    }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    const heads = await (await this.#index()).heads(workspace)
+    return heads.map(({ ref, revision }) => ({ name: ref, head: publicRevision(revision) })).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
   }
 
   #deleted(): never {
@@ -192,11 +206,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     if (await this.#isDeleted()) this.#deleted()
   }
 
-  async #revision(id: string): Promise<RevisionRow> {
+  async #revision(id: string): Promise<HistoryRevisionRow> {
     const workspace = await this.#key()
-    const [row] = await this.options.database.select().from(revisions).where(and(
-      eq(revisions.workspace, workspace), eq(revisions.id, id), eq(revisions.committed, true), this.#active(workspace),
-    ))
+    const row = await (await this.#index()).revision(workspace, id)
     if (!row) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`)
     return row
   }
@@ -209,46 +221,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const workspace = await this.#key()
     const cursor = options.cursor ? await this.#revision(options.cursor) : undefined
     if (cursor && cursor.ref !== ref) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor belongs to ref "${cursor.ref}". Pass it with the ref that returned it.` })
-    const previousEntries = sql`
-      coalesce((
-        select previous.entries
-        from ${revisions} as previous
-        where previous.workspace = ${revisions.workspace}
-          and previous.id = ${revisions.parentId}
-          and previous.committed = 1
-      ), '{}')
-    `
-    // Compare manifests with substr, not LIKE, so `%` and `_` in paths stay literal.
-    const pathFilter = path === undefined ? undefined : sql`(
-      exists (
-        select 1
-        from json_each(${revisions.entries}) as current_file
-        left join json_each(${previousEntries}) as previous_file
-          on previous_file.key = current_file.key
-        where (current_file.key = ${path} or substr(current_file.key, 1, length(${path}) + 1) = ${path} || '/')
-          and (
-            previous_file.key is null
-            or json_extract(current_file.value, '$.digest') is not json_extract(previous_file.value, '$.digest')
-            or json_extract(current_file.value, '$.size') is not json_extract(previous_file.value, '$.size')
-            or json_extract(current_file.value, '$.mediaType') is not json_extract(previous_file.value, '$.mediaType')
-            or json_extract(current_file.value, '$.metadata') is not json_extract(previous_file.value, '$.metadata')
-          )
-      )
-      or exists (
-        select 1
-        from json_each(${previousEntries}) as previous_file
-        left join json_each(${revisions.entries}) as current_file
-          on current_file.key = previous_file.key
-        where (previous_file.key = ${path} or substr(previous_file.key, 1, length(${path}) + 1) = ${path} || '/')
-          and current_file.key is null
-      )
-    )`
-    const rows = await this.options.database.select().from(revisions).where(and(
-      eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
-      cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
-      pathFilter,
-      this.#active(workspace),
-    )).orderBy(desc(revisions.sequence)).limit(limit + 1)
+    const rows = await (await this.#index()).list(workspace, { ref, before: cursor?.sequence, path, limit: limit + 1 })
     const result: WorkspaceHistoryListResult = { revisions: rows.slice(0, limit).map(publicRevision) }
     if (rows.length > limit) result.cursor = rows[limit - 1]!.id
     return result
@@ -291,7 +264,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         const normalized = normalizeHistoryPath(path)
         const file = Object.hasOwn(row.entries, normalized) ? row.entries[normalized] : undefined
         if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
-        const [error, body] = await this.options.blob.get(`${workspace}/sha256/${file.digest}`)
+        const key = await (await this.#index()).objectKey(workspace, file.digest)
+        if (!key) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
+        const [error, body] = await (await this.#blob()).get(`${workspace}/sha256/${key}`)
         if (error) throw error
         if (!body) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
         const bytes = new Uint8Array(await body.arrayBuffer())
@@ -306,13 +281,15 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
     const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
-      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
+      if (head !== null && (typeof head !== "string" || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
       return [normalizeHistoryRef(name), head] as const
     })
     const workspace = await this.#key()
+    const index = await this.#index()
+    const blob = await this.#blob()
     await this.#assertActive()
     const current = await this.#ref(workspace, ref)
-    if ((current?.head ?? null) !== options.ifHead) throw this.#conflict(ref, options.ifHead, current?.head ?? null)
+    if ((current?.head ?? null) !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, current?.head ?? null))
     // A change commit starts from the head manifest. Unchanged objects are already registered and uploaded.
     const entries: Record<string, HistoryManifestFile> = Object.create(null)
     const removed = new Set<string>()
@@ -329,7 +306,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const normalized = normalizeHistoryPath(path)
       if (puts.has(normalized) || removed.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
       puts.add(normalized)
-      if (!hasRuntimeType(file.content, "string") && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
+      if (typeof file.content !== "string" && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
       const digest = await sha256(bytes)
       const entry: HistoryManifestFile = { digest, size: bytes.byteLength, mediaType: file.mediaType || "application/octet-stream" }
@@ -354,70 +331,84 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       entries: sorted,
     }
     const id = await sha256(manifest)
-    const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
-    await this.options.database.insert(objects).select(sql`
-      select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
-      from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
-      where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-    `).onConflictDoNothing()
-    await this.#assertActive()
-    const upload = async ([digest, bytes]: [string, Uint8Array]) => {
-      const key = `${workspace}/sha256/${digest}`
-      const [headError, object] = await this.options.blob.head(key)
+    const register = async () => {
+      await index.register(workspace, [...contents].map(([digest, bytes]) => ({ digest, key: `${digest}-${crypto.randomUUID()}`, size: bytes.byteLength })))
+      await this.#assertActive()
+      return await index.objectKeys(workspace, [...contents.keys()])
+    }
+    const upload = async ([digest, generation]: [string, string]) => {
+      const key = `${workspace}/sha256/${generation}`
+      const [headError, object] = await blob.head(key)
       if (headError && headError.code !== "BLOB_NOT_FOUND") throw headError
       if (!object) {
-        const [uploadError] = await this.options.blob.put(key, bytes, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        const [uploadError] = await blob.put(key, contents.get(digest)!, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        if (!await index.hasObject(workspace, generation) || await this.#isDeleted()) {
+          await this.#removeObject(key)
+          await this.#assertActive()
+          return
+        }
         if (uploadError) {
           // Another committer may have uploaded the same immutable bytes first.
-          const [concurrentError, concurrentObject] = await this.options.blob.head(key)
+          const [concurrentError, concurrentObject] = await blob.head(key)
           if (concurrentError || !concurrentObject) throw uploadError
         }
       }
-      if (await this.#isDeleted()) {
-        await this.#removeObject(key)
-        this.#deleted()
+    }
+    const uploadAll = async (uploads: [string, string][]) => {
+      for (let offset = 0; offset < uploads.length; offset += 8) {
+        const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
+        for (const result of results) if (result.status === "rejected") throw result.reason
       }
     }
-    const uploads = [...contents]
-    for (let offset = 0; offset < uploads.length; offset += 8) {
-      const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
-      for (const result of results) if (result.status === "rejected") throw result.reason
-    }
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
-    // Check the other refs in the same statement that advances this ref, including absent refs.
-    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
-    // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-    const [, , changed] = await this.options.database.batch([
-      this.options.database.insert(refs).select(sql`
-        select ${workspaces.workspace}, ${ref}, null, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.options.database.insert(revisions).select(sql`
-        select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
-          ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
-          ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
-        eq(refs.workspace, workspace),
-        eq(refs.ref, ref),
-        sql`${refs.head} is ${options.ifHead}`,
-        ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
-          ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
-          : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
-        this.#active(workspace),
-      )).returning({ head: refs.head }),
-      this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
-    ])
-    if (!changed.length) {
+    for (let attempt = 0; ; attempt++) {
+      const uploads = await register()
+      await uploadAll(uploads)
+      const published = await index.publish(workspace, {
+        revision: { ...row, committed: false },
+        ifHead: options.ifHead,
+        ifHeads: expectedHeads,
+        keys: uploads.map(([, key]) => key),
+        complete: uploads.length === contents.size,
+      })
+      if (published) break
       if (await this.#isDeleted()) this.#deleted()
       for (const [name, expected] of expectedHeads) {
         const actual = (await this.#ref(workspace, name))?.head ?? null
         if (actual !== expected) throw this.#conflict(name, expected, actual)
       }
-      throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
+      const actual = (await this.#ref(workspace, ref))?.head ?? null
+      if (actual !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
+      if (attempt === 4) throw workspaceConflict("[vitehub] History objects of this commit are being deleted by history.deleteRef(). Retry the commit.", { details: { workspace: this.options.workspace, ref } })
+      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt))
     }
     return publicRevision({ ...row, committed: true })
+  }
+
+  async #deleteRef({ ref, ifHead }: WorkspaceHistoryDeleteRefOptions): Promise<boolean> {
+    const workspace = await this.#key()
+    await this.#assertActive()
+    const current = await this.#ref(workspace, ref)
+    const head = current?.head ?? null
+    if (ifHead !== undefined && head !== ifHead) throw this.#conflict(ref, ifHead, head)
+    if (!current) {
+      await this.#removeUnusedObjects(workspace)
+      return false
+    }
+    const removed = await (await this.#index()).deleteRef(workspace, ref, head)
+    if (!removed) throw this.#conflict(ref, head, (await this.#ref(workspace, ref))?.head ?? null)
+    await this.#removeUnusedObjects(workspace)
+    return true
+  }
+
+  async #removeUnusedObjects(workspace: string) {
+    const index = await this.#index()
+    const marked = await index.markedObjects(workspace)
+    for (let offset = 0; offset < marked.length; offset += 8) {
+      const batch = marked.slice(offset, offset + 8)
+      await Promise.all(batch.map(key => this.#removeObject(`${workspace}/sha256/${key}`)))
+      await index.dropMarkedObjects(workspace, batch)
+    }
   }
 
   #conflict(ref: string, expected: string | null, actual: string | null) {
@@ -425,11 +416,12 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async #removeObject(key: string) {
-    const [headError, object] = await this.options.blob.head(key)
+    const blob = await this.#blob()
+    const [headError, object] = await blob.head(key)
     if (headError?.code === "BLOB_NOT_FOUND") return
     if (headError) throw headError
     if (!object) return
-    const [error] = await this.options.blob.del(key)
+    const [error] = await blob.delete(key)
     if (error && error.code !== "BLOB_NOT_FOUND") throw error
   }
 
@@ -439,21 +431,19 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #delete(): Promise<void> {
     const workspace = await this.#key()
-    await this.options.database.batch([
-      this.options.database.update(workspaces).set({ deleted: true }).where(eq(workspaces.workspace, workspace)),
-      this.options.database.delete(refs).where(eq(refs.workspace, workspace)),
-    ])
+    const index = await this.#index()
+    const blob = await this.#blob()
+    await index.tombstone(workspace)
     // The tombstone fences publishers before cleanup. Keep it after cleanup so late writers cannot resurrect this namespace.
-    const catalog = await this.options.database.select().from(objects).where(eq(objects.workspace, workspace))
-    for (const object of catalog) {
-      await this.#removeObject(`${workspace}/sha256/${object.digest}`)
+    for (const key of await index.objects(workspace)) {
+      await this.#removeObject(`${workspace}/sha256/${key}`)
     }
     // Listing also finds late uploads after an interrupted deletion. Retry delete() after stopping abandoned requests.
     let cursor: string | undefined
     const cursors = new Set<string>()
     const remaining: string[] = []
     do {
-      const [error, page] = await this.options.blob.list({ prefix: `${workspace}/sha256/`, cursor, limit: 1000 })
+      const [error, page] = await blob.list({ prefix: `${workspace}/sha256/`, cursor, limit: 1000 })
       if (error) throw error
       remaining.push(...page.blobs.map(object => object.pathname))
       cursor = page.hasMore ? page.cursor : undefined
@@ -461,14 +451,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       if (cursor) cursors.add(cursor)
     } while (cursor)
     for (let offset = 0; offset < remaining.length; offset += 1000) {
-      const [error] = await this.options.blob.del(remaining.slice(offset, offset + 1000))
+      const [error] = await blob.delete(remaining.slice(offset, offset + 1000))
       if (error) throw error
     }
-    await this.options.database.batch([
-      this.options.database.delete(revisions).where(eq(revisions.workspace, workspace)),
-      this.options.database.delete(objects).where(eq(objects.workspace, workspace)),
-      this.options.database.delete(metadata).where(eq(metadata.workspace, workspace)),
-    ])
+    await index.purge(workspace)
     this.#draft = undefined
     this.#dirty = false
   }
@@ -532,7 +518,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       for (const entry of await draft.store.list("", { recursive: true })) {
         if (entry.type === "file") files[entry.path] = (await draft.store.readFile(entry.path))!
       }
-      const revision = await this.#commit({ ifHead: draft.head?.id ?? null, files, message: options.name })
+      const revision = await this.#commit({ ifHead: draft.head?.id ?? null, files, message: options.name, ...(options.author ? { metadata: { author: options.author } } : {}) })
       this.#dirty = false
       this.#draft = undefined
       this.#baseline = undefined
@@ -550,28 +536,34 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async getMeta(key: string) {
-    const workspace = await this.#key()
-    const [row] = await this.options.database.select().from(metadata).where(and(
-      eq(metadata.workspace, workspace), eq(metadata.key, key),
-      this.#active(workspace),
-    ))
-    return row?.value
+    return await (await this.#index()).getMeta(await this.#key(), key)
   }
 
   async setMeta(key: string, value: unknown) {
     await this.#assertActive()
     const workspace = await this.#key()
-    if (value === undefined) {
-      await this.options.database.delete(metadata).where(and(eq(metadata.workspace, workspace), eq(metadata.key, key)))
-      return
-    }
-    await this.options.database.insert(metadata).select(this.options.database.select({
-      workspace: sql<string>`${workspace}`.as("workspace"), key: sql<string>`${key}`.as("key"), value: sql<unknown>`${JSON.stringify(value)}`.as("value"),
-    }).from(workspaces).where(and(eq(workspaces.workspace, workspace), eq(workspaces.deleted, false)))).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`${JSON.stringify(value)}` } })
+    const index = await this.#index()
+    if (value === undefined) await index.deleteMeta(workspace, key)
+    else await index.setMeta(workspace, key, value)
   }
 }
 
-/** Blob stores bytes; Database atomically publishes immutable folder manifests. */
+function isSqliteDatabase(value: unknown): value is SqliteHistoryDatabase {
+  return typeof value === "object" && value !== null && typeof Reflect.get(value, "batch") === "function"
+}
+
+async function useNamedDatabase(): Promise<(name: string) => { db: unknown }> {
+  const { useDatabase } = await import("@vite-hub/database/runtime/registry")
+  // SAFETY: The runtime accepts any configured name and throws DATABASE_NOT_FOUND for an unknown one. The generated registry types narrow the name.
+  return useDatabase as (name: string) => { db: unknown }
+}
+
+async function useBlobStore(name: string): Promise<BlobStorage> {
+  const { blob } = await import("@vite-hub/blob")
+  return name === "default" ? blob : blob.store(name)
+}
+
+/** Blob stores bytes. The Database publishes immutable folder manifests and rejects a commit from a stale head. */
 export function createBlobDatabaseWorkspaceStore(options: BlobDatabaseWorkspaceStoreOptions): BlobDatabaseWorkspaceStore {
   return new ContentAddressedWorkspaceStore(options)
 }

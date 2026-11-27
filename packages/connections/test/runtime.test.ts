@@ -27,7 +27,7 @@ describe("connect", () => {
     const test = createTestRuntime()
     const name = "n".repeat(502)
     const runtime = createConnectionsRuntime({ definitions: { [name]: mailConnection() }, fetch: test.provider.fetch, store: test.store })
-    expect(await rejection(runtime.authorize({ name, redirectUri: "http://localhost/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_NAME" })
+    expect(await rejection(runtime.authorize({ actor: "user:owner", name, redirectUri: "http://localhost/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_NAME" })
     expect(test.provider.calls).toHaveLength(0)
   })
 
@@ -50,7 +50,7 @@ describe("connect", () => {
 
   it("builds a PKCE authorization URL and stores the exchanged token", async () => {
     const test = createTestRuntime()
-    const { state, url } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+    const { state, url } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
     const authorization = new URL(url)
     expect(authorization.origin + authorization.pathname).toBe("https://auth.example.com/authorize")
     expect(authorization.searchParams.get("scope")).toBe("openid mail.modify")
@@ -59,7 +59,7 @@ describe("connect", () => {
     expect(authorization.searchParams.get("state")).toBe(state)
 
     test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN, scope: "openid mail.modify" } })
-    const connection = await test.runtime.complete({ code: "code-1", state })
+    const connection = await test.runtime.complete({ actor: "user:owner", code: "code-1", state })
     expect(connection).toMatchObject({ account: { email: "owner@example.com", id: "account-1" }, scopes: { missing: [] }, status: "connected" })
 
     const exchange = new URLSearchParams(test.provider.calls.at(-1)!.body)
@@ -68,23 +68,22 @@ describe("connect", () => {
     const challenge = base64Url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(exchange.get("code_verifier")!)))
     expect(challenge).toBe(authorization.searchParams.get("code_challenge"))
 
-    // A state is single use.
-    expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
+    expect(await rejection(test.runtime.complete({ actor: "user:owner", code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
   })
 
   it("rejects an authorization callback at its exact expiry timestamp", async () => {
     const test = createTestRuntime()
-    const { expiresAt, state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+    const { expiresAt, state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
     expect(expiresAt).toBe(new Date(test.now.value + 10 * 60_000).toISOString())
 
     test.now.value += 10 * 60_000
-    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
+    await expect(test.runtime.complete({ actor: "user:owner", code: "expired", state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
     expect(test.provider.calls).toHaveLength(0)
   })
 
   it("rejects redirect URIs that are not HTTPS or loopback", async () => {
     const test = createTestRuntime()
-    expect(await rejection(test.runtime.authorize({ name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    expect(await rejection(test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("retains the refresh grant when the same account authorizes again", async () => {
@@ -101,7 +100,6 @@ describe("connect", () => {
   it("quarantines an unidentified replacement grant without clearing the account", async () => {
     const test = createTestRuntime()
     await connect(test)
-    // Model a provider consuming the existing grant while issuing the rejected account token.
     test.provider.valid.delete(ACCESS_TOKEN)
     await expect(connect(test, { id_token: undefined, access_token: "unknown-access", refresh_token: "unknown-refresh" })).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(0)
@@ -193,7 +191,8 @@ describe("connect", () => {
     }
     const callback = connect(test)
     await entered
-    const revoking = test.runtime.revoke({ name: "mail" })
+    const revoking = test.runtime.revoke({ actor: "user:owner", name: "mail" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     resume()
     await callback
     await revoking
@@ -217,7 +216,8 @@ describe("connect", () => {
     test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, expires_in: 3600 } })
     const call = test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })
     await entered
-    const revoking = test.runtime.revoke({ name: "mail" })
+    const revoking = test.runtime.revoke({ actor: "user:owner", name: "mail" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     resume()
     await Promise.allSettled([call])
     await revoking
@@ -229,7 +229,7 @@ describe("connect", () => {
     const definition = mailConnection()
     const test = createTestRuntime({ ...definition, provider: { ...definition.provider, revocationEndpoint: undefined } })
     await connect(test)
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
+    await expect(test.runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     await test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })
   })
@@ -241,7 +241,6 @@ describe("connect", () => {
     test.provider.valid.add("access-two")
     test.provider.fetch = async (...args) => {
       const response = await providerFetch(...args)
-      // Some providers revoke the entire application grant, including the winning token.
       if (String(args[0]) === "https://auth.example.com/revoke") test.provider.valid.clear()
       return response
     }
@@ -287,7 +286,7 @@ describe("connect", () => {
     const test = createTestRuntime()
     if (revoked) {
       await connect(test)
-      await test.runtime.revoke({ name: "mail" })
+      await test.runtime.revoke({ actor: "user:owner", name: "mail" })
     }
     const second = createConnectionsRuntime({ definitions: { mail: mailConnection() }, fetch: test.provider.fetch, now: () => test.now.value, store: test.store })
     let enter!: () => void
@@ -317,7 +316,7 @@ describe("connect", () => {
     await connect(test)
     const use = test.store.bridge.use
     test.store.bridge.use = (context, key, operation, run) => use(context, key, operation, secret => run(secret))
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toBeDefined()
+    await expect(test.runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toBeDefined()
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(0)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
   })
@@ -337,7 +336,7 @@ describe("connect", () => {
       }
       return stored
     }
-    expect(await test.runtime.revoke({ name: "mail" })).toMatchObject({ status: "revoked" })
+    expect(await test.runtime.revoke({ actor: "user:owner", name: "mail" })).toMatchObject({ status: "revoked" })
     expect(test.provider.calls.at(-1)).toMatchObject({ body: "token=new-refresh", url: "https://auth.example.com/revoke" })
     await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect((await test.runtime.activity({ name: "mail" })).some(event => event.action === "use" && event.operation === "revoke" && event.outcome === "succeeded" && event.revision)).toBe(true)
@@ -356,7 +355,7 @@ describe("connect", () => {
         ? new Response(null, { status })
         : test.provider.fetch(input, init),
     })
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: expect.stringContaining(String(status)) })
+    await expect(test.runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: expect.stringContaining(String(status)) })
     expect(await test.store.secrets.read("connection/mail")).toEqual(token)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     expect(await test.store.refreshLeases.claim({ name: "mail", owner: "another-runtime", revision: token.revision, now: test.now.value, expiresAt: test.now.value + 1000 })).toBe("busy")
@@ -365,7 +364,7 @@ describe("connect", () => {
   it("revokes the grant and blocks later calls", async () => {
     const test = createTestRuntime()
     await connect(test)
-    expect(await test.runtime.revoke({ name: "mail" })).toMatchObject({ status: "revoked" })
+    expect(await test.runtime.revoke({ actor: "user:owner", name: "mail" })).toMatchObject({ status: "revoked" })
     expect(test.provider.calls.at(-1)).toMatchObject({ body: `token=${REFRESH_TOKEN}`, url: "https://auth.example.com/revoke" })
     const error = await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
     expect(error).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
@@ -446,10 +445,9 @@ describe("calls", () => {
     test.provider.tokenResponses.push({ body: { access_token: "access-2", expires_in: 3600 } })
     const client = test.runtime.client("mail", {})
     await Promise.all([client.call("mail.labels.list", { userId: "me" }), client.call("mail.labels.list", { userId: "me" })])
-    expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/token")).toHaveLength(2) // connect + one refresh
+    expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/token")).toHaveLength(2)
     const refresh = new URLSearchParams(test.provider.calls.find(call => call.body?.includes("grant_type=refresh_token"))!.body)
     expect(refresh.get("refresh_token")).toBe(REFRESH_TOKEN)
-    // The refresh keeps the refresh token when the provider does not rotate it.
     test.now.value += 3600_000
     test.provider.valid = new Set(["access-3"])
     test.provider.tokenResponses.push({ body: { access_token: "access-3", expires_in: 3600 } })
@@ -470,7 +468,6 @@ describe("calls", () => {
       second.client("mail", {}).call("mail.labels.list", { userId: "me" }),
     ])
     const tokens = first.provider.calls.filter(call => call.url.startsWith("https://mail.example.com/")).map(call => call.headers.get("authorization"))
-    // The losing isolate discards its token and uses the stored one.
     expect(new Set(tokens).size).toBe(1)
   })
 
@@ -808,7 +805,6 @@ describe("approvals", () => {
     }
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) })
-    // A disconnected or revoked Connection is not connected. One without a usable grant must be connected again.
     const code = status === "disconnected" || status === "revoked" ? "CONNECTIONS_NOT_CONNECTED" : "CONNECTIONS_NEEDS_RECONNECT"
     expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code })
     expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code })
@@ -817,7 +813,7 @@ describe("approvals", () => {
     await connect(test)
     expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
-    expect(await test.runtime.approve({ id: approval!.id })).toMatchObject({ approval: { status: "executed" } })
+    expect(await test.runtime.approve({ actor: "user:owner", id: approval!.id })).toMatchObject({ approval: { status: "executed" } })
   })
 
   it("preserves extension method casing in approval replay", async () => {
@@ -827,7 +823,7 @@ describe("approvals", () => {
     expect(error).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const id = approvalIdOf(error)
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ input: expect.objectContaining({ method: "Egg" }) })])
-    await test.runtime.approve({ id })
+    await test.runtime.approve({ actor: "user:owner", id })
     expect(test.provider.calls.at(-1)?.method).toBe("Egg")
   })
 
@@ -837,7 +833,7 @@ describe("approvals", () => {
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST", body: "{}", headers: { Accept: "application/vnd.example+json" } }))
     expect(error).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const id = approvalIdOf(error)
-    await test.runtime.approve({ id })
+    await test.runtime.approve({ actor: "user:owner", id })
     expect(test.provider.calls.at(-1)!.headers.get("accept")).toBe("application/vnd.example+json")
   })
 
@@ -851,9 +847,33 @@ describe("approvals", () => {
     const approved = await test.runtime.approve({ actor: "user:owner", id })
     expect(approved).toMatchObject({ approval: { decidedBy: "user:owner", status: "executed" }, result: { id: "message-1" } })
     expect(test.provider.calls.slice(calls)).toEqual([expect.objectContaining({ body: "{\"addLabelIds\":[\"L1\"]}", method: "POST" })])
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    expect(await rejection(test.runtime.approve({ actor: "user:owner", id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     const activity = await test.runtime.activity({ name: "mail" })
     expect(activity.find(entry => entry.operation === "mail.messages.modify" && entry.outcome === "succeeded")).toMatchObject({ actor: { id: "labeller", kind: "agent" }, invocationId: "inv-1" })
+  })
+
+  it("requires an actor for every decision and never records a default one", async () => {
+    const test = createTestRuntime()
+    await connect(test)
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" }))
+    const id = approvalIdOf(error)
+    const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+    // @ts-expect-error A decision needs the actor that made it.
+    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" })
+    const missing = { code: "CONNECTIONS_INVALID_ACTOR", why: expect.stringContaining("requires `actor`") }
+    for (const actor of [undefined, ""]) {
+      const caller = { actor } as unknown as { actor: string }
+      expect(await rejection(test.runtime.approve({ ...caller, id }))).toMatchObject(missing)
+      expect(await rejection(test.runtime.deny({ ...caller, id }))).toMatchObject(missing)
+      expect(await rejection(test.runtime.authorize({ ...caller, name: "mail", redirectUri: "http://127.0.0.1:8976/callback" }))).toMatchObject(missing)
+      expect(await rejection(test.runtime.complete({ ...caller, code: "code-1", state }))).toMatchObject(missing)
+      expect(await rejection(test.runtime.revoke({ ...caller, name: "mail" }))).toMatchObject(missing)
+      expect(await rejection(test.runtime.setKey({ ...caller, key: "key", name: "mail" }))).toMatchObject(missing)
+    }
+    expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ id, status: "pending" })])
+    expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
+    expect(await rejection(test.runtime.complete({ actor: "user:other", code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_FORBIDDEN" })
+    expect(await test.runtime.deny({ actor: "user:owner", id })).toMatchObject({ decidedBy: "user:owner", status: "denied" })
   })
 
   it("keeps a slow provider write active across concurrent runtime inspection", async () => {
@@ -890,7 +910,7 @@ describe("approvals", () => {
       store: test.store,
     })
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
-    const replay = executing.approve({ id })
+    const replay = executing.approve({ actor: "user:owner", id })
     try {
       await dispatched
       for (let minute = 0; minute < 6; minute++) {
@@ -900,7 +920,7 @@ describe("approvals", () => {
           expect.objectContaining({ id, status: "approved" }),
         ])
       }
-      expect(await rejection(inspecting.approve({ id }))).toMatchObject({
+      expect(await rejection(inspecting.approve({ actor: "user:owner", id }))).toMatchObject({
         code: "CONNECTIONS_INVALID_REQUEST",
       })
       finish(Response.json({ id: "message-1" }))
@@ -940,7 +960,6 @@ describe("approvals", () => {
           ? { executionExpiresAt: new Date(test.now.value + 5 * 60_000).toISOString() }
           : {}),
       })
-      // Model interruption either before dispatch or after the provider commits the write.
       if (dispatched)
         await test.runtime
           .client("mail", {})
@@ -959,7 +978,7 @@ describe("approvals", () => {
       expect((await restarted.approvals({ status: "failed" })).approvals).toEqual([
         expect.objectContaining({ error: "CONNECTIONS_EXECUTION_UNKNOWN", id, status: "failed" }),
       ])
-      expect(await rejection(restarted.approve({ id }))).toMatchObject({
+      expect(await rejection(restarted.approve({ actor: "user:owner", id }))).toMatchObject({
         code: "CONNECTIONS_INVALID_REQUEST",
       })
       expect(test.provider.calls).toHaveLength(calls)
@@ -987,7 +1006,7 @@ describe("approvals", () => {
     const calls = test.provider.calls.length
     expect(await test.runtime.deny({ actor: "user:owner", id })).toMatchObject({ decidedBy: "user:owner", status: "denied" })
     expect(test.provider.calls).toHaveLength(calls)
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    expect(await rejection(test.runtime.approve({ actor: "user:owner", id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("marks a failed replay", async () => {
@@ -995,8 +1014,8 @@ describe("approvals", () => {
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
     const id = approvalIdOf(error)
-    await test.runtime.revoke({ name: "mail" })
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
+    await test.runtime.revoke({ actor: "user:owner", name: "mail" })
+    expect(await rejection(test.runtime.approve({ actor: "user:owner", id }))).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect((await test.runtime.approvals({})).approvals).toEqual([expect.objectContaining({ error: "CONNECTIONS_NOT_CONNECTED", id, status: "failed" })])
   })
 })

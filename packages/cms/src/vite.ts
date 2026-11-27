@@ -79,10 +79,9 @@ type CmsPluginConfig = UserConfig & {
 }
 
 const defaultImports: CmsWorkspaceImports = {
-  blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
   contentDatabase: "@vite-hub/content/database",
-  database: "@vite-hub/database/drizzle",
+  database: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
 }
 
@@ -121,15 +120,10 @@ function databaseDiscoveryRoot(plugins: readonly unknown[] | undefined, fallback
   return fallback
 }
 
-/**
- * The other plugins of the app. `vitehub()` nests the CMS plugin in an array, and the Database contributions that
- * the hooks collect would call the hook again through that nested copy, so flatten first.
- */
 async function pluginsWithoutCms(plugins: readonly unknown[] | undefined): Promise<object[]> {
   return (await flattenPluginOptions(plugins)).filter(plugin => Reflect.get(plugin, "name") !== CMS_VITE_PLUGIN_NAME)
 }
 
-/** Store names of the Blob plugin, or false when Blob is off. */
 function blobStoreNames(plugin: Plugin | undefined): string[] | false {
   if (!plugin) return false
   const getConfig: unknown = Reflect.get(Object(Reflect.get(plugin, "api")), "getConfig")
@@ -158,7 +152,6 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
     if (!file) return
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return
-    // Loaded only for the preset, so importing the Vite config does not load Database dependencies such as Drizzle.
     const { discoverDatabaseDefinitions, resolveDefaultDatabase } = await import("@vite-hub/database/config")
     const databaseRoot = resolve(input.databaseRoot ?? root)
     const names = [
@@ -190,7 +183,7 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
               fields: [
                 { label: "Store", value: cmsStoreOf(usage.options) },
                 { label: "Workspace", value: usage.options.workspace ?? "content" },
-                { label: "Access", value: usage.authorize === "unknown" ? "Indeterminate (object spread may supply authorize)" : usage.authorize ? "The app's defineContent({ authorize })" : usage.options.access === "roles" ? "CMS roles of the Better Auth admin plugin (vitehub cms roles)" : "No policy (all actions denied)" },
+                { label: "Access", value: usage.authorize === "unknown" ? "Indeterminate (object spread may supply authorize)" : usage.authorize ? "The app's defineContent({ authorize })" : usage.options.roles ? "CMS roles of the Better Auth admin plugin (vitehub cms roles)" : "No policy (all actions denied)" },
               ],
               file: relativeDefinitionFile(root, usage.file),
               name: usage.options.workspace ?? "content",
@@ -200,8 +193,7 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
         }
       },
       async workspaces(context: WorkspaceContributionContext) {
-        // Nuxt may omit ViteHub project-root metadata; use the Vite root then.
-        const projectRoot = context.projectRoot ?? context.root
+        const projectRoot = context.projectRoot
         const otherPlugins = await pluginsWithoutCms(context.plugins)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, projectRoot)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
@@ -222,7 +214,6 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
         const contributed = await collectDatabaseContributions(otherPlugins, { ...context, rootDir: context.rootDir ?? root, projectRoot: context.projectRoot ?? root, plugins: otherPlugins })
         const plan = await resolvePlan({ databaseRoot: context.rootDir ?? root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
         if (!plan) return []
-        // The GitHub store keeps history in Git. Only editor sessions need tables.
         return [
           ...(plan.store === "github"
             ? []
@@ -280,7 +271,6 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
           return `error:${error instanceof Error ? error.message : String(error)}`
         }
       }
-      // Selecting, changing, or removing the preset changes the generated Workspace and tables, so restart.
       const onChange = (file: string) => {
         const path = resolve(file)
         if (!directories.some(directory => dirname(path) === directory) || !/[\\/]content\.[cm]?[jt]s$/.test(path)) return

@@ -1,4 +1,5 @@
-import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
+import { invariant } from "@vite-hub/internal/invariant"
+import type { KVPageOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
@@ -24,9 +25,13 @@ interface DenoKV {
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
+  list: (selector: DenoKVSelector, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<unknown>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn: number }) => Promise<unknown>
 }
+
+type DenoKVSelector = { prefix: [] } | { prefix: [], start: ViteHubDenoKVKey }
+
+const MAX_DENO_KEY_BYTES = 2_048
 
 interface DenoRuntime {
   openKv?: (path?: string) => Promise<DenoKV>
@@ -45,6 +50,23 @@ function fromDenoKey(key: DenoKVKey): string | undefined {
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
+function canMatchStoredKey(prefix: string): boolean {
+  const nulBytes = prefix.split("\0").length - 1
+  return 2 + new TextEncoder().encode(prefix).length + nulBytes <= MAX_DENO_KEY_BYTES
+}
+
+function sortsAfterPrefix(key: DenoKVKey, prefix: string): boolean {
+  const [part] = key
+  if (typeof part !== "string") return !(part instanceof Uint8Array)
+  if (part.startsWith(prefix)) return false
+  const prefixCodePoints = prefix[Symbol.iterator]()
+  for (const character of part) {
+    const prefixCharacter = prefixCodePoints.next().value
+    if (prefixCharacter === undefined || character !== prefixCharacter) return (character.codePointAt(0) ?? 0) > (prefixCharacter?.codePointAt(0) ?? -1)
+  }
+  return false
+}
+
 function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
   if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return undefined
   const expireIn = Math.max(1, Math.ceil(ttl * 1_000))
@@ -55,8 +77,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   let kvPromise: Promise<DenoKV> | undefined
   let disposed = false
   let disposal: Promise<void> | undefined
-  // Keep history with the continuation cursor that carries it. Consuming the
-  // entry before awaiting Deno lets concurrent traversals remain independent.
   const cursorNamespace = `deno-kv:${options.path ?? "default"}`
   const cursorHistories = createCursorHistory(cursorNamespace)
 
@@ -81,8 +101,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    // ponytail: Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
-    for await (const entry of kv.list({ prefix: [] })) {
+    if (!canMatchStoredKey(base)) return keys
+
+    for await (const entry of kv.list(base ? { prefix: [], start: [base] } : { prefix: [] })) {
+      if (sortsAfterPrefix(entry.key, base)) break
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
     }
@@ -111,7 +133,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           }
         }
         finally {
-          // An in-flight listing can finish after the provider teardown.
           cursorHistories.clear()
         }
       })()
@@ -123,27 +144,37 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async getKeys(base = "") {
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
-    async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      if (disposed) throw new Error("KV storage has been disposed.")
+    async listKeys({ cursor, limit, prefix = "" }: KVPageOptions) {
+      invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
-        const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
         const keys: string[] = []
-        for await (const entry of iterator) {
-          const key = fromDenoKey(entry.key)
-          if (key?.startsWith(prefix)) keys.push(key)
-        }
-        if (!iterator.cursor) {
+        if (!canMatchStoredKey(prefix)) {
           cursorHistories.complete(cursor)
           return { keys }
         }
-        if (disposed) throw new Error("KV storage has been disposed.")
+        const selector: DenoKVSelector = prefix && !continuation.providerCursor ? { prefix: [], start: [prefix] } : { prefix: [] }
+        const iterator = (await open()).list(selector, { cursor: continuation.providerCursor, limit })
+        let pastPrefix = false
+        for await (const entry of iterator) {
+          if (sortsAfterPrefix(entry.key, prefix)) {
+            pastPrefix = true
+            break
+          }
+          const key = fromDenoKey(entry.key)
+          if (key?.startsWith(prefix)) keys.push(key)
+        }
+        if (pastPrefix || !iterator.cursor) {
+          cursorHistories.complete(cursor)
+          return { keys }
+        }
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, iterator.cursor)) {
-          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV returned a pagination cursor longer than 8 KiB." })
         }
         const nextCursor = cursorHistories.store(iterator.cursor, cursors)
         cursorHistories.complete(cursor)
@@ -161,7 +192,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async setIfAbsentItem(key, value, ttl) {
       const denoKey = toDenoKey(key)
-      // A null versionstamp check commits only while the key is missing.
       const result = await (await open()).atomic()
         .check({ key: denoKey, versionstamp: null })
         .set(denoKey, value, toDenoExpireIn(ttl))

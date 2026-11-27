@@ -1,16 +1,18 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { hubDb as publishedHubDb } from "@vite-hub/database/nuxt"
+import { hubDatabase as publishedHubDb } from "@vite-hub/database/nuxt"
 import { build } from "esbuild"
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
+import { getResolvedFeatureOptions, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 import { resolveConfigValue } from "../src/config-value.ts"
 import { resolveRuntimeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { runtimeConfig } from "../src/runtime/definition-config.ts"
+import { createUseDatabase } from "../src/runtime/use-database.ts"
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
 import type { Plugin } from "vite"
@@ -43,6 +45,10 @@ vi.mock("@vite-hub/database/runtime/state", () => ({
   },
 }))
 
+// Each run gets its own fixture directories, so two runs at the same time do not overwrite each other.
+const tmp = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-test-"))
+afterAll(async () => await rm(tmp, { force: true, recursive: true }))
+
 function createNuxt(options: Record<string, unknown>) {
   const hooks: Record<string, ((value: Record<string, unknown>) => Promise<void> | void)[]> = {}
   const watchHooks: Array<(event: string, path: string) => Promise<void> | void> = []
@@ -73,11 +79,6 @@ async function callHook(hooks: Record<string, ((value: Record<string, unknown>) 
 describe("Database Nuxt integration", () => {
   it("wires a D1 database resource into Nuxt Content and Wrangler config", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseId: "content-id",
-        databaseName: "content-db",
-      },
       dev: false,
       modules: ["@nuxt/content"],
       nitro: {
@@ -94,12 +95,16 @@ describe("Database Nuxt integration", () => {
           },
         },
       },
-      rootDir: "/tmp/vitehub-db-nuxt",
+      rootDir: `${tmp}/vitehub-db-nuxt`,
       vite: {
         plugins: [],
       },
     })
-    const module = hubDb()
+    const module = hubDatabase({
+      driver: "cloudflare",
+      databaseId: "content-id",
+      databaseName: "content-db",
+    })
 
     expect(module.getModuleDependencies(nuxt)).toEqual({
       "@nuxt/content": {
@@ -159,8 +164,9 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig).toEqual({
       alias: {
-        "#vitehub/database/definition-defaults": "/tmp/vitehub-db-nuxt/.vitehub/database/definition-defaults.mjs",
-        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
+        "#vitehub/database/definition-defaults": `${tmp}/vitehub-db-nuxt/.vitehub/database/definition-defaults.mjs`,
+        "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
+        "@vite-hub/database/runtime/registry": `${tmp}/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs`,
       },
       cloudflare: {
         wrangler: {
@@ -179,12 +185,14 @@ describe("Database Nuxt integration", () => {
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
-          handler: ".vitehub/nitro/database/request-stats.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/request-stats.ts`,
           middleware: true,
+          route: "/**",
         },
         {
-          handler: ".vitehub/nitro/database/middleware.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts`,
           middleware: true,
+          route: "/**",
         },
       ],
       rollupConfig: {
@@ -199,7 +207,7 @@ describe("Database Nuxt integration", () => {
         },
       },
     })
-    const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
+    const middleware = await readFile(`${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts`, "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
     expect(middleware).toContain(".__env__ ?? vitehubEnv")
   })
@@ -208,7 +216,7 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provider-"))
     try {
       const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: {} })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { compatibility_flags: ["existing"] } } }
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.cloudflare.wrangler.compatibility_flags).toEqual(["existing"])
@@ -231,13 +239,13 @@ describe("Database Nuxt integration", () => {
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty(Object.create({ INHERITED: "inherited-binding" }), "DB", { value: "native-binding" })
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
       const request = (env?: Record<string, unknown>) => ({ "~standard": { runtime: env ? { cloudflare: { env } } : {} } })
-      middleware(request({ DB: "event-binding", EVENT: "event", SHARED: "event" }))
+      middleware(request({ DB: "event-binding", EVENT: "event", SHARED: "event" }), () => undefined)
 
       expect(cloudflareBridgeState.activeEnv).toEqual({
         DB: "event-binding",
@@ -251,7 +259,7 @@ describe("Database Nuxt integration", () => {
       })
       expect(response).toBe("next-response")
       expect(cloudflareBridgeState.scopedEnv).toBeUndefined()
-      middleware(request())
+      middleware(request(), () => undefined)
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "INHERITED")).toBe(false)
@@ -270,7 +278,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), [
+      await writeFile(join(rootDir, "server/databases/default.ts"), [
         "import { defineDatabase } from '@vite-hub/database'",
         "import { pgTable, text } from 'drizzle-orm/pg-core'",
         "export default defineDatabase({",
@@ -288,12 +296,12 @@ describe("Database Nuxt integration", () => {
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = { cloudflare: { wrangler: { hyperdrive: [{ binding: "OTHER", id: "other-id" }] } } }
       await callHook(hooks, "nitro:config", nitroConfig)
 
       expect(nitroConfig).toMatchObject({
-        alias: { "@vite-hub/database/drizzle": join(rootDir, ".vitehub/database/cloudflare-runtime.mjs") },
+        alias: { "@vite-hub/database/runtime/registry": join(rootDir, ".vitehub/database/cloudflare-runtime.mjs") },
         cloudflare: {
           wrangler: {
             hyperdrive: [
@@ -304,7 +312,7 @@ describe("Database Nuxt integration", () => {
         },
       })
       const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
+      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -313,28 +321,27 @@ describe("Database Nuxt integration", () => {
 
   it("aliases the hosted runtime from the ViteHub project root", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseId: "content-id",
-        databaseName: "content-db",
-      },
       dev: false,
       nitro: {
         preset: "cloudflare_module",
       },
-      rootDir: "/tmp/vitehub-db-nuxt",
-      srcDir: "/tmp/vitehub-db-nuxt/app",
+      rootDir: `${tmp}/vitehub-db-nuxt`,
+      srcDir: `${tmp}/vitehub-db-nuxt/app`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseId: "content-id",
+      databaseName: "content-db",
+    })(undefined, nuxt)
 
     const nitroConfig = {}
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/runtime/registry": `${tmp}/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs`,
       },
     })
   })
@@ -343,40 +350,59 @@ describe("Database Nuxt integration", () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset: "vercel" },
-      rootDir: "/tmp/vitehub-db-nuxt",
-      srcDir: "/tmp/vitehub-db-nuxt/app",
-      vite: { root: "/tmp/vitehub-db-nuxt/custom-vite-root" },
+      rootDir: `${tmp}/vitehub-db-nuxt`,
+      srcDir: `${tmp}/vitehub-db-nuxt/app`,
+      vite: { root: `${tmp}/vitehub-db-nuxt/custom-vite-root` },
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase()(undefined, nuxt)
 
     const nitroConfig = {}
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/vercel-runtime.mjs",
+        "@vite-hub/database/runtime/registry": `${tmp}/vitehub-db-nuxt/.vitehub/database/vercel-runtime.mjs`,
       },
     })
   })
 
+  it("registers Nitro middleware that resolves to the written files when projectRoot is not the Nuxt rootDir", async () => {
+    const rootDir = await mkdtemp(join(tmp, "project-root-handlers-"))
+    const projectRoot = join(rootDir, "service")
+    await mkdir(projectRoot)
+    await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+    const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "cloudflare_module" }, rootDir, vite: {} })
+    await hubDatabase({ driver: "cloudflare", databaseId: "id", databaseName: "db", projectRoot: "service" })(undefined, nuxt)
+
+    const nitroConfig: { handlers?: Array<{ handler: string }> } = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    // Nitro resolves a relative handler against its own rootDir, which Nuxt sets to its rootDir.
+    const resolvedByNitro = nitroConfig.handlers!.map(({ handler }) => resolve(rootDir, handler))
+    expect(resolvedByNitro).toEqual([
+      join(projectRoot, ".vitehub/nitro/database/request-stats.ts"),
+      join(projectRoot, ".vitehub/nitro/database/middleware.ts"),
+    ])
+    for (const file of resolvedByNitro) await expect(readFile(file, "utf8")).resolves.toContain("export default")
+  })
+
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
     const { nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseId: "content-id",
-        databaseName: "content-db",
-        local: {
-          filename: ".data/custom-content.sqlite",
-        },
-      },
       dev: true,
       modules: ["@nuxt/content"],
-      rootDir: "/tmp/vitehub-db-nuxt-dev",
+      rootDir: `${tmp}/vitehub-db-nuxt-dev`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseId: "content-id",
+      databaseName: "content-db",
+      local: {
+        filename: ".data/custom-content.sqlite",
+      },
+    })(undefined, nuxt)
 
     expect(nuxt.options.content).toEqual({
       database: {
@@ -406,8 +432,8 @@ describe("Database Nuxt integration", () => {
     ["binding only", "cloudflare: { binding: 'DB' },"],
   ])("materializes discovered migrations with %s Cloudflare settings in Nitro's output", async (_label, cloudflare) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-migrations-"))
-    const definition = join(rootDir, "server/databases/config.ts")
-    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const definition = join(rootDir, "server/databases/default.ts")
+    const migrationsDir = join(rootDir, "server/databases/default/migrations")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -422,18 +448,17 @@ describe("Database Nuxt integration", () => {
 
     try {
       const { hooks, nuxt } = createNuxt({
-        database: {
-          driver: "d1",
-          databaseId: "content-id",
-          databaseName: "content-db",
-        },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        driver: "cloudflare",
+        databaseId: "content-id",
+        databaseName: "content-db",
+      })(undefined, nuxt)
       const nitroConfig = {}
       await callHook(hooks, "nitro:config", nitroConfig)
 
@@ -459,26 +484,25 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  // The first test also imports nitropack, which can take longer than the default timeout.
+  // The first test also imports the Nitro builder, which can take longer than the default timeout.
   describe("a D1 binding that the project's wrangler.json also declares", { timeout: 30_000 }, () => {
-    /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
+    /** Runs the Database module, then Nitro's real Cloudflare preset, which merges the project file into its output. */
     async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
-      const definition = join(rootDir, "server/databases/config.ts")
+      const definition = join(rootDir, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
       await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database })(undefined, nuxt)
       const nitroConfig: { cloudflare?: { wrangler?: Record<string, unknown> }, modules?: NitroModule[] } = { cloudflare: { wrangler } }
       await callHook(hooks, "nitro:config", nitroConfig)
-      const { createNitro } = await import("nitropack")
+      const { createNitro } = await import("nitro/builder")
       const nitro = await createNitro({
         cloudflare: { deployConfig: true, wrangler: nitroConfig.cloudflare!.wrangler },
         compatibilityDate: "2026-10-01",
@@ -502,7 +526,7 @@ describe("Database Nuxt integration", () => {
       }
     }
     type NitroModule = Exclude<NonNullable<NitroConfig["modules"]>[number], string>
-    type NitroConfig = NonNullable<Parameters<typeof import("nitropack")["createNitro"]>[0]>
+    type NitroConfig = NonNullable<Parameters<typeof import("nitro/builder")["createNitro"]>[0]>
 
     const generated = { binding: "DB", database_id: "content-id", database_name: "content-db", migrations_dir: ".vitehub/database/migrations/DB" }
 
@@ -616,15 +640,17 @@ describe("Database Nuxt integration", () => {
 
   it.each([
     ["src/database.ts", "default"],
-    ["server/databases/config.ts", "default"],
-    ["server/databases/orders/config.ts", "orders"],
+    ["server/databases/default.ts", "default"],
+    ["server/databases/orders/index.ts", "orders"],
   ])("projects the D1 Definition at %s before Vite builds and stages its SQL", async (path, name) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-d1-definition-"))
     const definition = join(rootDir, path)
-    const migrationsDir = join(dirname(definition), "migrations")
+    // `server/databases/<name>.ts` keeps its migrations in `server/databases/<name>/migrations/`.
+    const migrationsDir = path.startsWith("server/") ? join(rootDir, "server/databases", name, "migrations") : join(dirname(definition), "migrations")
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(migrationsDir, { recursive: true })
+      await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({
         name: ${JSON.stringify(name)},
         cloudflare: { binding: 'APP_DB', databaseId: 'app-id', databaseName: 'app-db', migrationsTable: 'app_migrations', previewDatabaseId: 'preview-id' },
@@ -633,13 +659,12 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(migrationsDir, "0001_users.sql"), "CREATE TABLE users (id INTEGER PRIMARY KEY);\n")
       await writeFile(join(migrationsDir, "journal.json"), "{}\n")
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig).toHaveProperty("cloudflare.wrangler.d1_databases", [{
@@ -683,18 +708,17 @@ describe("Database Nuxt integration", () => {
       for (const name of names) {
         const directory = join(projectRoot, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
-        await writeFile(join(directory, "config.ts"), `export default defineDatabase({ name: '${name}', cloudflare: { databaseName: '${name}-db' }, schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `export default defineDatabase({ name: '${name}', cloudflare: { databaseName: '${name}-db' }, schema: {} })\n`)
         await writeFile(join(directory, "migrations/0001_initial.sql"), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", projectRoot: "service", ...(content ? { binding: "CONTENT_DB", databaseName: "content-db" } : {}) },
         dev: false,
         modules: content ? ["@nuxt/content"] : [],
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: { root: "app" },
       })
-      const module = hubDb()
+      const module = hubDatabase({ driver: "cloudflare", projectRoot: "service", ...(content ? { binding: "CONTENT_DB", databaseName: "content-db" } : {}) })
       expect(module.getModuleDependencies(nuxt)).toEqual(content
         ? { "@nuxt/content": { overrides: { database: { type: "d1", bindingName: "CONTENT_DB" } } } }
         : {})
@@ -731,13 +755,17 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
-      const directory = join(rootDir, "server/databases")
+      await hubDatabase({ driver: "cloudflare", databaseName: "existing" })(undefined, nuxt)
+      const directory = join(rootDir, "server/databases/default")
       await mkdir(join(directory, "migrations"), { recursive: true })
       const definition = join(rootDir, "contributed.ts")
       await writeFile(definition, "export default defineDatabase({ schema: {} })")
       ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
       await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
+      // Drizzle Kit 1.0 writes a folder per migration. Wrangler reads flat files, so the build writes `0000_init.sql`, the name that Drizzle Kit 0.x gave it.
+      await mkdir(join(directory, "migrations/20261109120000_init"), { recursive: true })
+      await writeFile(join(directory, "migrations/20261109120000_init/migration.sql"), "CREATE TABLE notes (id integer);")
+      await writeFile(join(directory, "migrations/20261109120000_init/snapshot.json"), "{}")
       const binding = { binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: migrationsDir }
       const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding, { binding: "HOST_A", database_id: "a", database_name: "a" }, { binding: "HOST_B", database_id: "b", database_name: "b" }] } } }
       await callHook(hooks, "nitro:config", config)
@@ -750,22 +778,54 @@ describe("Database Nuxt integration", () => {
       const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
       expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
       await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
+      expect((await readdir(join(rootDir, ".output/server", finalBinding.migrations_dir))).toSorted()).toEqual(["0000_init.sql", "0001.sql"])
+      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
     }
   })
 
-  it.each(["absolute", "../../server/databases/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
+  it("applies the D1 migrations before the Cloudflare deploy with migrateOnDeploy", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-migrate-deploy-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases/default/migrations"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDatabase({ driver: "cloudflare", databaseId: "existing-id", databaseName: "existing", migrateOnDeploy: true })(undefined, nuxt)
+      const config: Record<string, unknown> = { preset: "cloudflare_module" }
+      await callHook(hooks, "nitro:config", config)
+      const buildBefore = async (preset: string) => {
+        const callbacks: Array<() => void> = []
+        const commands: Record<string, unknown> = { deploy: "npx wrangler deploy --config ./server/wrangler.json" }
+        const nitro = {
+          hooks: { hook: (name: string, callback: () => void) => { if (name === "build:before") callbacks.push(callback) } },
+          options: { commands, output: { dir: join(rootDir, ".output"), serverDir: join(rootDir, ".output/server") }, preset },
+        }
+        for (const module of config.modules as Array<(nitro: unknown) => void>) module(nitro)
+        for (const callback of callbacks) callback()
+        return commands.deploy
+      }
+      await expect(buildBefore("cloudflare_module")).resolves.toBe("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json")
+      // Nuxt's prerender build has its own Nitro, with the same modules.
+      await expect(buildBefore("nitro-prerender")).resolves.toBe("npx wrangler deploy --config ./server/wrangler.json")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["absolute", "../../server/databases/default/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unsafe-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const source = join(rootDir, "server/databases/migrations")
+      const source = join(rootDir, "server/databases/default/migrations")
       await mkdir(source, { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })")
       await writeFile(join(source, "0001.sql"), "SELECT 1;")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare", databaseName: "existing" })(undefined, nuxt)
       const config = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: target === "absolute" ? source : target }] } } }
       await expect(callHook(hooks, "nitro:config", config)).rejects.toThrow("must be a relative directory inside Nitro's server output")
       expect(config).not.toHaveProperty("modules")
@@ -781,9 +841,9 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', schema: {} })")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', schema: {} })")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, modules: ["@nuxt/content"], vite: {} })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       // Content's Cloudflare preset turns its default SQLite store into the DB binding.
       nuxt.options.content = { database: { type: "d1", bindingName: "DB" } }
       await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow("Nuxt Content on Cloudflare requires")
@@ -805,17 +865,16 @@ describe("Database Nuxt integration", () => {
         const directory = join(rootDir, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
         const cloudflare = name === "default" ? "" : "cloudflare: { binding: 'DB_ANALYTICS', databaseId: 'analytics-id', databaseName: 'analytics-db' },"
-        await writeFile(join(directory, "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "CONTENT_DB", databaseId: "content-id", databaseName: "content-db" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare", binding: "CONTENT_DB", databaseId: "content-id", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       const callbacks: Array<() => Promise<void>> = []
@@ -848,19 +907,22 @@ describe("Database Nuxt integration", () => {
         const directory = join(rootDir, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
         const cloudflare = name === "default" ? "" : "cloudflare: { binding: 'DB_ANALYTICS', databaseId: 'analytics-id', databaseName: 'analytics-db' },"
-        await writeFile(join(directory, "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare", binding: "CONTENT_DB", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
-      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({
+        code: "DATABASE_D1_MIGRATIONS_DIR_OVERLAP",
+        fix: expect.stringContaining("migrations_dir"),
+        message: expect.stringContaining("D1 migration directories overlap"),
+      })
       expect(nitroConfig).not.toHaveProperty("modules")
     }
     finally {
@@ -877,11 +939,11 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-incomplete-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      const definition = join(rootDir, "server/databases", name, "index.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare" })(undefined, nuxt)
 
       await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toMatchObject({
         code,
@@ -897,19 +959,69 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unnamed-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      const definition = join(rootDir, "server/databases", name, "index.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare" })(undefined, nuxt)
       const config = { alias: {}, preset: "cloudflare_module" }
 
       await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({
         code: "DATABASE_MISSING_D1_RESOURCE",
         why: expect.stringContaining("`cloudflare.databaseName`"),
       })
-      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/runtime/registry")
       await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  describe.each(["prepare", "discovery"])("D1 config loading during %s", (phase) => {
+    it.each([
+      ["no cloudflare options", {}],
+      ["only a databaseId", { databaseId: "configured-id" }],
+      ["only a databaseName", { databaseName: "configured-db" }],
+    ])("writes types for a D1 Definition with %s before resources exist and keeps the build check", async (_case, cloudflare) => {
+      const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-prepare-d1-"))
+      try {
+        await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+        await mkdir(join(rootDir, "server/databases"), { recursive: true })
+        await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
+        const prepare = createNuxt({ _prepare: phase === "prepare", vitehubCliDiscovery: phase === "discovery", dev: false, rootDir, vite: {} })
+        await hubDatabase({ driver: "cloudflare" })(undefined, prepare.nuxt)
+
+        await expect(callHook(prepare.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).resolves.toBeUndefined()
+        await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain("@vite-hub/database")
+        // `tsconfig.server.json` points `@vite-hub/database/runtime/registry` to this module.
+        await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).resolves.toContain("createHostedDrizzleDb")
+
+        const build = createNuxt({ dev: false, rootDir, vite: {} })
+        await hubDatabase({ driver: "cloudflare" })(undefined, build.nuxt)
+        await expect(callHook(build.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+      }
+      finally {
+        await rm(rootDir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it.each([
+    ["the former \"d1\"", "d1", "renamed this driver to \"cloudflare\"", "npx @vite-hub/codemods driver-key"],
+    ["an unknown driver", "libsql", "is not a Database driver", "Set `database.driver` to \"cloudflare\""],
+  ])("rejects %s as the Database driver before the build", async (_case, driver, why, fix) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-driver-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const { nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      // SAFETY: An app config without types, such as a JavaScript config or `as never`, passes any driver.
+      const options = { databaseId: "id", databaseName: "anki", driver } as unknown as Parameters<typeof hubDatabase>[0]
+      await expect(hubDatabase(options)(undefined, nuxt)).rejects.toMatchObject({
+        code: "DATABASE_UNKNOWN_DRIVER",
+        fix: expect.stringContaining(fix),
+        why: expect.stringContaining(why),
+      })
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -925,7 +1037,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: { plugins: plugin ? [plugin] : [] } })
       // With D1 module options, the module D1 resource check covers the implicit default before this one.
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       const config = { alias: {}, preset: "cloudflare_module" }
       const result = callHook(hooks, "nitro:config", config)
       if (!plugin) return await expect(result).resolves.toBeUndefined()
@@ -933,7 +1045,7 @@ describe("Database Nuxt integration", () => {
         code: "DATABASE_MISSING_D1_RESOURCE",
         why: expect.stringContaining("`database.databaseName`"),
       })
-      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/runtime/registry")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -945,13 +1057,13 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
-      const config = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs" }, preset: "cloudflare_module" }
+      await hubDatabase({ driver: "cloudflare" })(undefined, nuxt)
+      const config = { alias: { "@vite-hub/database/runtime/registry": "/custom/database.mjs" }, preset: "cloudflare_module" }
 
       await callHook(hooks, "nitro:config", config)
-      expect(config.alias["@vite-hub/database/drizzle"]).toBe("/custom/database.mjs")
+      expect(config.alias["@vite-hub/database/runtime/registry"]).toBe("/custom/database.mjs")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -960,7 +1072,7 @@ describe("Database Nuxt integration", () => {
 
   it.each([true, false])("handles a separate opaque D1 resource with HTTP available: %s", async (http) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-separate-migrations-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -977,19 +1089,18 @@ describe("Database Nuxt integration", () => {
 
     try {
       const { hooks, nuxt } = createNuxt({
-        database: {
-          driver: "d1",
-          databaseId: "content-id",
-          databaseName: "content-db",
-          ...(http ? { cloudflare: { http: true } } : {}),
-        },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        driver: "cloudflare",
+        databaseId: "content-id",
+        databaseName: "content-db",
+        ...(http ? { cloudflare: { http: true } } : {}),
+      })(undefined, nuxt)
       const nitroConfig = {}
       if (!http) {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_OPAQUE_CLOUDFLARE_CONFIG" })
@@ -1008,7 +1119,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["missing-id", "missing-name", "provisioned-id", "http", "libsql", "vercel", "inherited"] as const)("validates owned native D1 projection before Nuxt output for %s access", async (access) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-owned-projection-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const originalId = process.env.VITEHUB_TEST_NATIVE_APP_ID
     const originalName = process.env.VITEHUB_TEST_NATIVE_APP_NAME
     delete process.env.VITEHUB_TEST_NATIVE_APP_ID
@@ -1024,7 +1135,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "application-id" } } }))
       }
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ ...(inherited ? {} : { databaseId: "content-id" }), databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ ...(inherited ? {} : { databaseId: "content-id" }), databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "content-id", database_name: "content-db" }] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: access === "vercel" ? "vercel" : "cloudflare_module" }
       if (access === "missing-id" || access === "missing-name") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
@@ -1033,7 +1144,7 @@ describe("Database Nuxt integration", () => {
       }
       await callHook(hooks, "nitro:config", nitroConfig)
       const plugin = (nuxt.options.vite as { plugins: Array<Plugin & { nitro: { setup: (nitro: unknown) => void } }> }).plugins[0]!
-      await (plugin.configResolved as (config: unknown) => Promise<void>)({ database: (nuxt.options.vite as { database: unknown }).database, root: rootDir })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ [VITEHUB_FEATURES]: { database: getResolvedFeatureOptions(nuxt.options.vite as object, "database") }, root: rootDir })
       plugin.nitro.setup({ hooks: { hook() {} }, options: nitroConfig })
       expect(nitroConfig.cloudflare.wrangler.d1_databases).toHaveLength(access === "provisioned-id" ? 2 : 1)
       if (access === "provisioned-id") expect(nitroConfig.cloudflare.wrangler.d1_databases[1]).toMatchObject({ binding: "APP_DB", database_id: "application-id", database_name: "application-db" })
@@ -1059,9 +1170,9 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), `export default defineDatabase({ ${options}, schema: {} })\n`)
+      await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ ${options}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare" })(undefined, nuxt)
       const config = { preset: "cloudflare_module" }
       if (options.includes("VITEHUB_NUXT_TEST_REMOTE_URL")) {
         await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
@@ -1081,14 +1192,19 @@ describe("Database Nuxt integration", () => {
     const buildDir = join(rootDir, ".nuxt")
     try {
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
-      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      // Development can run the Database on PGlite, so its module awaits PGlite when it has no server.
+      expect(code).toMatch(/import \{ createDevPostgresDatabase \} from "file:.+\/runtime\/pglite\.js"/)
+      expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
+      expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
+      // The Nuxt alias of `@vite-hub/database` has the same exports, so Workflow can import from it.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\")")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1098,24 +1214,27 @@ describe("Database Nuxt integration", () => {
   it("keeps prototype-named Definitions addressable in Nitro development", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-proto-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/__proto__/config.ts")
+    const definition = join(rootDir, "server/databases/__proto__/index.ts")
     try {
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, 'export default defineDatabase({ name: "__proto__", schema: {} })\n')
       const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export (?:default )?/gm, "") + "\nreturn { databases, useDatabase }"
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
+        () => ({ marker: "relations" }),
         () => ({}),
+        () => () => undefined,
         () => new Error("missing"),
+        createUseDatabase,
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
-      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, relations: { marker: "relations" }, schema: { marker: "schema" } })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -1125,7 +1244,7 @@ describe("Database Nuxt integration", () => {
   it("adds contributed tables to the Nitro development runtime", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-contributed-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }] } }
     const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
     try {
@@ -1134,22 +1253,55 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
       await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
       await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
-      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export (?:default )?/gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
-      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
-        { name: "default", schema: { notes: "notes" } },
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "mergeDatabaseRelations", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "createUseDatabase", evaluable)(
+        { name: "default", relations: { marker: "own" }, schema: { notes: "notes" } },
         { historyRefs: "refs" },
         (input: unknown) => created.push(input),
+        (database: string, schema: unknown, parts: unknown[]) => ({ database, parts, schema }),
         () => ({}),
+        () => () => undefined,
         () => new Error("missing"),
+        createUseDatabase,
       ) as { useDatabase: (name: string) => { schema: unknown } }
 
+      const relations = { database: "default", parts: [{ marker: "own" }], schema: { historyRefs: "refs", notes: "notes" } }
       expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })
-      expect(created).toEqual([{ name: "default", schema: { historyRefs: "refs", notes: "notes" } }])
+      expect(created).toEqual([{ name: "default", relations, schema: { historyRefs: "refs", notes: "notes" } }])
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["absolute path", "file URL"])("watches linked contribution files via %s, not built-ins, dependencies, or paths in strings", async (moduleForm) => {
+    const rootDir = await mkdtemp(join(await realpath(tmpdir()), "vitehub-db-nuxt-watch-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const schema = join(rootDir, "lib/history-schema.mjs")
+    const linkedPackage = join(rootDir, "node_modules/history")
+    const linkedSchema = join(linkedPackage, "history-schema.mjs")
+    const module = moduleForm === "file URL" ? pathToFileURL(linkedSchema).href : linkedSchema
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module }, name: "history" }] } }
+    const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
+    try {
+      await mkdir(join(rootDir, "lib"), { recursive: true })
+      await mkdir(join(rootDir, "node_modules/history-orm"), { recursive: true })
+      await symlink(dirname(schema), linkedPackage, "junction")
+      await writeFile(join(rootDir, "node_modules/history-orm/package.json"), JSON.stringify({ exports: "./index.mjs", name: "history-orm", type: "module" }))
+      await writeFile(join(rootDir, "node_modules/history-orm/index.mjs"), "export const table = name => { if (!name) throw new Error('Cannot import from\"/\"'); return name }\n")
+      await writeFile(join(rootDir, "lib/columns.mjs"), "export const columns = { id: 'text' }\n")
+      await writeFile(schema, "import { join } from \"node:path\"\nimport { table } from \"history-orm\"\nimport { columns } from \"./columns.mjs\"\nexport const historySchema = { historyRefs: table(join('history', 'refs')), columns }\n")
+      await hubDatabase()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const watched = nuxt.options.watch as string[]
+      expect(watched).toEqual(expect.arrayContaining([schema, join(rootDir, "lib/columns.mjs")]))
+      expect(watched.filter(path => path === "/" || path.includes("node:") || path.includes("node_modules"))).toEqual([])
     }
     finally {
       await callHook(hooks, "close", {})
@@ -1166,7 +1318,7 @@ describe("Database Nuxt integration", () => {
       await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
       await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
       await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toMatch(/import definition_0 from ".*runtime\/default-database\.(?:js|ts)"/)
@@ -1181,7 +1333,7 @@ describe("Database Nuxt integration", () => {
   it("reads tables that a later Nuxt module contributes through nuxt.options.vite.plugins", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-module-contributed-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, srcDir: join(rootDir, "app"), vite: {} })
     try {
       await mkdir(dirname(definition), { recursive: true })
@@ -1189,7 +1341,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
       await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
       await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       // A Nuxt module that runs after the Database module adds its Vite plugin during setup.
       const contexts: unknown[] = []
       const vite = nuxt.options.vite as { plugins: unknown[] }
@@ -1216,7 +1368,7 @@ describe("Database Nuxt integration", () => {
 
   it("adds contributed tables to the hosted Nitro schema", async () => {
     const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-contributed-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const tables = join(rootDir, "vendor/history.ts")
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
     try {
@@ -1225,8 +1377,12 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "package.json"), "{}\n")
       await writeFile(tables, "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'\nexport const historySchema = { historyRefs: sqliteTable('history_refs', { id: text('id') }) }\n")
       await writeFile(definition, "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ connection: { url: 'libsql://db.example.com' }, schema: {} })\n")
+      const migration = join(rootDir, "server/databases/default/migrations/20260101000000_history")
+      await mkdir(migration, { recursive: true })
+      await writeFile(join(migration, "migration.sql"), "CREATE TABLE `history_refs` (`id` text);\n")
+      await writeFile(join(migration, "snapshot.json"), JSON.stringify({ ddl: [{ entityType: "tables", name: "history_refs" }, { entityType: "columns", name: "id", table: "history_refs" }] }))
       const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: { plugins: [contributor] } })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
       const schema = await readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")
@@ -1245,7 +1401,7 @@ describe("Database Nuxt integration", () => {
     const serverDir = join(rootDir, "app/server")
     const runtimeFile = dev ? join(buildDir, "vitehub/database/local-runtime.mjs") : join(rootDir, ".vitehub/database/local-runtime.mjs")
     const writeDefinition = async (name: string) => {
-      const file = join(serverDir, `databases/${name}/config.ts`)
+      const file = join(serverDir, `databases/${name}/index.ts`)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, [
         'import { defineDatabase } from "@vite-hub/database"',
@@ -1257,32 +1413,32 @@ describe("Database Nuxt integration", () => {
     try {
       await writeDefinition("analytics")
       const { hooks, nuxt } = createNuxt({ buildDir, dev, nitro: { preset: "node-server" }, rootDir, serverDir, vite: {} })
-      await hubDb({ connection: { authToken: "dev-token", url: "libsql://dev.example.com" } })(undefined, nuxt)
+      await hubDatabase({ connection: { authToken: "dev-token", url: "libsql://dev.example.com" } })(undefined, nuxt)
 
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({
-        "@vite-hub/database/drizzle": runtimeFile,
+        "@vite-hub/database/runtime/registry": runtimeFile,
         ...(dev ? { "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs") } : {}),
       })
       if (dev) {
         await expect(readFile(join(dirname(runtimeFile), "definition-defaults.mjs"), "utf8")).resolves.toContain('"dev":true')
       }
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
-        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
+        /databases\/analytics\/index\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
       )
 
       await rm(join(serverDir, "databases/analytics"), { force: true, recursive: true })
       await writeDefinition("reports")
       await callHook(hooks, "nitro:config", nitroConfig)
       const updatedRuntime = await readFile(runtimeFile, "utf8")
-      expect(updatedRuntime).toContain("databases/reports/config.ts")
-      expect(updatedRuntime).not.toContain("databases/analytics/config.ts")
+      expect(updatedRuntime).toContain("databases/reports/index.ts")
+      expect(updatedRuntime).not.toContain("databases/analytics/index.ts")
 
-      const customAlias = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
+      const customAlias = { alias: { "@vite-hub/database/runtime/registry": "#custom-database" } }
       await callHook(hooks, "nitro:config", customAlias)
       expect(customAlias.alias).toEqual({
-        "@vite-hub/database/drizzle": "#custom-database",
+        "@vite-hub/database/runtime/registry": "#custom-database",
         ...(dev ? { "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs") } : {}),
       })
       await expect(readFile(runtimeFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -1303,7 +1459,7 @@ describe("Database Nuxt integration", () => {
     const projectRoot = location === "default" ? rootDir : join(rootDir, "packages/database")
     const buildDir = join(rootDir, ".nuxt")
     const srcDir = join(rootDir, "app")
-    const definition = join(projectRoot, location === "nested-src" ? "src/database.ts" : "server/databases/config.ts")
+    const definition = join(projectRoot, location === "nested-src" ? "src/database.ts" : "server/databases/default.ts")
     const runtimeFile = join(buildDir, "vitehub/database/local-runtime.mjs")
     await mkdir(dirname(definition), { recursive: true })
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
@@ -1318,14 +1474,14 @@ describe("Database Nuxt integration", () => {
     try {
       await writeInheritedDefinition()
       const { hooks, nuxt, watchHooks } = createNuxt({ buildDir, dev: true, rootDir, srcDir, vite: {} })
-      await hubDb({ binding: "HOST_DB", databaseName: "host-db", driver: "d1", ...(location === "default" ? {} : { projectRoot }) })(undefined, nuxt)
+      await hubDatabase({ binding: "HOST_DB", databaseName: "host-db", driver: "cloudflare", ...(location === "default" ? {} : { projectRoot }) })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({
-        "@vite-hub/database/drizzle": runtimeFile,
+        "@vite-hub/database/runtime/registry": runtimeFile,
         "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
       })
-      const inherited = { drizzle: {}, name: "default", schema: {} }
+      const inherited = { name: "default", schema: {} }
       const initial = runtimeConfig(inherited, await readDefaults()).cloudflare
       expect(initial?.binding).toBe("HOST_DB")
       expect(resolveConfigValue(initial?.databaseId)).toBe("host-provisioned-id")
@@ -1356,16 +1512,16 @@ describe("Database Nuxt integration", () => {
       await writeInheritedDefinition()
       for (const callback of watchHooks) await callback("addDir", dirname(definition))
       expect(nitroConfig.alias).toEqual({
-        "@vite-hub/database/drizzle": runtimeFile,
+        "@vite-hub/database/runtime/registry": runtimeFile,
         "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
       })
       expect(runtimeConfig(inherited, await readDefaults()).cloudflare?.binding).toBe("HOST_DB")
 
-      const customConfig = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
+      const customConfig = { alias: { "@vite-hub/database/runtime/registry": "#custom-database" } }
       await callHook(hooks, "nitro:config", customConfig)
       for (const callback of watchHooks) await callback("change", definition)
       expect(customConfig.alias).toEqual({
-        "@vite-hub/database/drizzle": "#custom-database",
+        "@vite-hub/database/runtime/registry": "#custom-database",
         "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
       })
       await expect(readFile(runtimeFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -1382,11 +1538,6 @@ describe("Database Nuxt integration", () => {
       database_name: "content-db",
     }
     const { hooks, nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseId: "content-id",
-        databaseName: "content-db",
-      },
       dev: false,
       nitro: {
         cloudflare: {
@@ -1395,11 +1546,15 @@ describe("Database Nuxt integration", () => {
           },
         },
       },
-      rootDir: "/tmp/vitehub-db-nuxt-deduplicated",
+      rootDir: `${tmp}/vitehub-db-nuxt-deduplicated`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseId: "content-id",
+      databaseName: "content-db",
+    })(undefined, nuxt)
 
     expect(nuxt.options.nitro).toMatchObject({
       cloudflare: {
@@ -1423,17 +1578,16 @@ describe("Database Nuxt integration", () => {
 
   it("does not emit an invalid Wrangler D1 binding when the resource is incomplete", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseName: "content-db",
-      },
       dev: false,
       modules: ["@nuxt/content"],
-      rootDir: "/tmp/vitehub-db-nuxt-unresolved",
+      rootDir: `${tmp}/vitehub-db-nuxt-unresolved`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseName: "content-db",
+    })(undefined, nuxt)
 
     expect(nuxt.options.content).toEqual({
       database: {
@@ -1449,16 +1603,15 @@ describe("Database Nuxt integration", () => {
 
   it("reports a missing D1 database name separately from a missing id", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: {
-        databaseId: "content-id",
-        driver: "d1",
-      },
       dev: false,
-      rootDir: "/tmp/vitehub-db-nuxt-missing-name",
+      rootDir: `${tmp}/vitehub-db-nuxt-missing-name`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      databaseId: "content-id",
+      driver: "cloudflare",
+    })(undefined, nuxt)
 
     await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
       "Cloudflare D1 output needs `database.databaseName`",
@@ -1468,12 +1621,11 @@ describe("Database Nuxt integration", () => {
 
   it("rejects a whitespace-only D1 name even when Nitro provides a matching blank name", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: { databaseId: "content-id", databaseName: "   ", driver: "d1" },
       dev: false,
-      rootDir: join(tmpdir(), "vitehub-db-nuxt-blank-name"),
+      rootDir: join(tmp, "vitehub-db-nuxt-blank-name"),
       vite: {},
     })
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({ databaseId: "content-id", databaseName: "   ", driver: "cloudflare" })(undefined, nuxt)
 
     await expect(callHook(hooks, "nitro:config", {
       cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "content-id", database_name: "   " }] } },
@@ -1483,16 +1635,15 @@ describe("Database Nuxt integration", () => {
 
   it("accepts a complete matching D1 binding from Nitro Wrangler config", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseName: "content-db",
-      },
       dev: false,
-      rootDir: "/tmp/vitehub-db-nuxt-existing-binding",
+      rootDir: `${tmp}/vitehub-db-nuxt-existing-binding`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseName: "content-db",
+    })(undefined, nuxt)
     const nitroConfig = {
       cloudflare: {
         wrangler: {
@@ -1512,12 +1663,11 @@ describe("Database Nuxt integration", () => {
 
   it("rejects a matching binding name for a different D1 database", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: { driver: "d1", databaseName: "content-db" },
       dev: false,
-      rootDir: "/tmp/vitehub-db-nuxt-wrong-existing-binding",
+      rootDir: `${tmp}/vitehub-db-nuxt-wrong-existing-binding`,
       vite: {},
     })
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({ driver: "cloudflare", databaseName: "content-db" })(undefined, nuxt)
 
     await expect(callHook(hooks, "nitro:config", {
       cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "other-id", database_name: "other-db" }] } },
@@ -1527,7 +1677,7 @@ describe("Database Nuxt integration", () => {
 
   it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -1541,21 +1691,20 @@ describe("Database Nuxt integration", () => {
 
     try {
       const { hooks, nuxt } = createNuxt({
-        database: {
-          driver: "d1",
-          databaseName: {
-            default: "content-db",
-            kind: "env-variable",
-            source: { kind: "env", name: "VITEHUB_TEST_D1_NAME" },
-          },
-        },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        driver: "cloudflare",
+        databaseName: {
+          default: "content-db",
+          kind: "env-variable",
+          source: { kind: "env", name: "VITEHUB_TEST_D1_NAME" },
+        },
+      })(undefined, nuxt)
       const nitroConfig = {}
       await callHook(hooks, "nitro:config", nitroConfig)
 
@@ -1573,7 +1722,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["absent", "unset environment"] as const)("uses provisioned D1 ids with an %s id in the hosted Vercel runtime", async (idSource) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-vercel-provisioned-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -1588,32 +1737,31 @@ describe("Database Nuxt integration", () => {
     vi.stubEnv("VITEHUB_TEST_PROVISIONED_D1_ID", "")
     try {
       const { hooks, nuxt } = createNuxt({
-        database: {
-          driver: "d1",
-          ...(idSource === "unset environment" ? {
-            databaseId: {
-              kind: "env-variable",
-              source: { kind: "env", name: "VITEHUB_TEST_PROVISIONED_D1_ID" },
-            },
-          } : {}),
-          databaseName: "content-db",
-        },
         dev: false,
         nitro: { preset: "vercel" },
         rootDir,
         vite: {},
       })
 
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        driver: "cloudflare",
+        ...(idSource === "unset environment" ? {
+          databaseId: {
+            kind: "env-variable",
+            source: { kind: "env", name: "VITEHUB_TEST_PROVISIONED_D1_ID" },
+          },
+        } : {}),
+        databaseName: "content-db",
+      })(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
       const module = await readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")
-      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), schema_0\)/.exec(module)?.[1]
+      const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), relations_0\)/.exec(module)?.[1]
       expect(expression).toBeDefined()
-      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ schema: {} }, resolveRuntimeCloudflareConfig)
       expect(resolveConfigValue(config.cloudflare.databaseId)).toBe("provisioned-id")
       expect(config.cloudflare.databaseName).toBe("content-db")
-      const viteOptions = (nuxt.options.vite as { database: { databaseId: Parameters<typeof resolveConfigValue>[0] } }).database
+      const viteOptions = getResolvedFeatureOptions<{ databaseId: Parameters<typeof resolveConfigValue>[0] }>(nuxt.options.vite as object, "database")!
       expect(resolveConfigValue(viteOptions.databaseId)).toBe("provisioned-id")
       if (idSource === "unset environment") {
         vi.stubEnv("VITEHUB_TEST_PROVISIONED_D1_ID", "runtime-id")
@@ -1629,26 +1777,25 @@ describe("Database Nuxt integration", () => {
 
   it("preserves Nuxt D1 HTTP defaults in the development runtime", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-d1-dev-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
 
     try {
       const { hooks, nuxt } = createNuxt({
-        database: {
-          binding: "CONTENT_DB",
-          cloudflare: { http: { authToken: "proxy-token", url: "https://d1.example.com/raw" } },
-          databaseId: "content-id",
-          databaseName: "content-db",
-          driver: "d1",
-          migrationsTable: "__content_migrations",
-          previewDatabaseId: "preview-id",
-        },
         dev: true,
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        binding: "CONTENT_DB",
+        cloudflare: { http: { authToken: "proxy-token", url: "https://d1.example.com/raw" } },
+        databaseId: "content-id",
+        databaseName: "content-db",
+        driver: "cloudflare",
+        migrationsTable: "__content_migrations",
+        previewDatabaseId: "preview-id",
+      })(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
       const module = await readFile(join(rootDir, ".vitehub/database/local-runtime.mjs"), "utf8")
@@ -1675,12 +1822,11 @@ describe("Database Nuxt integration", () => {
     }))
     try {
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", databaseName: "content-db" },
         dev: false,
         rootDir,
         vite: {},
       })
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({ driver: "cloudflare", databaseName: "content-db" })(undefined, nuxt)
 
       await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
         "needs `database.databaseId` or provision state",
@@ -1694,18 +1840,17 @@ describe("Database Nuxt integration", () => {
   it("keeps an existing database Vite plugin", async () => {
     const existingPlugin = { name: "@vite-hub/database/vite" }
     const { nuxt } = createNuxt({
-      database: {
-        driver: "d1",
-        databaseId: "content-id",
-        databaseName: "content-db",
-      },
-      rootDir: "/tmp/vitehub-db-nuxt-existing-plugin",
+      rootDir: `${tmp}/vitehub-db-nuxt-existing-plugin`,
       vite: {
         plugins: [existingPlugin],
       },
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase({
+      driver: "cloudflare",
+      databaseId: "content-id",
+      databaseName: "content-db",
+    })(undefined, nuxt)
 
     expect(nuxt.options.vite).toMatchObject({
       plugins: [existingPlugin],
@@ -1716,11 +1861,11 @@ describe("Database Nuxt integration", () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset: "vercel" },
-      rootDir: "/tmp/vitehub-db-nuxt-hosted",
+      rootDir: `${tmp}/vitehub-db-nuxt-hosted`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase()(undefined, nuxt)
 
     const nitroConfig = { exportConditions: ["node"] }
     await callHook(hooks, "nitro:config", nitroConfig)
@@ -1732,7 +1877,7 @@ describe("Database Nuxt integration", () => {
     ["cloudflare-module", "cloudflare"],
     ["vercel", "vercel"],
   ])("aliases the Drizzle runtime to the generated %s database module", async (preset, provider) => {
-    const rootDir = `/tmp/vitehub-db-nuxt-${provider}-runtime`
+    const rootDir = `${tmp}/vitehub-db-nuxt-${provider}-runtime`
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset },
@@ -1740,14 +1885,15 @@ describe("Database Nuxt integration", () => {
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase()(undefined, nuxt)
 
     const nitroConfig: Record<string, unknown> = { preset }
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.alias).toEqual({
       "#vitehub/database/definition-defaults": join(rootDir, ".vitehub/database/definition-defaults.mjs"),
-      "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
+      "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
+      "@vite-hub/database/runtime/registry": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
     })
   })
 
@@ -1758,7 +1904,7 @@ describe("Database Nuxt integration", () => {
     [false, "vercel", "vercel"],
   ] as const)("exports chunkParameters through the generated %s/%s runtime alias", async (dev, preset, provider) => {
     const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-chunk-parameters-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const consumer = join(rootDir, "consumer.ts")
     const output = join(rootDir, "consumer.mjs")
     const { hooks, nuxt } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev, nitro: { preset }, rootDir, vite: {} })
@@ -1771,21 +1917,27 @@ describe("Database Nuxt integration", () => {
         'export default defineDatabase({ connection: { url: "libsql://db.example.com" }, schema: { notes: sqliteTable("notes", { id: text("id"), title: text("title") }) } })',
       ].join("\n"))
       await writeFile(consumer, [
-        'import { chunkParameters, schema } from "@vite-hub/database/drizzle"',
+        'import { chunkParameters, schema } from "@vite-hub/database"',
         'export const chunks = chunkParameters(Array.from({ length: 205 }, (_, id) => id), { per: schema.notes, reserved: 2 })',
       ].join("\n"))
       await publishedHubDb()(undefined, nuxt)
       const nitroConfig = { alias: {} as Record<string, string>, preset }
       await callHook(hooks, "nitro:config", nitroConfig)
-      expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toContain(`${provider}-runtime.mjs`)
+      expect(nitroConfig.alias["@vite-hub/database/runtime/registry"]).toContain(`${provider}-runtime.mjs`)
       await build({
         alias: nitroConfig.alias,
         bundle: true,
         entryPoints: [consumer],
         format: "esm",
         outfile: output,
-        packages: "external",
         platform: "node",
+        // `vite-hub/nuxt` inlines the ViteHub packages in Nitro, so the alias also applies to the import in the Database root.
+        plugins: [{
+          name: "external-dependencies",
+          setup(build) {
+            build.onResolve({ filter: /^[^./#]/ }, args => args.path.startsWith("@vite-hub/database") ? undefined : { external: true, path: args.path })
+          },
+        }],
       })
       // SAFETY: The fixture exports the numeric chunks from the public aliased import above.
       const { chunks } = await import(pathToFileURL(output).href) as { chunks: number[][] }
@@ -1802,11 +1954,11 @@ describe("Database Nuxt integration", () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset: "deno-deploy" },
-      rootDir: "/tmp/vitehub-db-nuxt-deno",
+      rootDir: `${tmp}/vitehub-db-nuxt-deno`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase()(undefined, nuxt)
 
     const nitroConfig = { exportConditions: ["deno"] }
     await callHook(hooks, "nitro:config", nitroConfig)
@@ -1816,12 +1968,12 @@ describe("Database Nuxt integration", () => {
 
   it.each([undefined, "DB", "APP_DB"])("keeps Nuxt host and owned Definition resources separate with binding %s", async (binding) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-owned-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, `export default defineDatabase({ cloudflare: { ${binding ? `binding: ${JSON.stringify(binding)},` : ""} databaseId: 'application-id', databaseName: 'application-db' }, schema: {} })\n`)
     try {
       const { hooks, nuxt } = createNuxt({ dev: false, modules: ["@nuxt/content"], rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [] as unknown[] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: "cloudflare_module" }
       if (binding !== "APP_DB") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_BINDING_CONFLICT" })
@@ -1829,7 +1981,7 @@ describe("Database Nuxt integration", () => {
       }
       await callHook(hooks, "nitro:config", nitroConfig)
       const plugin = (nuxt.options.vite as { plugins: Array<Plugin & { nitro: { setup: (nitro: unknown) => void } }> }).plugins[0]!
-      await (plugin.configResolved as (config: unknown) => Promise<void>)({ database: (nuxt.options.vite as { database: unknown }).database, root: rootDir })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ [VITEHUB_FEATURES]: { database: getResolvedFeatureOptions(nuxt.options.vite as object, "database") }, root: rootDir })
       plugin.nitro.setup({ hooks: { hook() {} }, options: nitroConfig })
       expect(nitroConfig.cloudflare.wrangler.d1_databases).toEqual([
         { binding: "DB", database_id: "content-id", database_name: "content-db" },
@@ -1844,12 +1996,12 @@ describe("Database Nuxt integration", () => {
 
   it.each(["integration", "nitro"] as const)("allows the owned Definition to share an identical Nuxt host resource from %s", async (source) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-shared-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ cloudflare: { databaseId: 'content-id', databaseName: 'content-db' }, schema: {} })\n")
     try {
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ ...(source === "integration" ? { databaseId: "content-id" } : {}), databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ ...(source === "integration" ? { databaseId: "content-id" } : {}), databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = {
         cloudflare: { wrangler: { d1_databases: source === "nitro" ? [{ binding: "DB", database_id: "content-id", database_name: "content-db" }] : [] } },
         preset: "cloudflare_module",
@@ -1864,7 +2016,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["env-id", "env-name", "provisioned-id", "separate-env"] as const)("shares the Nuxt host binding only for static identity with %s", async (identity) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-static-identity-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const originalId = process.env.VITEHUB_TEST_NATIVE_APP_ID
     const originalName = process.env.VITEHUB_TEST_NATIVE_APP_NAME
     delete process.env.VITEHUB_TEST_NATIVE_APP_ID
@@ -1879,7 +2031,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "content-id" } } }))
       }
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [] as unknown[] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: "cloudflare_module" }
       if (identity === "env-id" || identity === "env-name") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_BINDING_CONFLICT" })
@@ -1888,7 +2040,7 @@ describe("Database Nuxt integration", () => {
       }
       await callHook(hooks, "nitro:config", nitroConfig)
       const plugin = (nuxt.options.vite as { plugins: Array<Plugin & { nitro: { setup: (nitro: unknown) => void } }> }).plugins[0]!
-      await (plugin.configResolved as (config: unknown) => Promise<void>)({ database: (nuxt.options.vite as { database: unknown }).database, root: rootDir })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ [VITEHUB_FEATURES]: { database: getResolvedFeatureOptions(nuxt.options.vite as object, "database") }, root: rootDir })
       plugin.nitro.setup({ hooks: { hook() {} }, options: nitroConfig })
       expect(nitroConfig.cloudflare.wrangler.d1_databases).toHaveLength(identity === "separate-env" ? 2 : 1)
     }
@@ -1903,12 +2055,12 @@ describe("Database Nuxt integration", () => {
 
   it("rejects an owned native binding collision during Nuxt dev refresh and recovers after a distinct binding", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-dev-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
     try {
       const { hooks, nuxt, watchHooks } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev: true, rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDatabase({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       const runtimeFile = join(rootDir, ".nuxt/vitehub/database/local-runtime.mjs")
@@ -1930,31 +2082,30 @@ describe("Database Nuxt integration", () => {
   it("propagates Nuxt D1 options to direct definition defaults", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-binding-"))
     const { nuxt } = createNuxt({
-      database: {
-        binding: "CONTENT_DB",
-        cloudflare: { http: true },
-        databaseId: "content-id",
-        databaseName: "content-db",
-        driver: "d1",
-        migrationsTable: "__content_migrations",
-        previewDatabaseId: "preview-id",
-      },
       rootDir,
       vite: {},
     })
 
     try {
-      await hubDb()(undefined, nuxt)
+      await hubDatabase({
+        binding: "CONTENT_DB",
+        cloudflare: { http: true },
+        databaseId: "content-id",
+        databaseName: "content-db",
+        driver: "cloudflare",
+        migrationsTable: "__content_migrations",
+        previewDatabaseId: "preview-id",
+      })(undefined, nuxt)
 
       const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
       await (plugin.configResolved as (config: unknown) => Promise<void>)({
         database: undefined,
         root: rootDir,
       })
-      const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
+      const id = await (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler(
         "#vitehub/database/definition-defaults",
       )
-      const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
+      const code = await (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler(id!)
 
       const defaults = Function(`return (${code!.replace(/^export default /, "")})`)()
       expect(defaults.cloudflare).toEqual({
@@ -1973,7 +2124,7 @@ describe("Database Nuxt integration", () => {
   it.each(["inherited", "configured"])("keeps Database generation rooted at Nuxt projectRoot for a %s resource when Vite uses another root", async (resource) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-project-root-"))
     const projectRoot = join(rootDir, "packages", "db")
-    const definition = join(projectRoot, "server", "databases", "config.ts")
+    const definition = join(projectRoot, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, `export default defineDatabase({ ${resource === "configured" ? "cloudflare: { binding: 'APP_DB', databaseName: 'application-db' }," : ""} schema: {} })\n`)
     if (resource === "configured") {
@@ -1990,28 +2141,29 @@ describe("Database Nuxt integration", () => {
         serverDir: join(rootDir, "server"),
         vite: { plugins: [], root: "app" },
       })
-      await hubDb({
+      await hubDatabase({
         databaseId: "content-id",
         databaseName: "content-db",
-        driver: "d1",
+        driver: "cloudflare",
         projectRoot: "packages/db",
       })(undefined, nuxt)
 
       const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
       await (plugin.configResolved as (config: unknown) => Promise<void>)({
-        database: (nuxt.options.vite as { database: unknown }).database,
+        [VITEHUB_FEATURES]: { database: getResolvedFeatureOptions(nuxt.options.vite as object, "database") },
         root: join(rootDir, "app"),
       })
 
       expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
       await expect(readFile(join(projectRoot, ".vitehub/types/database.d.ts"), "utf8"))
-        .resolves.toContain('declare module "vite-hub/database/drizzle"')
+        .resolves.toContain('declare module "vite-hub/database"')
 
       const nitroConfig = { alias: {}, modules: [], preset: "cloudflare_module" }
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({
         "#vitehub/database/definition-defaults": join(projectRoot, ".vitehub/database/definition-defaults.mjs"),
-        "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
+        "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
+        "@vite-hub/database/runtime/registry": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
       })
       expect(nitroConfig.modules).toHaveLength(3)
       // The last module tells `@vite-hub/bundle` that this D1 Worker never runs libSQL at startup.
@@ -2040,11 +2192,11 @@ describe("Database Nuxt integration", () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset: "node-server" },
-      rootDir: "/tmp/vitehub-db-nuxt-node",
+      rootDir: `${tmp}/vitehub-db-nuxt-node`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase()(undefined, nuxt)
 
     const nitroConfig = { exportConditions: ["node"] }
     await callHook(hooks, "nitro:config", nitroConfig)
@@ -2052,19 +2204,31 @@ describe("Database Nuxt integration", () => {
     expect(nitroConfig.exportConditions).toEqual(["node"])
   })
 
-  it("can be disabled from top-level Nuxt database config", async () => {
+  it("does nothing when its options are false", async () => {
     const { nuxt } = createNuxt({
-      database: false,
-      rootDir: "/tmp/vitehub-db-nuxt-disabled",
+      rootDir: `${tmp}/vitehub-db-nuxt-disabled`,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    await hubDatabase(false)(undefined, nuxt)
 
     expect(nuxt.options).toEqual({
-      database: false,
-      rootDir: "/tmp/vitehub-db-nuxt-disabled",
+      rootDir: `${tmp}/vitehub-db-nuxt-disabled`,
       vite: {},
     })
   })
+})
+
+it("discovers a production named D1 resource before provisioning but validates the real build", async () => {
+  const rootDir = await mkdtemp(join(tmp, "discovery-"))
+  const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {}, vitehubCliDiscovery: true })
+  await hubDatabase({ driver: "cloudflare", databaseName: "first-deploy" })(undefined, nuxt)
+  await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
+  nuxt.options.vitehubCliDiscovery = false
+  await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+  await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+  await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1Nuxt: { "first-deploy": "created-id" } } }))
+  const build = createNuxt({ dev: false, rootDir, vite: {} })
+  await hubDatabase({ driver: "cloudflare", databaseName: "first-deploy" })(undefined, build.nuxt)
+  await expect(callHook(build.hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
 })

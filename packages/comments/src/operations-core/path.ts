@@ -11,3 +11,13 @@ export function isPagePath(value: string): boolean {
   return value.length <= maximumPagePathLength && pagePath.test(value)
     && !new URL(value, "https://comments.invalid").pathname.startsWith("//")
 }
+
+const pageURL = /^https?:\/\//i
+
+/**
+ * The path of a page that a person names by its full URL, such as `https://site.test/pricing?plan=pro`: `/pricing`.
+ * Other values return unchanged, so a path stays a path and garbage stays garbage.
+ */
+export function pagePathOf(value: string): string {
+  return pageURL.test(value) && URL.canParse(value) ? new URL(value).pathname : value
+}

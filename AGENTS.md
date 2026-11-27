@@ -1,67 +1,72 @@
 # ViteHub
 
-ViteHub is an ambitious open source project for server primitives and portable Agents across Vite hosts. We are building the missing server layer for the UnJS ecosystem. A good idea is worth exploring. Keep the final contract clear enough that a developer or an Agent can use it without learning the internal machinery first.
+ViteHub is an open source server layer for the UnJS ecosystem: server primitives and portable Agents that run the same on every Vite host. Keep each contract clear enough that a developer or an Agent can use it without learning the internal machinery first.
 
-You are working with Maxi. Keep the work direct, practical, and easy to review.
+Before you design, change, review, or document anything here, read the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md). It explains how we decide. [CONTRIBUTING.md](CONTRIBUTING.md) has the procedures and commands.
 
 ## How we work
 
 - Write short, plain English. Use ASD-STE100 language.
-- Keep the scope focused. Prefer the smallest change that makes the public contract better.
-- Use the existing Vite, Nuxt, Vue, TypeScript, and pnpm stack.
-- Build for Nuxt 5 and Nitro 3 only. Add no code, tests, or docs for Nuxt 4 or Nitro 2 (`nitropack`).
-- Prefer inferred types. Do not use `any`.
-- Put shared behavior in the package that owns it. Keep product workflows in consumers.
-- Preserve other people's changes. Inspect collisions before editing.
-- Ask before production work, deployments, live databases, or maintainer servers.
-- A direct request to fix, implement, commit, or open a pull request is authorization for that action.
+- Build for Nitro 3 only: Nuxt 5, or Nuxt 4.7 and newer with the `nitro` package. Add no code, tests, or docs for Nitro 2 (`nitropack`) or for Nuxt before 4.7.
+- Use inferred types. `any` is not allowed.
+- The repository is public. Published code, docs, examples, and tests name no maintainer's private people, machines, or apps. Use a neutral app name.
+- A direct request to fix, implement, commit, or open a pull request is authorization for that action. Ask before production work, deployments, live databases, or maintainer servers.
 
 ## Project language
 
-ViteHub has Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Use these names consistently. Runtime policy belongs in its owner package. Console code may inspect runtime behavior but must not own it.
+ViteHub has Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Use these names consistently.
 
-Use Better Auth as a reference for composability and UnJS as a reference for host independent runtime behavior. Build primitives that developers should not recreate. Product specific workflows belong in consumers when they can be composed from ViteHub primitives.
+- Runtime policy belongs in its owner package. Console code may inspect runtime behavior but must not own it.
+- Keep Console-owned data, such as Hosted Comments, in the Console database. The Console can call signed app operations to change app-owned data under the app's access rules.
+- The `vitehub` CLI and the ViteHub MCP expose the same operations by default. Document exceptions and why they exist.
 
-## Code map
+## Native first
 
-- `packages/vite-hub/src/`: framework distribution, discovery, generated output, and host integration
-- `packages/agent/src/`: Agent Definitions, Drivers, Invocations, and Capabilities
-- `packages/runtime/src/`: shared runtime contracts
-- `packages/workspace/src/`, `packages/source/src/`: file trees, access, and mounted Sources
-- `packages/*/src/`: each Server Primitive or integration
-- `docs/`: documentation and the first party website
-- `fixtures/`, `test/consumer/`, `test/output/`: consumer and generated output proof
+Use the web platform before JavaScript, and JavaScript before a dependency.
 
-## Before and after a change
+**Support floor.** The latest two Chrome and Firefox releases, and the current and previous Safari major. `browserTarget` in `packages/internal/src/package-exports.ts` holds the floor for the build; change it when the floor moves. Server code also runs on the Node floor in the root `package.json` `engines`.
 
-Read the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
+**Check the feature** on [webstatus.dev](https://webstatus.dev) (server code: [node.green](https://node.green)), for each browser in the floor:
 
-From a clean checkout, install the Node version required by `package.json` and the Deno version in [`.deno-version`](.deno-version). Use the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/) for Deno. Then install the workspace dependencies and check the contributor tools:
+- **All of them have it:** use it directly, with no fallback and no feature check.
+- **One is missing it, and the page still works without it:** use it under `@supports` (or `CSS.supports()`, `"x" in el`) with no fallback. Example: `field-sizing: content` on a text field.
+- **One is missing it, and the page breaks without it:** keep the JavaScript that does the job, or load a polyfill behind a feature check with a dynamic `import()` in bundled code. Never put a polyfill in an inline script or an unbundled script, and never load one from a polyfill CDN.
 
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm exec vp run preflight
-```
+**Dates.** Use `Intl.DateTimeFormat`, `Intl.RelativeTimeFormat`, and `Date`; add no date library. When stable Safari ships Temporal, use Temporal, with `temporal-polyfill/global` loaded through a dynamic `import()` behind a `"Temporal" in globalThis` check, in app bundles only.
 
-`preflight` checks the pinned Deno version. Run it before the full verification gate so a missing or different Deno installation is clear as a setup issue.
+**Clipboard.** Copy with `navigator.clipboard` or CopyButton. `document.execCommand("copy")` stays only in CopyButton's fallback for pages that are not a secure context.
 
-Run focused checks for the files you changed. The package `typecheck` and `test` scripts build the package and its workspace dependencies first. For one test file, build with the cached Vite+ target, then run Vitest from the package directory. Do not run repository wide suites unless the task needs them.
+**Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use Nuxt UI, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
 
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm --dir packages/vite-hub run typecheck
-corepack pnpm --dir packages/vite-hub run test
-corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
-corepack pnpm exec vp run verify
-```
+**Known exceptions.** Remove each one when its reason goes away.
 
-Use the affected package name in vp targets and its directory in pnpm --dir commands. For example, use @vite-hub/agent#build as the vp target and packages/agent as the --dir path. The verify command is the full local gate and needs the Deno version in .deno-version.
+| Code | Why it does not use the native feature |
+| --- | --- |
+| The account menu placement in `packages/internal/src/runtime/page-account.ts` | The page pill moves with CSS `translate` (`page-pill.ts`), and Firefox ignores the anchor's transform when it places an anchor-positioned popover, so the menu opens away from the button. |
+| `scrollIntoView({ container })` | Chrome only. Scroll the container with `scrollTo()`. |
+| `interestfor` (open on hover or focus) | Chrome only. Open hover cards with JavaScript. |
 
-Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
+## Comments
+
+Write no comments. Name the code so it needs none, and file an issue for a workaround. The `vitehub/no-comments` lint rule keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
+
+## Diagnostic codes
+
+Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INCOMPLETE`, and put its key in alphabetical order in its catalog group, so concurrent pull requests edit different lines. Published numbered codes, such as `AUTH_C0068`, keep their names. Write the `why` and `fix` in the catalog; put more text in `docs/diagnostics/<CODE>.md`.
+
+## Before you push
+
+Read the nearest package README. Trace a contract change from configuration through generated output, runtime behavior, and consumers, on every affected host, provider, and configuration form. Pick focused checks with [CONTRIBUTING.md](CONTRIBUTING.md#verify-the-changed-behavior); run the repository-wide `vp run verify` only when the task needs it. CI must not be the first check of your change.
+
+- Run `corepack pnpm exec vp check --no-fmt <changed files>` on lintable files, and the `typecheck` and `test` scripts of each changed package. They build their workspace dependencies first.
+- Run Doctor on the lines your branch changes: `git fetch origin main && corepack pnpm exec vp run doctor:typescript`. The `doctor` CI job fails on any finding. A finding on a line you changed is yours to fix. Fix it in the code. Suppress one only when the code is correct, with `doctor-disable-next-line <rule-id> -- <reason>` and a reason true for that line only. Doctor's agent instructions are in `node_modules/vite-doctor/docs/skills/doctor/SKILL.md`.
 
 ## Pull requests
 
-Keep one concern per pull request. Use a clear conventional title and start the body with the user visible problem and result. Include focused validation. Do not merge, force push, or deploy without explicit authorization. Use an isolated worktree for pull request work and never remove pre existing work.
+- One concern per pull request, in an isolated worktree. Never remove work that was there before. Build related pull requests as a stack with the `gh stack` extension.
+- Use a conventional title, and start the body with the user-visible problem and result. Include focused validation.
+- Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
+- The Babysitter (`vite-hub[bot]`) merges a pull request once a maintainer approves it. Do not merge, force push, or deploy yourself without explicit authorization.
 
 ## Review guidelines
 

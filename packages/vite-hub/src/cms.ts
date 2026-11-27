@@ -1,2 +1,2 @@
-export { cms, default } from "@vite-hub/cms"
-export type { CmsPresetOptions } from "@vite-hub/cms"
+export * from "@vite-hub/cms"
+export { default } from "@vite-hub/cms"

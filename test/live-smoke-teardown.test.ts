@@ -57,6 +57,8 @@ describe("live smoke teardown", () => {
       if (path === "/containers/applications") return ok([{ id: "app-1", name: `${prefix}-sandbox` }, { id: "app-2", name: "vitehub-playground-vite-sandbox" }])
       if (path === "/workflows") return ok([{ name: `${prefix}-welcome` }, { name: "workflow--77656c636f6d65" }])
       if (path === "/queues") return ok([{ queue_id: "q-1", queue_name: `${prefix}-welcome-email` }, { queue_id: "q-2", queue_name: "vitehub-smoke-1234-welcome-email" }])
+      if (path === "/queues/q-1/consumers") return ok([{ consumer_id: "c-1", script: prefix, type: "worker" }])
+      if (path === "/queues/q-2/consumers") return ok([{ consumer_id: "c-2", script: "vitehub-smoke-1234", type: "worker" }])
       if (path === "/d1/database") return ok([{ uuid: "d1-1", name: `${prefix}-db` }, { uuid: "d1-2", name: `${prefix}-analytics` }, { uuid: "d1-3", name: "vitehub-smoke-1230-db" }])
       if (path === "/storage/kv/namespaces") return ok([{ id: "kv-1", title: `${prefix}-kv` }, { id: "kv-2", title: "vitehub-playground-kv" }])
       if (path === "/r2/buckets") return ok({ buckets: [{ name: prefix }, { name: `${prefix}9` }] })
@@ -76,6 +78,7 @@ describe("live smoke teardown", () => {
     expect(failures).toEqual([])
     expect(deletes(calls)).toEqual([
       "/containers/applications/app-1",
+      "/queues/q-1/consumers/c-1",
       `/workers/scripts/${prefix}`,
       `/workflows/${prefix}-welcome`,
       "/queues/q-1",
@@ -86,7 +89,24 @@ describe("live smoke teardown", () => {
     ])
     expect(calls.find(call => call.path === `/workers/scripts/${prefix}`)?.query).toEqual({ force: "true" })
     expect(deletedImages).toEqual([`${prefix}-sandbox:abc`])
-    expect(deleted).toHaveLength(9)
+    expect(deleted).toHaveLength(10)
+  })
+
+  it("removes the Worker from its Queue consumers before it deletes the Worker", async () => {
+    const consumers = new Set(["c-1"])
+    const { calls, fetch } = createFakeCloudflare(({ method, path }) => {
+      if (path === "/queues" && method === "GET") return ok([{ queue_id: "q-1", queue_name: `${prefix}-queue-welcome-email` }])
+      if (path === "/queues/q-1/consumers" && method === "GET") return ok([...consumers].map(id => ({ consumer_id: id, script: prefix, type: "worker" })))
+      if (path === "/queues/q-1/consumers/c-1" && method === "DELETE") { consumers.delete("c-1"); return ok(null) }
+      if (path === `/workers/scripts/${prefix}` && method === "DELETE") {
+        return consumers.size ? { status: 403, body: { success: false, errors: [{ code: 10064, message: "Cannot delete this Worker as it is a consumer for a Queue." }] } } : ok(null)
+      }
+      if (path === "/queues/q-1" && method === "DELETE") return ok(null)
+    })
+    const { failures } = await teardownCloudflare({ accountId: "account", apiToken: "token", prefix, fetch, log: () => {} })
+
+    expect(failures).toEqual([])
+    expect(deletes(calls)).toEqual(["/queues/q-1/consumers/c-1", `/workers/scripts/${prefix}`, "/queues/q-1"])
   })
 
   it("succeeds when the run created nothing", async () => {
@@ -153,7 +173,7 @@ describe("live smoke teardown", () => {
     })
     const { failures } = await teardownCloudflare({ accountId: "account", apiToken: "token", prefix, fetch, log: () => {} })
 
-    expect(failures).toEqual(["queue: GET /queues failed: HTTP 500 (1 boom)"])
+    expect(failures).toEqual(["queue consumer: GET /queues failed: HTTP 500 (1 boom)", "queue: GET /queues failed: HTTP 500 (1 boom)"])
     expect(deletes(calls)).toContain("/storage/kv/namespaces/kv-1")
   })
 

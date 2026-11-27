@@ -93,6 +93,26 @@ export interface AuthConsoleDescription {
 export interface AuthConsoleHostOptions {
   /** Let the Console start and stop Better Auth admin impersonation. Off by default. */
   impersonation?: boolean;
+  /**
+   * A verified OAuth user and the token's login session. Trusted server hosts set this only after checking the token
+   * and their access policy. Auth uses that stored session for its APIs; browser cookies cannot change the actor.
+   * Tokens without a login session cannot run Auth changes. Impersonation always needs the browser session.
+   */
+  bearer?: { user: Pick<User, "id">; sessionId?: string };
+  /**
+   * The person of a signed ViteHub Console call. Trusted server hosts set this only after they check the signature and
+   * their access policy. Auth changes run as the app user with this email, with the newest live app session of that
+   * user that is not an impersonation, and only inside this API. Browser cookies cannot change the actor. Without an
+   * app user or a live session, Auth changes are refused. Impersonation always needs the browser session.
+   */
+  actor?: { email: string };
+}
+
+/** The app session of a request, as `session(request)` returns it. */
+export interface AuthConsoleSessionUser {
+  user: { id: string; email: string };
+  /** The administrator who opened this session as `user`, or `null` when the session is not an impersonation. */
+  impersonatedBy: { id: string; email: string } | null;
 }
 export interface AuthConsoleImpersonation {
   /** Seconds until an impersonation session ends. Better Auth's `admin({ impersonationSessionDuration })` sets it. */
@@ -105,7 +125,7 @@ export type AuthConsoleEventGroup = "sign-in" | "admin" | "agents" | "organizati
 export const authConsoleEventGroups: Readonly<
   Record<AuthConsoleEventGroup, readonly AuthEventType[]>
 > = {
-  "sign-in": ["user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed"],
+  "sign-in": ["user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed", "session.expired"],
   admin: [
     "session.revoked",
     "user.banned",
@@ -181,6 +201,7 @@ export interface AuthConsoleSession {
   expiresAt: string;
   updatedAt: string;
 }
+/** A user that a host signs in without a password, such as a Console member or an invited guest. */
 export interface AuthConsoleAgent {
   id: string;
   clientId: string;

@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@vite-hub/kv": "^<version>",
+    "@vite-hub/schedule": "^<version>",
     "nuxt": "npm:nuxt-nightly@5x",
-    "vite-hub": "^0.1.0"
+    "vite-hub": "^<version>"
   }
 }

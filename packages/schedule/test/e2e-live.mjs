@@ -8,7 +8,6 @@ async function dispatchProviderSchedule(run) {
     if (run.mode !== "local") {
       return undefined
     }
-    // wrangler dev --test-scheduled exposes /__scheduled to fire cron triggers on demand.
     const startedAt = Date.now()
     const url = new URL("/__scheduled?cron=*+*+*+*+*", run.url)
     const response = await fetch(url, { method: "POST" })
@@ -19,7 +18,7 @@ async function dispatchProviderSchedule(run) {
   }
   const startedAt = Date.now()
   const url = new URL("/api/vitehub/schedules/vercel/daily-marker", run.url)
-  const response = await fetch(url, { method: "POST" })
+  const response = await fetch(url, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, method: "POST" })
   if (!response.ok) {
     throw new Error(`POST ${url} failed with ${response.status}: ${await response.text()}`)
   }

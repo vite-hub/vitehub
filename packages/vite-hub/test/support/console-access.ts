@@ -1,4 +1,8 @@
-import { installConsoleAccess } from "../../src/console/runtime/server/access.ts"
+import { installConsoleAccess, withConsoleAccess } from "../../src/console/runtime/server/access.ts"
+import { consoleEvent } from "../console-event.ts"
+
+import type { ConsoleAccess } from "../../src/console/runtime/server/access.ts"
+import type { ConsoleRequestEvent } from "../../src/console/runtime/server/request.ts"
 
 // Route tests run as the local development server does. Access tests install their own policy.
 installConsoleAccess({ mode: "open" })
@@ -10,4 +14,9 @@ export function allowed<TEvent, TResult>(route: (event: TEvent) => Promise<TResu
     if (result instanceof Response) throw new Error(`Console access rejected the request with status ${result.status}.`)
     return result
   }
+}
+
+/** The access that the installed policy grants a request, as a Console operation receives it. */
+export function consoleAccess(event: ConsoleRequestEvent = consoleEvent({ url: "http://localhost/_vitehub" })): Promise<ConsoleAccess> {
+  return allowed(withConsoleAccess((_event, access) => access, { anySection: true }))(event)
 }

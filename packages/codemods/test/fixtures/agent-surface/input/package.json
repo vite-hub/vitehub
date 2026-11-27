@@ -1,0 +1,8 @@
+{
+  "name": "agent-surface-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vite-hub": "0.0.4"
+  }
+}

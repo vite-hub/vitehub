@@ -5,6 +5,7 @@ import { consoleErrorMessage } from "../client/documents";
 import { consoleFolderName } from "../client/media-library";
 
 import type { ConsoleMediaClient } from "../client/media-library";
+import Icon from "./console-icon.vue";
 
 /**
  * Chooses a destination folder, and a new name when one file or folder moves. The tree loads each level when it opens.
@@ -107,15 +108,15 @@ defineExpose({
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="open" :title="title">
     <template #body>
       <form id="vitehub-media-move" class="grid gap-3" @submit.prevent="confirm">
-        <UFormField v-if="props.name !== undefined" label="Name" :ui="{ label: 'text-xs' }">
-          <UInput v-model="name" class="w-full" :ui="{ base: 'font-mono text-[13px]' }" autocomplete="off" autofocus />
+        <UFormField v-if="props.name !== undefined" label="Name">
+          <UInput v-model="name" class="w-full font-mono" autocomplete="off" autofocus />
         </UFormField>
         <div class="grid gap-1">
           <span class="text-xs text-muted">Folder</span>
-          <div class="max-h-72 overflow-y-auto rounded-md border border-default p-1" role="tree" aria-label="Destination folder">
+          <div class="max-h-72 overflow-y-auto rounded-lg border border-default p-1" role="tree" aria-label="Destination folder">
             <div
               v-for="node in nodes"
               :key="node.path || '/'"
@@ -129,22 +130,22 @@ defineExpose({
             >
               <UButton
                 v-if="node.path"
-                variant="link"
+                variant="ghost"
                 size="xs"
-                class="p-0.5 text-dimmed"
+                class="text-dimmed"
                 :icon="loading.has(node.path) ? 'i-lucide-loader-circle' : expanded.has(node.path) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                 :aria-label="expanded.has(node.path) ? `Collapse ${consoleFolderName(node.path)}` : `Expand ${consoleFolderName(node.path)}`"
                 @click.stop="toggle(node.path)"
               />
               <span v-else class="w-1" />
-              <UIcon :name="node.path ? 'i-lucide-folder' : 'i-lucide-images'" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
+              <Icon :name="node.path ? 'i-lucide-folder' : 'i-lucide-images'" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
               <span class="truncate">{{ consoleFolderName(node.path) }}</span>
               <span v-if="node.path === folder" class="ms-auto shrink-0 text-xs text-dimmed">Current</span>
             </div>
           </div>
         </div>
         <p v-if="warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs text-muted">
-          <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <Icon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span>{{ warning }}</span>
         </p>
         <p v-if="error" class="text-xs text-error">{{ error }}</p>

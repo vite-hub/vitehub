@@ -4,9 +4,8 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { runtimeValueSchema } from "./declarations.ts"
+import { runtimeValueSchema, schemaModuleReference } from "./declarations.ts"
 import { envValueTypeName, parseEnvValue, schemaContainsEnum } from "./values.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { Diagnostic } from "nostics"
 import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
@@ -23,23 +22,25 @@ import type {
   EnvSourceContext,
   EnvValueSchema,
   EnvVariableDeclaration,
-  EnvViteConfigOptions,
+  EnvOptions,
   ResolvedEnvEntry,
 } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 const execFileAsync = promisify(execFile)
 
-export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined, _target: "vite"): void {
+const envOptionKeys = new Set<string>(["define", "diagnostics", "prefix", "projectRoot", "providers", "public", "runtimeImports", "server"] satisfies (keyof EnvOptions)[])
+
+export function validateEnvConfigShape(config: EnvOptions | undefined, _target: "vite"): void {
   if (!config) {
     return
   }
 
-  const viteConfig = config as EnvViteConfigOptions
+  const viteConfig = config
   for (const key of Object.keys(viteConfig)) {
-    if (key !== "define" && key !== "public" && key !== "server") {
+    if (!envOptionKeys.has(key)) {
       const path = `env.${key}`
-      throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Vite env config only supports env.public, env.define, and env.server.`)
+      throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Declare Env in env.public, env.define, and env.server.`)
     }
   }
 
@@ -69,10 +70,16 @@ export function createSourceContext(input: {
     },
     env: input.env,
     git: {
-      branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
-      ref: async () => envValue(input.env, ["GIT_REF_NAME", "GITHUB_REF_NAME"]) ?? await gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      sha: async options => {
+      branch: async () => {
+        const branch = envValue(input.env, ["GIT_BRANCH", "GITHUB_HEAD_REF"])
+        if (branch) return branch
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "branch") {
+          const refName = envValue(input.env, ["GITHUB_REF_NAME"])
+          if (refName) return refName
+        }
+        return gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"])
+      },
+      commit: async options => {
         const value = envValue(input.env, ["GIT_SHA", "GITHUB_SHA"])
         if (value) return options?.short ? value.slice(0, 7) : value
         return gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"])
@@ -160,10 +167,17 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
+export interface RuntimeRegistryOptions {
+  path?: string
+  prefix?: string | false
+  /** Accept `env.schemaFrom()`. Only generated modules that import and bind the schema modules set it. */
+  schemaModules?: boolean
+}
+
+export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: RuntimeRegistryOptions = {}): EnvRuntimeRegistry {
   const path = options.path ?? "env"
   try {
-    const registry = buildRegistry(declarations, path, options.prefix)
+    const registry = buildRegistry(declarations, path, options.prefix, options.schemaModules === true)
     assertUniqueCanonicalNames(registry, path)
     return registry
   }
@@ -173,7 +187,6 @@ export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | un
   }
 }
 
-// A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
 const canonicalKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 
 function claimCanonicalName(owners: Map<string, string>, canonical: string | undefined, path: string): void {
@@ -269,6 +282,9 @@ async function resolveBuildDeclaration(
   input: { context: EnvSourceContext, prefix?: string | false },
   canonical = true,
 ) {
+  if (schemaModuleReference(declaration.schema)) {
+    throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), which only env.server supports. Build-time values run the schema object itself.`)
+  }
   const defaultValue = parseDeclarationDefault(declaration, path)
   const source = resolveEnvSource(declaration, path, canonical ? input.prefix : false)
   const resolvedSource = await resolveSourceValue(source, input.context)
@@ -276,7 +292,7 @@ async function resolveBuildDeclaration(
   const valueForSchema = defaulted ? defaultValue : resolvedSource.value
   if (typeof valueForSchema === "undefined") {
     if (declaration.required) {
-      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
+      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path, source.kind === "env" ? source.names || [source.name] : [])
     }
     return { source: resolvedSource.label, status: "missing" as const, value: undefined }
   }
@@ -293,7 +309,7 @@ function parseDeclarationDefault(declaration: EnvVariableDeclaration, path: stri
     : declaration.default
 }
 
-function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string | false): EnvRuntimeRegistry {
+function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix: string | false | undefined, schemaModules: boolean): EnvRuntimeRegistry {
   if (typeof declarations === "undefined") {
     return {}
   }
@@ -310,7 +326,7 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       if (!isPlainRecord(value)) {
         throw invalidEnvDeclaration(valuePath, `Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
       }
-      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, canonicalKey.test(key) ? prefix : false)]
+      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, canonicalKey.test(key) ? prefix : false, schemaModules)]
     }
     if (value.mode !== "runtime") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use mode: "runtime".`)
@@ -319,16 +335,32 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     if (source.kind !== "env" && source.kind !== "provider") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() or env.provider().`)
     }
+    const schemaModule = schemaModuleReference(value.schema)
+    if (schemaModule) {
+      if (!schemaModules) {
+        throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses env.schemaFrom(), which only env.server supports.`)
+      }
+      if (value.type) {
+        throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses env.schemaFrom(), so its type comes from the schema. Remove the type option.`)
+      }
+      return [key, {
+        default: value.default,
+        required: value.required,
+        schemaModule,
+        secret: value.secret,
+        source,
+      }]
+    }
     const schema = runtimeValueSchema(value)
     if (!schema) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema. Server Env accepts env(), env.boolean(), env.number(), and env.enum() because runtime parsers must be serializable.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), env.enum(), env.list(), or env.json().`)
     }
     if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
     }
     const type = envValueTypeName(schema)
     if (value.type && value.type !== type) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), or env.enum() to parse other types.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), env.enum(), env.list(), or env.json() to parse other types.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
@@ -349,9 +381,6 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   }
 }
 
-// Env errors and diagnostics, such as an invalid default, already name the
-// declaration. Only unexpected errors, such as a revoked Proxy, are reported
-// as an invalid declaration.
 function isClassifiedError(error: unknown): boolean {
   return isViteHubError(error) || error instanceof Diagnostic
 }
@@ -360,23 +389,17 @@ function setOwnValue(record: Record<string, unknown>, key: string, value: unknow
   Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
-// Defaults use the parsed type. Only host and provider values are parsed from strings.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
-  const typed = schema.kind === "boolean" || schema.kind === "number" ? hasRuntimeType(value, schema.kind) : true
-  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind} default.`, success: false as const }
+  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : schema.kind === "list" ? Array.isArray(value) : true
+  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind === "list" ? "array" : schema.kind} default.`, success: false as const }
   if (!result.success) {
     throw envErrorDiagnostics.ENV_R0023({ message: `[vitehub] Invalid default for ${path}: ${result.message}` })
   }
-  return result.data
+  return schema.kind === "json" ? value : result.data
 }
 
-/** The default prefix of canonical variable names. */
 const defaultEnvPrefix = "VITEHUB_"
 
-/**
- * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
- * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
- */
 function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
@@ -389,6 +412,9 @@ export function resolveEnvSource(declaration: EnvVariableDeclaration, path: stri
   const source = declaration.source ?? inferEnvSource(path)
   const canonical = canonicalEnvName(path, prefix)
   if (source.kind !== "env" || canonical === undefined || source.canonical === false) return source
+  if (canonical === "VITEHUB_HOST") {
+    throw invalidEnvDeclaration(path, 'VITEHUB_HOST is reserved for deployment host selection. Use env.source("APP_HOST", { canonical: false }) for an application host value, or change the Env prefix.')
+  }
   const names = [...new Set([canonical, ...(source.names ?? [source.name])])]
   return names.length === 1
     ? { ...source, canonical }
@@ -420,7 +446,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
-        if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
+        if (typeof value !== "undefined" && value !== "") {
           return { label: `env:${name}`, value }
         }
       }
@@ -429,10 +455,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.branch()) }
     case "git-commit":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.commit({ short: source.short })) }
-    case "git-ref":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.ref()) }
-    case "git-sha":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.sha({ short: source.short })) }
     case "git-tag":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.tag()) }
     case "build-timestamp":

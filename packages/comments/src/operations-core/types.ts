@@ -174,6 +174,8 @@ export interface CommentMessage {
   /** Milliseconds since the epoch. */
   createdAt: number
   editedAt?: number
+  /** Set only by the client's outbox: the message has a local `id` and is not on the server yet. */
+  delivery?: CommentDelivery
 }
 
 export interface CommentThread {
@@ -186,6 +188,8 @@ export interface CommentThread {
   anchor: CommentAnchor
   status: CommentStatus
   resolvedBy?: CommentUser
+  /** The agent that resolved it for `resolvedBy`, such as through an MCP client. Like `actor` for the author. */
+  resolvedActor?: CommentActor
   resolvedAt?: number
   author: CommentUser
   actor?: CommentActor
@@ -201,6 +205,31 @@ export interface CommentThread {
   forge?: CommentForgeLink | null
   createdAt: number
   updatedAt: number
+  /** The retry key of the `create` that started it, when it had one. The client matches its own waiting comment by it. */
+  requestId?: string
+  /** Set only by the client's outbox: the thread has a local `id` and its `n` is 0. */
+  delivery?: CommentDelivery
+}
+
+/** A comment or reply that the outbox of the client holds. */
+export interface CommentDelivery {
+  /** `pending` while it waits or goes out, `failed` when the server refused it. */
+  status: "pending" | "failed"
+  requestId: string
+  /** The files that go with it, to show before the server stores them. */
+  files: Blob[]
+  /** Why the last try did not go out. A `pending` message with an error waits to try again. */
+  error?: CommentDeliveryError
+}
+
+/** A failure that the outbox keeps with the entry. Plain data, so it is stored with the entry. */
+export interface CommentDeliveryError {
+  /** Such as `COMMENTS_R0013`. Absent when the error had no code. */
+  code?: string
+  why: string
+  fix?: string
+  /** The HTTP status. 0 when the request got no answer. */
+  status: number
 }
 
 export interface CommentListQuery {
@@ -229,7 +258,7 @@ export interface CommentListCursor {
 }
 
 /** By id, or by number inside its scope, as `?comment=<n>` names it. */
-export type CommentGetInput = { id: string } | { scope: string, n: number }
+export type CommentGetInput = { threadId: string } | { scope: string, n: number }
 
 export interface CommentCreateInput {
   subject: CommentSubject
@@ -240,6 +269,11 @@ export interface CommentCreateInput {
   metadata?: CommentMetadata
   /** The version of the subject, such as a document version. A whole number from 0. */
   revision?: number
+  /**
+   * A retry key, such as `crypto.randomUUID()`, kept for one draft. A second create with the same key in the same
+   * scope returns the first thread and creates nothing.
+   */
+  requestId?: string
 }
 
 export interface CommentReplyInput {
@@ -247,6 +281,11 @@ export interface CommentReplyInput {
   body: string
   mentions?: string[]
   attachments?: string[]
+  /**
+   * A retry key, such as `crypto.randomUUID()`, kept for one draft. A second reply with the same key in the same
+   * thread returns the thread with the first message and adds nothing.
+   */
+  requestId?: string
 }
 
 export interface CommentEditInput {
@@ -305,13 +344,23 @@ export type CommentEvent =
  * The seam between the browser and the server. Each method has the name and the input of one `comments.*` operation.
  * A mutation returns the thread as it is afterwards, and `delete` returns `null` when the thread is gone.
  */
+export interface CommentFiles {
+  /** Files that the transport stores and adds to `attachments` before sending the message. */
+  files?: Blob[]
+  /** The subject of the thread for reply file uploads. */
+  subject?: CommentSubject
+  /** For queued writes, check the authenticated author on every write and save each completed upload before the next request. */
+  outbox?: { account: string, uploaded: (key: string) => Promise<void> }
+}
+
 export interface CommentsTransport {
   /** Whether the server accepts attachment keys. Defaults to true for custom transports. */
   supportsAttachments?: boolean
   list: (query: CommentListQuery) => Promise<CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
-  create: (input: CommentCreateInput) => Promise<CommentThread>
-  reply: (input: CommentReplyInput) => Promise<CommentThread>
+  /** Gets the client's `requestId` and the files of the comment, which it stores first. */
+  create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
+  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
   resolve: (input: CommentStatusInput) => Promise<CommentThread>

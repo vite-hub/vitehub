@@ -5,7 +5,10 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { viteHubEnvServerModulePath } from "@vite-hub/internal/build/vite"
-import { withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { appUrlError, createCliDiscoveryNitroCloser, writeCliFailure } from "@vite-hub/internal/cli"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { loadAllEnv, withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
 import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -16,7 +19,7 @@ import { secretCliFeatures } from "./secret-cli.ts"
 
 export { secretCliFeatures }
 
-type EnvCliCommand = "check" | "inspect"
+type EnvCliCommand = "check" | "list"
 
 export interface EnvCliInspectInput {
   applicationRoot?: string
@@ -36,6 +39,8 @@ interface ParsedEnvCliArgs {
   help: boolean
   json: boolean
   stage?: string
+  /** `env list --url`: ask the running app instead of loading a local stage. */
+  url?: string
 }
 
 export interface EnvCliReport {
@@ -44,11 +49,10 @@ export interface EnvCliReport {
   stage: string
 }
 
-/** CLI discovery resolves Vite config in development mode, so the default stage matches it. */
 const defaultEnvCliStage = "development"
 
 function usage(command: EnvCliCommand): string {
-  return `vitehub env ${command} [--stage <name>] [--json]`
+  return command === "list" ? "vitehub env list [--stage <name> | --url <app>] [--json]" : `vitehub env ${command} [--stage <name>] [--json]`
 }
 
 function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"]): void {
@@ -62,13 +66,14 @@ function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"])
     "Options:",
     `  --stage <name>  Load Vite env files for this mode. Defaults to ${defaultEnvCliStage}.`,
     "                  Variables from the current process take precedence.",
+    ...(command === "list" ? ["  --url <app>     Ask the running app, such as a deployment, for the status of its values."] : []),
     "  --json          Print machine-readable output.",
     "  -h, --help      Show this help.",
     "",
   ].join("\n"))
 }
 
-function parseArgs(args: string[]): ParsedEnvCliArgs {
+function parseArgs(command: EnvCliCommand, args: string[]): ParsedEnvCliArgs {
   const parsed: ParsedEnvCliArgs = { help: false, json: false }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -79,8 +84,14 @@ function parseArgs(args: string[]): ParsedEnvCliArgs {
       if (!value || value.startsWith("-")) throw envErrorDiagnostics.ENV_R0025({ message: "--stage requires a name." })
       parsed.stage = value
     }
+    else if (command === "list" && (arg === "--url" || arg.startsWith("--url="))) {
+      const value = arg === "--url" ? args[++index] : arg.slice("--url=".length)
+      if (!value || value.startsWith("-")) throw envErrorDiagnostics.ENV_R0026({ message: "--url requires the app URL, such as --url https://app.example.com." })
+      parsed.url = value
+    }
     else throw envErrorDiagnostics.ENV_R0026({ message: `Unknown option: ${arg}` })
   }
+  if (parsed.url && parsed.stage) throw envErrorDiagnostics.ENV_R0026({ message: "Pass --stage to read a local stage, or --url to ask the app, not both." })
   return parsed
 }
 
@@ -91,6 +102,69 @@ function isInspection(value: unknown): value is ServerEnvInspection {
   })) }), value)
 }
 
+async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig, allowNuxtFallback = false) {
+  const nitro = createCliDiscoveryNitroCloser()
+  // SAFETY: Vite's WebSocket type has a private brand. The headless CLI has no socket clients.
+  const ws = {
+    ...vite.createServerHotChannel(),
+    clients: new Set(),
+    handleInvoke: async () => ({ error: { name: "TransportError", message: "WebSocket transport is disabled during Env inspection." } }),
+  } as unknown as import("vite").WebSocketServer
+  const initialized = new Set<import("vite").DevEnvironment>()
+  async function initEnvironment(environment: import("vite").DevEnvironment) {
+    await environment.init()
+    initialized.add(environment)
+  }
+  async function closeEnvironment(environment: import("vite").DevEnvironment | undefined) {
+    if (!environment) return
+    try { await environment.close() }
+    catch (error) {
+      if (initialized.has(environment) || !(error instanceof Error)
+        || error.message !== `${environment.name} environment.pluginContainer called before initialized`) throw error
+    }
+  }
+  let environment: import("vite").DevEnvironment | undefined
+  let fallback: import("vite").RunnableDevEnvironment | undefined
+  const close = async () => {
+    try { await closeEnvironment(fallback) }
+    finally {
+      try { await closeEnvironment(environment) }
+      finally {
+        try { await ws.close() }
+        finally { await nitro.close() }
+      }
+    }
+  }
+  try {
+    const inlineConfig: import("vite").InlineConfig & { vitehubCliDiscovery: true } = { ...config, plugins: [...config.plugins ?? [], nitro.plugin], vitehubCliDiscovery: true }
+    const resolved = await vite.resolveConfig(inlineConfig, "serve")
+    const created = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
+    environment = created
+    await initEnvironment(created)
+    let runnable: import("vite").RunnableDevEnvironment
+    if (vite.isRunnableDevEnvironment(created)) runnable = created
+    else {
+      if (!allowNuxtFallback) throw envErrorDiagnostics.ENV_R0030({ message: "The SSR environment does not support runnable imports." })
+      const runnableFallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
+      fallback = runnableFallback
+      await initEnvironment(runnableFallback)
+      runnable = runnableFallback
+    }
+    return {
+      close,
+      config: resolved,
+      ssrLoadModule: async (url: string): Promise<Record<string, unknown>> => await runnable.runner.import(url),
+    }
+  }
+  catch (error) {
+    try { await close() }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], `${formatRuntimeDiagnosticError(error)}\n[vitehub] Env could not close the stage after loading failed.`, { cause: error })
+    }
+    throw error
+  }
+}
+
 async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspection> {
   const explicitEnv = { ...input.env }
   const vite = await import("vite")
@@ -99,17 +173,17 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
   const stageVite = {
     loadEnv: vite.loadEnv,
     async createServer(config: ViteStageServerConfig) {
-      if (!hasNuxtConfig) return await vite.createServer(config)
+      if (!hasNuxtConfig) return await createStageModuleLoader(vite, config)
       const require = createRequire(join(projectRoot, "package.json"))
       // SAFETY: nuxt/kit owns loadNuxt. Resolve the application-installed version.
       const kit = await import(pathToFileURL(require.resolve("nuxt/kit")).href) as {
         loadNuxt: (options: { cwd: string, dev: true, envName: string, overrides: { devtools: { enabled: false }, vite: { mode: string }, vitehubCliDiscovery: true }, ready: true }) => Promise<{ close: () => Promise<void>, options: { vite?: import("vite").InlineConfig } }>
       }
-      Object.assign(process.env, vite.loadEnv(input.stage, projectRoot, ""))
+      Object.assign(process.env, loadAllEnv(vite.loadEnv, input.stage, projectRoot))
       for (const [key, value] of Object.entries(explicitEnv)) if (value !== undefined) process.env[key] = value
       const nuxt = await kit.loadNuxt({ cwd: projectRoot, dev: true, envName: input.stage, overrides: { devtools: { enabled: false }, vite: { mode: input.stage }, vitehubCliDiscovery: true }, ready: true })
       try {
-        const server = await vite.createServer({ ...nuxt.options.vite, ...config, configFile: false })
+        const server = await createStageModuleLoader(vite, { ...nuxt.options.vite, ...config, configFile: false }, true)
         const close = server.close.bind(server)
         server.close = async () => {
           try { await close() }
@@ -124,8 +198,6 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
     },
   }
   return await withViteStageServer(stageVite, { ...input, env: explicitEnv }, async (server) => {
-    // The Env plugin writes this module while the stage server resolves its config.
-    // Nuxt reloads its stage-specific declarations before this server resolves config.
     const selectedPlugin = server.config.plugins.find(plugin => plugin.name === "@vite-hub/env/vite")
     const selectedAPI = v.safeParse(v.object({ resolveProjectRoot: v.function() }), selectedPlugin?.api)
     if (!selectedAPI.success) throw envErrorDiagnostics.ENV_R0027({ message: "[vitehub] The selected stage does not configure the Env plugin." })
@@ -180,10 +252,48 @@ function writeReport(command: EnvCliCommand, report: EnvCliReport, context: Vite
   context.stdout.write(`${lines.join("\n")}\n`)
 }
 
+const appEnvResult = v.looseObject({
+  entries: v.array(v.looseObject({ blocking: v.boolean(), path: v.optional(v.string()), provider: v.optional(v.string()), required: v.boolean(), secret: v.boolean(), source: v.picklist(["env", "literal", "provider"]), status: v.string() })),
+  ok: v.boolean(),
+})
+
+/** `env list --url`: the `env.inspect` operation of the running app, such as a deployment. Values are never returned. */
+async function listAppEnv(url: string, json: boolean, context: ViteHubCliContext): Promise<number> {
+  const message = appUrlError(url)
+  if (message) return writeCliFailure(json, context, { message })
+  const result = await callOperationFromCli({ env: context.env, ...(context.fetch ? { fetch: context.fetch } : {}), rootDir: context.rootDir, url }, "env.inspect", {})
+  if (!result.ok) return writeCliFailure(json, context, { code: result.code, ...(result.fix ? { fix: result.fix } : {}), message: result.message })
+  const parsed = v.safeParse(appEnvResult, result.value)
+  if (!parsed.success) return writeCliFailure(json, context, { message: `The app at ${url} returned an env report that this CLI cannot read.` })
+  if (json) {
+    context.stdout.write(`${JSON.stringify(parsed.output, null, 2)}\n`)
+    return 0
+  }
+  const { entries } = parsed.output
+  const lines = [`Server Env (app: ${url})`, ""]
+  if (!entries.length) lines.push("No Server Env variables declared.")
+  else {
+    lines.push(...formatTable([
+      ["VARIABLE", "STATUS", "SOURCE", "REQUIRED", "SECRET"],
+      ...entries.map(entry => [
+        entry.path?.replace(/^env\.server\./, "") ?? "(undisclosed name)",
+        entry.blocking ? `${entry.status} !` : entry.status,
+        entry.source === "provider" ? `provider:${entry.provider ?? "unknown"}` : entry.source === "env" ? "host env" : "literal",
+        entry.required ? "yes" : "no",
+        entry.secret ? "yes" : "no",
+      ]),
+    ]))
+  }
+  const blocking = entries.filter(entry => entry.blocking).length
+  lines.push("", blocking ? `${blocking} of ${entries.length} variables would make loadServerEnv() fail.` : `${entries.length} variables checked. Values are not shown.`)
+  context.stdout.write(`${lines.join("\n")}\n`)
+  return 0
+}
+
 async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHubCliContext, options: EnvCliOptions): Promise<number> {
   let parsed: ParsedEnvCliArgs
   try {
-    parsed = parseArgs(args)
+    parsed = parseArgs(command, args)
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -195,6 +305,7 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
     return 0
   }
 
+  if (parsed.url) return await listAppEnv(parsed.url, parsed.json, context)
   const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stderr: context.stderr, stage: parsed.stage ?? defaultEnvCliStage }
   const inspection = options.inspect
     ? await options.inspect(input)
@@ -215,10 +326,10 @@ export function createEnvCliContributor(options: EnvCliOptions): ViteHubCliContr
       description: "Server Env inspection workflows.",
       features: [
         {
-          description: "List declared Server Env variables and their status without values.",
-          name: "inspect",
-          run: async (args, context) => await runEnvCli("inspect", args, context, options),
-          usage: usage("inspect"),
+          description: "List declared Server Env variables and their status without values. With --url, ask the running app.",
+          name: "list",
+          run: async (args, context) => await runEnvCli("list", args, context, options),
+          usage: usage("list"),
         },
         {
           description: "Exit with 1 when a required Server Env value is missing or any value is invalid.",

@@ -7,14 +7,16 @@ icon: i-lucide-play-circle
 navigation.kind: Guides
 ---
 
-An Invocation is one run of an [Agent Definition](/docs/agents/agent-definitions), the reusable file that describes an Agent. ViteHub prepares the request, runs it, and returns or streams the result. [Build a chat app](/docs/agents/build-a-chat-app) shows a full example.
+An Agent Invocation is one request to an Agent. ViteHub prepares its input, Invoker, Capabilities, Workspace, and Driver, then returns or streams the result.
+
+Start with [Agent Definitions](/docs/agents/agent-definitions). For a complete browser-to-model example, follow [Build a chat app](/docs/agents/build-a-chat-app).
 
 ## What happens during an Invocation
 
 | Stage | What happens |
 | --- | --- |
 | Entry | A route, Channel, schedule, webhook, CLI command, or another caller provides input. |
-| Actor | ViteHub resolves the trusted [Agent Actor](/docs/agents/actors). |
+| Invoker | ViteHub resolves the trusted [Agent Invoker](/docs/agents/trusted-invokers). |
 | Capabilities | The Definition and invocation context select the abilities for this request. |
 | Context | ViteHub prepares tools, policy, context values, and the Workspace Scope. |
 | Execution | The Agent Driver runs the prepared request. |
@@ -25,10 +27,10 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Term | Describes |
 | --- | --- |
 | Channel | Message origin and delivery facts around an Invocation. |
-| Workflow Run | Durable work that can continue across waits or server restarts. |
+| Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
-A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
+A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent get` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
 
 ## Run an Agent
 
@@ -58,17 +60,43 @@ The success value is an `AgentRunResult`:
 
 ### Pass the host Runtime Context
 
-In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
+In a route, pass the host [Runtime Context](/docs/runtime/context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts] fragment
-import { createError, defineEventHandler, readBody } from 'h3'
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { HTTPError } from 'h3'
+import { useAuth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
+  if (!session) throw new HTTPError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
+```ts [server/api/support.post.ts]
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
   const user = await requireAuthenticatedUser(event)
 
   const [error, result] = await runAgent(support, {
@@ -81,12 +109,12 @@ export default defineEventHandler(async (event) => {
       },
     },
   }, { runtimeContext: getRuntimeContext(event) })
-  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  if (error) throw new HTTPError({ status: 500, message: error.why })
   return { text: result.text }
 })
 ```
 
-`requireAuthenticatedUser` is your own helper in `server/utils/auth.ts`, not a ViteHub export. It must reject requests without a signed-in user and return the trusted `id` and `email`. Always authenticate before you pass identity or access facts to the Agent. `context.invoker` sets the [Agent Actor](/docs/agents/actors), the caller's trusted identity.
+`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Invoker](/docs/agents/trusted-invokers).
 
 The option is `runtimeContext`, not `context`, because `input.context` already holds the Invocation context values that instructions and hooks read, such as `context.customInstructions`.
 
@@ -99,20 +127,20 @@ Without `runtimeContext`, `runAgent()` creates a fresh memo cache and run ID, us
 Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer needs incremental output. It returns `[error, stream]`.
 
 ```ts [server/api/support-stream.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.pipe(v.string(), v.minLength(1)) }), body))
 
-  const [error, response] = await streamAgent(support, { prompt: body.prompt }, {
+  const [error, response] = await streamAgent(support, { prompt }, {
     output: 'ui-message-stream',
     runtimeContext: getRuntimeContext(event),
   })
-  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  if (error) throw new HTTPError({ status: 500, message: error.why })
   return response
 })
 ```
@@ -129,7 +157,7 @@ for await (const event of events) {
 
 The tuple covers the start of the Invocation. An error during stream consumption reaches the reader of the stream.
 
-Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup).
 
 The stream ends when the caller reads all of it, cancels it, or gets an error. A caller that stops reading also stops observing completion.
 
@@ -139,13 +167,14 @@ A Trigger is a named event that a Capability defines and shapes, such as `chat.m
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { text } = await readBody<{ text: string }>(event)
+  const { text } = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
   const runId = crypto.randomUUID()
 
   const output = await streamAgentTrigger(
@@ -169,7 +198,7 @@ export default defineEventHandler(async (event) => {
   )
   if (output instanceof Response) return output
   if (!(output instanceof ReadableStream)) {
-    throw createError({ statusCode: 500, statusMessage: 'Expected an Agent UI message stream.' })
+    throw new HTTPError({ status: 500, message: 'Expected an Agent UI message stream.' })
   }
   return createUIMessageStreamResponse({
     // The selected output mode emits AI SDK UI message chunks.
@@ -298,7 +327,7 @@ Pass a store to `defineAgentInvocations()` for a separate SQLite or libSQL journ
 
 ### Store invocations in a ViteHub Database
 
-`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, and native D1.
+`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, native D1, and [Postgres](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database).
 
 ### Redact stored evidence
 
@@ -316,6 +345,23 @@ Use `createD1AgentInvocationStore()` with a host D1 binding. See [D1 schema, ret
 
 `invocations.appendObservation()` records proof of an external delivery, such as a delivered report. Its idempotent observation ID stops retries from adding a second record. It does not change the run status. See the [append contract](/docs/agents/invocation-storage#append-delivery-evidence) for capacity limits and retries.
 
+## Import a session that ran elsewhere
+
+Codex and Claude Code often run outside the app: on a laptop, in CI, or on an eval runner. Each CLI writes a session file. `@vite-hub/agent/sessions` reads that file and writes it to a journal store as a finished Invocation with the session's own timestamps. The Console then shows its messages, thinking, commands, file changes, and usage like a run of the app.
+
+```ts
+import { readFile } from 'node:fs/promises'
+import { importAgentSession, readCodexSession } from '@vite-hub/agent/sessions'
+import { createLibsqlAgentInvocationStore } from '@vite-hub/agent/invocations'
+
+const rolloutPath = './rollout.jsonl'
+const store = createLibsqlAgentInvocationStore({ url: 'file:./agent-journal.sqlite' })
+const session = readCodexSession(await readFile(rolloutPath, 'utf8'))
+const { id } = await importAgentSession(store, session, { agentName: 'coder', runId: 'eval-42', title: 'Add a health route' })
+```
+
+`readClaudeCodeSession()` reads `$CLAUDE_CONFIG_DIR/projects/<project>/<session>.jsonl`, and `readCodexSession()` reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`. The record id is `agentInvocationId(runId, agentName)`. Importing the same `agentName` and `runId` again replaces the record, so the store must implement `delete()`. Pass `configuration` to record the skills, MCP servers, and Workspace the session had, and `cost` to record a price, because the CLIs report only tokens.
+
 ## Cancel an invocation
 
 `invocations.cancel(id)` asks ViteHub to stop a run. A `requested` outcome confirms only the request; read the final journal status to confirm the stop.
@@ -324,7 +370,7 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
+Open the app in the [ViteHub Console](/docs/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
@@ -367,17 +413,14 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 [Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations) explains recovery, which depends on who owns the store and the host lifecycle. When no process owns an Invocation:
 
 - An expired execution lease does not prove that its Driver stopped.
+- A Workflow retry of an Agent turn whose record is `running` does not run the Driver again, even when the lease has expired. It fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the record shows `failed`. Further attempts of the same run also stop before the Driver, including when the stored error is redacted.
 - Cancelling a running one stores a durable request until the run owner sees it.
 - Cancelling a pending one stores a durable request that a later worker reads, and records, before it starts its Driver.
-- A pending journal status does not prove that an earlier Driver never started.
+- A pending journal status does not prove that an earlier Driver never started. A Workflow-backed Agent turn is the exception: it starts its Driver only after the record is `running`.
 
 ### Link to a run before it starts
 
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` gives the canonical Invocation ID before admission, for a live Console link in Channel activity.
-
-### Inspect a GitHub checkout
-
-For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
 
 ## Errors
 
@@ -385,7 +428,7 @@ For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-h
 
 ### AGENT_RUN_FAILED
 
-The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED` or `LLM_GATE_REJECTED`.
+The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED`.
 
 ### AGENT_RUN_CANCELLED
 

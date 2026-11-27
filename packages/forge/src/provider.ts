@@ -1,21 +1,34 @@
 import type { ForgeProvider } from "forges"
 import type { GitHubProvider } from "forges/github"
 
+import { conditionalFetch } from "./conditional.ts"
+import { forgeDiagnostics } from "./error-diagnostics.ts"
+
+import type { ForgeConditionalRequests } from "./conditional.ts"
+import type { Diagnostic } from "nostics"
+
 /** The Forges that ViteHub supports. */
-export type ForgeKind = "github" | "gitlab" | "forgejo"
+export type ForgeKind = "github" | "gitlab" | "forgejo" | "gitea"
 
 export interface ForgeConnection {
   forge: ForgeKind
-  /** GitHub: API base. GitLab and Forgejo: instance root. */
+  /** GitHub: API base. GitLab, Forgejo and Gitea: instance root. */
   baseUrl?: string
   /** Omitted: anonymous public reads. */
   token?: string
+  /** Default secret for verifying Gitea webhook deliveries. */
+  webhookSecret?: string
   readOnly?: boolean
   fetch?: typeof fetch
   /** Default "vitehub". */
   userAgent?: string
   /** Request timeout in milliseconds. Default 30000. */
   timeout?: number
+  /**
+   * Revalidate repeated authenticated GETs with `If-None-Match`, so an unchanged response comes back as a `304`
+   * that GitHub does not count against the rate limit. Default: on for GitHub. `false` turns it off.
+   */
+  conditionalRequests?: boolean | ForgeConditionalRequests
 }
 
 /**
@@ -29,9 +42,13 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
   const auth = connection.token
     ? { type: "token" as const, token: connection.token }
     : { type: "anonymous" as const }
+  const conditional = connection.conditionalRequests ?? connection.forge === "github"
+  const fetcher = conditional
+    ? conditionalFetch(connection.fetch ?? ((input, init) => globalThis.fetch(input, init)), conditional === true ? {} : conditional)
+    : connection.fetch
   const options = {
     ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
-    ...(connection.fetch ? { fetch: connection.fetch } : {}),
+    ...(fetcher ? { fetch: fetcher } : {}),
     userAgent: connection.userAgent ?? "vitehub",
     ...(connection.timeout === undefined ? {} : { timeout: connection.timeout }),
     ...(connection.readOnly === undefined ? {} : { readOnly: connection.readOnly }),
@@ -50,20 +67,26 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
       const { forgejo } = await import("forges/forgejo")
       return forgejo(options)
     }
+    case "gitea": {
+      const { gitea } = await import("forges/gitea")
+      const { webhookSecret } = connection
+      return gitea({ ...options, ...(webhookSecret ? { webhookSecret } : {}) })
+    }
   }
-  throw new Error("Unsupported Forge.")
+  throw forgeDiagnostics.FORGE_UNSUPPORTED()
 }
 
-/** A Forge response that succeeded but did not include the expected data. */
-export class ForgeResponseError extends Error {
-  override name = "ForgeResponseError"
+/** A Forge response that succeeded but did not include the expected data: `FORGE_RESPONSE_INVALID`. */
+export function forgeResponseError(problem: string): Diagnostic {
+  return forgeDiagnostics.FORGE_RESPONSE_INVALID({ problem })
 }
 
-/** The HTTP status of a failed Forge request, or undefined for other errors. */
-export function forgeErrorStatus(error: unknown): number | undefined {
-  if (!(error instanceof Error) || !("status" in error)) return undefined
-  return typeof error.status === "number" ? error.status : undefined
+/** Whether a Forge response did not include the expected data. */
+export function isForgeResponseError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === "FORGE_RESPONSE_INVALID"
 }
+
+export { forgeErrorStatus } from "@vite-hub/internal/forge"
 
 /** The error that a cancelled Forge operation rejects with. */
 export function abortError(signal: AbortSignal): Error {
@@ -74,14 +97,10 @@ export function abortError(signal: AbortSignal): Error {
 /** Reject with the abort reason when `signal` aborts before `promise` settles. */
 export async function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
-  if (signal.aborted) {
-    // The supplied operation may still reject after cancellation wins.
-    void promise.catch(() => undefined)
-    throw abortError(signal)
-  }
   return await new Promise<T>((resolve, reject) => {
     const abort = () => reject(abortError(signal))
-    signal.addEventListener("abort", abort, { once: true })
+    if (signal.aborted) abort()
+    else signal.addEventListener("abort", abort, { once: true })
     promise.then(
       (value) => {
         signal.removeEventListener("abort", abort)

@@ -19,7 +19,7 @@ async function createApp() {
   directories.push(rootDir)
   const dir = join(rootDir, "server", "databases", "primary")
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "config.ts"), [
+  await writeFile(join(dir, "index.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "export default defineDatabase({",
     "  name: 'primary',",
@@ -86,7 +86,7 @@ describe("database provision step", () => {
   })
 
   async function writeReplicatedDefinition(rootDir: string) {
-    await writeFile(join(rootDir, "server", "databases", "primary", "config.ts"), [
+    await writeFile(join(rootDir, "server", "databases", "primary", "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'primary',",
@@ -133,7 +133,7 @@ describe("database provision step", () => {
   it("describes the D1 ids it records without network access", async () => {
     const rootDir = await createApp()
 
-    const recorded = createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1", nuxtHostResource: true }).recordedState?.({ env: {} }) ?? []
+    const recorded = createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "cloudflare", nuxtHostResource: true }).recordedState?.({ env: {} }) ?? []
 
     expect(recorded.map(({ category, declared }) => ({ category, declared }))).toEqual([
       { category: "d1", declared: ["primary"] },
@@ -174,7 +174,7 @@ describe("database provision step", () => {
     const rootDir = await createDefaultApp()
     const fetchImpl = vi.fn(async () => jsonResponse({ success: true, result: [{ name: "app-db", uuid: "uuid-app" }] })) as unknown as typeof globalThis.fetch
 
-    const actions = await createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1" }).plan(provisionContext(fetchImpl))
+    const actions = await createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "cloudflare" }).plan(provisionContext(fetchImpl))
 
     expect(actions).toHaveLength(1)
     await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { d1: { default: "uuid-app" } } } })
@@ -189,7 +189,7 @@ describe("database provision step", () => {
 
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "nuxt-content",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
@@ -209,7 +209,7 @@ describe("database provision step", () => {
 
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: " content-db ",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
@@ -226,7 +226,7 @@ describe("database provision step", () => {
     })) as unknown as typeof globalThis.fetch
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "vitehub-playground-db",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
@@ -244,7 +244,7 @@ describe("database provision step", () => {
     const rootDir = await createApp()
     const secondaryDir = join(rootDir, "server", "databases", "secondary")
     await mkdir(secondaryDir, { recursive: true })
-    await writeFile(join(secondaryDir, "config.ts"), [
+    await writeFile(join(secondaryDir, "index.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
       "  name: 'secondary',",

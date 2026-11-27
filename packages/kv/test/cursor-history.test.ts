@@ -1,5 +1,5 @@
-import { expect, it } from "vitest"
-import { createCursorHistory } from "../src/runtime/cursor-history.ts"
+import { expect, it, vi } from "vitest"
+import { createCursorHistory, recordCursor } from "../src/runtime/cursor-history.ts"
 
 it.each(["vhc:provider-cursor", "vhc:1:not-json", "vhc:1:%7B%7D", "vhc:1:%"])("preserves opaque provider cursor %s", (cursor) => {
   expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
@@ -113,4 +113,70 @@ it("keeps continuation size bounded for long cursor histories", () => {
   const history = new Set(Array.from({ length: 1_024 }, (_, index) => `${index}-${"x".repeat(200)}`))
   const cursor = createCursorHistory().store("provider", history)
   expect(cursor.length).toBeLessThan(128 * 1_024)
+})
+
+it("resumes a continuation in a fresh module instance", async () => {
+  const cursor = createCursorHistory("cloudflare-kv").store("provider", new Set(["first", "provider"]))
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  expect(fresh.createCursorHistory("cloudflare-kv").take(cursor)).toMatchObject({ providerCursor: "provider", history: new Set(["provider"]) })
+})
+
+it("keeps a token with a wrong tag as an opaque provider cursor", async () => {
+  const cursor = createCursorHistory().store("provider", new Set(["provider"]))
+  const tampered = cursor.replace("provider", "other")
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  expect(fresh.createCursorHistory().take(tampered)).toMatchObject({ providerCursor: tampered })
+})
+
+it("rejects concurrent consumers of a decoded continuation", async () => {
+  const cursor = createCursorHistory().store("provider", new Set(["provider"]))
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  const consumer = fresh.createCursorHistory()
+  consumer.take(cursor)
+  expect(() => consumer.take(cursor)).toThrow("already in use")
+  expect(() => fresh.createCursorHistory().take(cursor)).toThrow("already in use")
+  consumer.clear()
+})
+
+it("restores the retry history of a decoded continuation", async () => {
+  const cursor = createCursorHistory().store("provider", new Set(["provider"]))
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  const consumer = fresh.createCursorHistory()
+  const continuation = consumer.take(cursor)
+  continuation.history.add("next")
+  consumer.restore(cursor, continuation)
+  expect(consumer.take(cursor)).toBe(continuation)
+  expect(continuation.history).toEqual(new Set(["provider", "next"]))
+  consumer.complete(cursor)
+})
+
+it.each([false, true])("invalidates a decoded continuation on disposal after restore=%s", async (restore) => {
+  const cursor = createCursorHistory().store("provider", new Set(["provider"]))
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  const consumer = fresh.createCursorHistory()
+  const continuation = consumer.take(cursor)
+  if (restore) consumer.restore(cursor, continuation)
+  consumer.clear()
+  consumer.restore(cursor, continuation)
+  expect(() => fresh.createCursorHistory().take(cursor)).toThrow("expired")
+})
+
+it("forgets the oldest cursor when the history is full", () => {
+  const history = new Set(Array.from({ length: 1_024 }, (_, index) => `cursor-${index}`))
+  expect(recordCursor(history, "cursor-1024")).toBe(true)
+  expect(history.size).toBe(1_024)
+  expect(history.has("cursor-0")).toBe(false)
+  expect(history.has("cursor-1")).toBe(true)
+  expect(history.has("cursor-1024")).toBe(true)
+})
+
+it("rejects a cursor longer than 8 KiB without changing the history", () => {
+  const history = new Set(["first"])
+  expect(recordCursor(history, "x".repeat(8 * 1_024 + 1))).toBe(false)
+  expect(history).toEqual(new Set(["first"]))
 })

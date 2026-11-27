@@ -1,3 +1,4 @@
+import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import type { MemoryRecord, MemoryStoreAdapter } from "../src/capabilities/memory.ts"
@@ -348,6 +349,52 @@ describe("agent memory capability", () => {
     await adapter.delete({ id: created.item.id, scope: { agent: "support" }, store: "agent" })
     await expect(adapter.read({ id: created.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
     expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(2)
+  })
+
+  it("reads a missing JSONL file as empty memory and fails on other read errors", async () => {
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const store = (error: Error) => workspaceJsonlMemoryStore().create({
+      workspace: {
+        fs: {
+          appendFile: vi.fn(),
+          mkdir: vi.fn(),
+          readFile: async () => { throw error },
+          writeFile: vi.fn(),
+        },
+      },
+    } as never)
+    const request = { query: "anything", scope: { agent: "support" }, store: "agent" }
+
+    const missing = await store(Object.assign(new Error("ENOENT: memory/memory.jsonl"), { code: "ENOENT" }))
+    await expect(missing.search(request)).resolves.toEqual({ items: [] })
+    const notFound = await store(new ViteHubError("WORKSPACE_NOT_FOUND", "[vitehub] Workspace file does not exist: memory/memory.jsonl."))
+    await expect(notFound.search(request)).resolves.toEqual({ items: [] })
+    const denied = await store(Object.assign(new Error("EACCES: memory/memory.jsonl"), { code: "EACCES" }))
+    await expect(denied.search(request)).rejects.toThrow("EACCES")
+  })
+
+  it("throws AGENT_MEMORY_EVENT_INVALID for a JSONL line that is not a memory event, and skips a torn last line", async () => {
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const valid = { op: "delete", deletedAt: "2026-11-01T00:00:00.000Z", digest: "d", id: "mem_1", scope: { agent: "support" }, store: "agent", tombstoneId: "mem_del_1", version: 1 }
+    const store = (contents: string) => workspaceJsonlMemoryStore({ path: "memory/memory.jsonl" }).create({
+      workspace: { fs: { appendFile: vi.fn(), mkdir: vi.fn(), readFile: async () => contents, writeFile: vi.fn() } },
+    } as never)
+    const request = { query: "", scope: { agent: "support" }, store: "agent" }
+
+    const torn = await store(`${JSON.stringify(valid)}\n{"op":"upse`)
+    await expect(torn.search(request)).resolves.toEqual({ items: [] })
+    for (const line of [{ op: "upsert", store: "agent" }, { ...valid, scope: "support" }, { ...valid, op: "rename" }]) {
+      const broken = await store(`${JSON.stringify(valid)}\n${JSON.stringify(line)}\n`)
+      await expect(broken.search(request)).rejects.toMatchObject({ code: "AGENT_MEMORY_EVENT_INVALID", why: expect.stringContaining("memory/memory.jsonl:2") })
+    }
+  })
+
+  it("rejects store retention, which memory() does not apply", async () => {
+    const { memory } = await import("../src/capabilities.ts")
+    const adapter = { create: vi.fn(), kind: "test" }
+    // Untyped JS config can still pass the removed option.
+    const stores = { agent: { adapter, retention: { hardDelete: true }, scope: { agent: "support" } } } as never
+    expect(() => memory({ stores })).toThrow(/Memory store "agent" sets retention/)
   })
 
   it("uses a workspace-level JSONL path by default", async () => {

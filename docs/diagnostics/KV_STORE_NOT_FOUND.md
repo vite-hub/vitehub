@@ -18,7 +18,7 @@ The `vitehub kv` commands and the Console report the same code for `--store <nam
 ```diff [vite.config.ts]
  export default defineConfig({
    plugins: [vitehub({
-     preset: 'node',
+     host: 'node',
      kv: {
        stores: {
          default: { driver: 'fs-lite' },
@@ -46,6 +46,6 @@ Start the dev server and run `vitehub kv list --store sessions` from another ter
 
 - [KV configuration](/docs/kv/configure#configuration-options)
 - [Use KV at runtime](/docs/kv/server-api#use-it-at-runtime)
-- [Read and write KV keys](/docs/development/cli#read-and-write-kv-keys)
+- [Read and write KV keys](/docs/cli/primitives#read-and-write-kv-keys)
 - [`KV_DISABLED`](/docs/kv/diagnostics/kv_disabled)
 - [`KV_MISSING_DEFAULT_STORE`](/docs/kv/diagnostics/kv_missing_default_store)

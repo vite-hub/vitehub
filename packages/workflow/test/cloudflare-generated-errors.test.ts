@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { workflowRuntimeModule } from "../src/internal/runtime-modules.ts"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 
@@ -6,9 +7,10 @@ import { transform } from "esbuild"
 import { Diagnostic } from "nostics"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import { NonRetryableError as ViteHubNonRetryableError } from "../src/errors.ts"
 import { writeProviderEntries } from "../src/internal/vite-build.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
-import type { WorkflowDefinitionRegistry, WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../src/types.ts"
 
 let rootDir: string
 let generatedCode: string
@@ -18,9 +20,8 @@ beforeAll(async () => {
   const baseDir = new URL("../.vitest-tmp/", import.meta.url)
   await mkdir(baseDir, { recursive: true })
   rootDir = await mkdtemp(join(baseDir.pathname, "cloudflare-errors-"))
-  const artifacts = await writeProviderEntries(rootDir, { provider: "cloudflare" })
+  const artifacts = await writeProviderEntries(rootDir, { driver: "cloudflare" })
   generatedSource = await readFile(artifacts.cloudflareWorkerFile, "utf8")
-  // The VM below has no ESM loader, so dynamic imports become require calls.
   generatedCode = (await transform(generatedSource, { format: "cjs", supported: { "dynamic-import": false } })).code
 })
 
@@ -30,8 +31,6 @@ afterAll(async () => {
 
 function loadGeneratedDispatcher(registry: WorkflowDefinitionRegistry) {
   const constructions = vi.fn()
-  // cloudflare:workflows is host-only. Match its two-argument constructor;
-  // a third ErrorOptions argument is ignored by the native implementation.
   class NonRetryableError extends Error {
     constructor(message: string, name = "NonRetryableError") {
       super(message)
@@ -44,9 +43,9 @@ function loadGeneratedDispatcher(registry: WorkflowDefinitionRegistry) {
     module,
     require(id: string) {
       switch (id) {
-        case "@vite-hub/workflow/runtime/cloudflare-vite":
+        case workflowRuntimeModule("cloudflare-vite"):
           return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
-        case "@vite-hub/workflow/runtime/cloudflare-runner":
+        case workflowRuntimeModule("cloudflare-runner"):
           return { runCloudflareWorkflow }
         case "./registry.mjs":
           return { default: registry, __esModule: true }
@@ -68,20 +67,20 @@ it("loads without cloudflare:workflows, as the Node.js prerender build of a Nuxt
     module,
     require(id: string) {
       if (id === "cloudflare:workflows") throw new Error("Only URLs with a scheme in: file, data, and node are supported")
-      if (id === "@vite-hub/workflow/runtime/cloudflare-vite") return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
+      if (id === workflowRuntimeModule("cloudflare-vite")) return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
       return {}
     },
   })).not.toThrow()
 })
 
 const boundaries = ["root", "root step", "explicit step"] as const
-const stepOptions = { retries: { limit: 2, delay: "1 second" } }
+const stepOptions = { retries: { limit: 2, delay: "1 second" } } satisfies WorkflowStepOptions
 
 function createRegistry(boundary: typeof boundaries[number], original: unknown): WorkflowDefinitionRegistry {
   return {
     reject: async () => ({
       default: {
-        options: { rootStep: boundary === "root step" },
+        rootStep: boundary === "root step",
         handler: async ({ step }) => {
           const fail = () => { throw original }
           return boundary === "explicit step" ? await step!.do!("validate", stepOptions, fail) : fail()
@@ -139,8 +138,21 @@ describe("generated Cloudflare Workflow errors", () => {
     }
     else {
       expect(caught).toHaveBeenCalledExactlyOnceWith(converted)
-      if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", stepOptions, expect.any(Function))
+      if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", { retries: { ...stepOptions.retries, backoff: "exponential" } }, expect.any(Function))
     }
+  })
+
+  it.each(boundaries)("turns a ViteHub NonRetryableError into the Cloudflare one at the %s boundary", async (boundary) => {
+    const original = new ViteHubNonRetryableError("card declined", { cause: new Error("issuer said no") })
+    const { constructions, NonRetryableError, run } = loadGeneratedDispatcher(createRegistry(boundary, original))
+    const { step } = createStep()
+    const converted = await run(step).catch((error: unknown) => error)
+
+    expect(converted).toBeInstanceOf(NonRetryableError)
+    if (!(converted instanceof NonRetryableError)) throw new Error("Expected a native non-retryable error")
+    expect(converted).toMatchObject({ message: "card declined", name: "NonRetryableError" })
+    expect(converted.cause).toBe(original)
+    expect(constructions).toHaveBeenCalledExactlyOnceWith("card declined", "NonRetryableError")
   })
 
   it.each(boundaries)("passes retryable errors through the %s boundary", async (boundary) => {

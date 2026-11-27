@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentEntryName, componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -60,44 +59,29 @@ const packageJson = parsePackageManifest(
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
-const workspaceEntries = [
-  "./workspace",
-  "./workspace-shell",
-  "./workspace-file-tree",
-  "./workspace-editor",
-  "./workspace-terminal",
-  "./workspace-preview",
-  "./workspace-boot-status",
-  "./connect-panel",
-  "./browser-support-notice",
-];
-const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
+// The root holds every component. An entry of its own is only for parts whose dependencies a chat page must not load, and
+// for modules that load without the components: the theme, which apps import from nuxt.config, and the share links.
+const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./motion/core", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports)).toEqual(expect.arrayContaining([
-      ...componentEntries,
-      "./package.json",
-      "./styles.css",
-    ]));
-    expect(Object.keys(packageJson.exports)).not.toEqual(expect.arrayContaining([
-      "./agent-code-view",
-      "./agent-file-tree",
-      "./agent-tool-list",
-      "./agent-trace",
-    ]));
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
-      "@iconify-json/ph": expect.any(String),
+      "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
-      "@iconify-json/ph": { optional: true },
+      // The ui-sdk editor parts' drag handle and its placement, which Nuxt UI otherwise brings.
+      "@floating-ui/dom": { optional: true },
+      "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
+      "@tiptap/extension-drag-handle": { optional: true },
+      "@tiptap/extension-drag-handle-vue-3": { optional: true },
       "@tiptap/extension-image": { optional: true },
       "@tiptap/extension-list": { optional: true },
       "@tiptap/extension-table": { optional: true },
@@ -106,85 +90,50 @@ describe("@vite-hub/ui package contract", () => {
       "@tiptap/vue-3": { optional: true },
       vite: { optional: true },
     });
-    expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.8.1",
-      "comark-chat": "catalog:",
-      comark: "catalog:markdown-ui",
-      "vega-loader": "^5.1.3",
-      katex: "^0.18.7",
-      "@nuxt/kit": "4.6.2",
-      "@shikijs/langs": "4.5.0",
-      "@types/node": "catalog:tooling",
-      "@vite-hub/comments": "workspace:*",
-      "nostics": "catalog:runtime",
-      "reka-ui": "catalog:ui",
-      shiki: "^4.5.0",
-      "@codemirror/autocomplete": "6.20.4",
-      "@codemirror/commands": "6.11.1",
-      "@codemirror/lang-css": "6.3.1",
-      "@codemirror/lang-html": "6.4.12",
-      "@codemirror/lang-javascript": "6.2.5",
-      "@codemirror/lang-json": "6.0.2",
-      "@codemirror/lang-markdown": "6.5.2",
-      "@codemirror/lang-vue": "0.1.3",
-      "@codemirror/language": "6.13.1",
-      "@codemirror/state": "6.7.6",
-      "@codemirror/view": "6.43.15",
-      "@lezer/highlight": "1.2.5",
-      "@vite-hub/web-container": "workspace:*",
-      "@xterm/addon-fit": "0.11.0",
-      "@xterm/xterm": "6.0.0",
-    });
   });
 
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
-  it.each([
-    ".",
-    ...componentEntries,
-    "./headless",
-    "./markdown-editor",
-    "./nuxt",
-    "./primitive-rail",
-    "./vite",
-    ...workspaceEntries,
-  ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
+  it.each(publicEntries)("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
-  it("keeps component entry exports identical to the root barrel", async () => {
-    const root = await import("../dist/index.js");
-    for (const component of componentNames) {
-      const entry = componentEntryName(component);
-      const subpath = await import(`../dist/${entry}.js`);
-      expect(subpath[component], entry).toBe(root[component]);
-    }
-  });
-
   it("ships flat console surfaces that fill their containers", () => {
-    for (const block of [".vh-chat", ".vh-session"]) {
+    for (const block of [".vh-chat", ".vh-session", ".vh-agent-session"]) {
       expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
-    expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
-    expect(stylesheet).not.toContain("--vh-ui-text-muted");
+    // Folded text fades to signal more content; the surrounding surfaces stay flat.
+    const surfaces = stylesheet.replace(/\.vh-agent-session__bubble\[data-folded\] \.vh-agent-session__bubble-text\s*\{[^}]*\}/g, "");
+    expect(surfaces).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
   });
 
-  it("keeps WebContainer, CodeMirror, and xterm out of the root barrel and behind their own entries", () => {
+  it("keeps AgentSession as a private component module", () => {
+    expect(existsSync(new URL("../dist/parts/components/agent-session.js", import.meta.url))).toBe(true);
+    expect(readFileSync(new URL("../dist/index.js", import.meta.url), "utf8")).toContain("./parts/components/agent-session.js");
+  });
+
+  it("keeps WebContainer, CodeMirror, and xterm out of the root barrel, and loads the editor and terminal on demand", () => {
     const dist = new URL("../dist/", import.meta.url);
     const read = (name: string) => readFileSync(new URL(name, dist), "utf8");
     const root = read("index.js");
     for (const name of ["@vite-hub/web-container", "@codemirror/", "@xterm/"]) expect(root, name).not.toContain(name);
-    const webContainerImporters = readdirSync(dist)
-      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container"/.test(read(name)));
-    expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
-    expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
-    expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    // The parts render the state of a WebContainer. Only the webContainer() runner of Workspace runs one.
+    const webContainerImporters = (readdirSync(dist, { recursive: true }) as string[])
+      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container(?:\/vue)?"/.test(read(name)));
+    expect(webContainerImporters).toEqual(["parts/workspace/runners/web-container.js"]);
+    expect(read("parts/workspace/workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
+    expect(read("parts/workspace/workspace-terminal.js")).not.toMatch(/from\s*"@xterm\//);
+    expect(read("parts/workspace/workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    for (const part of ["parts/workspace/runners/web-container.js", "parts/workspace/runners/render.js", "parts/workspace/workspace.js"]) {
+      expect(read(part), part).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
+    }
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {
     const dist = new URL("../dist/", import.meta.url);
     expect(readFileSync(new URL("index.js", dist), "utf8")).not.toContain("@tiptap/");
     // Bundled Tiptap would be a second copy beside the one Nuxt UI's editor menus use.
-    expect(readFileSync(new URL("markdown-editor.js", dist), "utf8")).toMatch(/from\s*"@tiptap\/vue-3"/);
+    const editor = readdirSync(dist).find((name) => /^markdown-editor-[^/]+\.js$/.test(name));
+    expect(editor && readFileSync(new URL(editor, dist), "utf8")).toMatch(/from\s*"@tiptap\/vue-3"/);
   });
 
   it("keeps KaTeX out of the global stylesheet", () => {

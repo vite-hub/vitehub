@@ -1,9 +1,9 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { readCloudflareFailure } from '../../internal/cloudflare-failure.ts'
 import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
-import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
+import { assertSandboxTaskTransferBytes, isSandboxTaskTransferLimitError } from './binary-sidecars'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
-import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
+import { EXEC_DIAGNOSTIC_PREFIX, EXEC_STDIO_OUTPUT_MARKER, MAX_EXEC_DIAGNOSTIC_BYTES } from './entry-script.injected'
 
 import type { TaskSandbox } from './task-sandbox'
 
@@ -15,6 +15,16 @@ const EXEC_OUTPUT_PREVIEW_LENGTH = 500
 const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
+
+function assertOutputBytes(output: string, maxOutputBytes: number | undefined) {
+  if (output.startsWith(EXEC_DIAGNOSTIC_PREFIX) || EXEC_DIAGNOSTIC_PREFIX.startsWith(output)) {
+    assertSandboxTaskTransferBytes(output, 'diagnostic', 'maxDiagnosticBytes', MAX_EXEC_DIAGNOSTIC_BYTES)
+    if (tryParseSandboxTaskOutput(output)?.ok !== true)
+      return
+  }
+  if (maxOutputBytes !== undefined)
+    assertSandboxTaskTransferBytes(output, 'result', 'maxOutputBytes', maxOutputBytes)
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error)
@@ -37,16 +47,19 @@ function getErrorMessage(error: unknown) {
   return String(error)
 }
 
-function isRecoverableCloudflareExecError(error: unknown) {
+function mayHaveRunCloudflareExec(error: unknown) {
   const metadata = readSandboxTaskErrorMetadata(error)
 
   if (metadata?.provider && metadata.provider !== 'cloudflare')
     return false
 
-  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT' || metadata?.code === 'SANDBOX_TASK_TRANSPORT_ERROR')
+  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT')
     return true
 
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
+  if (metadata?.code !== 'SANDBOX_R0088')
+    return false
+  const failure = readCloudflareFailure(error)
+  return !failure.overloaded && !failure.coldStart
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
@@ -76,7 +89,7 @@ export function tryParseSandboxTaskOutput<TResult>(outputRaw: string) {
 
   try {
     const output: unknown = JSON.parse(outputRaw)
-    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output) || !hasRuntimeType(Reflect.get(output, 'ok'), 'boolean'))
+    if (typeof output !== "object" || output === null || Array.isArray(output) || typeof Reflect.get(output, 'ok') !== "boolean")
       return null
     // SAFETY: The runtime checks above establish an object with a boolean `ok` field before this generic result cast.
     return output as {
@@ -113,8 +126,6 @@ export function extractSandboxTaskOutputFromExecution(execution?: { stdout?: str
 
     const lineStart = stream.lastIndexOf('\n', markerOffset) + 1
     const lineEnd = stream.indexOf('\n', markerOffset)
-    // Keep the first marker in the final matching line, matching the former
-    // reverse-line scan without allocating an array for the whole stream.
     const markerIndex = stream.indexOf(EXEC_STDIO_OUTPUT_MARKER, lineStart)
     return stream.slice(markerIndex + EXEC_STDIO_OUTPUT_MARKER.length, lineEnd < 0 ? stream.length : lineEnd)
   }
@@ -194,6 +205,7 @@ async function waitForExecOutput(
   error: unknown,
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
+  maxOutputBytes: number | undefined,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -205,6 +217,7 @@ async function waitForExecOutput(
     signal?.throwIfAborted()
     try {
       const output = await sandbox.readFile(outputPath, { signal })
+      assertOutputBytes(output, maxOutputBytes)
       lastOutput = output
       if (isCompleteSandboxTaskOutput(output))
         return output
@@ -212,6 +225,8 @@ async function waitForExecOutput(
     catch (readError) {
       if (signal?.aborted)
         throw signal.reason
+      if (isSandboxTaskTransferLimitError(readError))
+        throw readError
       lastError = readError
     }
 
@@ -233,9 +248,10 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
-  if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
+  if (sandbox.provider !== 'cloudflare' || !mayHaveRunCloudflareExec(error))
     return null
 
   return await waitForExecOutput(
@@ -244,6 +260,7 @@ async function recoverExecOutput(
     error,
     timeout,
     execution,
+    maxOutputBytes,
     signal,
   )
 }
@@ -254,6 +271,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -268,6 +286,7 @@ async function waitForCloudflareOutput(
     error,
     timeout,
     execution,
+    maxOutputBytes,
     signal,
   )
 }
@@ -278,27 +297,30 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
   const executionOutput = extractSandboxTaskOutputFromExecution(execution)
     || extractSandboxTaskOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
-  if (executionOutput)
+  if (executionOutput) {
+    assertOutputBytes(executionOutput, maxOutputBytes)
     return executionOutput
+  }
 
   try {
     const output = await sandbox.readFile(outputPath, { signal })
-    // A complete output file belongs to this execution. Preserve malformed
-    // envelopes so the caller can report the invalid contract instead of
-    // replacing the useful diagnostic with recovery failure.
+    assertOutputBytes(output, maxOutputBytes)
     if (isCompleteSandboxTaskOutput(output))
       return output
   }
-  catch {
+  catch (readError) {
+    if (isSandboxTaskTransferLimitError(readError))
+      throw readError
     signal?.throwIfAborted()
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maxOutputBytes, signal)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maxOutputBytes, signal)
 }
 
 export { recoverExecOutput }

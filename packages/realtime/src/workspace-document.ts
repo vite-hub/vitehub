@@ -1,9 +1,9 @@
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 
 import type { ReadonlyWorkspaceFiles, WorkspaceSnapshot, WritableWorkspaceFiles } from "@vite-hub/workspace/files"
-import type { RealtimeDocumentAdapter } from "./types.ts"
+import type { RealtimeDocumentAdapter, RealtimeWorkspaceDocumentOptions } from "./types.ts"
 import { RealtimeDocumentConflict } from "./conflict.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -23,7 +23,6 @@ export async function readRealtimeWorkspaceDocument(
     }
     catch (error) {
       const shape = getViteHubErrorShape(error)
-      // Registry failures name the missing Workspace; absent document paths do not.
       if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined) return undefined
       throw error
     }
@@ -70,10 +69,10 @@ async function serializeWorkspace<T>(workspaceName: string, operation: () => Pro
 
 /**
  * Stores each Realtime document as the Markdown file at its path in a Workspace working tree.
- * `history.checkpoint()` commits the working tree to Workspace history. `document: { workspace }`
- * in a Realtime Definition uses this adapter.
+ * `history.checkpoint()` commits the working tree to Workspace history with the Store's author by default.
+ * `document: { workspace }` in a Realtime Definition uses this adapter.
  */
-export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocumentAdapter {
+export function workspaceDocument(workspaceName: string, checkpointAuthor?: RealtimeWorkspaceDocumentOptions["checkpointAuthor"]): RealtimeWorkspaceDocumentAdapter {
   return {
     kind: "workspace",
     workspace: workspaceName,
@@ -91,14 +90,13 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       if (!(await workspace.capabilities()).conditionalWrites) {
         throw new HTTPError({ status: 501, message: "Realtime saves require a Workspace Store with conditional writes." })
       }
-      if (context.authority === "cloudflare" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
-        throw new HTTPError({ status: 501, message: "Durable realtime rooms require a durable Workspace Store." })
+      if (context.authority !== "memory" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
+        throw new HTTPError({ status: 501, message: "Durable and shared realtime rooms require a durable Workspace Store." })
       }
       try {
         const current = ifDigest
           ? await workspace.fs.stat(documentId).catch((error: unknown) => {
               const shape = getViteHubErrorShape(error)
-              // Only this lookup proves the document is missing; write hooks can read other paths.
               if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.message.startsWith("[vitehub] Workspace path does not exist:")) {
                 throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
               }
@@ -116,15 +114,18 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
         if (isWorkspaceConflict(error)) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
         throw error
       }
-      // Workspace hooks may normalize the file; the room merges the stored form.
       const written = await readRealtimeWorkspaceDocument(workspace, workspace, documentId)
       if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "save" })
       return { digest: written.baselineDigest, stored: { body: written.markdown } }
     },
-    async checkpoint({ documentId }, { digest, message }): Promise<WorkspaceSnapshot> {
+    async checkpoint({ documentId }, { digest, message, user }): Promise<WorkspaceSnapshot> {
       return await serializeWorkspace(workspaceName, async () => {
         const workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
-        const options = { message: message || `docs: checkpoint ${documentId}` }
+        const author = user && checkpointAuthor ? await checkpointAuthor(user) : undefined
+        const options = {
+          message: message || `docs: checkpoint ${documentId}`,
+          ...(author ? { author } : {}),
+        }
         let snapshot: WorkspaceSnapshot
         try {
           try {

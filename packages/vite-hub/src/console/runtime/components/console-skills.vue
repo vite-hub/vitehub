@@ -125,14 +125,14 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 
 <template>
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
-    <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
+    <UDashboardPanel id="skills">
       <template #header>
         <ConsolePageHeader title="Skills" :toggle="false">
           <template #right>
-            <UButton label="Skill index" to="https://vitehub.dev/.well-known/skills/index.json" target="_blank" rel="noopener noreferrer" icon="i-lucide-arrow-up-right" :ui="{ label: 'hidden sm:inline' }" size="sm" color="neutral" variant="ghost" aria-label="Open ViteHub's published Skill index" />
-            <USelect v-if="agents.length" :model-value="selectedAgent" :items="agents" aria-label="Agent" class="w-28 sm:w-44" size="sm" @update:model-value="selectAgent" />
+            <UButton label="Skill index" to="https://vitehub.dev/.well-known/skills/index.json" target="_blank" rel="noopener noreferrer" icon="i-lucide-arrow-up-right" :ui="{ label: 'hidden sm:inline' }" variant="ghost" aria-label="Open ViteHub's published Skill index" />
+            <USelect v-if="agents.length" :model-value="selectedAgent" :items="agents" aria-label="Agent" class="w-28 sm:w-44" @update:model-value="selectAgent" />
             <UTooltip text="Refresh Skills">
-              <UButton aria-label="Refresh Skills" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="loadCatalog" />
+              <UButton aria-label="Refresh Skills" icon="i-lucide-refresh-cw" variant="ghost" :disabled="loading" @click="loadCatalog" />
             </UTooltip>
           </template>
         </ConsolePageHeader>
@@ -184,10 +184,10 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 
 <style scoped>
 .skills-browser { display: grid; grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr); flex: 1; min-height: 0; }
-.skills-browser__tree { border-inline-end: 1px solid var(--ui-border); }
+.skills-browser__tree { border-inline-end: 1px solid var(--border); }
 @media (width < 640px) {
   .skills-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: 12rem minmax(0, 1fr); }
-  .skills-browser__tree { border-inline-end: 0; border-bottom: 1px solid var(--ui-border); }
+  .skills-browser__tree { border-inline-end: 0; border-bottom: 1px solid var(--border); }
   .skills-browser__tree > p { display: none; }
 }
 </style>

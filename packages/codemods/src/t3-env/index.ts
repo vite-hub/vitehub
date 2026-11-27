@@ -10,7 +10,7 @@ import { addViteHubOptions, bindingFree, ConfigEditor, createLineResolver, useVi
 import { readDependencies } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { classify, importsFile, localSpecifiersNaming, rewriteT3CallSites } from "./call-sites.ts"
 import { loadT3EnvOptions } from "./load.ts"
 import { planT3Env } from "./plan.ts"
@@ -51,14 +51,14 @@ function keyLines(code: string): Map<string, number> {
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const modules = await findEnvModules(cwd)
-  if (!modules.length) throw new CodemodError(`No file imports createEnv from ${packageName}, so there is nothing to migrate.`)
-  if (modules.length > 1) throw new CodemodError(`More than one file calls createEnv(): ${modules.join(", ")}. The codemod migrates one env module. Merge them first, then run the codemod again.`)
+  if (!modules.length) throw codemodError(`No file imports createEnv from ${packageName}, so there is nothing to migrate.`)
+  if (modules.length > 1) throw codemodError(`More than one file calls createEnv(): ${modules.join(", ")}. The codemod migrates one env module. Merge them first, then run the codemod again.`)
   const envFile = modules[0]!
   const envCode = await readFile(join(cwd, envFile), "utf8")
   const lines = keyLines(envCode)
   const options = await loadT3EnvOptions(cwd, envFile)
   const plan = await planT3Env(options, cwd)
-  if (!plan.fields.length) throw new CodemodError(`${envFile} declares no variable that Env can hold. Migrate it by hand.`)
+  if (!plan.fields.length) throw codemodError(`${envFile} declares no variable that Env can hold. Migrate it by hand.`)
   const fields = plan.fields.map(entry => entry.field)
 
   const config = await readNuxtConfig(cwd)
@@ -87,7 +87,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
   const envName = bindingFree(config, "env") ? "env" : "viteHubEnv"
   const style = editor.style
-  const { preset, presetNote } = addViteHubOptions(editor, config, {
+  const { host, hostNote } = addViteHubOptions(editor, config, {
     options: [{ key: "env", value: indent => envExpression({ kind: "fields", fields }, envName, indent, style), label: "the Env declarations" }],
     rootEntries,
     removedRootProperties: new Set<Node>(),
@@ -96,7 +96,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   editor.addImport(`import { ${envName === "env" ? "env" : "env as viteHubEnv"} } from ${quoteString("vite-hub/env", style)}${style.semicolons ? ";" : ""}`)
   const configCode = editor.output.toString()
   const lineOf = createLineResolver(configCode)
-  if (presetNote) configFollowUps.push({ file: config.fileName, line: lineOf(["vitehub", "preset"]), message: presetNote })
+  if (hostNote) configFollowUps.push({ file: config.fileName, line: lineOf(["vitehub", "host"]), message: hostNote })
 
   const calls = await rewriteT3CallSites(cwd, { file: envFile, exportName: options.exportName }, plan.fields, [config.fileName])
   // Delete the env module only when no file, after the rewrite, still names it in an import.
@@ -135,8 +135,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (deleteModule) notes.push(`The codemod deleted ${envFile} and removed ${packageName}.${otherDependencies.has("zod") ? " Remove zod too if nothing else uses it." : ""}`)
   else notes.push(`${envFile} stays because code still imports it. Delete it and remove ${packageName} after the follow-ups.`)
   return {
-    summary: `migrated ${fields.length} variable${fields.length === 1 ? "" : "s"} from ${envFile} to vite-hub/nuxt Env (${fields.filter(field => field.section === "public").length} public, ${fields.filter(field => field.section === "server").length} server)${preset ? `, deployment preset "${preset}"` : ""}.`,
+    summary: `migrated ${fields.length} variable${fields.length === 1 ? "" : "s"} from ${envFile} to vite-hub/nuxt Env (${fields.filter(field => field.section === "public").length} public, ${fields.filter(field => field.section === "server").length} server)${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNitro3: true,
     followUps: [...configFollowUps, ...planFollowUps, ...calls.followUps],
     notes,
     nextSteps: [

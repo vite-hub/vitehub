@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { consoleDiagnostic } from "../diagnostics";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
@@ -21,6 +22,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleLoading from "./console-loading.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 // The editor brings Tiptap, the Comark kit, and the code highlighter, most of this page's code. The dashboard and the
 // lists show without it, and the page loads it in the background so a document opens without a wait.
@@ -223,7 +225,7 @@ async function loadCollections(): Promise<void> {
   try {
     const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
     if (current !== collectionsRequest) return;
-    if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
+    if (!applyDefinitions(definitions)) throw consoleDiagnostic("CONSOLE_REQUEST_INVALID", "The Console returned invalid collections.");
     loading.value = false;
     error.value = undefined;
     // A Settings link can be followed while loading, then disappear when no singleton is readable.
@@ -298,6 +300,7 @@ onBeforeUnmount(() => {
 
 <template>
     <UDashboardSidebar
+      v-if="!setup?.sourceHeadsOnly"
       id="console-navigation"
       v-model:open="sidebarOpen"
       v-model:collapsed="sidebarCollapsed"
@@ -336,7 +339,7 @@ onBeforeUnmount(() => {
               :aria-label="collapsed ? entry.label : undefined"
               @click="sidebarOpen = false"
             >
-              <UIcon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+              <Icon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
               <span v-if="!collapsed" class="truncate">{{ entry.label }}</span>
             </RouterLink>
           </UTooltip>
@@ -346,26 +349,24 @@ onBeforeUnmount(() => {
           <div v-if="!collapsed && error && isConsoleSignInRequired(error)" class="px-1 pb-2">
             <UAlert
               color="neutral"
-              variant="subtle"
               icon="i-lucide-log-in"
               title="Sign in to edit"
               description="You are not signed in, or your session ended. Sign in, then reload."
-              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: reload }]"
+              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: reload }]"
             />
           </div>
           <div v-else-if="!collapsed && error" class="px-1 pb-2">
             <UAlert
               color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Couldn't load collections"
               :description="consoleErrorMessage(error)"
-              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadCollections }]"
+              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: loadCollections }]"
             />
           </div>
           <template v-else-if="loading && !collections.length">
             <!-- Two rows at the 2rem height of a collection link, so a usual section keeps its sidebar layout. -->
-            <USkeleton v-for="index in 2" :key="index" class="h-8 rounded-md" />
+            <USkeleton v-for="index in 2" :key="index" class="h-8" />
           </template>
           <template v-else-if="listCollections.length">
             <UTooltip
@@ -402,12 +403,16 @@ onBeforeUnmount(() => {
               </RouterLink>
             </UTooltip>
           </template>
-          <p v-else-if="!collapsed && !singletons.length && setup?.access" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
-            <ConsoleSetupHint :hint="setup.access" />
-          </p>
-          <p v-else-if="!collapsed && !singletons.length" class="px-2 py-1.5 text-xs text-muted">
-            No collections you can read.
-          </p>
+          <UEmpty v-else-if="!collapsed && !singletons.length && setup?.access" variant="naked" size="xs" title="No one can read documents yet">
+            <template #description><ConsoleSetupHint :hint="setup.access" /></template>
+          </UEmpty>
+          <UEmpty
+            v-else-if="!collapsed && !singletons.length"
+            variant="naked"
+            size="xs"
+            title="No collections you can read"
+            description="Ask an admin for read access to a collection."
+          />
 
           <template v-for="group in pageGroups" :key="group.label">
             <p v-if="!collapsed" class="vitehub-console__section-heading">{{ group.label }}</p>
@@ -420,7 +425,7 @@ onBeforeUnmount(() => {
                 :aria-label="collapsed ? entry.label : undefined"
                 @click="sidebarOpen = false"
               >
-                <UIcon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+                <Icon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
                 <span v-if="!collapsed" class="truncate">{{ entry.label }}</span>
               </RouterLink>
             </UTooltip>
@@ -438,7 +443,7 @@ onBeforeUnmount(() => {
       @changed="changes++"
     />
 
-    <UDashboardPanel :id="`${section}-documents`" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel :id="`${section}-documents`">
       <ConsoleDocumentDashboard
         v-if="page?.view.kind === 'document-dashboard'"
         :client="client"

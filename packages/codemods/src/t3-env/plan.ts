@@ -2,7 +2,8 @@ import { camelCase } from "scule"
 
 import { looksSecret } from "../nuxt-safe-runtime-config/fields.ts"
 import { coerceDefault, constraintNotes, describeLeaf, schemaIssues, schemaToJsonSchema } from "../nuxt-safe-runtime-config/schema.ts"
-import { CodemodError } from "../types.ts"
+import { isCodemodError } from "../error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { EnvField, LiteralValue } from "../nuxt-safe-runtime-config/fields.ts"
 import type { T3EnvOptions } from "./load.ts"
@@ -20,10 +21,6 @@ export interface T3Plan {
   fields: T3Field[]
   /** Messages about one key, with the key they belong to. */
   followUps: Array<{ key?: string, message: string }>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** Runs the schema on a missing value: optional schemas pass, and a schema with a default returns it. */
@@ -81,7 +78,7 @@ export async function planT3Env(options: T3EnvOptions, cwd: string): Promise<T3P
         jsonSchema = await schemaToJsonSchema(schema, cwd)
       }
       catch (error) {
-        if (!(error instanceof CodemodError)) throw error
+        if (!isCodemodError(error)) throw error
         follow(`${key}: ${error.message.replace("The $schema", "The schema")} It was declared as a plain string.`)
         jsonSchema = { type: "string" }
       }

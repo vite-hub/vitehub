@@ -28,11 +28,13 @@ export default defineAgent({
 })
 ```
 
-Use tool mode to choose the search provider. Install `@agntn/web` first.
+Use tool mode to choose the search provider. For a new install with AI SDK 7, use `@agntn/web@^0.9.1` on Node.js 26 or newer.
 
 ```bash [Terminal]
-pnpm add @agntn/web
+pnpm add @agntn/web@^0.9.1
 ```
+
+Existing Node.js 24 apps can keep `@agntn/web@0.5.x` and their pnpm allowance for its AI SDK 6 peer when upgrading ViteHub. For a new app on Node.js 24, use model mode with a provider that supports native web search.
 
 ```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -49,6 +51,8 @@ export default defineAgent({
 ## How web search works
 
 Model mode adds the AI SDK tool `openai.web_search` as `web_search`; the provider runs it and gives results to the model.
+
+On the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator) (`VITEHUB_MODELS=emulate`), model mode has no `web_search` tool, because the emulator rejects hosted tools. The run continues and records the warning `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED` on the Invocation. A tool choice that names `web_search` becomes `'auto'` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`. Tool mode works on the emulator as usual.
 
 Tool mode loads `@agntn/web` on the first call:
 
@@ -83,13 +87,13 @@ Tool mode rejects input properties not listed here.
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
 | `url` | `string` | required | Non-empty page URL to read. |
-| `maxTokens` | `number` | reader default | Maximum normalized content size. |
+| `maxTokens` | `number` | reader default | Maximum normalized content size. The tool returns an error if the selected reader cannot apply this limit. |
 
 ## Requirements
 
 - `mode: 'model'` or `mode: 'tool'`.
 - Model mode: a model-backed Driver (the part that runs the model) whose provider supports the `openai.web_search` tool.
-- Tool mode: `@agntn/web` in the app and one provider with its credential.
+- Tool mode: a compatible `@agntn/web` version as described above and one provider with its credential.
 
 ## Security and approval
 
@@ -110,7 +114,7 @@ Use [`fetch()`](/docs/agents/capabilities/fetch) to limit the Agent to specific 
 
 ## Verify web search
 
-Run `vitehub agent info --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
+Run `vitehub agent get <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
 
 To test the error path, call `web_search` in tool mode without `@agntn/web`. It must fail with a message to install `@agntn/web` or use model mode.
 

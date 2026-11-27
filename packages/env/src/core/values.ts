@@ -1,5 +1,4 @@
 import { isEnvSchemaValue } from "./json-value.ts";
-import { hasRuntimeType } from "../internal/runtime-type.ts";
 
 import type { EnvValueSchema } from "../types.ts";
 
@@ -13,21 +12,25 @@ export const stringValueSchema: EnvValueSchema = Object.freeze({ kind: "string" 
 export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueParseResult {
   switch (schema.kind) {
     case "array":
-    case "object": {
-      let value: unknown = input;
-      if (typeof value === "string") {
-        try {
-          value = JSON.parse(value);
-        } catch {
-          return { success: false, message: "Expected valid JSON." };
-        }
-      }
-      return isEnvSchemaValue(value) && matchesJsonType(schema, value)
-        ? { data: typeof input === "string" ? value : structuredClone(value), success: true }
-        : { success: false, message: "JSON value does not match the declared type." };
+    case "object":
+    case "json": {
+      const json = readJsonInput(input);
+      if (!json.success) return json;
+      return isEnvSchemaValue(json.data) &&
+        (schema.kind === "json" || matchesJsonType(schema, json.data))
+        ? { data: typeof input === "string" ? json.data : structuredClone(json.data), success: true }
+        : {
+            success: false,
+            message:
+              schema.kind === "json"
+                ? "Expected a JSON value."
+                : "JSON value does not match the declared type.",
+          };
     }
+    case "list":
+      return parseList(schema.items ?? stringValueSchema, input);
     case "string":
-      return hasRuntimeType(input, "string") &&
+      return typeof input === "string" &&
         (schema.minLength === undefined || input.length >= schema.minLength) &&
         (schema.maxLength === undefined || input.length <= schema.maxLength)
         ? { data: input, success: true }
@@ -45,7 +48,7 @@ export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueP
     case "url":
       return parseUrl(input);
     case "enum":
-      return hasRuntimeType(input, "string") && schema.values.includes(input)
+      return typeof input === "string" && schema.values.includes(input)
         ? { data: input, success: true }
         : {
             message: `Expected one of ${schema.values.map((value) => JSON.stringify(value)).join(", ")}.`,
@@ -68,6 +71,10 @@ export function envValueTypeName(schema: EnvValueSchema): string {
             .join("; ")} }`
         : "Record<string, never>";
     }
+    case "list":
+      return `Array<${envValueTypeName(schema.items ?? stringValueSchema)}>`;
+    case "json":
+      return "unknown";
     case "enum":
       return schema.values.map((value) => JSON.stringify(value)).join(" | ");
     case "url":
@@ -77,9 +84,40 @@ export function envValueTypeName(schema: EnvValueSchema): string {
   }
 }
 
+/** Item kinds that `env.list()` accepts. Each one parses a single string. */
+export const listItemKinds: ReadonlySet<EnvValueSchema["kind"]> = new Set(["boolean", "enum", "number", "string", "url"]);
+
+/** Read a string as JSON text. Other values, such as a default or a typed host binding, are already parsed. */
+export function readJsonInput(input: unknown): EnvValueParseResult {
+  if (typeof input !== "string") return { data: input, success: true };
+  try {
+    return { data: JSON.parse(input), success: true };
+  } catch {
+    return { success: false, message: "Expected valid JSON." };
+  }
+}
+
+function parseList(item: EnvValueSchema, input: unknown): EnvValueParseResult {
+  const items =
+    typeof input === "string"
+      ? input
+          .split(/[,\n]/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : input;
+  if (!Array.isArray(items)) return { message: "Expected a comma-separated list.", success: false };
+  const data: unknown[] = [];
+  for (const [index, value] of items.entries()) {
+    const result = parseEnvValue(item, value);
+    if (!result.success) return { message: `Item ${index + 1}: ${result.message}`, success: false };
+    data.push(result.data);
+  }
+  return { data, success: true };
+}
+
 function parseBoolean(input: unknown): EnvValueParseResult {
-  if (hasRuntimeType(input, "boolean")) return { data: input, success: true };
-  const normalized = hasRuntimeType(input, "string") ? input.trim().toLowerCase() : undefined;
+  if (typeof input === "boolean") return { data: input, success: true };
+  const normalized = typeof input === "string" ? input.trim().toLowerCase() : undefined;
   if (normalized === "true" || normalized === "1") return { data: true, success: true };
   if (normalized === "false" || normalized === "0") return { data: false, success: true };
   return { message: "Expected a boolean: true, false, 1, or 0.", success: false };
@@ -91,13 +129,13 @@ function parseNumber(
 ): EnvValueParseResult {
   if (
     schema.decimal &&
-    hasRuntimeType(input, "string") &&
+    typeof input === "string" &&
     !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(input.trim())
   ) {
     return { message: "Expected a finite decimal number.", success: false };
   }
-  const value = hasRuntimeType(input, "string") && input.trim() ? Number(input) : input;
-  if (!hasRuntimeType(value, "number") || !Number.isFinite(value))
+  const value = typeof input === "string" && input.trim() ? Number(input) : input;
+  if (typeof value !== "number" || !Number.isFinite(value))
     return { message: "Expected a finite number.", success: false };
   if (
     (schema.isInt && !Number.isSafeInteger(value)) ||
@@ -110,7 +148,7 @@ function parseNumber(
 }
 
 function parseUrl(input: unknown): EnvValueParseResult {
-  if (hasRuntimeType(input, "string")) {
+  if (typeof input === "string") {
     try {
       if (new URL(input).protocol) return { data: input, success: true };
     } catch {}
@@ -152,6 +190,7 @@ export function schemaContainsEnum(schema: EnvValueSchema): boolean {
     case "enum":
       return true;
     case "array":
+    case "list":
       return !!schema.items && schemaContainsEnum(schema.items);
     case "object":
       return Object.values(schema.properties ?? {}).some(schemaContainsEnum);

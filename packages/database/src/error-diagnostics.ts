@@ -1,11 +1,63 @@
 import { defineErrors } from "@vite-hub/runtime"
 
+import { createPostgresLedger, insertPostgresLedgerRow, postgresLedgerTable, quotePostgresName } from "./internal/postgres-ledger.ts"
+
+import type { PostgresLedgerEntry } from "./internal/postgres-ledger.ts"
+
+interface MisplacedLedger {
+  database: string
+  migrations: readonly PostgresLedgerEntry[]
+  recorded: number
+  schema: string
+  unverified: readonly string[]
+}
+
 function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
 }
 
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function ownerSql(database: string, statement: string, grantor = "a role that owns the database"): string {
+  const sqlClient = `As ${grantor}, run \`${statement}\` in a SQL client`
+  if (database.startsWith("-")) return `${sqlClient}.`
+  const target = /^[\w./][\w./-]*$/.test(database) ? database : quoteShellArgument(database)
+  return `${sqlClient}, or run \`vitehub database sql --remote --database ${target} ${quoteShellArgument(statement)}\` with that role in \`connection.url\`.`
+}
+
 function fileList(files: readonly string[]): string {
   return files.map(file => `\n  - ${file}`).join("")
+}
+
+interface AmbiguousChange {
+  entity: readonly string[]
+  kind: string
+}
+
+function changeName({ entity, kind }: AmbiguousChange): string {
+  return `${kind.replaceAll("_", " ")} ${entity.join(".")}`
+}
+
+interface AmbiguousChangeRetry {
+  command: string
+  hints: readonly unknown[]
+  hintsFile?: string
+}
+
+function changeAnswers(change: AmbiguousChange, { command, hints, hintsFile }: AmbiguousChangeRetry): string {
+  const id = change.entity
+  const answers = {
+    rename: { type: "rename", kind: change.kind, from: [...id.slice(0, -1), "<old_name>"], to: id },
+    create: { type: "create", kind: change.kind, entity: id },
+  }
+  const write = (answer: object) => hintsFile ? JSON.stringify(answer) : `${command} --hints '${JSON.stringify([...hints, answer])}'`
+  return [
+    `\n  ${changeName(change)}:`,
+    `\n    rename: ${write(answers.rename)}`,
+    `\n    create: ${write(answers.create)}`,
+  ].join("")
 }
 
 interface LayerOptionsProblem {
@@ -54,6 +106,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/database/diagnostics",
   codes: {
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
+    DATABASE_CHUNK_INVALID_COUNT: {
+      why: ({ min, name, value }: { min: number, name: string, value: number }) => `chunkParameters() needs \`${name}\` to be an integer of ${min} or more, not ${value}.`,
+      fix: "Pass whole numbers to `chunkParameters(values, { per, reserved, limit })`: `per` and `limit` of 1 or more, and `reserved` of 0 or more.",
+    },
+    DATABASE_CHUNK_VALUE_TOO_LARGE: {
+      why: ({ limit, per, reserved }: { limit: number, per: number, reserved: number }) => `chunkParameters() cannot fit one value: it takes ${per} bound parameters and the statement has ${reserved} more, over the limit of ${limit}.`,
+      fix: "Make `per` plus `reserved` of `chunkParameters()` at most `limit`: bind fewer parameters in the statement, or split each value over more statements.",
+    },
     DATABASE_D1_INVALID_RESPONSE: {
       why: "Cloudflare D1 returned an invalid response shape, such as a different number of results than the number of queries or malformed rows.",
       fix: "Retry the query. If it fails again, open a ViteHub issue with the query and the D1 HTTP response.",
@@ -68,17 +128,29 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_D1_TOO_MANY_PARAMETERS: {
       why: ({ count, limit }: { count: number, limit: number }) => `The query binds ${count} parameters. Cloudflare D1 accepts at most ${limit} bound parameters per query.`,
-      fix: "Split the values with `chunkParameters()` from `@vite-hub/database/drizzle`, and run one query for each chunk.",
+      fix: "Split the values with `chunkParameters()` from `vite-hub/database`, and run one query for each chunk.",
     },
     DATABASE_D1_VALUE_TOO_LARGE: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `A bound value is ${bytes} bytes. Cloudflare D1 accepts strings and BLOBs of at most ${limit} bytes.`,
       fix: "Store large files in Blob, and keep the Blob pathname in the row.",
     },
 
+    // Idempotency errors. `withIdempotency()` returns them as `[error, undefined]`.
+    DATABASE_IDEMPOTENCY_INVALID_OPTIONS: {
+      why: ({ option }: { option: "key" | "timeout" | "ttl" }) => option === "key"
+        ? "`withIdempotency()` needs a key that is a non-empty string."
+        : `\`${option}\` of \`withIdempotency()\` must be a positive number of seconds.`,
+      fix: "Pass a key that names the work, such as `stripe:${event.id}`, and `ttl` and `timeout` in seconds, for example `withIdempotency(key, fn, { ttl: 86400, timeout: 60 })`.",
+    },
+    DATABASE_IDEMPOTENCY_IN_PROGRESS: {
+      why: ({ key }: { key: string }) => `Another call with the key ${JSON.stringify(key)} is running.`,
+      fix: "Retry later: when the other call finishes, a retry gets its result. In an HTTP route, answer 409 so the client retries. In a Queue handler, return, because the running call does the work. A call that crashed holds the key until its `timeout` ends.",
+    },
+
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {
       why: "Database is not configured in this runtime.",
-      fix: "Add `hubDb()` to the Vite config and do not set `database: false`.",
+      fix: "If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDatabase()` to the Vite plugins and do not pass `false` to it.",
     },
     DATABASE_INVALID_D1_HTTP_URL: {
       why: ({ database }: { database: string }) => `\`cloudflare.http.url\` of the database "${database}" is not an HTTP or HTTPS URL.`,
@@ -96,45 +168,201 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, looked }: { database: string, looked: string }) => `The database "${database}" found no connection. It looked for ${looked}.`,
       fix: "Set the environment variable or add the Cloudflare D1 binding that `connectDatabase()` reads, or pass another location, such as `file:./data/app.sqlite`.",
     },
+    DATABASE_URL_VARIABLE_IGNORED: {
+      why: ({ database, file, variable }: { database: string, file: string, variable: string }) => `The database "${database}" has no \`connection\`, so it uses the local SQLite file ${file}. \`${variable}\` is set, but a Database Definition does not read it.`,
+      fix: ({ token, variable }: { token?: string, variable: string }) => `To use it, set \`connection: { url: process.env.${variable}${token ? `, authToken: process.env.${token}` : ""} }\` in the Database Definition. To keep the local file, unset \`${variable}\`.`,
+    },
     DATABASE_UNSUPPORTED_URL: {
       why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
       fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
     },
+    DATABASE_NO_D1_BINDING: {
+      why: ({ database }: { database: string }) => `The database "${database}" has no Cloudflare D1 binding in this runtime.`,
+      fix: "Call `useDatabaseBinding()` where the Database runs on a D1 binding, such as a Cloudflare Worker. On other hosts and over D1 HTTP, query it with `useDatabase(name).db`.",
+    },
+    DATABASE_PGLITE_NOT_INSTALLED: {
+      why: ({ database, reason }: { database: string, reason: "driver" | "no-connection" }) => reason === "driver"
+        ? `The database "${database}" sets \`driver: "pglite"\`, but the app cannot load \`@electric-sql/pglite\`.`
+        : `The database "${database}" has no \`connection.url\` or PG* variables, so development runs it on PGlite, but the app cannot load \`@electric-sql/pglite\`.`,
+      fix: "Install PGlite in the app, for example with `pnpm add -D @electric-sql/pglite`. To use a Postgres server instead, set `connection.url` and remove `driver: \"pglite\"`.",
+    },
     DATABASE_NOT_FOUND: {
-      why: ({ database }: { database: string }) => `The database "${database}" is not configured.`,
+      why: ({ choices, database }: { choices?: readonly string[], database: string }) => `The database "${database}" is not configured.${choices ? ` Database Definitions: ${choices.length ? quoteList(choices) : "none"}.` : ""}`,
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
     },
+    DATABASE_NAME_REQUIRED: {
+      why: ({ choices }: { choices: readonly string[] }) => `\`useDatabase()\` without a name returns the default or only database, but the app has several and none is named "default": ${quoteList(choices)}.`,
+      fix: ({ choices }: { choices: readonly string[] }) => `Pass the database name, for example \`useDatabase(${JSON.stringify(choices[0])})\`.`,
+    },
 
-    // Migration errors. `vitehub db migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
+    // Generate errors. `vitehub database generate` prints them and exits with code 2.
+    DATABASE_GENERATE_AMBIGUOUS_CHANGE: {
+      why: ({ changes, database }: { changes: readonly AmbiguousChange[], database: string }) => `The Definitions of the database "${database}" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, \`vitehub database generate\` cannot ask, so it wrote no migration.${changes.length ? `\nThe changes to answer:${fileList(changes.map(changeName))}` : " Drizzle Kit lists the changes above."}`,
+      fix: ({ changes, ...retry }: AmbiguousChangeRetry & { changes: readonly AmbiguousChange[] }) => [
+        "Answer each change with a hint and run the command again. A rename keeps the data. A create adds an empty column or table, and the migration drops the removed one with its data.",
+        changes.length
+          ? `Replace <old_name> with the removed name. ${retry.hintsFile ? `Add one answer per change to the array in ${retry.hintsFile}, then run ${retry.command} --hints-file ${retry.hintsFile}:` : "With several changes, put one answer per change in the same array:"}${changes.map(change => changeAnswers(change, retry)).join("")}`
+          : `Copy the answers that Drizzle Kit printed into ${retry.command} --hints '[...]'.`,
+        "In a terminal without CI, the command asks instead.",
+      ].join("\n"),
+    },
+
+    // Migration errors. `vitehub database migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
+    DATABASE_D1_MIGRATION_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `D1 migration failed for the database "${database}". ${problem}`,
+      fix: "Fix the SQL of the failed migration, or set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and `cloudflare.databaseId` (or the `url` and `authToken` of object-form `cloudflare.http`) to values that can edit D1. Then run `vitehub database migrate` again.",
+    },
+    DATABASE_D1_MIGRATION_INVALID: {
+      why: ({ problem }: { problem: string }) => `D1 migration history is invalid. ${problem}`,
+      fix: "Restore the migration folders and d1-migrations.json from version control. Keep the Wrangler file names of applied migrations, and give each new migration a unique file name before generating, building, or migrating again.",
+    },
     DATABASE_MIGRATION_CHECK_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
-      fix: "Make the database reachable with the connection that `vitehub db migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, or `connection.url` or the PG* variables and the `postgres` package for Postgres.",
+      fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
+    },
+    DATABASE_MIGRATION_CONVERSION_FAILED: {
+      why: ({ problem }: { problem: string }) => `ViteHub could not convert the old migration layout. ${problem}`,
+      fix: "Fix the problem above and run `vitehub database up` again. Keep the file names and journal timestamps of applied migrations. If the history cannot be converted, move it to the Drizzle Kit 1.0 layout manually and verify it on a copy of the database before migrating.",
     },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
-      fix: "Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next start.",
+      fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
+    },
+    DATABASE_MIGRATION_FAILED: {
+      why: ({ database, kept, migration, problem }: { database: string, kept?: readonly string[], migration: string, needsMarker?: boolean, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} ${kept
+        ? `The database rolled back this migration.${kept.length ? ` It keeps the migrations that this run applied before it: ${kept.join(", ")}.` : ""}`
+        : "The database rolled back every pending migration of this run."}`,
+      fix: ({ needsMarker }: { needsMarker?: boolean }) => [
+        needsMarker ? "Postgres cannot run this statement in a transaction. Move it to a migration file of its own whose first line is `-- vitehub:no-transaction`, so ViteHub runs that file outside the transaction, one statement at a time. Write its statements with `IF NOT EXISTS`, so the file can run again." : "Fix the SQL of the migration, or the data that it conflicts with.",
+        "Then apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
+      ].join(" "),
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` connection URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment instead.",
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files, Cloudflare D1 over HTTP, and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node host and a `file:` or Postgres connection URL, or `cloudflare.http`. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
+    },
+    DATABASE_MIGRATION_BACKUP_FAILED: {
+      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
+      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
+    },
+    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
+      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
+    },
+    DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
+    },
+    DATABASE_MIGRATION_LEDGER_MISPLACED: {
+      why: ({ database, migrations, schema, unverified }: MisplacedLedger) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger ${postgresLedgerTable(schema)} does not list ${quoteList([...migrations.map(migration => migration.name), ...unverified])}.${migrations.length ? ` The ledger "drizzle"."__drizzle_migrations" records ${quoteList(migrations.map(migration => migration.name))} by folder name and SQL hash, or by SQL hash and time, so the database probably applied them before \`migrationsSchema\` was set.` : ""}${unverified.length ? ` The ledger "drizzle"."__drizzle_migrations" lists the name of ${quoteList(unverified)} with other SQL, or their SQL under a name that no local folder has, such as a folder that was renamed or edited, or another app's migration.` : ""} ViteHub reads only the ledger in "${schema}", so it could apply them again. It stopped before any change.`,
+      fix: ({ migrations, recorded, schema, unverified }: MisplacedLedger) => {
+        const table = postgresLedgerTable(schema)
+        const lines: string[] = []
+        if (migrations.length) {
+          if (recorded) lines.push(`Keep \`migrationsSchema\`: the ledger in "${schema}" lists ${recorded} migration(s) that "drizzle" may not list, so ViteHub could apply them again without it.`)
+          else if (!unverified.length) lines.push(`Remove \`migrationsSchema\` only if you verify that the ledger in "drizzle" lists all migrations this app has applied and does not mistake another app's migrations for yours.`)
+          lines.push(`To keep \`migrationsSchema\`, verify that this database applied ${quoteList(migrations.map(migration => migration.name))}, because another app that shares "drizzle" can apply the same migrations. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":`)
+          lines.push(...[createPostgresLedger(table), ...migrations.map(migration => insertPostgresLedgerRow(table, migration))].map(statement => `${statement};`))
+        }
+        if (unverified.length) {
+          lines.push(`The ledger in "drizzle" does not show that this database ran the exact SQL of ${quoteList(unverified)}, so ViteHub cannot tell whether they ran and prints no row for them. A hash or a name alone can only stop a migration, never mark one applied. If a folder is new, change its SQL text, for example with a SQL comment. If it ran on this database, insert its row into ${table} by hand${migrations.length ? "." : ", after you create the ledger with this SQL:"}`)
+          if (!migrations.length) lines.push(`${createPostgresLedger(table)};`)
+        }
+        return lines.join("\n")
+      },
+    },
+    DATABASE_MIGRATION_PARTLY_APPLIED: {
+      why: ({ applied, database, invalidIndexes, migration, openTransaction, problem, statement }: { applied: number, database: string, invalidIndexes?: readonly string[], migration: string, openTransaction?: true, problem: string, statement?: string }) => [
+        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and ${statement !== undefined ? `its statement ${applied + 1} failed` : openTransaction ? "ViteHub did not record it" : "the ledger write failed after all its statements ran"}: ${problem}`,
+        statement !== undefined ? `Statement: ${statement}\nThe ${applied} statement(s) before it stay applied.` : openTransaction ? "The statements before its open BEGIN stay applied." : "Its statements stay applied.",
+        "The migration is not recorded, so the next run starts again at its first statement.",
+        invalidIndexes === undefined ? "ViteHub could not list the invalid indexes." : invalidIndexes.length ? `Invalid indexes:${fileList(invalidIndexes)}` : "",
+      ].filter(Boolean).join("\n"),
+      fix: ({ invalidIndexes, openTransaction, statement }: { invalidIndexes?: readonly string[], openTransaction?: true, statement?: string }) => [
+        invalidIndexes?.length !== 0 ? "Drop each invalid index that `why` lists with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`. `CREATE INDEX CONCURRENTLY IF NOT EXISTS` skips an invalid index, so the migration fails until you drop it." : "",
+        statement !== undefined ? "Fix the failed statement, or the data that it conflicts with." : openTransaction ? "End each BEGIN of the file with COMMIT." : "Let the migration role insert into the migrations table.",
+        "Write every statement of the file so it can run again, for example with `IF NOT EXISTS`. Then run `vitehub database migrate` or start the server again.",
+      ].filter(Boolean).join(" "),
+    },
+    DATABASE_MIGRATION_SCHEMA_CONFLICT: {
+      why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
+      fix: "Set the same `migrationsSchema` on every Definition that connects to this Postgres database, or remove it from all of them.",
+    },
+    DATABASE_MIGRATION_SCHEMA_DENIED: {
+      why: ({ database, missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => `The database "${database}" migrates as the role "${role}", which ${missing === "usage"
+        ? `has no USAGE on the schema "${schema}", so it cannot read the migration ledger there`
+        : missing === "create-database"
+          ? `has no CREATE on the Postgres database "${postgresDatabase}", so it cannot create the schema "${schema}" for the migration ledger`
+          : `has no CREATE on the schema "${schema}", so it cannot create the migration ledger there`}.`,
+      fix: ({ database, missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => {
+        const grant = missing === "create-database"
+          ? `GRANT CREATE ON DATABASE ${quotePostgresName(postgresDatabase)} TO ${quotePostgresName(role)}`
+          : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${quotePostgresName(schema)} TO ${quotePostgresName(role)}`
+        const grantor = missing === "create-database" ? undefined : `the owner of the schema "${schema}" or a role with the grant option on it`
+        return `${ownerSql(database, grant, grantor)} Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
+      },
+    },
+    DATABASE_MIGRATION_SCHEMA_MISSING: {
+      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
+      fix: ({ database, schema }: { database: string, schema: string }) => `${ownerSql(database, `CREATE SCHEMA ${quotePostgresName(schema)}`)} Or fix the name in \`migrationsSchema\`.`,
     },
 
-    // Export errors. `vitehub db export` prints them and exits with code 1.
+    // Export errors. `vitehub database export` prints them and exits with code 1.
     DATABASE_EXPORT_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot export the database "${database}". ${problem}`,
-      fix: "Read the problem in `why`. Without `--remote`, `vitehub db export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
+    },
+
+    // SQL and drop errors. The CLI prints them and exits with code 1.
+    DATABASE_DROP_FAILED: {
+      why: ({ command, database, problem }: { command: "drop" | "reset", database: string, problem: string }) => `\`vitehub database ${command}\` cannot drop the tables of the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. The drop runs in one transaction, so a failure drops nothing. Without `--remote`, it drops the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`.",
+    },
+    DATABASE_DROP_NOT_CONFIRMED: {
+      why: ({ command, database }: { command: "drop" | "reset", database: string }) => `\`vitehub database ${command}\` drops every table of the database "${database}" and was not confirmed.`,
+      fix: "Answer `y` on a terminal, or add `--yes` when no terminal can answer, such as in CI or a script.",
+    },
+    DATABASE_SQL_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot run the SQL on the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database sql` runs on the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`. For a SQL error, fix the statement and run it again.",
+    },
+
+    // Seed errors. `vitehub seed` prints them and exits with code 1.
+    DATABASE_SEED_NOT_FOUND: {
+      why: ({ database, file }: { database: string, file: string }) => `The database "${database}" has no seed file. ViteHub looks for ${file}.`,
+      fix: "Create the file with a default export, such as `export default async ({ db, schema }) => { await db.insert(schema.users).values({ name: 'Ada' }) }`. To seed another database, add `--database <name>`.",
+    },
+    DATABASE_SEED_PENDING_MIGRATIONS: {
+      why: ({ database, migrations }: { database: string, migrations: readonly string[] }) => `The database "${database}" has pending migrations, so the seed would not see the current tables:${fileList(migrations)}`,
+      fix: "Run `vitehub database migrate` with the same `--remote` and `--stage` flags, then run `vitehub seed` again.",
+    },
+    DATABASE_SEED_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot seed the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub seed` writes only the local database: the SQLite file or the PGlite folder. With `--remote`, it needs the same connection as `vitehub database export --remote`. A seed that throws keeps the rows that it wrote before the error. Write them in `db.transaction()` to keep all or none.",
     },
 
     // Definition errors. `defineDatabase()` throws them.
-    DATABASE_INVALID_CASING: {
-      why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
-      fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",
+    DATABASE_DRIZZLE_OPTION_REMOVED: {
+      why: "`defineDatabase()` has no `drizzle` option. Drizzle 1.0 removed the database `casing` option.",
+      fix: "Remove `drizzle`. To map camelCase keys to snake_case columns, declare each table with `snakeCase.table()` from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`.",
     },
     DATABASE_INVALID_DIALECT: {
       why: ({ file }: { file?: string }) => file
         ? `The Database Definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".`
         : "`defineDatabase().dialect` must be `sqlite` or `postgresql`.",
       fix: "Set `dialect: 'sqlite'` or `dialect: 'postgresql'` as a string literal, or remove it to use SQLite.",
+    },
+    DATABASE_INVALID_DRIVER: {
+      why: ({ file }: { file?: string }) => file
+        ? `The Database Definition "${file}" must set \`driver\` to the string literal "node-postgres" or "pglite".`
+        : "`defineDatabase().driver` must be `node-postgres` or `pglite`.",
+      fix: "Set `driver: 'node-postgres'` or `driver: 'pglite'` as a string literal, or remove `driver` to connect with postgres.js.",
+    },
+    DATABASE_INVALID_MIGRATIONS_SCHEMA: {
+      why: ({ file }: { file?: string }) => file
+        ? `The Database Definition "${file}" must set \`migrationsSchema\` to a string literal.`
+        : "`defineDatabase().migrationsSchema` must be a non-empty string.",
+      fix: "Set `migrationsSchema` to the name of an existing Postgres schema as a string literal, such as `migrationsSchema: 'app'`, or remove it to keep the ledger in the schema \"drizzle\".",
     },
     DATABASE_INVALID_NAME: {
       why: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
@@ -153,8 +381,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` from the Definition and the integration to use local SQLite in `vite dev`.",
     },
     DATABASE_UNKNOWN_OPTION: {
-      why: ({ dialect, option }: { dialect?: "postgresql", option: string }) => dialect
-        ? `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${option}\`.`
+      why: ({ dialect, option }: { dialect?: "postgresql" | "sqlite", option: string }) => dialect
+        ? `\`defineDatabase()\` with ${dialect === "sqlite" ? "SQLite" : "`dialect: \"postgresql\"`"} does not support \`${option}\`.`
         : `\`defineDatabase()\` does not support the "${option}" option.`,
       fix: "Remove the option. The Database configure page lists the options of each dialect.",
     },
@@ -163,6 +391,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_BINDING_CONFLICT: {
       why: ({ binding, first, kind, second }: { binding: string, first: string, kind: "D1" | "Hyperdrive", second: string }) => `${first} and ${second} use the same Cloudflare ${kind} binding "${binding}".`,
       fix: "Set `cloudflare.binding` to a different name for each Database Definition.",
+    },
+    DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED: {
+      why: ({ databases, missing, restore }: { databases: readonly string[], missing: readonly string[], restore: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList([...missing, ...restore.map(file => `the SQL file ${file}`)])}\nRequests that use them could fail after the deploy.`,
+      fix: ({ missing, restore }: { missing: readonly string[], restore: readonly string[] }) => [
+        restore.length ? "Restore the missing `migration.sql` files from the original migrations and commit them." : "",
+        missing.length ? "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy." : "",
+        "Then build again.",
+      ].filter(Boolean).join(" "),
     },
     DATABASE_DUPLICATE_DEFINITION: {
       why: ({ database, files }: { database: string, files: readonly string[] }) => `${database === "default" ? "Only one default Database Definition is allowed." : `Only one definition is allowed for the database "${database}".`}${fileList(files)}`,
@@ -178,7 +414,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_INVALID_CONTRIBUTION_TARGET: {
       why: (problem: ContributionTargetProblem) => describeContributionTarget(problem),
-      fix: "Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
+      fix: "Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
     },
     DATABASE_INVALID_SCHEMA_EXPORT: {
       why: ({ handler }: { handler: string }) => `The Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.`,
@@ -192,13 +428,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, files, table }: { database: string, files: readonly string[], table: string }) => `More than one Nuxt layer declares the table "${table}" in the database "${database}":${fileList(files)}`,
       fix: "Rename one table, or declare the table in the application definition to replace both.",
     },
+    DATABASE_LEGACY_CONFIG_FILE: {
+      why: ({ file, name }: { file: string, name: string }) => name === "default"
+        ? `"${file}" uses the former Database file layout. The \`default\` Database is now \`server/databases/default.ts\` or \`server/databases/default/index.ts\`, with its migrations in \`server/databases/default/migrations/\`.`
+        : `"${file}" uses the former Database file layout. The Database "${name}" is now \`server/databases/${name}.ts\` or \`server/databases/${name}/index.ts\`.`,
+      fix: "Run `npx @vite-hub/codemods define-forms`. It moves `config.ts` to `<name>/index.ts`, moves the migrations of the default Database, and updates the imports.",
+    },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
-      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
+      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
-      why: ({ files }: { files: readonly string[] }) => `Database Definitions must use one default database or only named databases, not both.${fileList(files)}`,
-      fix: "Rename the default definition to a named one, or merge the named definitions into the default one.",
+      why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
+      fix: "Move the Databases to `server/databases/<name>.ts`, including `server/databases/default.ts` for the default one.",
     },
     DATABASE_NAME_MISMATCH: {
       why: ({ file, name }: { file: string, name: string }) => `The Database Definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its file name.`,
@@ -208,11 +450,28 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ databases }: { databases: readonly string[] }) => `Cloudflare D1 output needs a literal \`cloudflare\` object for ${quoteList(databases)}.`,
       fix: "Write `cloudflare: { ... }` as an object literal in `defineDatabase()`, or use D1 HTTP or a remote libSQL connection.",
     },
+    DATABASE_PGLITE_IN_BUILD: {
+      why: ({ databases }: { databases: readonly string[] }) => `These Postgres Databases set \`driver: "pglite"\`: ${quoteList(databases)}. PGlite keeps its data in a local folder of one process, so a production build does not include it.`,
+      fix: "Remove `driver: \"pglite\"` and set `connection.url` to your Postgres server, for example `connection: { url: process.env.DATABASE_URL }`. In development, a Postgres Database without a URL still runs on PGlite.",
+    },
     DATABASE_PROVISION_FAILED: {
       why: ({ problem }: { problem: "database" | "list" }) => problem === "list"
         ? "Cloudflare returned an invalid D1 database list during provisioning."
         : "Cloudflare returned an invalid D1 database during provisioning.",
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+    },
+    DATABASE_INVALID_RELATIONS: {
+      why: ({ database, field, reason, table }: { database: string, field?: string, reason: "missing" | "replaced", table: string }) => {
+        const subject = field ? `The relation "${field}" of the database "${database}" targets the table "${table}"` : `The relations of the database "${database}" name the table "${table}"`
+        return reason === "missing"
+          ? `${subject}, which is not in the merged schema.`
+          : `${subject}, but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.`
+      },
+      fix: "Pass `defineRelations()` the same table objects that the schema of the database holds. When a layer replaces a table, define the relations of that table in the same layer.",
+    },
+    DATABASE_MIGRATIONS_OLD_LAYOUT: {
+      why: ({ database, dir, layout }: { database?: string, dir: string, layout: "journal" | "flat" }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} ${layout === "journal" ? "use the layout of Drizzle Kit 0.x, with `meta/_journal.json`" : "are flat `.sql` files, as Wrangler writes them"}. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
+      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied, and D1 keeps the file names that Wrangler applied.",
     },
     DATABASE_RESERVED_SCHEMA_KEY: {
       why: ({ key, owner }: { key: string, owner: string }) => `${owner} uses the reserved schema key "${key}".`,
@@ -220,11 +479,37 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_SCHEMA_LOAD_FAILED: {
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
-      fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
+      fix: "Read `error.cause` for the import error, and fix the module. `vitehub database generate` needs every schema module to load.",
+    },
+    DATABASE_UNKNOWN_DRIVER: {
+      why: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "`database.driver` is \"d1\". ViteHub renamed this driver to \"cloudflare\", and it does not read \"d1\"."
+        : `\`database.driver\` ${driver} is not a Database driver. The only driver of the \`database\` option is "cloudflare".`,
+      fix: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "Set `database: { driver: \"cloudflare\" }`, or run `npx @vite-hub/codemods driver-key` to rename it in every config file."
+        : "Set `database.driver` to \"cloudflare\" for Cloudflare D1, or remove it. On `host: \"cloudflare\"`, ViteHub uses D1 without it. Set Postgres drivers in the Database Definition.",
     },
     DATABASE_WRANGLER_BINDING_CONFLICT: {
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
       fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
+    },
+
+    // Setup errors. ViteHub throws them when the Wrangler config or the project packages do not fit the Database.
+    DATABASE_D1_MIGRATIONS_DIR_INVALID: {
+      why: "D1 migrations_dir must be a relative directory inside Nitro's server output.",
+      fix: "Set `migrations_dir` of the D1 binding in the Wrangler config to a relative folder, such as `migrations`, or remove it so that ViteHub picks the folder.",
+    },
+    DATABASE_D1_MIGRATIONS_DIR_OVERLAP: {
+      why: ({ first, second }: { first: string, second: string }) => `D1 migration directories overlap for bindings ${first} and ${second}; configure an exclusive migrations_dir for each binding.`,
+      fix: "Give each D1 binding in the Wrangler config its own `migrations_dir` folder, so that no folder is the same as another or inside it.",
+    },
+    DATABASE_NUXT_CONTENT_D1_MISSING: {
+      why: "Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.",
+      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_id` in the Wrangler config, or add a Database Definition in `server/databases/`.",
+    },
+    DATABASE_POSTGRES_DRIVER_MISSING: {
+      why: ({ name }: { name: "pg" | "postgres" }) => `Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`,
+      fix: "Install the Postgres driver that the message names in the project: `pnpm add postgres`, or `pnpm add pg` for a Database with `driver: \"node-postgres\"`.",
     },
   },
 })

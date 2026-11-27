@@ -6,6 +6,9 @@ import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/
 import { blob } from "@vite-hub/blob"
 import { getBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
 
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobError } from "../errors.ts"
+
 import {
   blobDevDefaultListLimit,
   blobDevMaximumListLimit,
@@ -117,11 +120,20 @@ export interface BlobOperationInput {
   store?: string
 }
 
-/** A failure with the fields that every surface reports. */
-export class BlobOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
+/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
+const blobOperationStatus: Readonly<Record<string, number>> = {
+  BLOB_CONFLICT: 409,
+  BLOB_DISABLED: 409,
+  BLOB_DOWNLOAD_TOO_LARGE: 413,
+  BLOB_EXISTS: 409,
+  BLOB_INVALID_CURSOR: 400,
+  BLOB_INVALID_INPUT: 400,
+  BLOB_NOT_FOUND: 404,
+  BLOB_OPERATION_FAILED: 502,
+  BLOB_PATHNAME_TOO_LONG: 400,
+  BLOB_RESERVED_PATH: 403,
+  BLOB_STORE_NOT_FOUND: 404,
+  BLOB_UPLOAD_TOO_LARGE: 413,
 }
 
 const maximumPathnameLength = 1_024
@@ -164,16 +176,14 @@ export function serializeBlobDevObject(object: BlobObject): BlobDevObject {
   return serialized
 }
 
-function notFound(pathname: string, store: string): BlobOperationError {
-  return new BlobOperationError(`Blob ${pathname} was not found in store ${store}.`, 404, "BLOB_NOT_FOUND")
+function notFound(pathname: string, store: string) {
+  return blobError("BLOB_NOT_FOUND", "get", store, { detail: `Blob ${pathname} was not found in store ${store}.` })
 }
 
 function unwrap<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
   const [error, value] = result
-  if (!error) return value
-  const cause = error.cause
-  const causeMessage = cause instanceof Error ? ` ${cause.message}` : ""
-  throw new BlobOperationError(`${error.message}${causeMessage}`, 502, error.code)
+  if (error) throw error
+  return value
 }
 
 /** Reads the metadata of one blob. Returns `undefined` when the blob does not exist. */
@@ -183,17 +193,17 @@ async function headOrUndefined(storage: BlobStorage, pathname: string): Promise<
 
 function selectStore(stores: readonly BlobDevStore[], name = "default"): { name: string, storage: BlobStorage } {
   if (stores.length === 0) {
-    throw new BlobOperationError("Blob is disabled in this runtime. Configure `hubBlob()` without `blob: false`.", 409, "BLOB_DISABLED", "Enable Blob with hubBlob() or vitehub({ blob: true }).")
+    throw blobErrorDiagnostics.BLOB_DISABLED()
   }
   if (!stores.some(entry => entry.name === name)) {
-    throw new BlobOperationError(`Blob store "${name}" was not found. Stores: ${stores.map(entry => entry.name).join(", ")}.`, 404, "BLOB_STORE_NOT_FOUND")
+    throw blobErrorDiagnostics.BLOB_STORE_NOT_FOUND({ name, stores: stores.map(entry => entry.name).join(", ") })
   }
   return { name, storage: name === "default" ? blob : blob.store(name) }
 }
 
 function requirePathname(operation: string, input: BlobOperationInput): string {
-  if (!input.pathname) throw new BlobOperationError(`The ${operation} operation requires a pathname.`, 400, "BLOB_INVALID_INPUT")
-  if (input.pathname.length > maximumPathnameLength) throw new BlobOperationError("The pathname is too long.", 400, "BLOB_INVALID_INPUT")
+  if (!input.pathname) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ operation, problem: "pathname" })
+  if (input.pathname.length > maximumPathnameLength) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ problem: "pathname-length" })
   return input.pathname
 }
 
@@ -203,16 +213,16 @@ function requireWritablePath(operation: string, pathname: string): void {
   try { pathname = decodeURIComponent(pathname) }
   catch { /* Storage also keeps the original pathname when decoding fails. */ }
   if (!isVitehubOwnedPath(pathname)) return
-  throw new BlobOperationError(`The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`, 403, "BLOB_RESERVED_PATH", "Use another pathname. Read access (get, head) stays open.")
+  throw blobErrorDiagnostics.BLOB_RESERVED_PATH({ operation, pathname })
 }
 
 function decodeUpload(data: string | undefined): Uint8Array {
-  if (data === undefined) throw new BlobOperationError("The put operation requires file data.", 400, "BLOB_INVALID_INPUT")
-  if (data.length % 4 !== 0 || !base64Pattern.test(data)) throw new BlobOperationError("The file data is not valid base64.", 400, "BLOB_INVALID_INPUT")
+  if (data === undefined) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ problem: "data" })
+  if (data.length % 4 !== 0 || !base64Pattern.test(data)) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ problem: "base64" })
   // Check the size before decoding, so an oversized request does not allocate the decoded file.
   const size = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0)
   if (size > blobDevMaximumUploadBytes) {
-    throw new BlobOperationError(`The file is ${size} bytes. The blob operations accept at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_UPLOAD_TOO_LARGE", "Upload larger files from the application or with the tools of the provider.")
+    throw blobErrorDiagnostics.BLOB_UPLOAD_TOO_LARGE({ limit: blobDevMaximumUploadBytes, size })
   }
   return Uint8Array.from(atob(data), character => character.charCodeAt(0))
 }
@@ -227,14 +237,32 @@ function encodeBase64(bytes: Uint8Array): string {
  * Runs one `blob.*` operation against the Blob stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does.
  */
-export async function runBlobOperation(operation: "list" | "head" | "get" | "put" | "del" | "media" | "variants", input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
+export async function runBlobOperation(operation: BlobDevOperation, input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
+  try {
+    return await runOperation(operation, input, stores)
+  }
+  catch (error) {
+    const code: unknown = Reflect.get(Object(error), "code")
+    // A Result error can come from the copy of nostics in @vite-hub/runtime, so match the code, not the class.
+    const status = typeof code === "string" ? blobOperationStatus[code] : undefined
+    if (!status || !(error instanceof Error)) throw error
+    // The CLI and the Console read `status` and `statusMessage`. The message names the provider error of a failed
+    // call, and loses the values under secret names.
+    const cause = error.cause instanceof Error ? ` ${error.cause.message}` : ""
+    throw Object.assign(error, { status, statusMessage: redactInspectionText(`${error.message}${cause}`) })
+  }
+}
+
+type BlobDevOperation = "list" | "head" | "get" | "put" | "delete" | "media" | "variants"
+
+async function runOperation(operation: BlobDevOperation, input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
   const available = stores ?? await listBlobDevStores()
   const selected = selectStore(available, input.store)
   switch (operation) {
     case "list": {
       const limit = input.limit ?? blobDevDefaultListLimit
-      if (limit > blobDevMaximumListLimit) throw new BlobOperationError(`limit must be at most ${blobDevMaximumListLimit}.`, 400, "BLOB_INVALID_INPUT")
-      if ((input.prefix?.length ?? 0) > maximumPathnameLength) throw new BlobOperationError("The prefix is too long.", 400, "BLOB_INVALID_INPUT")
+      if (limit > blobDevMaximumListLimit) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ limit: blobDevMaximumListLimit, problem: "limit" })
+      if ((input.prefix?.length ?? 0) > maximumPathnameLength) throw blobErrorDiagnostics.BLOB_INVALID_INPUT({ problem: "prefix-length" })
       const prefix = input.prefix ?? ""
       const folded = input.folded === true
       const visible = (pathname: string) => input.showVitehub === true || !isVitehubOwnedPath(pathname)
@@ -256,7 +284,7 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
         store: selected.name,
         stores: available.map(store => store.name),
       }
-      if (folded) result.folders = [...folders].map(folder => folder.replace(/\/+$/, "")).sort((left, right) => left.localeCompare(right))
+      if (folded) result.folders = [...folders].map(folder => folder.replace(/\/+$/, "")).sort()
       if (page.cursor) result.cursor = page.cursor
       return result
     }
@@ -272,18 +300,18 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       const object = await headOrUndefined(selected.storage, pathname)
       if (!object) throw notFound(pathname, selected.name)
       if ((object.size ?? 0) > blobDevMaximumUploadBytes) {
-        throw new BlobOperationError(`Blob ${pathname} is ${object.size} bytes. The blob operations return at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_DOWNLOAD_TOO_LARGE", "Download larger files with the tools of the provider.")
+        throw blobErrorDiagnostics.BLOB_DOWNLOAD_TOO_LARGE({ limit: blobDevMaximumUploadBytes, pathname, size: object.size ?? 0 })
       }
       const file = unwrap(await selected.storage.get(pathname))
       if (!file) throw notFound(pathname, selected.name)
       // A Blob has its own byte size even when the driver's head metadata is missing or stale.
       if (file.size > blobDevMaximumUploadBytes) {
-        throw new BlobOperationError(`Blob ${pathname} is ${file.size} bytes. The blob operations return at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_DOWNLOAD_TOO_LARGE", "Download larger files with the tools of the provider.")
+        throw blobErrorDiagnostics.BLOB_DOWNLOAD_TOO_LARGE({ limit: blobDevMaximumUploadBytes, pathname, size: file.size })
       }
       const bytes = new Uint8Array(await file.arrayBuffer())
       // The head size can be missing or stale, so the bytes that were read have the last word.
       if (bytes.byteLength > blobDevMaximumUploadBytes) {
-        throw new BlobOperationError(`Blob ${pathname} is ${bytes.byteLength} bytes. The blob operations return at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_DOWNLOAD_TOO_LARGE", "Download larger files with the tools of the provider.")
+        throw blobErrorDiagnostics.BLOB_DOWNLOAD_TOO_LARGE({ limit: blobDevMaximumUploadBytes, pathname, size: bytes.byteLength })
       }
       const result: BlobDevGetResult = { data: encodeBase64(bytes), pathname, size: bytes.byteLength, store: selected.name }
       if (file.type) result.contentType = file.type
@@ -294,7 +322,7 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       requireWritablePath(operation, pathname)
       const bytes = decodeUpload(input.data)
       const existed = await headOrUndefined(selected.storage, pathname)
-      if (existed && input.overwrite === false) throw new BlobOperationError(`Blob ${pathname} already exists in store ${selected.name}.`, 409, "BLOB_EXISTS", "Pass overwrite: true to replace it.")
+      if (existed && input.overwrite === false) throw blobErrorDiagnostics.BLOB_EXISTS({ pathname, store: selected.name })
       const object = unwrap(await selected.storage.put(pathname, bytes, input.contentType ? { contentType: input.contentType } : {}))
       const result: BlobDevPutResult = { created: !existed, object: serializeBlobDevObject(object), store: selected.name }
       return result
@@ -312,11 +340,11 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       const result: BlobDevVariantsResult = { pathname, store: selected.name, variants: unwrap(await selected.storage.media.variants(pathname)) }
       return result
     }
-    case "del": {
+    case "delete": {
       const pathname = requirePathname(operation, input)
       requireWritablePath(operation, pathname)
       const existed = await headOrUndefined(selected.storage, pathname)
-      unwrap(await selected.storage.del(pathname))
+      unwrap(await selected.storage.delete(pathname))
       const result: BlobDevDeleteResult = { deleted: Boolean(existed), pathname, store: selected.name }
       return result
     }

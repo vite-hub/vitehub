@@ -1,11 +1,14 @@
+import { relative } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
+import { createRule } from "vite-doctor/extension"
 import type { PluginOption } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 
 import vitehubDoctorExtension, { destructureResultTuples, noInternalImports, noServerImportsInClient } from "../src/doctor.ts"
 import { vitehub } from "../src/index.ts"
-import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
+import { codes, doctorTestTimeout, nuxtAutoImportCodes, nuxtServerAutoImportsConfig, projectCodes } from "./doctor-helpers.ts"
+import { resolver, type ViteHubReference } from "../src/doctor/ast.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
@@ -25,7 +28,7 @@ describe("vitehub/no-internal-imports", () => {
         "import { kv } from \"vite-hub/_internal/kv\"",
         "import { isPlainObject } from \"@vite-hub/internal/object\"",
         "import state from \"@vite-hub/queue/internal/runtime/state\"",
-        "export * from \"@vite-hub/sandbox/_internal/task/runtime\"",
+        "export * from \"@vite-hub/sandbox/internal/task/runtime\"",
         "const env = await import(\"../../.vitehub/env/server.ts\")",
         "export { kv, isPlainObject, state, env }",
       ].join("\n"),
@@ -36,7 +39,7 @@ describe("vitehub/no-internal-imports", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         "import { kv } from \"vite-hub/kv\"",
-        "import { useServerEnv } from \"#vitehub/env/server\"",
+        "import { useServerEnv } from \"vite-hub/env\"",
         "import { defineQueue } from \"@vite-hub/queue\"",
         "import internal from \"./internal/helper.ts\"",
         "export { kv, useServerEnv, defineQueue, internal }",
@@ -69,11 +72,10 @@ describe("vitehub/no-internal-imports generated aliases", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         'import { usePublicEnv } from "#vitehub/env/public"',
-        'import { useServerEnv } from "#vitehub/env/server"',
         'import auth from "#vitehub/auth/server"',
         'import welcome from "#vitehub/emails/welcome"',
         'import { schedules } from "#vitehub/schedule/registry"',
-        "export { usePublicEnv, useServerEnv, auth, welcome, schedules }",
+        "export { usePublicEnv, auth, welcome, schedules }",
       ].join("\n"),
     })).toEqual([])
   })
@@ -85,8 +87,8 @@ describe("vitehub/no-server-imports-in-client", () => {
       "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"#vitehub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
     })).toEqual(["VHUB0002"])
     expect(await codes(noServerImportsInClient, {
-      "app/composables/useMail.ts": "import { email } from \"vite-hub/email/server\"\nexport const useMail = () => email\n",
-      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database/drizzle\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
+      "app/composables/useMail.ts": "import { email } from \"vite-hub/email\"\nexport const useMail = () => email\n",
+      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
     }, "nuxt")).toEqual(["VHUB0002", "VHUB0002"])
   })
 
@@ -100,16 +102,16 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts inline type specifiers but reports mixed and side-effect declarations", async () => {
     expect(await codes(noServerImportsInClient, {
       "app/utils/types.ts": [
-        'import { type Email } from "vite-hub/email/server"',
-        'export { type Email as Mail } from "vite-hub/email/server"',
-        'export type * from "vite-hub/email/server"',
+        'import { type EnvAccessContext } from "vite-hub/env/server"',
+        'export { type EnvAccessContext as Access } from "vite-hub/env/server"',
+        'export type * from "vite-hub/env/server"',
       ].join("\n"),
     }, "nuxt")).toEqual([])
     for (const source of [
-      'import { type Email, email } from "vite-hub/email/server"',
-      'export { type Email, email } from "vite-hub/email/server"',
-      'import "vite-hub/email/server"',
-      'export * from "vite-hub/email/server"',
+      'import { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'export { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'import "vite-hub/env/server"',
+      'export * from "vite-hub/env/server"',
     ]) {
       expect(await codes(noServerImportsInClient, { "app/utils/mail.ts": source }, "nuxt")).toEqual(["VHUB0002"])
     }
@@ -121,7 +123,7 @@ describe("vitehub/no-server-imports-in-client", () => {
         "<script setup lang=\"ts\">",
         'import { kv } from "vite-hub/kv"',
         'import { runAgent } from "vite-hub/agent"',
-        'import { runQueue } from "@vite-hub/queue"',
+        'import { sendQueue } from "@vite-hub/queue"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
         "</script>",
       ].join("\n"),
@@ -135,7 +137,7 @@ describe("vitehub/no-server-imports-in-client", () => {
         'import { useAgent } from "vite-hub/agent/vue"',
         'import { useUpload } from "vite-hub/blob/vue"',
         'import { useRealtimeTiptap } from "vite-hub/realtime/vue"',
-        'import { defineSchedule } from "vite-hub/schedule"',
+        'import { useUpload as useBlobUpload } from "vite-hub/blob/client"',
         "</script>",
       ].join("\n"),
     }, "nuxt")).toEqual([])
@@ -144,7 +146,7 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts server files, type imports, and client paths", async () => {
     expect(await codes(noServerImportsInClient, {
       "server/api/env.get.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
-      "src/App.vue": "<script setup lang=\"ts\">\nimport type { Email } from \"vite-hub/email/server\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: Email }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
+      "src/App.vue": "<script setup lang=\"ts\">\nimport type { EmailMessage } from \"vite-hub/email\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: EmailMessage }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
     })).toEqual([])
     expect(await codes(noServerImportsInClient, {
       "app/plugins/env.server.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
@@ -169,10 +171,163 @@ describe("vitehub/destructure-result-tuples", () => {
     })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003", "VHUB0003"])
   })
 
-  it("reports auto-imported helpers in Nuxt server files", async () => {
+  it("reports Browser and Sandbox Task results used as values", async () => {
     expect(await codes(destructureResultTuples, {
+      "server/api/render.post.ts": [
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        "export default async () => {",
+        '  const html = await runBrowserContent("https://example.com")',
+        '  const notes = await runSandboxTask("release-notes", {})',
+        '  return { html, notes, page: await runBrowser("page-html", { url: "https://example.com" }) }',
+        "}",
+      ].join("\n"),
+    })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003"])
+  })
+
+  it("reports Auth event, i18n save, and gateway ask results used as values", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/audit.get.ts": [
+        'import { aggregateAuthEvents, listAuthEvents } from "vite-hub/auth/server"',
+        'import { listAuthEvents as listConsoleEvents } from "@vite-hub/auth/runtime/console"',
+        'import { useTranslations } from "vite-hub/i18n/server"',
+        'import { ask, askWithModel, typesafe } from "vite-hub/gateways"',
+        "const gateway = typesafe()",
+        "export default async () => {",
+        '  const page = await listAuthEvents({ limit: 50 })',
+        '  const totals = await aggregateAuthEvents({ groupBy: "type" })',
+        "  const consolePage = await listConsoleEvents({})",
+        "  const translations = useTranslations()",
+        '  await translations.save({ locale: "es", source: "Hi", translation: "Hola" })',
+        '  const records = await useTranslations().list("es")',
+        '  const answers = await gateway.ask("text", { kind: ask.if("Is it?") })',
+        '  if (await askWithModel(model).ask("text", {})) return',
+        "  return { page, totals, consolePage, records, answers }",
+        "}",
+      ].join("\n"),
+    })).toEqual(Array(7).fill("VHUB0003"))
+  })
+
+  it("accepts the tuple form of Auth event, i18n save, and gateway ask results", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/audit.get.ts": [
+        'import { listAuthEvents } from "vite-hub/auth/server"',
+        'import { ask, typesafe } from "vite-hub/gateways"',
+        "export default async () => {",
+        '  const [pageError, page] = await listAuthEvents({ limit: 50 })',
+        "  if (pageError) throw pageError",
+        '  const [saveError] = await useTranslations().save({ locale: "es", source: "Hi", translation: "Hola" })',
+        "  if (saveError) throw saveError",
+        '  const [askError, answers] = await typesafe().ask("text", { kind: ask.if("Is it?") })',
+        "  if (askError) throw askError",
+        '  const [, other] = await ask("prompt", { model })',
+        "  return { page, answers, other }",
+        "}",
+      ].join("\n"),
+    }, "nuxt")).toEqual([])
+  })
+
+  it("reports auto-imported helpers in Nuxt server files", async () => {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
+  })
+
+  it.each([
+    ["default", "", ".nuxt", {}],
+    ["template literal", "typesDir: `.types`,", ".types", {}],
+    ["empty typesDir", 'typesDir: "", buildDir: ".build",', ".build", {}],
+    ["production prepare", '$production: { typesDir: ".types" },', ".types", {}],
+    ["referenced output", "typesDir: '.other',", ".types", {
+      "tsconfig.json": '{ "references": [{ "path": "./.types/tsconfig.server.json", }], }',
+      ".other/types/server-imports.mjs": "export { kv } from 'vite-hub/kv';\n",
+    }],
+  ])("uses Nuxt's resolved server imports: %s", async (_, options, directory, extraFiles) => {
+    const result = await runProjectFixture({
+      framework: "nuxt",
+      dependencies: { "vite-hub": "*" },
+      extensions: [vitehubDoctorExtension],
+      run: { rules: destructureResultTuples.meta.id },
+      files: {
+        ...extraFiles,
+        "nuxt.config.ts": `export default defineNuxtConfig({ ${options} experimental: { nitroAutoImports: true } })`,
+        [`${directory}/types/server-imports.mjs`]: "export { kv } from '../../server/utils/kv';\nexport { 'kv' as hubKV } from 'vite-hub/kv';\nexport * as storage from 'vite-hub/kv';\n",
+        "server/utils/kv.ts": "export const kv = { async set() { return 'app-kv' } }\n",
+        "server/api/local.get.ts": "export default async () => ({ value: await kv.set() })\n",
+        "server/api/explicit.post.ts": 'import { kv } from "vite-hub/kv"\nexport default async () => { await kv.set("key", "value") }\n',
+        "server/api/alias.post.ts": 'export default async () => { await hubKV.set("key", "value") }\n',
+        "server/api/namespace.post.ts": 'export default async () => { await storage.kv.set("key", "value") }\n',
+      },
+    })
+    const files = result.diagnostics.filter(diagnostic => diagnostic.code === "VHUB0003")
+      .map(diagnostic => relative(result.root, diagnostic.file).replaceAll("\\", "/")).sort()
+    expect(files).toEqual([
+      "server/api/alias.post.ts",
+      "server/api/explicit.post.ts",
+      "server/api/namespace.post.ts",
+    ])
+  })
+
+  it.each([
+    ["no switch", "export default defineNuxtConfig({})\n", []],
+    ["experimental.nitroAutoImports", nuxtServerAutoImportsConfig, ["VHUB0003"]],
+    ["nitroLegacy: true", "export default defineNuxtConfig({ nitroLegacy: true })\n", ["VHUB0003"]],
+    ["nitroLegacy without imports: false", "export default defineNuxtConfig({ nitroLegacy: { h3: false } })\n", ["VHUB0003"]],
+    ["nitroLegacy with imports: false", "export default defineNuxtConfig({ nitroLegacy: { imports: false } })\n", []],
+    ["comments and unrelated properties", "export default defineNuxtConfig({ /* nitroLegacy: true */ runtimeConfig: { nitroAutoImports: true } })", []],
+    ["Nuxt opt-out", "export default defineNuxtConfig({ nitroLegacy: true, imports: { autoImport: false } })", []],
+    ["Nitro opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: false } })", []],
+    ["Nitro autoImport opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: { autoImport: false } } })", []],
+    ["unresolved spread", "export default defineNuxtConfig({ nitroLegacy: true, ...settings })", []],
+  ])("follows Nuxt server auto-imports in the Nuxt config: %s", async (_, config, expected) => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": config,
+      "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
+    }, "nuxt")).toEqual(expected)
+  })
+
+  it.each([false, true])("reads a Nuxt layer default unless the app overrides it (%s)", async (override) => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ extends: './base'${override ? ", experimental: { nitroAutoImports: false }" : ""} })`,
+      "base/nuxt.config.ts": nuxtServerAutoImportsConfig,
+      "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get('settings')\n  return settings\n}\n",
+    }, "nuxt")).toEqual(override ? [] : ["VHUB0003"])
+  })
+
+  it("follows every ViteHub server auto-import in Nuxt server files", async () => {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
+      "server/api/welcome.post.ts": "export default async () => {\n  const sent = await sendQueue(\"welcome\", { id: \"1\" })\n  return sent\n}\n",
+    })).toEqual(["VHUB0003"])
+  })
+
+  it("resolves I18n server auto-imports to their public exports", async () => {
+    const references: ViteHubReference[] = []
+    const rule = createRule({
+      meta: { id: "test/i18n-auto-imports", title: "Resolve I18n helpers", category: "correctness", severity: "warn", requires: { script: true } },
+      create(ctx) {
+        const r = resolver(ctx)
+        return {
+          CallExpression(node) {
+            const reference = r.callee(node)
+            if (reference) references.push(reference)
+          },
+        }
+      },
+    })
+    await runProjectFixture({
+      rules: [rule],
+      extensions: [vitehubDoctorExtension],
+      framework: "nuxt",
+      dependencies: { "vite-hub": "*" },
+      files: {
+        "nuxt.config.ts": nuxtServerAutoImportsConfig,
+        "server/api/translations.get.ts": "export default event => ({ i18n: getRequestI18n(event), translations: useTranslations() })",
+      },
+    })
+    expect(references).toEqual([
+      { module: "i18n/server", name: "getRequestI18n", path: [] },
+      { module: "i18n/server", name: "useTranslations", path: [] },
+    ])
   })
 
   it.each([
@@ -187,16 +342,16 @@ describe("vitehub/destructure-result-tuples", () => {
     'async function later() { const value = await kv.get("x"); const kv = local }',
     'async function loop() { for (const kv of locals) { const value = await kv.get("x") } }',
   ])("limits Nuxt auto-import shadowing to the binding's scope: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/scopes.ts": source,
-    }, "nuxt")).toEqual([])
-    expect(await codes(destructureResultTuples, {
+    })).toEqual([])
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/scopes.ts": [
         source,
         'async function sibling() { const siblingResult = await kv.get("x") }',
         'const outerResult = await blob.get("x")',
       ].join("\n"),
-    }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
+    })).toEqual(["VHUB0003", "VHUB0003"])
   })
 
   it.each([
@@ -205,61 +360,61 @@ describe("vitehub/destructure-result-tuples", () => {
     'namespace Local.Nested { const kv = local; const blob = local }',
     'declare module "local-storage" { const kv: unknown; const blob: unknown }',
   ])("keeps TypeScript module bindings inside their bodies: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/modules.ts": [
         source,
         'namespace Sibling { async function read() { const siblingKv = await kv.get("sibling"); const siblingBlob = await blob.get("sibling") } }',
         'const a = await kv.get("x")',
         'const b = await blob.get("x")',
       ].join("\n"),
-    }, "nuxt")).toEqual(Array(4).fill("VHUB0003"))
+    })).toEqual(Array(4).fill("VHUB0003"))
   })
 
   it.each(["kv", "blob"])("binds runtime namespace %s only in its enclosing scope", async (name) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/namespaces.ts": [
         `namespace Local { namespace ${name} { export const x = 1 }; async function read() { const result = await ${name}.get("x") } }`,
         `namespace Sibling { async function read() { const siblingResult = await ${name}.get("sibling") } }`,
         `const outerResult = await ${name}.get("outer")`,
       ].join("\n"),
-    }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
-    expect(await codes(destructureResultTuples, {
+    })).toEqual(["VHUB0003", "VHUB0003"])
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/namespaces.ts": `namespace ${name} { export const x = 1 }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual([])
+    })).toEqual([])
   })
 
   it.each(["kv", "blob"])("preserves auto-imports across erased %s namespaces", async (name) => {
     for (const body of ["", "export interface X {}", "export type X = string", "interface X {} export { type X }", "export namespace Types { export interface X {} }", "export namespace Types.Deep { export type X = string }"]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/erased.ts": `namespace ${name} { ${body} }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual(["VHUB0003"])
+      })).toEqual(["VHUB0003"])
     }
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/merged-types.ts": `namespace ${name} { export interface X {} }; namespace ${name} { export type Y = string }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
   })
 
   it.each(["kv", "blob"])("distinguishes erased and exported namespace aliases for %s", async (name) => {
     for (const exported of [false, true]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/aliases.ts": `namespace Types { export const x = 1 }; namespace ${name} { ${exported ? "export " : ""}import X = Types }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual(exported ? [] : ["VHUB0003"])
+      })).toEqual(exported ? [] : ["VHUB0003"])
     }
   })
 
   it.each(["kv", "blob"])("retains runtime bindings for nested and merged %s namespaces", async (name) => {
     for (const body of ["export namespace Values { export const x = 1 }", "export namespace Values.Deep { export const x = 1 }"]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/nested.ts": `namespace ${name} { ${body} }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual([])
+      })).toEqual([])
     }
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/qualified.ts": `namespace ${name}.Values { export const x = 1 }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual([])
+    })).toEqual([])
     for (const bodies of [["export interface X {}", "export const x = 1"], ["export const x = 1", "export interface X {}"]]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/merged.ts": `${bodies.map(body => `namespace ${name} { ${body} }`).join("; ")}; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual([])
+      })).toEqual([])
     }
   })
 
@@ -268,9 +423,9 @@ describe("vitehub/destructure-result-tuples", () => {
     'declare module "kv" { const x: number }',
     'declare namespace Local { namespace kv { const x: number }; const result: typeof kv };',
   ])("does not bind ambient modules as runtime helpers: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/ambient.ts": `${source}\nconst result = await kv.get("x")`,
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
   })
 
   it("resolves local helpers and stores within namespaces", async () => {
@@ -329,25 +484,32 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/send.post.ts": [
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
-        'import { runQueue, getQueue } from "vite-hub/queue"',
+        'import { email } from "vite-hub/email"',
+        'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { runAgent } from "vite-hub/agent"',
+        'import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "vite-hub/workflow"',
+        'import { runSchedule } from "vite-hub/schedule"',
         "import support from \"../agents/support\"",
         "export async function send() {",
         '  const record = await blob.media.put("a.png", body)',
         '  const sent = await email.send({ to: "a@b.c" })',
-        '  if (await runQueue("welcome", {})) return',
+        '  if (await sendQueue("welcome", {})) return',
         '  const delivery = await useChannel("alerts").send("hi", {})',
-        '  const queue = await getQueue("welcome")',
+        '  const queue = await useQueue("welcome")',
         "  const receipt = await queue.send({})",
         '  const tool = await callMcpTool({ connection: "crm" }, "search", {})',
         '  const answer = await runAgent(support, { prompt: "hi" })',
-        "  return { record, sent, delivery, receipt, tool, answer }",
+        '  const run = await startWorkflow("onboard", {})',
+        '  await cancelWorkflow("onboard", "run-1")',
+        '  if ((await getWorkflowRun("onboard", "run-1")).status) return',
+        '  const signal = await resumeWorkflow("token", {})',
+        '  const report = await runSchedule("report")',
+        "  return { record, sent, delivery, receipt, tool, answer, run, signal, report }",
         "}",
       ].join("\n"),
-    })).toEqual(Array(7).fill("VHUB0003"))
+    })).toEqual(Array(12).fill("VHUB0003"))
   })
 
   it("reports tuples compared, iterated, interpolated, or returned from a route handler", async () => {
@@ -357,9 +519,9 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { blob } from "vite-hub/blob"',
         "export default defineEventHandler(async (event) => {",
         '  if ((await kv.get("a")) === null) return',
-        '  for (const key of await kv.keys()) console.log(key)',
+        '  for (const key of await kv.list()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
-        '  return blob.serve(event, "a.txt")',
+        '  return blob.get("a.txt")',
         "})",
       ].join("\n"),
     })).toEqual(Array(4).fill("VHUB0003"))
@@ -378,7 +540,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "  return { settings: result[1], other, error }",
         "})",
         "export async function clear() {",
-        '  const [error] = await kv.del("settings")',
+        '  const [error] = await kv.delete("settings")',
         "  if (error) throw error",
         "}",
         "export async function readSettings() {",
@@ -398,13 +560,13 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
       "server/utils/dispatch.ts": [
         'import { kv } from "vite-hub/kv"',
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
-        'import { runQueue, getQueue } from "vite-hub/queue"',
+        'import { email } from "vite-hub/email"',
+        'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { cancelChannelTask, enqueueChannelTask } from "vite-hub/agent/server"',
         "export async function dispatch() {",
-        '  await runQueue("sync", { id: 1 })',
+        '  await sendQueue("sync", { id: 1 })',
         '  await kv.set("state", { id: 1 })',
         '  await email.send({ to: "a@b.c" })',
         '  await blob.put("a.txt", "a")',
@@ -412,27 +574,27 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         '  await callMcpTool({ connection: "crm" }, "search", {})',
         '  await enqueueChannelTask("airtable", "close", { data: {} })',
         '  await cancelChannelTask("airtable", "close", { key: "pair" })',
-        '  kv.del("state")',
+        '  kv.delete("state")',
         "}",
       ].join("\n"),
       // Doctor keeps one diagnostic per message in a file, so each other `send()` goes in its own file.
-      "server/utils/welcome.ts": 'import { getQueue } from "vite-hub/queue"\nexport async function welcome() {\n  const queue = await getQueue("welcome")\n  await queue.send({})\n}\n',
+      "server/utils/welcome.ts": 'import { useQueue } from "vite-hub/queue"\nexport async function welcome() {\n  const queue = await useQueue("welcome")\n  await queue.send({})\n}\n',
       "server/utils/alert.ts": 'import { useChannel } from "vite-hub/channels/server"\nexport async function alert() {\n  await useChannel("alerts").send("hi", { connector: "log" })\n}\n',
     })).toEqual(Array(11).fill("VHUB0003"))
   })
 
   it("names the operation and the way to ignore a failure on purpose", async () => {
     const result = await runRuleFixture({
-      files: { "server/utils/dispatch.ts": 'import { runQueue } from "vite-hub/queue"\nexport async function dispatchSync(id) {\n  await runQueue("sync", { id })\n}\n' },
+      files: { "server/utils/dispatch.ts": 'import { sendQueue } from "vite-hub/queue"\nexport async function dispatchSync(id) {\n  await sendQueue("sync", { id })\n}\n' },
       framework: "vite",
       rule: destructureResultTuples,
     })
     expect(result.diagnostics).toEqual([expect.objectContaining({
       code: "VHUB0003",
       diagnostic: expect.objectContaining({
-        fix: "Read the error: `const [error] = await runQueue(...)`, then `if (error) throw error`. To ignore a failure on purpose, write `void await runQueue(...)`.",
+        fix: "Read the error: `const [error] = await sendQueue(...)`, then `if (error) throw error`. To ignore a failure on purpose, write `void await sendQueue(...)`.",
       }),
-      message: "`runQueue()` returns an `[error, value]` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.",
+      message: "`sendQueue()` returns an `[error, value]` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.",
     })])
   })
 
@@ -441,9 +603,9 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
   it("reports the dropped Results of Finance and formula-100", async () => {
     expect(await codes(destructureResultTuples, {
       "server/dispatch/queue.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export async function dispatchSync(connectionId: string, trigger: SyncTrigger) {",
-        '  await runQueue("sync", { connectionId, trigger })',
+        '  await sendQueue("sync", { connectionId, trigger })',
         "}",
       ].join("\n"),
       "server/utils/connections.ts": [
@@ -457,17 +619,17 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
     })).toEqual(["VHUB0003", "VHUB0003"])
     expect(await codes(destructureResultTuples, {
       "server/utils/learner-emails.ts": [
-        "import { email } from 'vite-hub/email/server'",
+        "import { email } from 'vite-hub/email'",
         "async function send(to: string, subject: string, html: string, idempotencyKey?: string) {",
         "  await email.send({ from: sender, to, subject, html, idempotencyKey })",
         "}",
       ].join("\n"),
       "server/queues/daily-lessons.ts": [
-        "import { defineQueue, runQueue } from 'vite-hub/queue'",
+        "import { defineQueue, sendQueue } from 'vite-hub/queue'",
         "async function enqueueNext(subscriber: Subscriber) {",
         "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
         "    return",
-        "  await runQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delay: '1m' })",
         "}",
       ].join("\n"),
     }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
@@ -642,7 +804,7 @@ describe("ViteHub Doctor Extension", () => {
       extensions: [vitehubDoctorExtension],
       dependencies: { "vite-hub": "*" },
       files: {
-        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
+        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
         "server/api/a.ts": "import { kv } from \"vite-hub/_internal/kv\"\nexport default async () => (await kv.get(\"a\")).value\n",
       },
     })
@@ -657,7 +819,7 @@ describe("ViteHub Doctor Extension", () => {
   })
 
   it("is exposed by the Vite plugin as a lazy Doctor Extension", async () => {
-    const api = doctorPluginApi(vitehub({ preset: "node" }))
+    const api = doctorPluginApi(vitehub({ host: "node" }))
     expect(api?.extensions).toHaveLength(1)
     const [load] = api?.extensions ?? []
     if (typeof load !== "function") throw new TypeError("Expected a lazy Doctor Extension loader.")

@@ -2,9 +2,11 @@ import { execFileSync, spawnSync } from "node:child_process"
 import * as childProcess from "node:child_process"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
-import { access, readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { access, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { promisify } from "node:util"
+import { serveSsh, sshLaunch } from "@vite-hub/sandbox/ssh"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
@@ -38,6 +40,72 @@ afterEach(() => {
 })
 
 describe("provider inspection", () => {
+  it.each(["codex", "claude-code"] as const)("prepares SSH before the %s probe deadline starts", async provider => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-provider-ssh-"))
+    const hostKeyFile = join(root, "host")
+    const identityFile = join(root, "identity")
+    for (const path of [hostKeyFile, identityFile]) execFileSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path])
+    const serverOptions = { hostKeyFile, authorizedKeyFile: `${identityFile}.pub`, user: "agent", cwd: root, host: "127.0.0.1" }
+    let server = await serveSsh({ ...serverOptions, port: 0 })
+    const port = server.port
+    await server.close()
+    // The pinned runtime gives both providers 20 seconds, still below the 30-second SSH budget.
+    const restarting = new Promise<void>((resolve, reject) => setTimeout(() => {
+      serveSsh({ ...serverOptions, port }).then(value => { server = value; resolve() }, reject)
+    }, 22_000))
+    const started = Date.now()
+    const probeStarts: number[] = []
+    inspectProvider.mockImplementation(async options => {
+      probeStarts.push(Date.now())
+      // Keep the provider's real timeout contract and exercise the materialized SSH launcher.
+      try {
+        const result = await promisify(childProcess.execFile)(options.settings.binaryPath, ["--version"], {
+          env: options.environment, timeout: 20_000,
+        })
+        expect(result.stdout).toBe("ssh-provider-1\n")
+        return ready()
+      }
+      catch {
+        return { ...ready(), status: "error", message: "Provider probe timed out" }
+      }
+    })
+    const executable = join(root, "provider")
+    await writeFile(executable, '#!/bin/sh\necho ssh-provider-1\n', { mode: 0o700 })
+    try {
+      const launch = sshLaunch({ host: "127.0.0.1", port, user: "agent", identityFile, hostKeyFile: `${hostKeyFile}.pub` })
+      // A command-only launcher reproduces the old behavior against the same delayed listener.
+      const withoutPreparation = inspectAgentProvider({
+        provider, providerSettings: { binaryPath: executable },
+        launch: context => { const command = launch(context); return { command: command.command, args: command.args } },
+      }, context())
+      const result = await inspectAgentProvider({ provider, providerSettings: { binaryPath: executable }, launch }, context())
+      expect(await withoutPreparation).toMatchObject({ readiness: "unavailable", reason: expect.stringContaining("Provider status check failed: Provider probe timed out") })
+      expect(result.readiness).toBe("ready")
+      expect(probeStarts).toHaveLength(2)
+      expect(probeStarts[0]! - started).toBeLessThan(20_000)
+      expect(probeStarts[1]! - started).toBeGreaterThanOrEqual(22_000)
+    }
+    finally {
+      await restarting
+      await server.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 40_000)
+
+  it("cancels transport preparation before starting a provider probe", async () => {
+    const controller = new AbortController()
+    const prepare = vi.fn(async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
+      expect(abortSignal).toBe(controller.signal)
+      controller.abort(new Error("cancel transport"))
+      abortSignal?.throwIfAborted()
+    })
+    await expect(inspectAgentProvider({ provider: "codex", launch: { command: "codex", prepare } }, {
+      ...context(), abortSignal: controller.signal,
+    })).rejects.toThrow("cancel transport")
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(inspectProvider).not.toHaveBeenCalled()
+  })
+
   it("groups identical credentials without disclosing them and caches only that scope", async () => {
     inspectProvider.mockResolvedValue(ready())
     const options = { provider: "codex" as const, credentials: '{"OPENAI_API_KEY":"fake-same-account"}' }

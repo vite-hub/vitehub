@@ -1,4 +1,7 @@
-import { isPlainObject } from "@vite-hub/internal/object"
+import { Worker } from "node:worker_threads"
+
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { describeDatabaseContribution } from "../contributions.ts"
 import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
@@ -15,6 +18,11 @@ export interface DatabaseTableNameOptions {
    * `schema: { ... }` object. Without it, a Definition that cannot load throws.
    */
   onFallback?: (message: string) => void
+  /**
+   * Load the Definition in a worker thread, so the calling thread stays free. `vite dev` uses it: loading a Definition
+   * and Drizzle takes hundreds of milliseconds, and the dev server starts meanwhile.
+   */
+  worker?: boolean
 }
 
 /** The keys of an evaluated schema object. */
@@ -50,10 +58,6 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return isPlainObject(value)
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -76,8 +80,12 @@ async function importDrizzleSchemaTools() {
 
 let drizzleSchemaTools: Promise<DrizzleSchemaTools> | undefined
 
+// A failed load lets the next schema try again.
 function loadDrizzleSchemaTools() {
-  drizzleSchemaTools ??= importDrizzleSchemaTools()
+  drizzleSchemaTools ??= importDrizzleSchemaTools().catch((error: unknown) => {
+    drizzleSchemaTools = undefined
+    throw error
+  })
   return drizzleSchemaTools
 }
 
@@ -103,6 +111,7 @@ async function createLoader(parent: string, alias: Record<string, string> | unde
  * namespace schemas list every table.
  */
 export async function loadDatabaseSchema(handler: string, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
+  if (options.worker) return await loadDatabaseSchemaInWorker(handler, options)
   let failure: Error
   try {
     const module = await (await createLoader(import.meta.url, options.alias)).import<{ default?: unknown }>(handler)
@@ -115,9 +124,28 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   }
 
   if (!options.onFallback) throw failure
-  options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
+  options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub database generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
+}
+
+/** The message that `internal/schema-worker` posts back. */
+export type DatabaseSchemaWorkerMessage
+  = | { error: string }
+    | { fallbacks: string[], schema: Omit<LoadedDatabaseSchema, "sqlNames"> & { sqlNames: [string, string][] } }
+
+async function loadDatabaseSchemaInWorker(handler: string, options: DatabaseTableNameOptions): Promise<LoadedDatabaseSchema> {
+  const worker = new Worker(resolveRuntimeModule(computePackageDir(import.meta.url), "internal/schema-worker"), {
+    workerData: { alias: options.alias, fallback: !!options.onFallback, handler },
+  })
+  const message = await new Promise<DatabaseSchemaWorkerMessage>((resolve, reject) => {
+    worker.once("message", resolve)
+    worker.once("error", reject)
+    worker.once("exit", code => reject(new Error(`[vitehub] The Database schema worker for "${handler}" exited with code ${code}.`)))
+  }).finally(() => worker.terminate())
+  if ("error" in message) throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ problem: message.error, source: `The Database Definition "${handler}"` })
+  for (const fallback of message.fallbacks) options.onFallback?.(fallback)
+  return { ...message.schema, sqlNames: new Map(message.schema.sqlNames) }
 }
 
 /**
@@ -154,6 +182,33 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
 }
 
 /**
+ * The exact SQL names and columns of each contributed table. It loads the contribution module even when the
+ * contribution lists its `tables`, because the list has no columns. `parent` resolves the module as below.
+ */
+export async function loadContributedTableColumns(
+  contribution: CollectedDatabaseContribution,
+  parent: string,
+  options: Pick<DatabaseTableNameOptions, "alias"> = {},
+): Promise<Array<{ name: string, schema?: string, columns: string[] }>> {
+  let module: Record<string, unknown>
+  try {
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${describeDatabaseContribution(contribution)}` })
+  }
+  const schema = module[contribution.definition.export]
+  const { getColumns, getTableName, is, Table } = await import("drizzle-orm")
+  const { getTableConfig, PgTable } = await import("drizzle-orm/pg-core")
+  const tables: Array<{ name: string, schema?: string, columns: string[] }> = []
+  for (const value of isRecord(schema) ? Object.values(schema) : []) {
+    if (!is(value, Table)) continue
+    tables.push({ name: getTableName(value), schema: is(value, PgTable) ? getTableConfig(value).schema ?? "public" : undefined, columns: Object.values(getColumns(value)).map(column => column.name) })
+  }
+  return tables
+}
+
+/**
  * Loads the tables of a contribution. `parent` is the file that imports the contribution, so package specifiers
  * resolve from the application. A missing or non-object export fails with `DATABASE_INVALID_CONTRIBUTION`. A module
  * that cannot load fails with `DATABASE_SCHEMA_LOAD_FAILED`, unless `onFallback` accepts it; its tables are then known only at runtime.
@@ -176,7 +231,7 @@ export async function loadContributedDatabaseSchema(
   catch (error) {
     const failure = databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${source}` })
     if (!options.onFallback) throw failure
-    options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
+    options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub database generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
   const exportName = contribution.definition.export

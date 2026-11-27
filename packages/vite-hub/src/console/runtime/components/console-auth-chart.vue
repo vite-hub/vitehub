@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, useId } from "vue";
+import { computed } from "vue";
 import type { AuthConsoleOverview } from "@vite-hub/auth/console";
+import ConsoleSection from "./console-section.vue";
+import Icon from "./console-icon.vue";
 
 const props = defineProps<{ analytics: NonNullable<AuthConsoleOverview["analytics"]> }>();
-const titleId = useId();
 const days = computed(() => props.analytics.days);
 const maximum = computed(() =>
   Math.max(1, ...days.value.flatMap((day) => [day.signIns, day.signUps])),
@@ -15,16 +16,13 @@ const dayLabel = (day: string) =>
 </script>
 
 <template>
-  <section class="min-w-0 space-y-3" :aria-labelledby="titleId">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 :id="titleId" class="text-sm font-medium text-highlighted">
-        Last 30 days <span class="font-normal text-muted">UTC</span>
-      </h2>
+  <ConsoleSection title="Last 30 days" description="UTC days">
+    <template #actions>
       <div class="flex gap-3 text-xs text-muted">
         <span class="flex items-center gap-1.5"><span class="size-2 bg-primary" />Sign-ins</span
-        ><span class="flex items-center gap-1.5"><span class="size-2 bg-info" />Sign-ups</span>
+        ><span class="flex items-center gap-1.5"><span class="size-2 bg-(--ui-text-dimmed)" />Sign-ups</span>
       </div>
-    </div>
+    </template>
     <svg
       viewBox="0 0 640 180"
       class="h-40 w-full"
@@ -39,11 +37,11 @@ const dayLabel = (day: string) =>
         x2="640"
         :y1="160 - fraction * 150"
         :y2="160 - fraction * 150"
-        stroke="var(--ui-border)"
+        stroke="var(--border)"
         stroke-dasharray="3 4"
       />
-      <text x="0" y="15" font-size="10" fill="var(--ui-text-muted)">{{ maximum }}</text>
-      <text x="0" y="160" font-size="10" fill="var(--ui-text-muted)">0</text>
+      <text x="0" y="15" font-size="10" fill="var(--muted-foreground)">{{ maximum }}</text>
+      <text x="0" y="160" font-size="10" fill="var(--muted-foreground)">0</text>
       <g v-for="(day, index) in days" :key="day.day">
         <title>
           {{ dayLabel(day.day) }}: {{ day.signIns }} sign-ins, {{ day.signUps }} sign-ups
@@ -53,14 +51,14 @@ const dayLabel = (day: string) =>
           :y="160 - (day.signIns / maximum) * 150"
           width="7"
           :height="(day.signIns / maximum) * 150"
-          fill="var(--ui-primary)"
+          fill="var(--primary)"
         />
         <rect
           :x="42 + index * 20"
           :y="160 - (day.signUps / maximum) * 150"
           width="7"
           :height="(day.signUps / maximum) * 150"
-          fill="var(--ui-info)"
+          fill="var(--ui-text-dimmed)"
         />
       </g>
     </svg>
@@ -68,15 +66,20 @@ const dayLabel = (day: string) =>
       <span>{{ dayLabel(days[0]!.day) }}</span
       ><span>{{ dayLabel(days.at(-1)!.day) }}</span>
     </div>
-    <p v-if="!analytics.totals.signIns && !analytics.totals.signUps" class="text-xs text-muted">
-      No sign-ins or sign-ups recorded in this period.
-    </p>
+    <UEmpty
+      v-if="!analytics.totals.signIns && !analytics.totals.signUps"
+      variant="naked"
+      size="sm"
+      icon="i-lucide-chart-column"
+      title="No sign-ins or sign-ups in this period"
+      description="Each day fills in when people sign in or sign up."
+    />
     <details class="group text-xs">
-      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--vitehub-console-focus)">
-        <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md text-muted select-none hover:text-highlighted">
+        <Icon name="i-lucide-chevron-right" class="size-3.5 group-open:rotate-90" aria-hidden="true" />
         Show data table
       </summary>
-      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-default">
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">
         <table class="w-full text-xs">
           <caption class="sr-only">
             Auth events by UTC day
@@ -98,5 +101,5 @@ const dayLabel = (day: string) =>
         </table>
       </div>
     </details>
-  </section>
+  </ConsoleSection>
 </template>

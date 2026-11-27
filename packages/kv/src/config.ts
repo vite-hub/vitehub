@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { normalizeKey } from "unstorage"
 
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -7,19 +8,25 @@ import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {
   CloudflareKVStoreConfig,
+  DatabaseKVStoreConfig,
   DenoKVStoreConfig,
   FsLiteKVStoreConfig,
   InferredKVStoreConfig,
-  KVModuleOptions,
+  KVOptions,
   KVStoreConfig,
   KVStoresConfig,
+  RedisKVStoreConfig,
   ResolvedCloudflareKVStoreConfig,
+  ResolvedDatabaseKVStoreConfig,
   ResolvedDenoKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
   ResolvedKVStoreConfig,
+  ResolvedRedisKVStoreConfig,
 } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
+
+import type { Diagnostic } from "nostics"
 
 export interface KVResolutionInput {
   /**
@@ -27,9 +34,18 @@ export interface KVResolutionInput {
    * store falls back to `fs-lite` when the runtime has no binding. Builds leave it unset.
    */
   dev?: boolean
+  prerender?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
+  /**
+   * The app has a Default Database on Postgres. A build without a KV driver then infers the `database` driver on Node.
+   * The KV Vite plugin finds it in the Database Definitions.
+   */
+  postgresDatabase?: boolean
 }
+
+/** The variable that a `redis` store reads at runtime when it sets no `url`. */
+export const redisUrlEnvName = "REDIS_URL"
 
 /** Where a Cloudflare KV store keeps its keys in `vite dev` when the runtime has no binding. */
 export function cloudflareKVLocalBase(binding: string): string {
@@ -42,15 +58,41 @@ function readRemote(config: KVStoreConfig | InferredKVStoreConfig, store: string
   throw kvErrorDiagnostics.KV_INVALID_REMOTE({ store })
 }
 
-/** Applies `vite dev` mode: hosted stores are marked remote, and a Cloudflare store gets its local fallback. */
-function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefined): ResolvedKVStoreConfig {
-  if (store.driver === "upstash") return { ...store, remote: true }
-  if (store.driver !== "cloudflare-kv-binding") return store
-  return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
+function resolveStoreMode(store: ResolvedKVStoreConfig, remote: boolean | undefined, input: KVResolutionInput): ResolvedKVStoreConfig {
+  if (input.dev && store.driver === "upstash") return { ...store, remote: true }
+  if (store.driver !== "cloudflare" || !(input.dev || input.prerender)) return store
+  return input.dev && remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
-function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): ResolvedFsLiteKVStoreConfig {
-  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".vitehub/data/kv" })
+function fsLiteStoreBase(name: string): string {
+  if (name === "default") return ".vitehub/data/kv"
+  return `.vitehub/data/kv-stores/${encodeURIComponent(name).replace(/\./g, "%2E") || "%"}`
+}
+
+function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}, name = "default"): ResolvedFsLiteKVStoreConfig {
+  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: fsLiteStoreBase(name) })
+}
+
+/** The key prefix of a Redis store without `base`. Every store has one, so a shared Redis keeps other keys apart. */
+export function redisStorePrefix(name: string): string {
+  const segment = name.replace(/[%:/\\?]/g, character => encodeURIComponent(character)) || "%"
+  return `vitehub:kv:${segment}`
+}
+
+function resolveStoreBase(base: string | undefined, name: string): string {
+  return normalizeKey(trimmed(base)) || redisStorePrefix(name)
+}
+
+export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {
+  return {
+    driver: "redis",
+    base: resolveStoreBase(config.base, name),
+    url: trimmed(config.url) ?? `env:${redisUrlEnvName}`,
+  }
+}
+
+function resolveDatabaseStore(config: Partial<DatabaseKVStoreConfig>, name: string): ResolvedDatabaseKVStoreConfig {
+  return { driver: "database", database: trimmed(config.database) ?? "default", namespace: name }
 }
 
 function resolveCloudflareStore(
@@ -63,7 +105,7 @@ function resolveCloudflareStore(
       namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
       namespaceName: trimmed(config.namespaceName),
     },
-    { driver: "cloudflare-kv-binding" as const, binding: "KV" },
+    { driver: "cloudflare" as const, binding: "KV" },
   )
 }
 
@@ -72,38 +114,63 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
   return path ? { driver: "deno-kv", path } : { driver: "deno-kv" }
 }
 
-function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, dev: boolean | undefined): ResolvedKVStoreConfig {
+function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, input: KVResolutionInput, path: string): ResolvedKVStoreConfig {
   const remote = readRemote(store, name)
   const { driver } = store
-  if (dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
+  if (input.dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
-  const resolved = resolveStoreDriver(store, env)
-  return dev ? resolveDevStore(resolved, remote) : resolved
+  const resolved = resolveStoreDriver(store, env, name)
+  assertKnownKVStoreKeys(store, store.driver, path)
+  return resolveStoreMode(resolved, remote, input)
 }
 
-function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>): ResolvedKVStoreConfig {
+function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
   switch (store.driver) {
-    case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "cloudflare": return resolveCloudflareStore(store, env)
+    case "database": return resolveDatabaseStore(store, name)
     case "deno-kv": return resolveDenoStore(store)
-    case "upstash": return resolveUpstashStore(store)
-    case "fs-lite": return resolveFsLiteStore(store)
-    // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
+    case "fs-lite": return resolveFsLiteStore(store, name)
+    case "redis": return resolveRedisStore(store, name)
+    case "upstash": return resolveUpstashStore(store, resolveStoreBase(store.base, name))
+    default: {
+      // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+      const driver = (store as { driver: unknown }).driver
+      throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedKVDrivers.get(String(driver)) })
+    }
   }
 }
+
+const kvDriverOptions: Record<KVStoreConfig["driver"], readonly string[]> = {
+  "cloudflare": ["binding", "namespaceId", "namespaceName"],
+  "database": ["database"],
+  "deno-kv": ["path"],
+  "fs-lite": ["base"],
+  "redis": ["base", "url"],
+  "upstash": ["base", "token", "url"],
+}
+
+function assertKnownKVStoreKeys(store: object, driver: KVStoreConfig["driver"] | undefined, path: string): void {
+  const known = new Set(["driver", "remote", ...driver ? kvDriverOptions[driver] : []])
+  const key = Object.keys(store).find(name => !known.has(name) && Reflect.get(store, name) !== undefined)
+  if (key === undefined) return
+  const drivers = (Object.keys(kvDriverOptions) as KVStoreConfig["driver"][]).filter(name => kvDriverOptions[name].includes(key))
+  throw kvErrorDiagnostics.KV_UNKNOWN_STORE_OPTION({ drivers, driver, key, path })
+}
+
+const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
 
 function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
   return stores ? { store, stores: { default: store, ...stores } } : { store }
 }
 
-function hasStoresConfig(options: KVModuleOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
+function hasStoresConfig(options: KVOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
   // SAFETY: The own-property check establishes stores exists; its value stays unknown until isPlainObject validates it.
   return !!options && Object.hasOwn(options, "stores") && isPlainObject(stores)
 }
 
 export function normalizeKVOptions(
-  options: KVModuleOptions | undefined,
+  options: KVOptions | undefined,
   input: KVResolutionInput = {},
 ): ResolvedKVModuleOptions | undefined {
   if (options === false) return
@@ -123,28 +190,54 @@ export function normalizeKVOptions(
   }
 
   if (hasStoresConfig(options, stores)) {
+    const extra = Object.entries(options ?? {}).find(([key, value]) => key !== "stores" && value !== undefined)?.[0]
+    if (extra !== undefined) throw kvErrorDiagnostics.KV_UNKNOWN_STORE_OPTION({ drivers: [], key: extra, path: "kv", stores: true })
     const resolvedStores = Object.fromEntries(
-      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input.dev)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input, `kv.stores.${name}`)]),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 
-  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input.dev))
+  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input, "kv"))
+  if (explicit) assertKnownKVStoreKeys(explicit, undefined, "kv")
   const remote = explicit ? readRemote(explicit, "default") : undefined
-  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(input.dev ? resolveDevStore(store, remote) : store)
-  // Only an explicit `remote: true` lets `vite dev` infer a hosted store from env or the host.
-  const hosted = !input.dev || remote === true
+  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(resolveStoreMode(store, remote, input))
+  const hosted = !input.prerender && (!input.dev || remote === true)
   if (hosting.includes("deno")) {
     if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "deno-kv", remote, store: "default" })
     return inferred(resolveDenoStore())
   }
-  if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore())
-  if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore())
+  if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
+  if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
-  return inferred(resolveFsLiteStore())
+  if (input.dev || input.prerender) return inferred(resolveFsLiteStore())
+  if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
+  return inferred({ ...resolveFsLiteStore(), inferred: true })
+}
+
+/** The line that a server prints at boot for its build-selected inferred store. */
+export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig): string | undefined {
+  if (!("inferred" in store) || !store.inferred) return
+  if (store.driver === "database") return `[vitehub] KV store "${name}" uses the table vitehub_kv of the Database "${store.database}", selected at build time.`
+  if (store.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${store.base}, selected at build time. Other server processes cannot read its keys.`
+}
+
+/**
+ * The build hint for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
+ * another service, such as BullMQ or sessions. A NuxtHub app that kept its keys in Redis must select it.
+ */
+export function kvRedisEnvHint(options: KVOptions | undefined, input: KVResolutionInput = {}): Diagnostic | undefined {
+  if (options === false || input.dev || (options && ("stores" in options || options.driver))) return
+  const env = input.env || process.env
+  const name = readEnv(env, redisUrlEnvName) ? redisUrlEnvName : readEnv(env, "KV_URL")?.startsWith("rediss://") ? "KV_URL" : undefined
+  if (!name) return
+  const store = normalizeKVOptions(options, input)?.store
+  if (store?.driver === "upstash" && !hasUpstashEnv(env)) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: "upstash" })
+  const selected = store?.driver === "database" ? `the table vitehub_kv of the Database "${store.database}"` : store?.driver === "fs-lite" ? `fs-lite in ${store.base}` : undefined
+  if (selected) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: selected })
 }
 
 export function warnVercelKVFallback(

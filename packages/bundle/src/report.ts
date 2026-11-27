@@ -1,8 +1,11 @@
+import { posix } from "node:path"
+
 import { allocateBytes } from "./bytes.ts"
 import { checkBundle } from "./checks.ts"
 import { moduleGroup } from "./groups.ts"
+import { explainRoute, routesOf } from "./routes.ts"
 
-import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleSide } from "./types.ts"
+import type { BundleChainStep, BundleChunk, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleRouteExplanation, BundleSide } from "./types.ts"
 
 interface PlacedModule extends BundleModule {
   environment: string
@@ -19,15 +22,11 @@ function outputPath(report: BundleEnvironmentReport, file: string): string {
   return report.outDir === "." ? file : `${report.outDir}/${file}`
 }
 
-/**
- * A server build that bundles the output of another server build, such as Nitro bundling Nuxt's SSR output, holds that
- * output as opaque modules. This returns, for each such module, the inner environment and chunk.
- */
-function innerOutputs(reports: readonly BundleEnvironmentReport[]): Map<string, { report: BundleEnvironmentReport, file: string }> {
-  const outputs = new Map<string, { report: BundleEnvironmentReport, file: string }>()
+function innerOutputs(reports: readonly BundleEnvironmentReport[]) {
+  const outputs = new Map<string, { environment: string, chunk: BundleChunk }>()
   for (const report of reports) {
     if (report.side !== "server") continue
-    for (const chunk of report.chunks) outputs.set(outputPath(report, chunk.file), { report, file: chunk.file })
+    for (const chunk of report.chunks) outputs.set(outputPath(report, chunk.file), { environment: report.environment, chunk })
   }
   return outputs
 }
@@ -38,7 +37,6 @@ function isInner(report: BundleEnvironmentReport, reports: readonly BundleEnviro
   return reports.some(other => other !== report && other.side === "server" && other.chunks.some(chunk => chunk.modules.some(module => files.has(module.id))))
 }
 
-/** Every module of a side, with SSR output that Nitro bundles replaced by the SSR modules, scaled to Nitro's bytes. */
 function placedModules(outer: readonly BundleEnvironmentReport[], all: readonly BundleEnvironmentReport[]): PlacedModule[] {
   const inner = innerOutputs(all.filter(report => !outer.includes(report)))
   const placed: PlacedModule[] = []
@@ -46,15 +44,14 @@ function placedModules(outer: readonly BundleEnvironmentReport[], all: readonly 
     for (const chunk of report.chunks) {
       for (const module of chunk.modules) {
         const source = inner.get(module.id)
-        const sourceChunk = source?.report.chunks.find(candidate => candidate.file === source.file)
-        const total = sourceChunk?.modules.reduce((sum, part) => sum + part.bytes, 0) ?? 0
-        if (!source || !sourceChunk || total === 0) {
+        const total = source?.chunk.modules.reduce((sum, part) => sum + part.bytes, 0) ?? 0
+        if (!source || total === 0) {
           placed.push({ ...module, environment: report.environment, startup: chunk.startup })
           continue
         }
-        const shares = allocateBytes(sourceChunk.modules.map(part => part.bytes), module.bytes)
-        for (const [index, part] of sourceChunk.modules.entries()) {
-          placed.push({ ...part, bytes: shares[index]!, environment: source.report.environment, startup: chunk.startup })
+        const shares = allocateBytes(source.chunk.modules.map(part => part.bytes), module.bytes)
+        for (const [index, part] of source.chunk.modules.entries()) {
+          placed.push({ ...part, bytes: shares[index]!, environment: source.environment, startup: chunk.startup })
         }
       }
     }
@@ -94,7 +91,15 @@ function sideOf(side: "client" | "server", reports: readonly BundleEnvironmentRe
       chunks: startup.length,
     },
     groups: groupsOf(placedModules(outer, reports)),
+    ...routesField(outer),
   }
+}
+
+function routesField(reports: readonly BundleEnvironmentReport[]): Pick<BundleSide, "routes" | "routesUnavailable"> {
+  const unavailable = reports.find(report => report.routeOptions?.unavailable)?.routeOptions?.unavailable
+  if (unavailable) return { routesUnavailable: unavailable }
+  const routes = reports.flatMap(routesOf).sort((left, right) => right.bytes - left.bytes || left.path.localeCompare(right.path))
+  return routes.length ? { routes } : {}
 }
 
 /** Joins the environment reports of one build into the report of the app. */
@@ -108,25 +113,26 @@ export function createBundleReport(reports: readonly BundleEnvironmentReport[]):
   return { schemaVersion: 1, build: current[0]!.build, ...(host ? { host } : {}), ...(client ? { client } : {}), ...(server ? { server } : {}), findings }
 }
 
-function matches(id: string, target: string): boolean {
-  if (id === target) return true
-  if (id.startsWith("node_modules/")) {
-    const group = moduleGroup(id).name
-    if (group === target || id.startsWith(`node_modules/${target}/`)) return true
+function moduleMatcher(target: string, reports: readonly BundleEnvironmentReport[]): (id: string) => boolean {
+  if (target.startsWith("./") || target.startsWith(".\\")) {
+    const literal = reports.some(report => report.chunks.some(chunk => chunk.modules.some(module => module.id === target)))
+    const file = literal ? target : posix.normalize(target.replaceAll("\\", "/"))
+    return id => id === file
   }
-  return !id.startsWith("node_modules/") && (id.startsWith(`${target}/`) || id.endsWith(`/${target}`))
+  return (id) => {
+    if (id === target) return true
+    if (id.startsWith("node_modules/")) {
+      return moduleGroup(id).name === target || id.startsWith(`node_modules/${target}/`)
+    }
+    return id.startsWith(`${target}/`) || id.endsWith(`/${target}`)
+  }
 }
 
-/**
- * The shortest import chain from an entry of one environment to a module that matches. Static imports come first: a
- * module that loads at startup gets the chain that loads it, not a lazy one. Without a static chain, `import()` counts.
- */
 function chainIn(report: BundleEnvironmentReport, found: (id: string) => boolean): string[] | undefined {
   return searchChain(report, found, false) ?? searchChain(report, found, true)
 }
 
 function searchChain(report: BundleEnvironmentReport, found: (id: string) => boolean, dynamic: boolean): string[] | undefined {
-  // One id can sit in several chunks. Its edges are the union.
   const modules = new Map<string, { entry: boolean, next: Set<string> }>()
   for (const module of report.chunks.flatMap(chunk => chunk.modules)) {
     const row = modules.get(module.id) ?? { entry: false, next: new Set<string>() }
@@ -159,22 +165,23 @@ function searchChain(report: BundleEnvironmentReport, found: (id: string) => boo
  */
 export function explainBundle(reports: readonly BundleEnvironmentReport[], target: string): BundleExplanation[] {
   const current = latestBuild(reports)
+  const matches = moduleMatcher(target, current)
   const explanations: BundleExplanation[] = []
   for (const side of ["client", "server"] as const) {
     const own = current.filter(report => report.side === side)
     const outer = own.filter(report => !isInner(report, current))
-    const hits = placedModules(outer, current).filter(module => matches(module.id, target))
+    const hits = placedModules(outer, current).filter(module => matches(module.id))
     if (!hits.length) continue
     const inner = own.filter(report => !outer.includes(report))
     let chain: BundleChainStep[] = []
     for (const report of outer) {
-      const direct = chainIn(report, id => matches(id, target))
+      const direct = chainIn(report, matches)
       if (direct) {
         chain = direct.map(id => ({ environment: report.environment, id }))
         break
       }
       for (const nested of inner) {
-        const innerChain = chainIn(nested, id => matches(id, target))
+        const innerChain = chainIn(nested, matches)
         if (!innerChain) continue
         const entryFiles = new Set(nested.chunks.filter(chunk => chunk.entry).map(chunk => outputPath(nested, chunk.file)))
         const outerChain = chainIn(report, id => entryFiles.has(id))
@@ -194,4 +201,17 @@ export function explainBundle(reports: readonly BundleEnvironmentReport[], targe
     })
   }
   return explanations
+}
+
+/**
+ * Says what the browser loads on a first visit to a page route, such as `/docs/kv`: the startup files, the files of the
+ * route's layout and pages, and the modules that the route adds. `undefined` when no route of the last build matches.
+ */
+export function explainBundleRoute(reports: readonly BundleEnvironmentReport[], target: string): BundleRouteExplanation | undefined {
+  for (const report of latestBuild(reports)) {
+    if (report.side !== "client") continue
+    const explanation = explainRoute(report, target)
+    if (explanation) return explanation
+  }
+  return undefined
 }

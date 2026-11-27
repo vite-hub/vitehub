@@ -5,8 +5,12 @@ import * as v from "valibot"
 const checkoutRecord = v.object({ head: v.pipe(v.string(), v.regex(/^[\da-f]{40}(?:[\da-f]{24})?$/i)) })
 const recordPath = (root: string) => join(root, ".git", "vitehub-provider-checkout.json")
 
-/** Host checkout preparation explicitly transfers source ancestry to the provider. */
-export async function recordPreparedProviderCheckout(root: string, head: string): Promise<void> {
+/**
+ * Marks `root` as a Git checkout that the host prepared at commit `head`. A provider Driver that
+ * starts in an Agent-owned Workspace at `root` then keeps the checkout's Git history, and fails
+ * if HEAD moved before it starts.
+ */
+export async function recordProviderCheckout(root: string, head: string): Promise<void> {
   await writeFile(recordPath(root), JSON.stringify(v.parse(checkoutRecord, { head })))
 }
 

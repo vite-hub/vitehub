@@ -1,0 +1,192 @@
+---
+title: ViteHub MCP
+seo.title: ViteHub MCP server for docs and your apps
+description: Connect a coding agent to the ViteHub MCP to read the docs, and sign in with your Console account to run the operations of your apps.
+navigation.order: 30
+navigation.group: Agents and tools
+icon: i-lucide-plug
+---
+
+## Connect an agent
+
+Pick your client. Each one adds the server as `vitehub`, so prompts such as "use the vitehub MCP server" match.
+
+::mcp-install
+  :::mcp-client{label="Claude Code" icon="i-simple-icons-claude" method="Terminal"}
+    1. Add the server from your terminal:
+
+       ```bash [Terminal]
+       claude mcp add --transport http vitehub https://vitehub.dev/mcp
+       ```
+
+       It is added for the current project. Add `--scope project` to share it with your team through `.mcp.json`, or `--scope user` for all your projects.
+    2. Start a new session and ask Claude Code to list the `vitehub` tools.
+  :::
+
+  :::mcp-client{label="Codex" icon="i-simple-icons-openai" method="Terminal"}
+    1. Add the server from your terminal:
+
+       ```bash [Terminal]
+       codex mcp add vitehub --url https://vitehub.dev/mcp
+       ```
+
+    2. The command writes this entry to `~/.codex/config.toml`. You can also add it yourself:
+
+       ```toml [~/.codex/config.toml]
+       [mcp_servers.vitehub]
+       url = "https://vitehub.dev/mcp"
+       ```
+
+    3. Start a new Codex session.
+  :::
+
+  :::mcp-client{label="Cursor" icon="i-simple-icons-cursor" method="One-click install or mcp.json" install="cursor"}
+    1. Select **Add to Cursor**, or add the server to `.cursor/mcp.json`:
+
+       ```json [.cursor/mcp.json]
+       {
+         "mcpServers": {
+           "vitehub": {
+             "url": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
+
+    2. Use `~/.cursor/mcp.json` instead to add it for all your projects.
+  :::
+
+  :::mcp-client{label="VS Code" icon="i-simple-icons-visualstudiocode" method="One-click install or mcp.json" install="vscode"}
+    1. Select **Add to VS Code**, or add the server to `.vscode/mcp.json`:
+
+       ```json [.vscode/mcp.json]
+       {
+         "servers": {
+           "vitehub": {
+             "type": "http",
+             "url": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
+
+    2. To add it to your user profile instead of the workspace, run:
+
+       ```bash [Terminal]
+       code --add-mcp '{"name":"vitehub","type":"http","url":"https://vitehub.dev/mcp"}'
+       ```
+
+    3. Open Copilot Chat in agent mode. GitHub Copilot uses the server there.
+  :::
+
+  :::mcp-client{label="Claude" icon="i-simple-icons-anthropic" method="Custom connector"}
+    1. In Claude, open **Customize › Connectors**, then **Add connector › Add custom connector**.
+    2. Name it **ViteHub**, paste `https://vitehub.dev/mcp`, and select **Add**.
+    3. Start a new chat and ask Claude to list the ViteHub tools.
+  :::
+
+  :::mcp-client{label="Windsurf" icon="i-simple-icons-windsurf" method="mcp_config.json" note="Windsurf is now Devin Desktop. Older Windsurf installs use ~/.codeium/windsurf/mcp_config.json."}
+    1. Open the raw MCP configuration from the Cascade MCP settings, and add the server:
+
+       ```json [mcp_config.json]
+       {
+         "mcpServers": {
+           "vitehub": {
+             "serverUrl": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
+
+    2. Devin Desktop keeps the file at `~/.config/devin/mcp_config.json` on macOS and Linux, and at `%APPDATA%\devin\mcp_config.json` on Windows.
+  :::
+
+  :::mcp-client{label="Other" icon="i-lucide-plug" method="Any remote MCP client"}
+    1. In your client's settings, add a remote MCP server named `vitehub`.
+    2. Choose **Streamable HTTP** and paste `https://vitehub.dev/mcp`. The docs address needs no sign-in.
+  :::
+::
+
+## Docs or your apps
+
+The commands above use the docs address. To let the agent work on your apps too, use the account address in the same place:
+
+| Address | Sign-in | Tools |
+| --- | --- | --- |
+| `https://vitehub.dev/mcp` | None | `list-pages` and `get-page`, for the docs. |
+| `https://console.vitehub.dev/mcp/account` | Your Console account | The docs tools, and [project tools](#project-tools) for the apps your team linked. |
+
+```bash [Terminal]
+claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
+```
+
+The account address answers `401` with OAuth metadata, so your client opens the Console in your browser once. Sign in with GitHub or a passkey and allow the client. `https://console.vitehub.dev/mcp` serves the same docs tools as the docs address, without sign-in.
+
+::note
+Your app serves no MCP server for the Console. To give your own users one, see [MCP server](/docs/mcp).
+::
+
+## Check the connection
+
+Ask the agent to use both docs tools:
+
+```txt [Prompt]
+Use the vitehub MCP server to list the pages about Queue, then read the Queue page and summarize how to send a message.
+```
+
+The agent calls `list-pages`, then `get-page` with `/docs/queue`. Without an MCP client, ask for the tool list:
+
+```bash [Terminal]
+curl -s https://vitehub.dev/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The response lists `get-page` and `list-pages`. The docs tools never connect to your app.
+
+## Project tools
+
+With the account address, the agent works on the apps of the team that you opened last in the Console, with your role:
+
+| Tool | Does |
+| --- | --- |
+| `whoami` | Shows who the agent acts as, and the team and roles that it acts on. |
+| `list_apps` | Lists the apps that your team linked. |
+| `link_app` | Links an app by its URL, and returns the `VITEHUB_CONSOLE_KEY_<NAME>` line to set on it. With `kind: "site"`, it registers a site for [Hosted Comments](/docs/comments/configure#add-hosted-comments) and returns the script tag to add to its pages. Only owners and admins of the team can link. |
+| `check_app` | Answers `linked: true` when the app takes its link's signed calls. |
+| `unlink_app` | Unlinks an app and permanently deletes its hosted comment threads and replies. Pass `deleteHostedComments: true` after the user confirms. Remove the link's variable from the app as well. |
+| `list_operations` | Lists the [operations](/docs/console/operations) of an app that you may call, each with its kind, description, and input JSON Schema. |
+| `read_operation` | Runs a read or dry run, such as `kv.list` or `content.publish` with `dryRun: true`. The app refuses a call that changes data. |
+| `run_operation` | Runs `comments.reply` or `comments.resolve` without confirmation. |
+| `run_destructive_operation` | Runs any other change, including operations of kind `write` such as `kv.set` and `blob.put`. Requires `confirm: true`. |
+
+To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`. A [supported production deploy with `vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) can link the app and set the key for you. Before skipping manual setup, check that `console: true` is set, `--no-console` is not set, and `vitehub whoami` shows an owner or admin login for the same Console and team as MCP `whoami`. Check that deploy reports the expected app link and `linked: true`.
+
+The CLI covers these tasks, but a Console login and a direct app signing key give different access:
+
+| Tool | CLI |
+| --- | --- |
+| `whoami` | `vitehub whoami` shows the team of the CLI key, not the last team you opened in the Console. |
+| `list_apps` | `vitehub apps list` |
+| `link_app` | `vitehub apps link <url>` |
+| `check_app` | `vitehub apps check <id>` |
+| `unlink_app` | `vitehub apps unlink <id> --delete-hosted-comments` |
+| `list_operations` | `vitehub project get --url <app>` reports the operation names allowed for the CLI caller, not the MCP caller's list or schemas. Namespace `--help` shows commands from local config, not remote operations. |
+| `read_operation`, `run_operation`, `run_destructive_operation` | `vitehub <namespace> <operation> --url <app>` runs an operation that has a CLI command. For a destructive change, the CLI prompts interactively or accepts `--yes` for non-interactive use. |
+
+The `--url` commands above call the app directly. Give the CLI [its own app signing key](/docs/console/signed-requests#make-a-key-for-the-cli). `vitehub login` alone does not sign direct app requests.
+
+The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). Clients that prompt only for tools marked destructive let agents reply to and resolve comments through `run_operation` without asking. Other changes use `run_destructive_operation`, which is marked destructive. The client decides whether to prompt based on that hint. The agent must ask before passing `confirm: true`: this is the caller's assertion, not proof of consent. The app refuses other changes from signed MCP callers without signed confirmation.
+
+### Comments that an agent handles
+
+`comments.threads` lists the open comment threads of an app. After the agent makes the change that a thread asks for, it resolves the thread with `comments.resolve` and a reply that says what changed, such as the commit or a link. Resolved threads leave the page, and open ones stay on it. The agent resolves all the threads that it handled in one `run_operation` call, with `{ threads: [{ threadId, reply }] }`. See [Resolve what you handled](/docs/comments/operations/server-api#resolve-what-you-handled).
+
+## Use it with the ViteHub skill
+
+The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) tells the agent how to work in a ViteHub project and prove the result, and the MCP gives it the current docs. Install both when the agent builds ViteHub apps, or only the docs address when you only ask about the docs.
+
+::note
+Earlier releases served a Console MCP in each app at `/_vitehub/mcp`. See [Move from earlier releases](/docs/console/migrate#move-from-the-mcp-of-the-app).
+::

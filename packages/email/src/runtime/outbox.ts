@@ -50,16 +50,12 @@ export interface EmailOutboxMessage {
   /** Outbox id, for example `outbox-3`. The id is not a provider message id. */
   id: string
   metadata?: Record<string, string>
-  preheader?: string
   /** Provider driver that sends the message, or that would send it in capture-only mode. */
   provider: string
   replyTo?: string[]
   scheduledAt?: string
-  stream?: string
   subject: string
   tags?: Array<{ name: string, value: string }>
-  /** Provider template id or alias, when the message uses one. */
-  template?: string
   text?: string
   to: string[]
 }
@@ -78,7 +74,6 @@ interface EmailOutboxState {
   nextId: number
 }
 
-// The generated Email definition and the Console reader are separate bundles in one runtime. They share this state.
 const outboxState = Symbol.for("vitehub.email.outbox")
 
 type OutboxGlobal = typeof globalThis & { [outboxState]?: Map<string, EmailOutboxState> }
@@ -189,11 +184,6 @@ export function summarizeEmailOutboxMessage(
   message: EmailMessage,
   options: { capturedAt: Date, delivery: EmailOutboxDelivery, id: string, provider: string },
 ): EmailOutboxMessage {
-  if (message.personalizations?.length === 1) {
-    const personalization = message.personalizations[0]!
-    message = { ...message, bcc: personalization.bcc ?? message.bcc, cc: personalization.cc ?? message.cc, subject: personalization.subject ?? message.subject, to: personalization.to }
-  }
-  const template = message.template?.id ?? message.template?.alias
   return {
     attachments: (message.attachments ?? []).map(attachment => ({
       ...optional("cid", attachment.cid),
@@ -211,50 +201,33 @@ export function summarizeEmailOutboxMessage(
     ...optional("html", message.html),
     id: options.id,
     ...optional("metadata", message.metadata ? redactMetadata(message.metadata) : undefined),
-    ...optional("preheader", message.preheader),
     provider: options.provider,
     ...optional("replyTo", addressList(message.replyTo)),
     ...optional("scheduledAt", message.scheduledAt === undefined ? undefined : isoDate(message.scheduledAt)),
-    ...optional("stream", message.stream),
     subject: message.subject,
     ...optional("tags", message.tags?.map(tag => ({ name: tag.name, value: tag.value }))),
-    ...optional("template", template),
     ...optional("text", message.text),
     to: addressList(message.to) ?? [],
   }
 }
 
+const uninspectableFailure = "Email delivery failed with an uninspectable error."
+
+function inspectQuietly<T>(read: () => T): T | undefined {
+  try {
+    return read()
+  }
+  catch {
+    return undefined
+  }
+}
+
 function failedDelivery(error: unknown): EmailOutboxDelivery {
-  let shape: ReturnType<typeof getViteHubErrorShape> | undefined
-  try {
-    shape = getViteHubErrorShape(error)
-  }
-  catch {
-    // Provider errors can be proxies whose properties throw while being inspected.
-  }
-  let code: string | undefined = shape?.code
-  if (code === undefined) {
-    try {
-      const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
-      code = coded.success ? coded.output.code : undefined
-    }
-    catch {
-      // Keep the delivery record inspectable even when the provider value is hostile.
-    }
-  }
-  let message: string
-  try {
-    message = error instanceof Error ? error.message : String(error)
-  }
-  catch {
-    message = "Email delivery failed with an uninspectable error."
-  }
-  try {
-    message = redactInspectionText(message)
-  }
-  catch {
-    message = "Email delivery failed with an uninspectable error."
-  }
+  const code = getViteHubErrorShape(error)?.code ?? inspectQuietly(() => {
+    const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
+    return coded.success ? coded.output.code : undefined
+  })
+  const message = inspectQuietly(() => redactInspectionText(error instanceof Error ? error.message : String(error))) ?? uninspectableFailure
   return { error: { ...optional("code", code), message }, status: "failed" }
 }
 
@@ -289,9 +262,9 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
   if (!options.deliver) {
     return {
       name: "outbox",
-      send(message, context) {
+      send(message) {
         const { id } = record(message, { status: "captured" })
-        return { data: { at: new Date(), driver: "outbox", id, stream: context.stream }, error: null }
+        return [undefined, { at: new Date(), driver: "outbox", id }]
       },
     }
   }
@@ -301,7 +274,6 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
     driver = await createEmailDriverResolver(options.driver)()
   }
   catch (error) {
-    // Keep the message visible when the provider options cannot be resolved, then report the original failure.
     return {
       name: options.provider,
       send(message) {
@@ -323,14 +295,14 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
         captured.delivery = failedDelivery(error)
         throw error
       }
-      if (result.error) {
-        captured.delivery = failedDelivery(result.error)
+      const [failure, sent] = result
+      if (failure) {
+        captured.delivery = failedDelivery(failure)
       }
-      else if (v.safeParse(v.pipe(v.string(), v.check(id => id.trim().length > 0)), result.data?.id).success) {
-        captured.delivery = { id: result.data.id, status: "sent" }
+      else if (v.safeParse(v.pipe(v.string(), v.check(id => id.trim().length > 0)), sent.id).success) {
+        captured.delivery = { id: sent.id, status: "sent" }
       }
       else {
-        // Keep malformed provider responses out of the successful delivery history.
         captured.delivery = failedDelivery(new Error("Email driver returned an invalid message id."))
       }
       return result

@@ -11,15 +11,16 @@ afterEach(() => {
 
 describe("workspace file responses", () => {
   it("returns not found for a directory path", async () => {
-    registerWorkspace("directory-response", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("directory-response", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("directory-response", { mode: "write" })
     await workspace.fs.mkdir("docs")
 
     const { readWorkspaceFileResponse } = await import("../src/server.ts")
-    await expect(readWorkspaceFileResponse({
+    const response = await readWorkspaceFileResponse({
       path: "docs",
       workspace: "directory-response",
-    })).rejects.toMatchObject({ statusCode: 404 })
+    })
+    expect(response.status).toBe(404)
   })
 
   it("maps a cross-realm missing-file error to not found", async () => {
@@ -32,9 +33,10 @@ describe("workspace file responses", () => {
     }
 
     const { readWorkspaceFileResponse } = await import("../src/server.ts")
-    await expect(readWorkspaceFileResponse({
+    const response = await readWorkspaceFileResponse({
       path: "docs/missing.txt",
       workspace: workspace as never,
-    })).rejects.toMatchObject({ statusCode: 404 })
+    })
+    expect(response.status).toBe(404)
   })
 })

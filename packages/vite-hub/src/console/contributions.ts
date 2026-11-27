@@ -29,13 +29,13 @@ export interface ConsoleSectionDiscoveryContext {
 export interface ConsoleRuntimeReader {
   /** Named export that returns the runtime records. */
   export: string
-  /** `vite-hub` module specifier that the generated Nitro plugin imports. */
+  /** The absolute path of the owner module that the generated Nitro plugin imports. */
   module: string
 }
 
 /** How the host installs a document editor section. */
 export interface ConsoleDocumentEditorRegistration {
-  /** Owner factory export, mapped to its `vite-hub/_internal` module. */
+  /** Owner factory export and the absolute path of its module. */
   readonly actions: ConsoleRuntimeReader
   /** Finds the application module that the actions open. The section is shown only when it finds one. */
   entry(context: ConsoleSectionDiscoveryContext): Promise<string | undefined>
@@ -54,14 +54,6 @@ export interface ConsoleRegisteredSection {
   readonly entry?: (context: ConsoleSectionDiscoveryContext) => Promise<string | undefined>
 }
 
-/**
- * Maps an owner runtime module to the `vite-hub/_internal` re-export. Applications depend on `vite-hub`, so the
- * generated plugin cannot import owner packages directly.
- */
-export function consoleRuntimeReaderModule(module: string): string {
-  return module.replace(/^@vite-hub\//, "vite-hub/_internal/")
-}
-
 function registerConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: (context: ConsoleSectionDiscoveryContext) => TOptions,
@@ -76,7 +68,7 @@ function registerConsoleSection<TOptions>(
       return content
     },
   }
-  if (runtime) registered.runtime = { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) }
+  if (runtime) registered.runtime = { export: runtime.export, module: runtime.module }
   if (isViteHubConsoleRuntimeSection(section) && section.entry) {
     const entry = section.entry
     registered.entry = async context => await entry(options(context))
@@ -84,7 +76,7 @@ function registerConsoleSection<TOptions>(
   if (actions && isViteHubConsoleDocumentEditorSection(section)) {
     const inspect = section.inspect
     registered.documents = {
-      actions: { export: actions.export, module: consoleRuntimeReaderModule(actions.module) },
+      actions: { export: actions.export, module: actions.module },
       entry: async context => await section.entry(options(context)),
       ...(inspect ? { inspect: async (context: ConsoleSectionDiscoveryContext, entry: string) => await inspect(options(context), entry) } : {}),
     }

@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { isResponse } from "./internal/response.ts"
 import { encodeUIMessageStream } from "./stream-output.ts"
 
 interface AgentStreamResult {
@@ -17,40 +17,10 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
-function isResponseLike(value: unknown): value is Response {
-  try {
-    if (!hasRuntimeType(value, "object")) return false
-    const prototype = Response.prototype
-    const get = (name: string) => {
-      const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
-      if (!getter) throw new TypeError(`Missing Response accessor: ${name}`)
-      getter.call(value)
-    }
-    get("headers")
-    get("status")
-    get("statusText")
-    get("body")
-    get("bodyUsed")
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function isResponse(value: unknown): value is Response {
-  try {
-    return value instanceof Response || isResponseLike(value)
-  }
-  catch {
-    return false
-  }
-}
-
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 const workflowRunStatuses = new Set(["completed", "failed", "queued", "running", "unknown"])
 
-export function isWorkflowRun(value: unknown): value is { id: string, metadata?: unknown, provider: string, result?: unknown, status: string } {
+export function isWorkflowRun(value: unknown): value is { error?: { message?: unknown }, id: string, metadata?: unknown, provider: string, result?: unknown, status: string } {
   if (typeof value !== "object" || value === null) return false
   const run = value as { id?: unknown, provider?: unknown, status?: unknown }
   const provider = run.provider
@@ -145,7 +115,7 @@ export function toAgentHttpResult(value: unknown, stream: boolean): Response | u
     return value
   }
   if (stream && isAgentStreamResult(value)) {
-    if (hasRuntimeType(value.toUIMessageStreamResponse, "function")) {
+    if (typeof value.toUIMessageStreamResponse === "function") {
       return value.toUIMessageStreamResponse()
     }
     const response = value.toTextStreamResponse?.()

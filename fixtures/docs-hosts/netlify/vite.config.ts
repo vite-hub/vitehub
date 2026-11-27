@@ -1,14 +1,13 @@
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'netlify',
+      host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })

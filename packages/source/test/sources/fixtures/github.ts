@@ -27,7 +27,7 @@ export interface StubGitHubSourceOptions {
   treeTruncated?: boolean
 }
 
-export function createTarGz(files: Record<string, string>, prefix = "archive-main/") {
+export function createTarGz(files: Record<string, string | Uint8Array>, prefix = "archive-main/") {
   const blocks: Buffer[] = []
   for (const [path, value] of Object.entries(files)) {
     const content = Buffer.from(value)

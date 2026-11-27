@@ -1,25 +1,16 @@
-import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
-
-// `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
-// with it all of jose, which a bundle cannot drop from CommonJS. Bundle the one module that `@vercel/blob` calls.
-const vercelOidcTokenReader = fileURLToPath(new URL(
-  "get-vercel-oidc-token-with-refresh.js",
-  pathToFileURL(createRequire(import.meta.resolve("@vercel/blob")).resolve("@vercel/oidc")),
-));
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    alias: {
-      "@vercel/oidc": vercelOidcTokenReader,
-      undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
+    ...packDefaults,
+    outputOptions: {
+      codeSplitting: {
+        groups: [{ name: "vitehub-grants", test: /[/\\]storage[/\\](?:target|materialization)\.ts$/ }],
+      },
     },
-    tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/, /^@vite-hub\/forge/, /^@vercel\/blob/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",
@@ -32,26 +23,28 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/ai.ts",
       "src/blob-database.ts",
+      "src/blob-database/postgres.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
+      "src/durability.ts",
       "src/files.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
       "src/index.ts",
       "src/lineage.ts",
       "src/loader.ts",
-      "src/mountx.ts",
-      "src/nitro.ts",
       "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
       "src/internal/path.ts",
+      "src/internal/workspace.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
       "src/runtime/assets.ts",
+      "src/runtime/registry.ts",
+      "src/runtime/request.ts",
       "src/runtime/state.ts",
       "src/server.ts",
       "src/providers/github/store.ts",
@@ -62,9 +55,13 @@ export default defineConfig({
       exclude: [
         "hosted",
         "hosted-vercel-blob",
+        // Generated code imports these modules by path. They are not public API.
+        "operations",
         "runtime/assets",
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
+        "runtime/registry",
+        "runtime/request",
         "runtime/state",
         "runtime/workspace",
         "providers/github/store",
@@ -73,7 +70,6 @@ export default defineConfig({
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
-        exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
 
@@ -88,10 +84,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 });

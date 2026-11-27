@@ -1,6 +1,6 @@
 import { createTelegramAdapter } from "@chat-adapter/telegram"
 import { telegram } from "@vite-hub/agent/channels"
-import { createAgentChatData } from "@vite-hub/agent"
+import { createAgentChatData } from "@vite-hub/agent/messages"
 import type { AgentChatPlatformAdapter } from "@vite-hub/agent"
 
 const adapter = createTelegramAdapter({

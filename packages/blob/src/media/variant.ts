@@ -1,5 +1,7 @@
 // Image variant requests and geometry. Pure: shared by the serve route, the server, and browser helpers.
 
+import { blobBrowserDiagnostics } from "../browser-diagnostics.ts"
+
 /** Output formats an image transformer produces. */
 export type BlobImageFormat = "avif" | "jpeg" | "png" | "webp"
 
@@ -102,15 +104,15 @@ function readQuery(query: URLSearchParams | Record<string, unknown>, name: strin
 
 function readInteger(name: string, value: string | undefined, max: number): number | undefined {
   if (value === undefined || value === "") return undefined
-  if (!integerPattern.test(value)) throw new TypeError(`Image variant \`${name}\` must be a positive integer.`)
+  if (!integerPattern.test(value)) throw blobBrowserDiagnostics.BLOB_IMAGE_VARIANT_INVALID({ expected: "a positive integer", parameter: name })
   const number = Number(value)
-  if (number < 1 || number > max) throw new TypeError(`Image variant \`${name}\` must be from 1 to ${max}.`)
+  if (number < 1 || number > max) throw blobBrowserDiagnostics.BLOB_IMAGE_VARIANT_INVALID({ expected: `from 1 to ${max}`, parameter: name })
   return number
 }
 
 /**
  * Reads an image variant from serve route query parameters: `w`, `h`, `fit`, `fmt`, `q`, and `crop`.
- * Returns `undefined` when none are present. Throws a `TypeError` for invalid values. Other parameters are ignored.
+ * Returns `undefined` when none are present. Throws `BLOB_IMAGE_VARIANT_INVALID` for invalid values. Other parameters are ignored.
  */
 export function parseImageVariant(query: URLSearchParams | Record<string, unknown>): BlobImageVariant | undefined {
   const variant: BlobImageVariant = {}
@@ -124,15 +126,15 @@ export function parseImageVariant(query: URLSearchParams | Record<string, unknow
   if (height !== undefined) variant.height = height
   if (quality !== undefined) variant.quality = quality
   if (fit) {
-    if (!isFit(fit)) throw new TypeError("Image variant `fit` must be cover or inside.")
+    if (!isFit(fit)) throw blobBrowserDiagnostics.BLOB_IMAGE_VARIANT_INVALID({ expected: "cover or inside", parameter: "fit" })
     variant.fit = fit
   }
   if (format) {
-    if (!isFormat(format)) throw new TypeError(`Image variant \`fmt\` must be one of ${imageFormats.join(", ")}.`)
+    if (!isFormat(format)) throw blobBrowserDiagnostics.BLOB_IMAGE_VARIANT_INVALID({ expected: `one of ${imageFormats.join(", ")}`, parameter: "fmt" })
     variant.format = format
   }
   if (crop) {
-    if (!isMediaCropName(crop)) throw new TypeError("Image variant `crop` must be a crop name.")
+    if (!isMediaCropName(crop)) throw blobBrowserDiagnostics.BLOB_IMAGE_VARIANT_INVALID({ expected: "a crop name", parameter: "crop" })
     variant.crop = crop
   }
   return Object.keys(variant).length ? variant : undefined

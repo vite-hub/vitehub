@@ -5,6 +5,7 @@ export default defineNuxtConfig({
   modules: ['nuxt-safe-runtime-config'],
   runtimeConfig: {
     apiSecret: '',
+    allowedOrigins: ['https://example.com'],
     maxRetries: 3,
     featureEnabled: false,
     public: {
@@ -13,7 +14,8 @@ export default defineNuxtConfig({
   },
   safeRuntimeConfig: {
     $schema: v.object({
-      apiSecret: v.pipe(v.string(), v.minLength(1)),
+      apiSecret: v.pipe(v.string(), v.minLength(16)),
+      allowedOrigins: v.array(v.pipe(v.string(), v.url())),
       maxRetries: v.number(),
       featureEnabled: v.boolean(),
       public: v.object({

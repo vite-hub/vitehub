@@ -37,12 +37,10 @@ export interface GrantDefinition<Kind extends string, Input, Value> {
  * and the sensitive action verifies them. Each definition has its own registry, so a grant from another definition,
  * another bundled copy, or a forged object fails closed. Grants are request-scoped. Never persist one.
  */
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The parameter type of `bind` supplies `Input`.
 export function defineGrant<const Kind extends string, Input, Value>(
   kind: Kind,
   bind: (input: Input) => Value,
 ): GrantDefinition<Kind, Input, Value> {
-  // Boxed, so a bound `undefined` still counts as issued.
   const issued = new WeakMap<object, { readonly value: Value }>()
   const owners = new WeakMap<WeakKey, Grant<Kind>>()
 

@@ -11,8 +11,8 @@ import { createTestQueueClient } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueSendResult, VercelQueueProviderOptions } from "../types.ts"
-import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "../internal/runtime/types.ts"
+import type { CloudflareQueueClient, CloudflareQueueDriverOptions, LocalQueueDriverOptions, PostgresQueueDriverOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueDriver, QueueSendResult, VercelQueueDriverOptions } from "../types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "../internal/runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 async function loadNamedQueueDefinition(name: string) {
@@ -20,7 +20,6 @@ async function loadNamedQueueDefinition(name: string) {
     return await loadQueueDefinition(name)
   }
   catch (cause) {
-    // Names can come from external input. Only a safe identifier goes into the `why`.
     throw queueErrorDiagnostics.QUEUE_DEFINITION_LOAD_FAILED({ cause, queue: normalizePublicQueueIdentifier(name) })
   }
 }
@@ -35,22 +34,26 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
   return resolved || bindingName
 }
 
-function toProviderOptions(name: string, config: QueueRuntimeOptions): QueueRuntimeProviderOptions {
-  if (config.provider === "cloudflare") {
+function toDriverOptions(name: string, config: QueueRuntimeOptions): QueueRuntimeDriverOptions {
+  if (config.driver === "cloudflare") {
     return {
       ...config,
       binding: resolveCloudflareBinding(config.binding, name),
-    } satisfies CloudflareQueueProviderOptions
+    } satisfies CloudflareQueueDriverOptions
   }
 
-  if (config.provider === "local") {
-    return { ...config, queue: name } satisfies LocalQueueProviderOptions
+  if (config.driver === "local") {
+    return { ...config, queue: name } satisfies LocalQueueDriverOptions
+  }
+
+  if (config.driver === "postgres") {
+    return { ...config, queue: name } satisfies PostgresQueueDriverOptions
   }
 
   return {
     ...config,
     topic: getVercelQueueTopicName(name),
-  } satisfies VercelQueueProviderOptions
+  } satisfies VercelQueueDriverOptions
 }
 
 function getActiveQueueConfig(): false | QueueRuntimeOptions {
@@ -68,23 +71,21 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
     throw queueErrorDiagnostics.QUEUE_DISABLED()
   }
 
-  const provider = toProviderOptions(name, config)
+  const driverOptions = toDriverOptions(name, config)
   const createClient = getQueueRuntimeClientFactory()
   if (!createClient) {
     throw queueErrorDiagnostics.QUEUE_RUNTIME_NOT_INSTALLED()
   }
   try {
-    return await createClient(provider)
+    return await createClient(driverOptions)
   }
   catch (cause) {
     if (isQueueError(cause)) throw cause
-    throw queueErrorDiagnostics.QUEUE_PROVIDER_FAILED({ cause, operation: "create-client", provider: provider.provider })
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_FAILED({ cause, operation: "create-client", provider: driverOptions.driver })
   }
 }
 
-async function getDynamicQueue(name: string): Promise<QueueClient> {
-  // A disabled Queue loads no definitions, so say so first: QUEUE_DEFINITION_NOT_FOUND
-  // would tell the developer to add a queue file that already exists.
+async function useDynamicQueue(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
     throw queueErrorDiagnostics.QUEUE_DISABLED()
@@ -96,9 +97,9 @@ async function getDynamicQueue(name: string): Promise<QueueClient> {
   }
 
   const test = getViteHubTestMode()
-  if (test) return createTestQueueClient(test, name, config.provider === "local" ? config.rules ?? "local" : config.provider)
+  if (test) return createTestQueueClient(test, name, config.driver === "local" ? config.rules ?? "local" : config.driver)
 
-  const bypassCache = definition.options?.cache === false || config.cache === false || config.provider === "cloudflare" || (config.provider === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
+  const bypassCache = definition.cache === false || config.cache === false || config.driver === "cloudflare" || (config.driver === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
   if (bypassCache) {
     return await createNamedQueueClient(name)
   }
@@ -106,13 +107,12 @@ async function getDynamicQueue(name: string): Promise<QueueClient> {
   return await getOrCreateQueueClient(name, () => createNamedQueueClient(name))
 }
 
-async function runDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
+async function sendDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
   let queue: QueueClient
   try {
-    queue = await getDynamicQueue(name)
+    queue = await useDynamicQueue(name)
   }
   catch (error) {
-    // A provider failure while the client starts is a runtime error. Config errors still throw.
     if (isQueueError(error, ["QUEUE_PROVIDER_FAILED"])) return [error, undefined]
     throw error
   }
@@ -122,13 +122,13 @@ async function runDynamicQueue(name: string, payload: unknown, options?: QueueEn
 function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): void {
   const request = getQueueRuntimeEvent()
   const task = async () => {
-    const [error] = await runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))
+    const [error] = await runWithQueueRuntimeEvent(request, () => sendDynamicQueue(name, payload, options))
     if (error) throw error
   }
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {
-      await (await loadNamedQueueDefinition(name))?.options?.onDispatchError?.(error, { name })
+      await (await loadNamedQueueDefinition(name))?.onDispatchError?.(error, { name })
     } catch (hookError) {
       console.error(`[vitehub] onDispatchError hook failed for "${name}"`, hookError)
     }
@@ -144,29 +144,33 @@ function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueu
 /** Dispatch externally supplied names and payloads after application validation. */
 export const dynamicQueue: {
   defer: typeof deferDynamicQueue
-  get: typeof getDynamicQueue
-  run: typeof runDynamicQueue
+  send: typeof sendDynamicQueue
+  use: typeof useDynamicQueue
 } = {
   defer: deferDynamicQueue,
-  get: getDynamicQueue,
-  run: runDynamicQueue,
+  send: sendDynamicQueue,
+  use: useDynamicQueue,
 }
 
 /**
- * Returns the QueueClient of a discovered Queue Definition. Config errors, for example an unknown name, throw.
+ * Returns the QueueClient of a discovered Queue Definition, for `sendBatch()` and provider methods. Config errors, for example an unknown name, throw.
  */
-export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueProvider, QueuePayload<TName>>> {
-  return await getDynamicQueue(name)
+export async function useQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueDriver, QueuePayload<TName>>> {
+  return await useDynamicQueue(name)
 }
 
 /**
- * Enqueues one job and returns `[error, result]`. `error.code` is a `QueueErrorCode`.
+ * Sends one job to the Queue and returns `[error, result]`. `error.code` is a `QueueErrorCode`.
  * Config errors, for example an unknown Queue name, throw.
  */
-export function runQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
-  return runDynamicQueue(name, payload, options)
+export function sendQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
+  return sendDynamicQueue(name, payload, options)
 }
 
+/**
+ * Sends one job after the response, through `waitUntil`. It returns nothing: a failure goes to the log and to the
+ * `onDispatchError` option of the Queue Definition. Call `sendQueue()` when the caller needs the message ID.
+ */
 export function deferQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): void {
   deferDynamicQueue(name, payload, options)
 }

@@ -19,9 +19,9 @@ it("accepts Fetch Requests, H3 and host Standard Context events from the public 
       "~standard": { vendor: "test", req: new Request("https://example.test/upload"), res: {} },
       context: { params: { action: "create", pathname: "photo.jpg" } },
     }
+    const served: Promise<Response> = blob.serve(h3.req, "photo.jpg")
+    void served
     for (const event of [h3, host]) {
-      void blob.serve(event, "photo.jpg")
-      void blob.store("default", { mode: "read" }).serve(event, "photo.jpg")
       void blob.handleUpload(event)
       void blob.media.handleUpload(event)
       event.context.params = { action: "create", pathname: "photo.jpg" }

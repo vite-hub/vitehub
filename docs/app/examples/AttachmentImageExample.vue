@@ -18,7 +18,7 @@ const images = [
           <AttachmentDescription>{{ image.meta }}</AttachmentDescription>
         </AttachmentContent>
         <AttachmentActions>
-          <AttachmentAction icon="i-ph-x-light" :aria-label="`Remove ${image.name}`" />
+          <AttachmentAction icon="i-lucide-x" :aria-label="`Remove ${image.name}`" />
         </AttachmentActions>
         <AttachmentTrigger
           as="a"

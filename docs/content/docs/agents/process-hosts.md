@@ -11,7 +11,7 @@ navigation.kind: Guides
 A process host runs background Agent work, such as a pull-request Agent, inside one long-lived Node process. It gives a process capacity limit, an Invocation journal (a record of each run), recovery for work a stopped process left behind, provider session storage, and a graceful drain that finishes running work before the process stops. For work that must continue on another host or across a durable wait, use a [Workflow](/docs/workflows).
 
 ::warning
-The host works inside one process only. Its `dataDir` must belong to one running process host. It is not a distributed lease or a coordination service for more than one replica.
+`createProcessAgentHost()` works inside one process only. Its `dataDir` must belong to one running process host. To run a host on one server of many, use a [preset process host with a Database](#run-one-host-across-servers).
 ::
 
 ## Create a host
@@ -19,7 +19,7 @@ The host works inside one process only. Its `dataDir` must belong to one running
 Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
 ```ts [server/host.ts] fragment
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentHost } from 'vite-hub/agent/process'
 
 export default await createProcessAgentHost({
   name: 'reviewer',
@@ -42,16 +42,15 @@ export default await createProcessAgentHost({
 ViteHub does not attach the host to an Agent Definition. Pass the host's journal and provider session store to the Definition, and share its capacity object with the Driver:
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import host from '../host'
 
 export default defineAgent({
   invocations: host.invocations,
-  driver: {
-    model: 'openai/gpt-5.1-mini',
+  driver: codexDriver({
     capacity: host.capacity,
     sessionStorePath: host.providerSessionStorePath,
-  },
+  }),
 })
 ```
 
@@ -66,7 +65,7 @@ The host creates `invocations.sqlite` and `provider-sessions.sqlite` below `data
 `capacity.concurrency` is the hard maximum of concurrent runs. Queue options control what happens when slots are full. `createProcessAgentCapacity()` can admit fewer new runs under pressure:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const sharedCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -83,6 +82,7 @@ Use one capacity object for all Agent Definitions that share process resources. 
 - Running Invocations are never stopped to make room.
 - Queued Invocations stay in first-in, first-out (FIFO) order and start when the memory sample allows.
 - Linux hosts use cgroup v2 memory limits, memory events, and pressure information when available. Other hosts use Node's available-memory signal.
+- Admission pauses when CPU pressure is above `cpu.pausePressure` (default 0.25) or memory pressure is above `memory.pausePressure` (default 0.05). It resumes when pressure falls to `resumePressure` above the lowest pressure of the last 10 minutes, and never higher than `pausePressure`. On a shared host where other services keep pressure at 3%, admission resumes at 4% memory pressure, not at 1%. Until samples cover 10 minutes, including after a sampling gap of 10 minutes or more, admission uses `resumePressure` alone.
 - When a sample fails or is slow, the host uses `fallbackConcurrency`.
 
 ## Recover and drain
@@ -131,7 +131,7 @@ On a persistent server, ViteHub finishes Agent work on `SIGTERM` and `SIGINT`, t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: { shutdown: { drainMs: 45_000 } },
   },
 })
@@ -147,7 +147,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: { shutdown: { drainMs: 45_000 } },
     }),
     nitro(),
@@ -164,7 +164,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: { shutdown: { drainMs: 45_000 } },
     }),
   ],
@@ -175,17 +175,33 @@ export default defineConfig({
 
 The default is 0, which stops work at once. Set the host's termination grace period above the budget plus 25 seconds (15 for interrupted work such as a Chat restart notice, 10 for close hooks), such as 90 seconds for a 45-second budget.
 
+The [systemd unit](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-systemd) that the `node` host writes sets `TimeoutStopSec` from `shutdown.drainMs`. The [Dockerfile](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-docker) shows the build-time default for `docker run --stop-timeout`. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, round that budget up to seconds and add 30 for Docker's timeout.
+
 ViteHub handles stop signals only where the Nitro server does: the `node`, `node-cluster`, `bun`, and `deno` presets. In development, during prerender, on serverless and Cloudflare hosts, and when graceful shutdown is off (srvx turns it off when `CI` or `TEST` is set), the signal keeps its default behavior, and drains run only when Nitro calls its `close` hooks.
 
 - `agent: { shutdown: false }` skips draining inline Chat Invocations.
 - `process.__vitehubShutdown` shows the registered drains, the signal, and each drain's result.
 - Logs have `shutdown.draining`, `shutdown.drained`, and `shutdown.exited` events.
 
+## Run one host across servers
+
+A discovered Agent with a process host, such as the [Babysitter](/docs/presets/babysitter), gets a generated host on the Node server preset. With a ViteHub Database named `default`, only one server at a time runs the host of each Agent. That server holds the Lease `agent-process-host:<agent>` in the [Leases](/docs/guides/run-one-at-a-time) table. The other servers wait.
+
+- Each server checks the Lease every 5 seconds. The holder renews it, and it lasts 25 seconds. During graceful shutdown the holder forwards new deliveries and renews the Lease until its host drains. If the holder crashes, another server starts the host within about 30 seconds.
+- The holder stops its host when it cannot renew the Lease before the Lease ends. It counts this time on its own monotonic clock, and the Lease ends on the Database clock, so the server clocks do not need to agree.
+- The new holder fails the inline Invocations that the old holder left running, as a restarted host does. It does not run them again. An inline Invocation runs at most once.
+- A server that waits keeps each webhook delivery for the host in Agent State and answers `202`. The holder hands the deliveries to its host at its next Lease check. Use shared Agent State, such as remote libSQL, so that the holder can read them.
+- `VITEHUB_INSTANCE_ID` names the server in the Lease. `GET /_vitehub/host/health` reports `role: "holder"` or `role: "standby"` with the `holder` for each Agent.
+
+Without a Database, every server runs its own host, and the server logs a warning. The `agent-process-host` line of the boot Durability report shows which mode the server uses.
+
+When a network partition separates the holder from the Database, it stops its host when the Lease ends, but a pass that runs then drains first. The new holder can start while that pass finishes.
+
 ## Report readiness after warm-up
 
 A fresh process builds trigger registrations, resolves webhook secrets, and connects and migrates Agent State on its first webhook delivery, which waits for it. Some providers do not wait long: GitHub closes the connection after 10 seconds and does not resend.
 
-With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/api/_vitehub/ready` reports the result:
+With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/_vitehub/ready` reports the result:
 
 | State | Status | Body |
 | --- | --- | --- |
@@ -200,7 +216,7 @@ Point a Kubernetes readiness probe at the route so the Service sends traffic onl
 ```yaml [deployment.yaml]
 readinessProbe:
   httpGet:
-    path: /api/_vitehub/ready
+    path: /_vitehub/ready
     port: 3000
   periodSeconds: 2
   failureThreshold: 1
@@ -249,7 +265,7 @@ The default health route is `/api/health`. Generated routes grant no Console aut
 To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 const capacity = createProcessAgentCapacity({
   concurrency: 2,

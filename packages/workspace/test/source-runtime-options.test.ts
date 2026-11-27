@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { fetch, file, github, glob, markdown, mcpResources } from "../src/index.ts"
+import { file, github, glob, markdown, mcpResources, url as urlSource } from "../src/index.ts"
 import { normalizeWorkspaceSource } from "../src/sources/config.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -21,7 +21,7 @@ const client = {
 }
 
 const factories = [
-  { name: "file", create: (options: object) => file(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: "", materialize: undefined },
+  { name: "file", create: (options: object) => file(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: undefined, materialize: undefined },
   { name: "markdown", create: (options: object) => markdown(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: undefined, materialize: undefined },
   { name: "glob", create: (options: object) => glob(options as never), input: { include: "**/*.md" }, mount: undefined, materialize: undefined },
   { name: "github", create: (options: object) => github(options as never), input: { auth: false, repo: "acme/docs" }, mount: undefined, materialize: undefined },
@@ -97,11 +97,11 @@ describe("Workspace Source runtime options", () => {
     expect(normalizeWorkspaceSource("docs", binding)).toMatchObject({ cache: false, materialize: "build", mountPath: "", sync: false, validate: false })
   })
 
-  it("ignores inherited runtime options in direct fetch()", () => {
+  it("ignores inherited runtime options in direct urlSource()", () => {
     const options = Object.assign(Object.create({ materialize: "startup", sync: true }), {
       url: "https://status.example.com/health",
     })
-    expect(fetch(options as never)).toMatchObject({ materialize: "lazy", sync: undefined })
+    expect(urlSource(options as never)).toMatchObject({ materialize: "lazy", sync: undefined })
   })
 
   it("ignores inherited cache fields", () => {
@@ -114,11 +114,13 @@ describe("Workspace Source runtime options", () => {
     expect(normalizeWorkspaceSource("docs", source).cache).toEqual({})
   })
 
-  it("preserves non-runtime fetch options outside enumerable own properties", () => {
+  it("preserves non-runtime fetch options outside enumerable own properties", async () => {
     const prototype = { url: "https://status.example.com/health" }
     const options = Object.create(prototype)
     Object.defineProperty(options, "workspacePath", { value: "health.json", enumerable: false })
-    expect(fetch(options as never)).toMatchObject({ materialize: "lazy" })
+    const source = urlSource(options as never)
+    expect(source).toMatchObject({ materialize: "lazy" })
+    await expect(source.getKeys!({} as never)).resolves.toEqual(["health.json"])
   })
 
   it("keeps the original receiver for fetch option getters", () => {
@@ -131,7 +133,7 @@ describe("Workspace Source runtime options", () => {
         return (data: unknown) => this.url.endsWith("/health") ? data : "wrong"
       },
     }
-    const source = fetch(options)
+    const source = urlSource(options)
     expect(reads).toBe(0)
     expect(source).toMatchObject({ materialize: "lazy" })
     expect(reads).toBe(0)

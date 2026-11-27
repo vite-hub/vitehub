@@ -17,14 +17,14 @@ function snapshot(conclusion = "success"): Snapshot {
   };
 }
 
-function reader(responses: { files?: string[][]; compare?: { ahead: number; files?: unknown[] }; activity?: unknown; baseFailures?: number }): BaseFreshnessReader & { paths: string[] } {
+function reader(responses: { files?: string[][]; compare?: { ahead: number; files?: unknown[] }; activity?: unknown; baseFailures?: string[] }): BaseFreshnessReader & { paths: string[] } {
   const paths: string[] = [];
   return {
     paths,
     async rest(path) {
       paths.push(path);
       if (path.includes("/files?")) return (responses.files ?? []).map(([filename, previous_filename]) => ({ filename, previous_filename }));
-      if (path.includes("/check-runs?")) return Array.from({ length: responses.baseFailures ?? 0 }, () => ({ conclusion: "failure" }));
+      if (path.includes("/check-runs?")) return (responses.baseFailures ?? []).map(name => ({ name, conclusion: "failure" }));
       return [];
     },
     async page(path) {
@@ -46,6 +46,30 @@ function reader(responses: { files?: string[][]; compare?: { ahead: number; file
 const live = { head: { sha: head }, base: { ref: "main" } };
 
 describe("Babysitter base freshness", () => {
+  it.each([true, false])("uses the newest matching fork PR run instead of newer unrelated runs (activity available: %s)", async (activityAvailable) => {
+    const fork = snapshot();
+    fork.pr = { ...fork.pr!, head: { ...fork.pr!.head!, repo: { full_name: "contributor/app" } } };
+    fork.checks = {
+      "check_run:1": { id: 1, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-17T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/70/job/1" },
+      "check_run:2": { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-18T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/77/job/2" },
+      "check_run:3": { id: 3, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-19T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/78/job/3" },
+      "check_run:4": { id: 4, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-20T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/79/job/4" },
+    };
+    const base = reader({ files: [["src/a.ts"]], compare: { ahead: 1, files: ["src/b.ts"] }, activity: activityAvailable ? undefined : [] });
+    const read: BaseFreshnessReader = {
+      rest: base.rest,
+      async page(path, s) {
+        if (path.endsWith("/actions/runs/77")) return { event: "pull_request", pull_requests: [], head_sha: head, head_branch: "fix", head_repository: { full_name: "contributor/app" }, created_at: "2026-10-18T10:00:00Z" };
+        if (path.endsWith("/actions/runs/78")) return { event: "push", pull_requests: [], created_at: "2026-10-16T10:00:00Z" };
+        if (path.endsWith("/actions/runs/79")) return { event: "pull_request", pull_requests: [], head_sha: head, head_branch: "other", head_repository: { full_name: "contributor/app" }, created_at: "2026-10-20T10:00:00Z" };
+        if (path.endsWith("/actions/runs/70")) throw new Error("the older run must not be read");
+        return await base.page(path, s);
+      },
+    };
+    expect(await staleBaseOverlap(read, fork, live, signal)).toEqual(activityAvailable ? [] : ["src/a.ts"]);
+    expect(base.paths.includes(`repos/acme/app/compare/${tested}...main?per_page=100`)).toBe(activityAvailable);
+  });
+
   it("returns the files that both the PR and the base changed after the checks ran", async () => {
     const read = reader({ files: [["src/a.ts", null as unknown as string], ["src/b.ts", "src/old-b.ts"]], compare: { ahead: 2, files: ["src/old-b.ts", "README.md", null] } });
     expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/old-b.ts"]);
@@ -54,6 +78,16 @@ describe("Babysitter base freshness", () => {
 
   it("finds no overlap when the base did not move", async () => {
     expect(await staleBaseOverlap(reader({ files: [["src/a.ts"]], compare: { ahead: 0, files: [] } }), snapshot(), live, signal)).toEqual([]);
+  });
+
+  it("finds no overlap when the head already contains the base tip", async () => {
+    const read = reader({ files: [["src/a.ts"]] });
+    const originalPage = read.page;
+    read.page = async (path, requestSignal) => path === `repos/acme/app/compare/main...${head}?per_page=1` ? { ahead_by: 1, behind_by: 0 } : originalPage(path, requestSignal);
+    const noRun = snapshot();
+    noRun.checks["check_run:1"]!.html_url = "https://example.test/external";
+    expect(await staleBaseOverlap(read, noRun, live, signal)).toEqual([]);
+    expect(read.paths.some(path => path.includes("/files?"))).toBe(false);
   });
 
   it("treats a missing run or a truncated comparison as overlap", async () => {
@@ -78,7 +112,9 @@ describe("Babysitter base freshness", () => {
   it("retests failed checks only after the base moved and passes again", async () => {
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 } }), snapshot("failure"), failedConclusions, signal)).toBe(3);
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 0 } }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
-    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: 1 }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
+    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: ["test"] }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
+    // A base that fails other checks, such as a release proposal, still fixed this one.
+    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: ["release"] }), snapshot("failure"), failedConclusions, signal)).toBe(3);
     // Passing checks are not the failures this retest is for.
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 } }), snapshot("success"), failedConclusions, signal)).toBeUndefined();
   });

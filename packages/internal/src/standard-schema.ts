@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "./object.ts"
+
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 
 export type StandardJsonSchemaTarget = StandardJSONSchemaV1.Target
@@ -14,14 +16,19 @@ function readOwn(value: unknown, key: string): unknown {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 /** Whether a value carries a Standard Schema `~standard.validate` function. */
 export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
   const standard = readOwn(value, "~standard")
   return isRecord(standard) && typeof readOwn(standard, "validate") === "function"
+}
+
+/**
+ * The issues of a Standard Schema result, or `undefined` when the result has none. The result can be an array that
+ * carries its own `issues`, such as ArkType's `ArkErrors`.
+ */
+export function standardResultIssues(result: unknown): readonly unknown[] | undefined {
+  const issues = readOwn(result, "issues")
+  return Array.isArray(issues) && issues.length > 0 ? issues : undefined
 }
 
 /**

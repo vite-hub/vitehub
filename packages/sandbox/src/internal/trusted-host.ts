@@ -25,8 +25,11 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
+import { isTrustedHostReservedCommandEnvironmentKey } from "./trusted-host-environment.ts";
 
 import type {
   SandboxFileEntry,
@@ -49,15 +52,13 @@ import {
 import { markBuiltInSandboxRuntime } from "./runtime.ts";
 import { acquireFileLock } from "./file-lock.ts";
 import { createSandboxSession, type RuntimeSession } from "./session.ts";
-import { createSessionMemory, validateTrustedHostResources, type TrustedHostResources } from "./session-memory.ts";
 
 export interface TrustedHostOptions {
-  /** Linux-only aggregate limits for session commands. Requires cgroup v2 delegation. */
-  resources?: TrustedHostResources;
   stateRoot?: string;
 }
 
 interface TrustedHostSession extends RuntimeSession {
+  destroy(): Promise<void>;
   readonly env: Record<string, string>;
   readonly home: string;
   readonly processes: Set<ChildProcessWithoutNullStreams>;
@@ -94,17 +95,6 @@ const baseEnvironmentKeys = [
   "USER",
 ] as const;
 
-const runtimeEnvironmentKeys = new Set([
-  "CODEX_HOME",
-  "HOME",
-  "INIT_CWD",
-  "OLDPWD",
-  "PWD",
-  "XDG_CACHE_HOME",
-  "XDG_CONFIG_HOME",
-  "XDG_STATE_HOME",
-]);
-
 const trustedHostExecutionAuthority = {
   credentials: "unknown",
   environment: "selected",
@@ -115,21 +105,16 @@ const trustedHostExecutionAuthority = {
 } as const satisfies ExecutionAuthority;
 
 export function createTrustedHostRuntime(options: TrustedHostOptions = {}): SandboxRuntime {
-  const preparedInputs = new WeakMap<SandboxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>> & {
-    resources?: TrustedHostResources;
-  }>();
+  const preparedInputs = new WeakMap<SandboxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>>>();
   return markBuiltInSandboxRuntime({
     name: "trusted-host",
     async prepare(input) {
-      const resources = options.resources ? Object.freeze({ ...options.resources }) : undefined;
-      if (resources) validateTrustedHostResources(resources);
       const { cwd, stateRoot } = await resolveTrustedHostInput(input, options);
-      preparedInputs.set(input, { cwd, stateRoot, resources });
+      preparedInputs.set(input, { cwd, stateRoot });
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
         executionAuthority: trustedHostExecutionAuthority,
-        ...(resources ? { resources } : {}),
         home: stateRoot
           ? {
               state: input.plan.state.map(state => ({
@@ -149,13 +134,11 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): Sand
       } satisfies SandboxRuntimePlan;
     },
     async open(input, openOptions) {
-      const prepared = preparedInputs.get(input);
-      const resolved = prepared ?? await resolveTrustedHostInput(input, options);
-      const resources = prepared ? prepared.resources : options.resources ? Object.freeze({ ...options.resources }) : undefined;
+      const resolved = preparedInputs.get(input) ?? await resolveTrustedHostInput(input, options);
       let initializedSession: ReturnType<typeof createSandboxSession> | undefined;
       const runtimeSession = await createSession(
         { ...input, ...(resolved.cwd ? { cwd: resolved.cwd } : {}) },
-        { ...options, resources, stateRoot: resolved.stateRoot },
+        { stateRoot: resolved.stateRoot },
         {
           abortSignal: openOptions?.signal,
           ...(openOptions?.initialize
@@ -243,7 +226,6 @@ async function createSession(
         },
       });
     }
-    // Project files exist only after checkout. The toolchain must precede requirement checks.
     const toolchain = input.toolchain
       ? await provisionTrustedHostToolchain(input.toolchain, checkout ?? input.cwd ?? root, options.stateRoot, env, createOptions.abortSignal)
       : undefined;
@@ -251,14 +233,12 @@ async function createSession(
       env,
       home,
       async release() {
-        // Roll back only after destroy has confirmed process and cgroup teardown,
-        // while the state lease is still held, including on background retries.
         if (initializationFailed) {
-          await Promise.all(initializedState.map(path => rm(path, { force: true, recursive: true }).catch(() => undefined)));
+          for (const path of initializedState) await rm(path, { force: true, recursive: true });
+          initializedState.length = 0;
         }
         await releases();
       },
-      resources: options.resources,
       root,
       sessionId: createOptions.sessionId,
       workspace: input.cwd,
@@ -281,12 +261,13 @@ async function createSession(
   } catch (error) {
     if (session) {
       initializationFailed = true;
-      try {
-        await session.destroy?.();
-      } catch {
-        // Keep the session, state and lease owned across cleanup retries. This
-        // covers cgroup teardown failures during failed initialization.
-        void retrySessionDestroy(session);
+      const cleanup = await destroyFailedSession(session);
+      if (cleanup) {
+        scheduleFailedSessionDestroy(session);
+        throw new AggregateError(
+          [error, cleanup.error],
+          `[vitehub] Trusted-host Sandbox initialization failed: ${failureMessage(error)} Cleanup failed: ${failureMessage(cleanup.error)}`,
+        );
       }
     }
     else {
@@ -302,21 +283,31 @@ async function createSession(
   }
 }
 
-async function retrySessionDestroy(session: TrustedHostSession): Promise<void> {
-  while (true) {
-    await new Promise<void>((resolvePromise) => {
-      const timer = setTimeout(resolvePromise, 250);
-      // Cleanup is best-effort after initialization failed. Do not let an
-      // unbounded retry loop keep an otherwise idle process alive forever.
-      timer.unref?.();
-    });
+const failedSessionDestroyAttempts = 3;
+const failedSessionDestroyDelayMs = 250;
+
+async function destroyFailedSession(session: TrustedHostSession): Promise<{ error: unknown } | undefined> {
+  let failure: { error: unknown } | undefined;
+  for (let attempt = 0; attempt < failedSessionDestroyAttempts; attempt++) {
+    if (failure) await delay(failedSessionDestroyDelayMs);
     try {
-      await session.destroy?.();
-      return;
-    } catch {
-      // Keep the lease until cgroup cleanup succeeds.
+      await session.destroy();
+      return undefined;
+    } catch (error) {
+      failure = { error };
     }
   }
+  return failure;
+}
+
+function scheduleFailedSessionDestroy(session: TrustedHostSession) {
+  setTimeout(() => {
+    void session.destroy().catch(() => scheduleFailedSessionDestroy(session));
+  }, failedSessionDestroyDelayMs).unref();
+}
+
+function failureMessage(error: unknown) {
+  return error instanceof Error ? error.message || error.name : String(error);
 }
 
 async function provisionTrustedHostToolchain(
@@ -474,11 +465,12 @@ async function resolveEnvironment(
   return env;
 }
 
+const sessionEnvironmentKey = "VITEHUB_SANDBOX_SESSION";
+
 async function createTrustedHostSession(options: {
   env: Record<string, string>;
   home: string;
   release: () => Promise<void>;
-  resources?: TrustedHostResources;
   root: string;
   sessionId?: string;
   workspace?: string;
@@ -486,7 +478,6 @@ async function createTrustedHostSession(options: {
   const workspace = join(options.root, "workspace");
   if (options.workspace) await symlink(options.workspace, workspace, "dir");
   else await mkdir(workspace, { recursive: true });
-  const memory = options.resources ? await createSessionMemory(options.resources) : undefined;
   let destroyPromise: Promise<void> | undefined;
   let closing = false;
   const processes = new Set<ChildProcessWithoutNullStreams>();
@@ -503,8 +494,6 @@ async function createTrustedHostSession(options: {
       closing = true;
       const cleanup = async () => {
         await this.stop();
-        // Keep the state lease while cgroup descendants may still access it.
-        await memory?.close();
         try {
           await rm(options.root, { force: true, recursive: true });
         } finally {
@@ -516,8 +505,6 @@ async function createTrustedHostSession(options: {
       try {
         await attempt;
       } catch (error) {
-        // A rejected attempt must never poison future retries. Keep an
-        // in-flight attempt shared, but allow the next call to rebuild it.
         if (destroyPromise === attempt) destroyPromise = undefined;
         throw error;
       }
@@ -613,15 +600,12 @@ async function createTrustedHostSession(options: {
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
       runOptions.abortSignal?.throwIfAborted();
-      await memory?.assertHealthy();
-      // No await may separate this fence from launch and process registration.
-      // Teardown either owns the registered child or prevents its launch.
-      if (closing) throw new Error("Trusted host Sandbox session is closing.");
-      const child = (memory ? memory.spawn : spawnChildProcess)(runOptions.command, {
+      if (closing) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_CLOSING();
+      const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
-        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
-        shell: !memory,
+        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, [sessionEnvironmentKey]: options.root },
+        shell: true,
       });
       processes.add(child);
       if (child.pid && process.platform !== "win32") processGroups.add(child.pid);
@@ -630,7 +614,7 @@ async function createTrustedHostSession(options: {
         if (child.pid && process.platform !== "win32" && !processGroupExists(child.pid))
           processGroups.delete(child.pid);
       });
-      return processHandle(child, runOptions.abortSignal, () => memory?.assertHealthy());
+      return processHandle(child, runOptions.abortSignal);
     },
     async stop() {
       const active = [...processes];
@@ -651,7 +635,6 @@ async function createTrustedHostSession(options: {
       for (const pid of processGroups) signalProcessGroup(pid, "SIGKILL");
       if (process.platform === "win32")
         for (const child of active) signalProcessTree(child, "SIGKILL");
-      await memory?.kill();
       let timedOut = false;
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -667,8 +650,8 @@ async function createTrustedHostSession(options: {
       } finally {
         if (timeout) clearTimeout(timeout);
       }
-      if (timedOut)
-        throw new Error("Timed out waiting for trusted-host processes to exit after SIGKILL.");
+      if (timedOut) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_KILL_TIMED_OUT();
+      await stopMarkedProcesses(sessionEnvironmentKey, options.root);
       processes.clear();
       processGroups.clear();
     },
@@ -698,7 +681,7 @@ async function createTrustedHostSession(options: {
 function assertCommandEnvironment(env: Record<string, string> | undefined) {
   const name = Object.keys(env || {}).find((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
   if (name) throw sandboxErrorDiagnostics.SANDBOX_R0112({ message: `[vitehub] Invalid Sandbox environment variable: ${name}` });
-  const reservedName = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
+  const reservedName = Object.keys(env || {}).find(isTrustedHostReservedCommandEnvironmentKey);
   if (reservedName) throw sandboxErrorDiagnostics.SANDBOX_R0137({ message: `[vitehub] Sandbox commands cannot override ${reservedName}.` });
 }
 
@@ -907,7 +890,6 @@ async function collect(stream: ReadableStream<Uint8Array>) {
 function processHandle(
   child: ChildProcessWithoutNullStreams,
   abortSignal: AbortSignal | undefined,
-  afterExit?: () => Promise<void> | undefined,
 ) {
   let abortReason: unknown;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
@@ -925,12 +907,9 @@ function processHandle(
       abortSignal?.removeEventListener("abort", abort);
       if (forceKillTimer) clearTimeout(forceKillTimer);
       if (abortReason) reject(abortReason);
-      else void Promise.resolve().then(afterExit).then(() => resolvePromise({ exitCode: code ?? 1 }), reject);
+      else resolvePromise({ exitCode: code ?? 1 });
     });
   });
-  // A background caller may not await immediately. Observe rejection now so
-  // cancellation and spawn failures cannot become process-level unhandled
-  // rejections before the caller reaches wait().
   void wait.catch(() => undefined);
   if (abortSignal?.aborted) abort();
   let stdin: WritableStream<Uint8Array> | undefined;
@@ -957,7 +936,6 @@ function processHandle(
         await Promise.race([
           gracePeriod,
           settled.then(() => {
-            // The leader can exit while descendants still need termination.
             if (child.pid && process.platform !== "win32" && processGroupExists(child.pid))
               return gracePeriod;
           }),

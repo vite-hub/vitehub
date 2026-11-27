@@ -9,6 +9,7 @@ export default defineConfig({
     // Tests run the presets against the Agent source, so a test can mock one Agent module for both.
     alias: [
       { find: /^@vite-hub\/agent$/, replacement: agentSource("index.ts") },
+      { find: /^@vite-hub\/agent\/invocations$/, replacement: agentSource("invocations/index.ts") },
       { find: /^@vite-hub\/agent\/(.+)$/, replacement: agentSource("$1.ts") },
       { find: "@vite-hub/env", replacement: fileURLToPath(new URL("../env/src", import.meta.url)) },
       // The built package bundles forges, so `vi.mock("forges/<forge>")` reaches only the source.

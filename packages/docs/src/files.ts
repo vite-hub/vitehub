@@ -1,0 +1,100 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join, relative, sep } from "node:path"
+import { gzipSync } from "node:zlib"
+
+/** A folder of Markdown files that the server reads by name, such as the content folder or the raw copies. */
+interface DocsFileStore {
+  name: string
+  dir: string
+}
+
+/** Where each file sits in the unpacked bytes: `index[store][file]` is `[start, end]`. */
+type DocsFilesIndex = Record<string, Record<string, [number, number]>>
+
+/** What `#docs/files` exports in a production build. */
+export interface DocsPackedFiles {
+  index: DocsFilesIndex
+  /** Every file, one after the other, as one gzip stream in base64. */
+  packed: string
+}
+
+/** What `#docs/files` exports in development: a reader that loads each file through Vite, or from disk. */
+export interface DocsDevFiles {
+  has: (store: string, file: string) => boolean
+  /** The file of a store, or null when the store or the file is unknown. */
+  read: (store: string, file: string) => Promise<string | null>
+}
+
+/** What `#docs/files` exports. */
+export type DocsFiles = DocsPackedFiles | DocsDevFiles
+
+/** The Markdown files of a folder, without dot files or dot folders, as Nitro's server assets list them. */
+function markdownFiles(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith(".md"))
+    .map(entry => relative(dir, join(entry.parentPath, entry.name)).split(sep).join("/"))
+    .filter(file => !file.split("/").some(part => part.startsWith(".")))
+    .sort()
+}
+
+/**
+ * Packs the Markdown files of every store into one gzip stream. `order` lists `[store, file]` pairs to put first. Gzip
+ * finds repeats only in the last 32 KB, so a page next to its raw copy packs a third smaller than the two folders apart.
+ */
+function packDocsFiles(stores: DocsFileStore[], order: Array<[store: string, file: string]> = []): DocsPackedFiles {
+  const files = new Map(stores.map(store => [store.name, new Map(markdownFiles(store.dir).map(file => [file, join(store.dir, file)]))]))
+  const sequence: Array<[string, string, string]> = []
+  const added = new Set<string>()
+  const add = (store: string, file: string) => {
+    const path = files.get(store)?.get(file)
+    if (!path || added.has(`${store}\0${file}`)) return
+    added.add(`${store}\0${file}`)
+    sequence.push([store, file, path])
+  }
+  for (const [store, file] of order) add(store, file)
+  for (const [store, paths] of files) for (const file of paths.keys()) add(store, file)
+
+  const index: DocsFilesIndex = Object.fromEntries(stores.map(store => [store.name, {}]))
+  const chunks: Buffer[] = []
+  let offset = 0
+  for (const [store, file, path] of sequence) {
+    const bytes = readFileSync(path)
+    index[store]![file] = [offset, offset + bytes.length]
+    chunks.push(bytes)
+    offset += bytes.length
+  }
+  return { index, packed: gzipSync(Buffer.concat(chunks), { level: 9 }).toString("base64") }
+}
+
+/**
+ * The source of `#docs/files` in development. When Nitro runs in Vite, each file is a `?raw` import, so Vite watches it,
+ * and an edit shows on the next read. The server can run in workerd, which cannot read the folders from disk. When
+ * Nitro builds the server with its own bundler, as on Nuxt 4.7, that bundler cannot load `?raw`, and the server reads
+ * each file from disk on request.
+ */
+export function docsDevFilesModule(stores: DocsFileStore[], { nitroInVite }: { nitroInVite: boolean }): string {
+  const loader = (path: string) => nitroInVite
+    ? `() => import(${JSON.stringify(`${path}?raw`)}).then(module => module.default)`
+    : `() => readFile(${JSON.stringify(path)}, "utf8")`
+  const loaders = stores.map(store => `  ${JSON.stringify(store.name)}: {\n${markdownFiles(store.dir).map(file => `    ${JSON.stringify(file)}: ${loader(join(store.dir, file).split(sep).join("/"))},`).join("\n")}\n  },`)
+  return [
+    ...nitroInVite ? [] : [`import { readFile } from "node:fs/promises"`],
+    `const files = {\n${loaders.join("\n")}\n}`,
+    "const has = (store, file) => Object.hasOwn(files, store) && Object.hasOwn(files[store], file)",
+    "export default {",
+    "  has,",
+    "  async read(store, file) {",
+    "    return has(store, file) ? await files[store][file]() : null",
+    "  },",
+    "}",
+    "",
+  ].join("\n")
+}
+
+/** The source of `#docs/files` for a production build. */
+export function docsFilesModule(stores: DocsFileStore[], order?: Array<[store: string, file: string]>): string {
+  const { index, packed } = packDocsFiles(stores, order)
+  // `JSON.parse` of a string parses faster than an object literal of the same size.
+  return `export default { index: JSON.parse(${JSON.stringify(JSON.stringify(index))}), packed: ${JSON.stringify(packed)} }\n`
+}

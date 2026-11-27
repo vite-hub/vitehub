@@ -1,10 +1,29 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import type { BundleEnvironmentReport } from "./types.ts"
 
 /** Folder of the environment reports, relative to the project root. */
 export const bundleReportDir = ".vitehub/bundle"
+const bundleReportRootFile = ".vitehub/bundle-root.json"
+
+/** Finds the last build's report root without loading its configuration. */
+export function readBundleReportRoot(root: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(join(root, bundleReportRootFile), "utf8"))
+    return typeof value === "string" && value ? resolve(root, value) : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/** Relative paths keep the build reports usable when a checkout moves. */
+export function writeBundleReportRoot(root: string, reportRoot: string): void {
+  const file = join(root, bundleReportRootFile)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify(relative(root, reportRoot) || ".")}\n`)
+}
 
 function isReport(value: unknown): value is BundleEnvironmentReport {
   return typeof value === "object" && value !== null && Reflect.get(value, "schemaVersion") === 1

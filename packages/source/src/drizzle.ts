@@ -49,7 +49,6 @@ export interface TableSourceOptions<
 
 type KeysetCursor = readonly (boolean | null | number | string)[]
 
-// The part of the Drizzle select builder that table() calls.
 interface TableSelectDatabase {
   select(): {
     from(table: SQLiteTable): {
@@ -87,8 +86,9 @@ function isCursorScalar(value: unknown): value is boolean | null | number | stri
 }
 
 function driverType(column: AnySQLiteColumn): "number" | "string" {
-  if (["boolean", "date", "number"].includes(column.dataType)) return "number"
-  if (column.dataType === "string") return "string"
+  const [type, constraint] = column.dataType.split(" ")
+  if (type === "boolean" || type === "number" || (type === "object" && constraint === "date")) return "number"
+  if (type === "string") return "string"
   throw sourceErrorDiagnostics.SOURCE_R0029({ message: "[vitehub] Collection orderBy columns must encode as number or string values." })
 }
 
@@ -161,7 +161,10 @@ function cursorWhere(
   )
 }
 
-/** Read a Drizzle SQLite table as a Collection source with keyset pagination. */
+/**
+ * Read a Drizzle SQLite table as a Collection source with keyset pagination. It selects every column, so a public
+ * Collection (`access: "public"`) over it must pick the public fields with `transform`.
+ */
 export function table<TTable extends TableShape, TQuerySchema extends StandardSchemaV1<unknown, object>>(
   options: TableSourceOptions<TTable, TQuerySchema> & {
     querySchema: TQuerySchema
@@ -172,13 +175,13 @@ export function table<TTable extends TableShape, TQuerySchema extends StandardSc
   KeysetCursor,
   KeysetCursor,
   QueryInput<TQuerySchema>
->
+> & { rawRows: true }
 export function table<TTable extends TableShape>(
   options: TableSourceOptions<TTable> & {
     querySchema?: undefined
   },
-): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
-export function table(input: unknown): CursorCollectionSource<TableShape["$inferSelect"], CollectionRequestQuery, KeysetCursor> {
+): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor> & { rawRows: true }
+export function table(input: unknown): CursorCollectionSource<TableShape["$inferSelect"], CollectionRequestQuery, KeysetCursor> & { rawRows: true } {
   // SAFETY: Public overloads constrain input to TableSourceOptions before this implementation runs.
   const options = input as TableSourceOptions<TableShape, StandardSchemaV1<unknown, object> | undefined>
   const rawTable: unknown = options.table
@@ -227,5 +230,6 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     maxLimit: options.maxLimit,
     // SAFETY: Public overloads preserve the concrete schema input/output types.
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
+    rawRows: true,
   }
 }

@@ -11,7 +11,7 @@ import type {
 } from "../index.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts";
 import { abortable } from "./abortable.ts";
-import { isRuntimeString, runtimeRecord } from "./runtime-type.ts";
+import { runtimeRecord } from "./runtime-type.ts";
 import { shellQuote } from "./shell-quote.ts";
 
 /** Project files that can pin the toolchain, relative to the project root. */
@@ -159,14 +159,14 @@ function projectNodePin(
 
 function projectPackageManagerPin(manifest: Record<string, unknown> | undefined): SandboxToolchainPackageManagerPin | undefined {
   if (manifest?.packageManager !== undefined) {
-    if (!isRuntimeString(manifest.packageManager)) {
+    if (typeof manifest.packageManager !== "string") {
       throw sandboxErrorDiagnostics.SANDBOX_R0148({ message: "[vitehub] package.json packageManager must be a name@version string." });
     }
     return parsePackageManager(manifest.packageManager, "package.json#packageManager");
   }
   const declared = runtimeRecord(manifest?.devEngines)?.packageManager;
   const entries = Array.isArray(declared) ? declared : declared ? [declared] : [];
-  const entry = entries.map(runtimeRecord).find(value => isRuntimeString(value?.name));
+  const entry = entries.map(runtimeRecord).find(value => typeof value?.name === "string");
   if (!entry) return;
   const source = "package.json#devEngines.packageManager";
   if (!isVersionText(entry.version)) {
@@ -199,7 +199,6 @@ export function parsePackageManager(value: string, source: string): SandboxToolc
   };
 }
 
-/** Detect the target OS, architecture, and C library with POSIX tools. */
 async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
   const result = await target.run([
     "uname -s",
@@ -276,14 +275,14 @@ async function nodeReleases(base: string, signal: AbortSignal | undefined) {
   if (cached && cached.expires > Date.now()) return await cached.value;
   const value = fetchBytes(url, "Node.js release index", signal).then((bytes) => {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!Array.isArray(parsed)) throw new TypeError("index.json is not a list");
+    if (!Array.isArray(parsed)) throw sandboxErrorDiagnostics.SANDBOX_R0155({ message: `[vitehub] Sandbox toolchain could not download Node.js release index from ${url}: the file is not a list.` });
     return parsed.flatMap((entry): NodeRelease[] => {
       const record = runtimeRecord(entry);
-      const version = isRuntimeString(record?.version) ? valid(record.version) : null;
+      const version = typeof record?.version === "string" ? valid(record.version) : null;
       if (!version) return [];
       return [{
-        ...(Array.isArray(record?.files) ? { files: record.files.filter(isRuntimeString) } : {}),
-        lts: isRuntimeString(record?.lts) ? record.lts : false,
+        ...(Array.isArray(record?.files) ? { files: record.files.filter((file) => typeof file === "string") } : {}),
+        lts: typeof record?.lts === "string" ? record.lts : false,
         version,
       }];
     }).sort((left, right) => rcompare(left.version, right.version));
@@ -328,11 +327,11 @@ async function packageVersionMetadata(name: string, version: string, signal: Abo
     signal,
   ))));
   const dist = runtimeRecord(document?.dist);
-  const declared = isRuntimeString(document?.bin)
+  const declared = typeof document?.bin === "string"
     ? { [name.split("/").at(-1)!]: document.bin }
-    : Object.fromEntries(Object.entries(runtimeRecord(document?.bin) ?? {}).flatMap(([command, path]) => isRuntimeString(path) ? [[command, path] as const] : []));
+    : Object.fromEntries(Object.entries(runtimeRecord(document?.bin) ?? {}).flatMap(([command, path]) => typeof path === "string" ? [[command, path] as const] : []));
   const bin = Object.fromEntries(Object.entries(declared).map(([command, path]) => [command, path.replace(/^(?:\.\/)+/, "")]));
-  if (!isRuntimeString(dist?.tarball) || !isRuntimeString(dist.integrity) || !dist.integrity.startsWith("sha512-")) {
+  if (typeof dist?.tarball !== "string" || typeof dist.integrity !== "string" || !dist.integrity.startsWith("sha512-")) {
     throw sandboxErrorDiagnostics.SANDBOX_R0152({ message: `[vitehub] ${name}@${version} registry metadata has no sha512 integrity.` });
   }
   if (!Object.keys(bin).length || Object.entries(bin).some(([command, path]) => !/^[A-Za-z0-9._-]+$/.test(command) || !safeRelativePath(path))) {
@@ -358,8 +357,6 @@ export async function provisionToolchain(
     ? { pin: pins.packageManager, ...(await resolvePackageManagerVersion(pins.packageManager, signal)) }
     : undefined;
   const nodeKey = distribution.key(nodeVersion);
-  // Integrity pins are part of the cache identity. A cached archive created for
-  // one pin must never satisfy a different (or invalid) project pin.
   const packageKey = packageManager
     ? `${packageManager.name.replace(/^@/, "").replace("/", "-")}-${packageManager.version}${packageManager.pin.integrity ? `-${packageManager.pin.integrity.replace(/[^A-Za-z0-9_-]/g, "_")}` : ""}`
     : undefined;
@@ -473,16 +470,11 @@ async function installEntry(
   }
 }
 
-/**
- * Extract into a private staging directory, then publish with an atomic
- * symbolic link. A concurrent installer that loses the race keeps the winner.
- */
 function installScript(options: {
   archive: string;
   cacheRoot: string;
   key: string;
   metadata: Record<string, string>;
-  /** Package bin entries: command name to package-relative path. */
   shims?: Readonly<Record<string, string>>;
 }): string {
   const final = joinPath(options.cacheRoot, options.key);
@@ -505,7 +497,6 @@ function installScript(options: {
     );
     for (const [command, path] of Object.entries(options.shims)) {
       const shim = `"$staging/bin/"${shellQuote(command)}`;
-      // Shims resolve node from PATH, where the toolchain node comes first.
       lines.push(
         `test -f "$staging/package/"${shellQuote(path)}`,
         `printf '%s\\n' '#!/bin/sh' ${shellQuote(`exec node ${shellQuote(joinPath(final, "package", path))} "$@"`)} > ${shim}`,
@@ -527,7 +518,6 @@ function installScript(options: {
 
 async function verifyPackageManagerHash(pin: SandboxToolchainPackageManagerPin, name: string, tarball: Uint8Array) {
   const [algorithm = "", expected = ""] = pin.integrity?.split(".") ?? [];
-  // Corepack hashes the yarn.js bundle for Yarn 2+, and the registry tarball otherwise.
   const contents = name === "@yarnpkg/cli-dist" ? await tarEntry(tarball, "bin/yarn.js") : tarball;
   const actual = contents ? createHash(algorithm).update(contents).digest("hex") : undefined;
   if (actual !== expected) {
@@ -535,7 +525,6 @@ async function verifyPackageManagerHash(pin: SandboxToolchainPackageManagerPin, 
   }
 }
 
-/** Read one regular file from a gzipped npm package tarball. */
 async function tarEntry(gzipped: Uint8Array, path: string): Promise<Uint8Array | undefined> {
   const stream = new Blob([Uint8Array.from(gzipped)]).stream().pipeThrough(new DecompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
@@ -563,10 +552,8 @@ async function tarEntry(gzipped: Uint8Array, path: string): Promise<Uint8Array |
 }
 
 async function download(url: string, label: string, signal: AbortSignal | undefined, verify: (bytes: Uint8Array) => void | Promise<void>) {
-  // Concurrent sessions in one process share a download. The cache lock covers other processes.
   let pending = downloads.get(url);
   if (!pending) {
-    // The shared request outlives one caller's cancellation, so it uses its own deadline.
     pending = fetchBytes(url, label, AbortSignal.timeout(downloadTimeoutMilliseconds));
     downloads.set(url, pending);
     void pending.then(() => downloads.delete(url), () => downloads.delete(url));
@@ -634,7 +621,7 @@ function versionFile(text: string | undefined) {
 }
 
 function isVersionText(value: unknown): value is string {
-  return isRuntimeString(value) && Boolean(value.trim()) && !/[\0\n\r]/.test(value);
+  return typeof value === "string" && Boolean(value.trim()) && !/[\0\n\r]/.test(value);
 }
 
 function isPackageManagerName(value: string | undefined): value is SandboxToolchainPackageManagerPin["name"] {

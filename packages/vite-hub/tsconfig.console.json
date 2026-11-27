@@ -1,27 +1,22 @@
 {
   "extends": "./tsconfig.dev.json",
   "compilerOptions": {
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "ES2025.Intl", "DOM", "DOM.Iterable"],
     // Resolve workspace packages through their built declarations, so server sources stay out of this browser program.
     "paths": {
       // The stand-ins for Nuxt UI that the overlay builds with. `standaloneUI()` of the overlay build owns them.
-      "@vite-hub/ui/standalone/*": ["../ui/src/standalone/*.ts"]
+      "@vite-hub/ui/standalone/*": ["../ui/src/standalone/*.ts"],
+      // overlay.vite.config.ts bundles the comment parts alone. They are not a package entry, so read their built declarations.
+      "@vite-hub/ui/comments": ["../ui/dist/parts/components/comments.d.ts"]
     }
   },
   "include": [
     "src/console/runtime/components/invocation/**/*.ts",
-    "src/console/page/**/*.ts",
-    "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
     "src/page/**/*.ts",
-    "src/comments-overlay/loader-core.ts",
-    "src/comments-overlay/loader.ts",
-    "src/comments-overlay/overlay.ts",
-    "src/comments-overlay/virtual.d.ts",
     "../ui/src/standalone/virtual.d.ts",
-    "test/comments-overlay-loader.test.ts",
-    "test/comments-overlay-mount.test.ts",
     "test/console-comment-thread-dismissal.test.ts",
+    "test/console-stored-boot.test.ts",
     "test/vue.d.ts",
     "test/console-invocation-views/**/*.ts"
   ],

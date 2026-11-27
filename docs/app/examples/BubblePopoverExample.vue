@@ -12,7 +12,7 @@
             variant="ghost"
             size="xs"
             square
-            icon="i-ph-info-light"
+            icon="i-lucide-info"
             aria-label="Show error details"
             class="aria-expanded:text-error"
           />

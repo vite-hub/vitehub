@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "server": "https://vitehub.dev/mcp",
+  "surface": "d1b3726685e45d2435e27d76e536686e6df35e6899a9b39a2f6dea52fe01659f",
+  "model": "sonnet",
+  "modelId": "claude-sonnet-5-5",
+  "commit": "2b79f1ebf7",
+  "date": "2026-11-25T11:11:53.767Z",
+  "cases": [
+    {
+      "id": "queue-get-started",
+      "kind": "bad",
+      "hash": "ef2542b5b151a32cfb76e0ac0e2907541653025025306042a7be54eb4485cf38",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "general-code-no-docs",
+      "kind": "bad",
+      "hash": "16644a975a5b0248070416ab861de4d628e7b81e0d1b515a36c87fb515f60871",
+      "samples": 3,
+      "passed": 1,
+      "passRate": 0.3333333333333333,
+      "status": "fail"
+    },
+    {
+      "id": "rate-limit-429",
+      "kind": "guard",
+      "hash": "ff488236ea22bcc7cb56befe2aefa4f2b652bdf2f392c18d4cb174e04dc301da",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "kv-store-not-found",
+      "kind": "guard",
+      "hash": "39092b20864f04514f62b053c1a38ba48cc19d77c2457b18b0efd62b28d5bf2b",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "blob-known-path",
+      "kind": "guard",
+      "hash": "c5ca585dc5e0ef0fe91ee4b4ec28005964de2716775047df7a8ac2a3d885885c",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "webhooks-debounce",
+      "kind": "guard",
+      "hash": "20544f6b5a7972690b577b369569915e6ecba63672ecac25875afdaf1214e8c9",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "schedule-cloudflare",
+      "kind": "guard",
+      "hash": "01021df5f21df3dfb002d3d7f7f0fd539b60d6cde7bb53ef98954c69b7cae829",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "control-arithmetic",
+      "kind": "control",
+      "hash": "8ba92ca8dfbfc6d7231a4f729f46b1864c31e2ed94f5f659c98c9574a3065ea1",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    },
+    {
+      "id": "control-http-429",
+      "kind": "control",
+      "hash": "6e96226dedfa82295d03829ae40f8891323fcc14ae9b4f6fe55bc799368d8a68",
+      "samples": 2,
+      "passed": 2,
+      "passRate": 1,
+      "status": "pass"
+    }
+  ],
+  "usage": {
+    "input": 1465726,
+    "output": 16374,
+    "cacheRead": 1457959,
+    "cacheWrite": 7681
+  },
+  "toolCalls": 38
+}

@@ -1,4 +1,7 @@
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+
 import { browserProviderError } from "../errors.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { BrowserController } from "../types.ts"
 import type { PlaywrightBrowserConnection } from "../internal/connections.ts"
@@ -25,10 +28,6 @@ type CDPMessage =
   | { kind: "event", method: string, params?: unknown, sessionId?: string }
   | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
 function isString(value: unknown): value is string {
   return typeof value === "string"
 }
@@ -37,31 +36,35 @@ function isSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value)
 }
 
+function malformed(problem: string) {
+  return browserProviderError("cdp", "parse a protocol message", { cause: problem })
+}
+
 function parseMessage(data: unknown): CDPMessage {
   const parsed: unknown = JSON.parse(String(data))
-  if (!isRecord(parsed)) throw new TypeError("CDP message must be an object")
+  if (!isRecord(parsed)) throw malformed("CDP message must be an object")
 
   if (Object.hasOwn(parsed, "id")) {
     if (!isSafeInteger(parsed.id) || Object.hasOwn(parsed, "method")) {
-      throw new TypeError("CDP response id must be a safe integer")
+      throw malformed("CDP response id must be a safe integer")
     }
     const hasError = Object.hasOwn(parsed, "error")
     const hasResult = Object.hasOwn(parsed, "result")
-    if (hasError === hasResult) throw new TypeError("CDP response must include exactly one result or error")
+    if (hasError === hasResult) throw malformed("CDP response must include exactly one result or error")
     if (hasResult && !isRecord(parsed.result)) {
-      throw new TypeError("CDP response result must be an object")
+      throw malformed("CDP response result must be an object")
     }
     let error: { message: string } | undefined
     if (hasError) {
       const candidate = parsed.error
       if (!isRecord(candidate) || !isString(candidate.message)) {
-        throw new TypeError("CDP response error must include a message")
+        throw malformed("CDP response error must include a message")
       }
       error = { message: candidate.message }
     }
     const sessionId = parsed.sessionId
     if (sessionId !== undefined && !isString(sessionId)) {
-      throw new TypeError("CDP response sessionId must be a string")
+      throw malformed("CDP response sessionId must be a string")
     }
     const response: Extract<CDPMessage, { kind: "response" }> = {
       error,
@@ -73,13 +76,13 @@ function parseMessage(data: unknown): CDPMessage {
     return response
   }
 
-  if (!isString(parsed.method) || !parsed.method) throw new TypeError("CDP event method must be a non-empty string")
+  if (!isString(parsed.method) || !parsed.method) throw malformed("CDP event method must be a non-empty string")
   if (Object.hasOwn(parsed, "params") && !isRecord(parsed.params)) {
-    throw new TypeError("CDP event parameters must be an object")
+    throw malformed("CDP event parameters must be an object")
   }
   const sessionId = parsed.sessionId
   if (sessionId !== undefined && !isString(sessionId)) {
-    throw new TypeError("CDP event sessionId must be a string")
+    throw malformed("CDP event sessionId must be a string")
   }
   const event: Extract<CDPMessage, { kind: "event" }> = {
     kind: "event",
@@ -148,11 +151,11 @@ async function localSocket(
       cleanup()
       try {
         socket.close()
+        reject(browserProviderError("cdp", "connect to the browser"))
       }
-      catch {
-        // Preserve the timeout error when a socket cannot be closed.
+      catch (cause) {
+        reject(browserProviderError("cdp", "connect to the browser", { cause }))
       }
-      reject(browserProviderError("cdp", "connect to the browser"))
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })
@@ -187,7 +190,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
           message = parseMessage("data" in event ? event.data : undefined)
         }
         catch (cause) {
-          rejectPending(browserProviderError("cdp", "parse a protocol message", { cause }))
+          rejectPending(getViteHubErrorShape(cause)?.code === "BROWSER_PROVIDER_ERROR" ? cause : browserProviderError("cdp", "parse a protocol message", { cause }))
           return
         }
         if (message.kind === "event") {

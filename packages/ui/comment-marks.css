@@ -1,0 +1,230 @@
+/*
+ * Comment marks: the pins, the areas, and the text highlights that show where the comments of a page are. This is plain
+ * CSS with no framework, so the comment parts of @vite-hub/ui, the ViteHub pill, and Drop's page frame draw them the
+ * same way. Load it in the page or in a shadow root. `styles.css` imports it into its components layer.
+ *
+ * A mark is an element with a data-slot:
+ * - `comment-mark-pin`: a 28px pin. `data-shape="point"` is a drop whose small bottom-left corner is the spot, and
+ *   `data-shape="round"` is a circle, for an area or an image. An `<img>` child fills it. `data-active="true"` makes it
+ *   larger, and `data-status="resolved"` makes it faded and grey.
+ * - `comment-mark-area`: a 1px neutral line, a 22% tint of the ink, with no fill. `data-active="true"` makes the line
+ *   firmer (45%), `data-status="resolved"` makes it dashed and grey, and `data-draft="true"` is the area being drawn or
+ *   written on: 2px comment blue with a fill. Its `comment-mark-handle` children, with `data-corner="top-left"` and the
+ *   other three corners, are round handles.
+ * - `data-leaving="true"` on a pin or an area fades it out. If the motion layer is installed, it folds a copy away
+ *   instead. The page removes the mark after `commentLeaveMs` of `vite-hub/ui/headless`.
+ * A pin squashes when it is pressed, with the press of the motion layer. Its zoom and its active size are a `transform`,
+ * so the press adds to them.
+ * The page places a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`.
+ * Commented text uses the CSS Custom Highlight API with the names `vh-comment`, `vh-comment-resolved`,
+ * `vh-comment-active`, and `vh-comment-draft`.
+ */
+
+/*
+ * The tokens. A page changes one with `--vh-ui-comment-*` on any element around the marks, such as the root or a shadow
+ * host. Without that, a mark takes the ViteHub theme tokens where it renders, when the page has them, else the theme's
+ * own values below. The dark values apply under `.dark` or `[data-theme="dark"]` on the root or on the shadow host, and
+ * on a root without a scheme when the system is dark.
+ */
+:root,
+:host {
+  --vh-comment-default-mark: oklch(0.588 0.158 241.966);
+  --vh-comment-default-pin: oklch(0.205 0 0);
+  --vh-comment-default-pin-text: oklch(0.985 0 0);
+  --vh-comment-default-surface: oklch(1 0 0);
+  --vh-comment-default-muted: oklch(0.5 0 0);
+  --vh-comment-default-ink: oklch(0.205 0 0);
+  --vh-comment-shadow: oklch(0 0 0 / 18%);
+}
+
+/* Each mark resolves the tokens itself, so an override or a theme on an element around it reaches it. */
+:root,
+:host,
+:where([data-slot^="comment-mark"], [data-slot="comment-pin"], [data-slot^="comment-layer-area"]) {
+  /* The comment blue of the area being drawn and of quotes. It is the focus blue of the theme, which shows on light and dark pages and on images. */
+  --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--vh-comment-default-mark)));
+  /* The face of a pin without an avatar, and its initials. */
+  --vh-comment-pin: var(--vh-ui-comment-pin, var(--vh-primary, var(--vh-comment-default-pin)));
+  --vh-comment-pin-text: var(--vh-ui-comment-pin-text, var(--vh-inverted, var(--vh-comment-default-pin-text)));
+  /* The page color: the ring that keeps a pin apart from what is under it, and the fill of a handle. */
+  --vh-comment-surface: var(--vh-ui-comment-surface, var(--vh-bg, var(--vh-comment-default-surface)));
+  /* The grey of resolved marks. */
+  --vh-comment-muted: var(--vh-ui-comment-muted, var(--vh-muted, var(--vh-comment-default-muted)));
+  /* The text color that highlights and saved areas tint. */
+  --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, var(--vh-comment-default-ink)));
+  --vh-comment-pin-size: var(--vh-ui-comment-pin-size, 28px);
+}
+
+:root.dark,
+:root[data-theme="dark"],
+:host(.dark),
+:host([data-theme="dark"]) {
+  --vh-comment-default-mark: oklch(0.746 0.16 232.661);
+  --vh-comment-default-pin: oklch(0.985 0 0);
+  --vh-comment-default-pin-text: oklch(0.205 0 0);
+  --vh-comment-default-surface: oklch(0.145 0 0);
+  --vh-comment-default-muted: oklch(0.708 0 0);
+  --vh-comment-default-ink: oklch(0.985 0 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light, .dark, [data-theme]) {
+    --vh-comment-default-mark: oklch(0.746 0.16 232.661);
+    --vh-comment-default-pin: oklch(0.985 0 0);
+    --vh-comment-default-pin-text: oklch(0.205 0 0);
+    --vh-comment-default-surface: oklch(0.145 0 0);
+    --vh-comment-default-muted: oklch(0.708 0 0);
+    --vh-comment-default-ink: oklch(0.985 0 0);
+  }
+}
+
+/*
+ * A pin. `comment-pin` is the CommentPin part of @vite-hub/ui, which takes the same look. `--vh-comment-zoom` keeps a
+ * mark its size on screen inside a scaled layer: set it to the inverse of the layer's scale.
+ */
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"]) {
+  background: var(--vh-comment-pin);
+  border: 0;
+  border-radius: calc(var(--vh-comment-pin-size) / 2) calc(var(--vh-comment-pin-size) / 2) calc(var(--vh-comment-pin-size) / 2) 4px;
+  box-shadow: 0 0 0 2px var(--vh-comment-surface), 0 2px 8px var(--vh-comment-shadow);
+  box-sizing: border-box;
+  color: var(--vh-comment-pin-text);
+  cursor: pointer;
+  display: grid;
+  font-size: 11px;
+  font-weight: 600;
+  height: var(--vh-comment-pin-size);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0;
+  place-items: center;
+  position: absolute;
+  transform: scale(var(--vh-comment-zoom, 1));
+  transform-origin: 0 100%;
+  transition: opacity 150ms ease-out;
+  width: var(--vh-comment-pin-size);
+}
+
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"])[data-shape="round"] {
+  border-radius: calc(var(--vh-comment-pin-size) / 2);
+  transform-origin: 50% 50%;
+}
+
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"]) > img {
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+/* The pin stays 28px, and its hit area is 44px. */
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"])::before {
+  border-radius: 50%;
+  content: "";
+  inset: -8px;
+  position: absolute;
+}
+
+/* The open pin and the focused pin are larger. A pin does not move on hover. */
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"]):is(:focus-visible, [data-active="true"]) {
+  transform: scale(calc(var(--vh-comment-zoom, 1) * 1.06));
+}
+
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"])[data-status="resolved"] {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+:is([data-slot="comment-mark-pin"], [data-slot="comment-pin"])[data-status="resolved"]:not(:has(img)) {
+  background: var(--vh-comment-muted);
+}
+
+/*
+ * An area. A page with many of them stays readable, so a saved area is a thin neutral line with no fill, a tint of the
+ * ink as commented text is. Only the area being drawn is comment blue. `comment-layer-area` is the area that a drag in
+ * CommentLayer's comment mode draws.
+ */
+:is([data-slot="comment-mark-area"], [data-slot="comment-layer-area"]) {
+  border: calc(1px * var(--vh-comment-zoom, 1)) solid color-mix(in oklab, var(--vh-comment-ink) 22%, transparent);
+  border-radius: 4px;
+  box-sizing: border-box;
+  pointer-events: none;
+  position: absolute;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+[data-slot="comment-mark-area"][data-status="resolved"] {
+  border-color: color-mix(in oklab, var(--vh-comment-muted) 50%, transparent);
+  border-style: dashed;
+}
+
+[data-slot="comment-mark-area"][data-active="true"] {
+  border-color: color-mix(in oklab, var(--vh-comment-ink) 45%, transparent);
+  border-style: solid;
+}
+
+:is([data-slot="comment-mark-area"][data-draft="true"], [data-slot="comment-layer-area"]) {
+  background: color-mix(in oklab, var(--vh-comment-mark) 16%, transparent);
+  border: calc(2px * var(--vh-comment-zoom, 1)) solid var(--vh-comment-mark);
+  border-radius: 3px;
+}
+
+:is([data-slot="comment-mark-handle"], [data-slot="comment-layer-area-handle"]) {
+  background: var(--vh-comment-surface);
+  border: 1.5px solid var(--vh-comment-mark);
+  border-radius: 50%;
+  box-sizing: border-box;
+  height: 8px;
+  position: absolute;
+  width: 8px;
+}
+
+:is([data-slot="comment-mark-handle"], [data-slot="comment-layer-area-handle"])[data-corner^="top"] { top: -5px; }
+:is([data-slot="comment-mark-handle"], [data-slot="comment-layer-area-handle"])[data-corner^="bottom"] { bottom: -5px; }
+:is([data-slot="comment-mark-handle"], [data-slot="comment-layer-area-handle"])[data-corner$="left"] { left: -5px; }
+:is([data-slot="comment-mark-handle"], [data-slot="comment-layer-area-handle"])[data-corner$="right"] { right: -5px; }
+
+/* A mark that goes, such as the others when one comment shows on its own. The leave effect of the motion layer folds a
+   copy of it away. */
+:is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"],
+[data-slot="comment-layer-item"][data-leaving="true"] > * {
+  pointer-events: none;
+}
+
+:is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"]:not([data-motion-leave-managed]) {
+  animation: vh-comment-mark-fade 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+[data-slot="comment-mark-pin"][data-motion-leave-managed] {
+  transition: none;
+}
+
+@keyframes vh-comment-mark-fade {
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is([data-slot="comment-mark-pin"], [data-slot="comment-pin"], [data-slot="comment-mark-area"], [data-slot="comment-layer-area"]) {
+    transition: none;
+  }
+
+  :is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"]:not([data-motion-leave-managed]) {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* Commented text: a tint of the text color, so it shows on light and dark pages. The open, hovered, or new comment is darker. */
+::highlight(vh-comment) {
+  background-color: color-mix(in oklab, var(--vh-comment-ink) 13%, transparent);
+}
+
+::highlight(vh-comment-resolved) {
+  background-color: color-mix(in oklab, var(--vh-comment-ink) 6%, transparent);
+}
+
+::highlight(vh-comment-active),
+::highlight(vh-comment-draft) {
+  background-color: color-mix(in oklab, var(--vh-comment-ink) 26%, transparent);
+}

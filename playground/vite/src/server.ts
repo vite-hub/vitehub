@@ -2,12 +2,12 @@ import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { kv } from "@vite-hub/kv"
-import { deferQueue, runQueue } from "@vite-hub/queue"
-import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
+import { deferQueue, sendQueue } from "@vite-hub/queue"
+import { getQueueMarkerKey, getQueueMarkerValue, queueMarkerStages, resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
 import { scheduleMarkerKey } from "./schedule-marker"
 
 const app = new H3()
-const queueMarkers = new Set<string>()
+const queueMarkers = new Map<string, string | true>()
 const queueName = "welcome-email"
 const queueBody = v.optional(v.object({
   callbackUrl: v.optional(v.string()),
@@ -15,7 +15,9 @@ const queueBody = v.optional(v.object({
   marker: v.optional(v.string()),
 }), {})
 const markerBody = v.object({
+  error: v.optional(v.string()),
   marker: v.string(),
+  stage: v.optional(v.picklist(queueMarkerStages), "done"),
 })
 
 app.get("/", () => ({ ok: true, queue: queueName, schedule: "daily-marker" }))
@@ -26,7 +28,7 @@ app.post("/api/queues/welcome", async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
-  const [error, result] = await runQueue(queueName, {
+  const [error, result] = await sendQueue(queueName, {
     email: body?.email || "ava@example.com",
     callbackUrl,
     marker,
@@ -46,7 +48,7 @@ app.post("/api/queues/welcome-defer", async (event) => {
   }
 
   if (!runInBackground(event, async () => {
-    const [error] = await runQueue(queueName, payload)
+    const [error] = await sendQueue(queueName, payload)
     if (error) throw error
   })) {
     deferQueue(queueName, payload)
@@ -56,15 +58,23 @@ app.post("/api/queues/welcome-defer", async (event) => {
 
 app.get("/api/tests/queue", async (event) => {
   const marker = event.req.query?.marker
+  if (typeof marker !== "string" || marker.length === 0) {
+    return { error: null, ok: true, received: false, seen: false, writeError: null }
+  }
+  const failure = queueMarkers.get(getQueueMarkerKey(marker, "failed"))
+  const writeFailure = queueMarkers.get(getQueueMarkerKey(marker, "marker-write"))
   return {
+    error: typeof failure === "string" ? failure : null,
     ok: true,
-    seen: typeof marker === "string" && marker.length > 0 ? queueMarkers.has(marker) : false,
+    received: queueMarkers.has(getQueueMarkerKey(marker, "received")),
+    seen: queueMarkers.has(getQueueMarkerKey(marker, "done")),
+    writeError: typeof writeFailure === "string" ? writeFailure : null,
   }
 })
 
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  queueMarkers.add(body.marker)
+  queueMarkers.set(getQueueMarkerKey(body.marker, body.stage), getQueueMarkerValue(body.stage, body.error))
   return { ok: true }
 })
 

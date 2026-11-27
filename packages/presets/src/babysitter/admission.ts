@@ -1,8 +1,11 @@
+import { invariant } from "@vite-hub/internal/invariant";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import type { AgentInvocations } from "@vite-hub/agent";
 import type { Snapshot } from "./inbox/store.ts";
 import { statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { sharedBabysitterRead } from "./shared-read.ts";
 /** A reason to stop model passes, returned by `admission.check`. */
 export interface BabysitterAdmissionPause {
   /** Short machine-readable reason, such as `"provider-quota"`. */
@@ -30,7 +33,7 @@ export interface BabysitterAdmissionOptions {
    * Extra check before each claim, for example a provider quota. Return a pause to stop model
    * passes, or `undefined` to continue. An error is reported in health and does not pause.
    */
-  check?: () => BabysitterAdmissionPause | undefined | Promise<BabysitterAdmissionPause | undefined>;
+  check?: (signal?: AbortSignal) => BabysitterAdmissionPause | undefined | Promise<BabysitterAdmissionPause | undefined>;
 }
 
 /** Token limits are best-effort retained-journal thresholds, not billing caps. */
@@ -124,16 +127,18 @@ export function babysitterAdmissionDecision(state: BabysitterAdmissionState, lim
   return { accepting: true };
 }
 
-async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "list" | "get"> | undefined, since: number) {
-  if (!invocations) throw new Error("No invocation journal is assigned.");
+async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "list" | "get"> | undefined, since: number, signal?: AbortSignal) {
+  invariant(invocations, "the admission controller reads token usage only after the runtime assigns the invocation journal");
   const usage: Array<{ id: string; updatedAt: string; tokens: number }> = [];
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   do {
+    signal?.throwIfAborted();
     const page = await invocations.list({ cursor, limit: 100, status: ["pending", "running", "completed", "failed", "cancelled"], updatedSince: new Date(since).toISOString() });
-    if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+    invariant(!page.cursor || !seenCursors.has(page.cursor), "the Agent Invocation store returns a new pagination cursor for each page");
     if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {
+      signal?.throwIfAborted();
       if (Date.parse(summary.updatedAt) < since) continue;
       const record = await invocations.get(summary.id);
       if (!record) continue;
@@ -166,7 +171,7 @@ function normalizeAdmissionPause(value: unknown): BabysitterAdmissionPause | und
   if (!isRuntimeRecord(value) || !hasRuntimeType(value.reason, "string") || !value.reason.trim()
     || value.detail !== undefined && !hasRuntimeType(value.detail, "string")
     || value.retryAt !== undefined && !(hasRuntimeType(value.retryAt, "number") && Number.isFinite(value.retryAt) && value.retryAt >= 0)) {
-    throw new TypeError("Invalid admission.check result. Expected undefined or { reason, detail, retryAt }.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ADMISSION_CHECK_INVALID();
   }
   const pause: BabysitterAdmissionPause = { reason: value.reason };
   if (value.detail !== undefined) pause.detail = value.detail;
@@ -176,21 +181,20 @@ function normalizeAdmissionPause(value: unknown): BabysitterAdmissionPause | und
 
 /** Dispatch shares fresh accounting; health may reuse a bounded, timestamped result. */
 export interface CoalescedBabysitterAdmission<T extends object> {
-  (now?: number): Promise<T & { observedAt: number }>;
+  (now?: number, signal?: AbortSignal): Promise<T & { observedAt: number }>;
   health(): Promise<T & { observedAt: number }>;
   invalidate(): void;
 }
 
-export function coalesceBabysitterAdmission<T extends object>(read: (now?: number) => Promise<T>, clock: () => number = Date.now): CoalescedBabysitterAdmission<T> {
-  let pending: Promise<T & { observedAt: number }> | undefined;
+export function coalesceBabysitterAdmission<T extends object>(read: (now?: number, signal?: AbortSignal) => Promise<T>, clock: () => number = Date.now): CoalescedBabysitterAdmission<T> {
   let latest: T & { observedAt: number } | undefined;
-  function check(now?: number) {
-    pending ??= Promise.resolve().then(() => read(now)).then(result => {
-      latest = { ...result, observedAt: clock() };
-      return latest;
-    }).finally(() => { pending = undefined; });
-    return pending;
-  }
+  const sample = sharedBabysitterRead(async (signal, now?: number) => {
+    const result = await read(now, signal);
+    signal.throwIfAborted();
+    latest = { ...result, observedAt: clock() };
+    return latest;
+  });
+  const check = (now?: number, signal?: AbortSignal) => sample(signal, now);
   return Object.assign(check, {
     health: () => latest && clock() - latest.observedAt <= 120_000 ? Promise.resolve(latest) : check(),
     invalidate: () => { latest = undefined; },
@@ -201,26 +205,30 @@ export function createBabysitterAdmission(options: { invocations?: Pick<AgentInv
   const usage = new Map<string, { updatedAt: number; tokens: number }>();
   let readAt: number | undefined;
   let cursor: number | undefined;
-  return coalesceBabysitterAdmission(async function check(now = Date.now()): Promise<BabysitterAdmissionResult> {
+  return coalesceBabysitterAdmission(async function check(now = Date.now(), signal?: AbortSignal): Promise<BabysitterAdmissionResult> {
 
     const windows = babysitterBudgetWindows(now);
     const state: BabysitterAdmissionState = { windows, tmpDir: tmpdir() };
     try { const stats = await statfs(state.tmpDir); state.freeTmpBytes = stats.bavail * stats.bsize; }
     catch (error) { state.errors = [`tmp: ${error instanceof Error ? error.message : String(error)}`]; }
+    signal?.throwIfAborted();
     const budgeted = options.limits.hourlyInputTokens !== undefined || options.limits.dailyInputTokens !== undefined;
     if (budgeted && (readAt === undefined || now - readAt >= 60_000)) try {
       const since = cursor === undefined ? windows.dayStart : Math.max(windows.dayStart, cursor - 60_000);
-      for (const entry of await readInvocationInputTokens(options.invocations, since)) usage.set(entry.id, { updatedAt: Date.parse(entry.updatedAt), tokens: Number(entry.tokens) || 0 });
+      const entries = await readInvocationInputTokens(options.invocations, since, signal);
+      signal?.throwIfAborted();
+      for (const entry of entries) usage.set(entry.id, { updatedAt: Date.parse(entry.updatedAt), tokens: Number(entry.tokens) || 0 });
       for (const [id, entry] of usage) if (entry.updatedAt < windows.dayStart) usage.delete(id);
       readAt = now;
       cursor = now;
     } catch (error) { state.errors = [...state.errors ?? [], `tokens: ${error instanceof Error ? error.message : String(error)}`]; }
+    signal?.throwIfAborted();
     if (readAt !== undefined) {
       state.hourlyInputTokens = sumInvocationInputTokens(usage, windows.hourStart);
       state.dailyInputTokens = sumInvocationInputTokens(usage, windows.dayStart);
     }
     if (options.check && !options.limits.paused) try {
-      const pause = normalizeAdmissionPause(await options.check());
+      const pause = normalizeAdmissionPause(await options.check(signal));
       if (pause) state.pause = pause;
     } catch (error) { state.errors = [...state.errors ?? [], `check: ${error instanceof Error ? error.message : String(error)}`]; }
     return { ...babysitterAdmissionDecision(state, options.limits), accounting: "best-effort-retained-journal", state, limits: options.limits };

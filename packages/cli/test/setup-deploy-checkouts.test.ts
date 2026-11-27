@@ -6,25 +6,20 @@ import process from "node:process"
 import { describe, expect, it, vi } from "vitest"
 
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
-import { runSetup } from "./setup-helpers.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
+import { isolateProjectPackages, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { SetupDeployOutput, SetupError } from "../src/setup/index.ts"
 
 type DeployJson = SetupDeployOutput & { error?: SetupError, rerun?: string }
 
-/** The answer to the deploy question in a terminal. */
 const terminal = vi.hoisted(() => ({ answer: "n" }))
 vi.mock("node:readline/promises", () => ({ createInterface: () => ({ close: () => {}, question: async () => terminal.answer }) }))
 
 const cloudflareEnv = { CLOUDFLARE_ACCOUNT_ID: "acc-1", CLOUDFLARE_API_TOKEN: "cf-token-1" }
 const remote = "https://docs.example.com"
 
-/**
- * A small stand-in for `@vite-hub/workspace/checkout`, resolved from the project's node_modules as deploy resolves the
- * real one. The status reads `conflicts` of the lock. Pull writes the remote files and updates the lock. Push pulls
- * again, then commits with `workspace.commit`, both through the call that deploy passes.
- */
 const fakeCheckoutModule = `import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
@@ -105,14 +100,12 @@ const checkoutPackage = {
   "node_modules/@vite-hub/workspace/package.json": JSON.stringify({ exports: { "./checkout": "./checkout.js" }, name: "@vite-hub/workspace", type: "module" }),
 }
 
-/** The fake checkout module, which also writes `imported` next to itself when it loads. */
 const markedCheckoutPackage = {
   ...checkoutPackage,
   "node_modules/@vite-hub/workspace/checkout.js": `import { writeFileSync as mark } from "node:fs"\nmark(new URL("./imported", import.meta.url), "")\n${fakeCheckoutModule}`,
 }
 const importMarker = (root: string) => join(root, "node_modules/@vite-hub/workspace/imported")
 
-/** Runs `fn` as if stdin and stderr were a terminal, so deploy asks its question. */
 async function inTerminal<T>(fn: () => Promise<T>): Promise<T> {
   const before = { stderr: process.stderr.isTTY, stdin: process.stdin.isTTY }
   process.stdin.isTTY = true
@@ -131,29 +124,25 @@ function lock(entry: Record<string, unknown> = {}): string {
 }
 
 interface Workspace {
-  /** What the fake app answers to `workspace.changes`. */
   changes?: { head: string | null, files: Array<{ path: string, content: string }>, conflicts?: string[] }
-  /** Files inherited by a new ref, pulled after its first commit. */
   after?: Workspace["changes"]
-  /** What the fake app answers to `workspace.commit`. */
   commit?: { ok: true, value: { revision?: { id: string, parentId?: string | null } } } | { ok: false, code: string, message: string, fix?: string }
 }
 
-/** A fake deployed app that serves the Workspace operations, and records each request with the host calls before it. */
 function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: Workspace = {}) {
   const requests: Array<{ url: string, operation: string, hostCallsBefore: number }> = []
   let committed = false
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input)
-    const body = JSON.parse(String(init?.body)) as { operation: string, input: { since?: string | null } }
+    const body = operationRpcRequest(init?.body) as { operation: string, input: { since?: string | null } }
     requests.push({ hostCallsBefore: (await hosts.calls()).length, operation: body.operation, url })
     if (!url.startsWith(remote)) throw new Error(`unexpected request to ${url}`)
     const changes = (committed ? workspace.after : undefined) ?? workspace.changes ?? { files: [], head: "r1" }
     const answer = body.operation === "workspace.changes"
-      ? { ok: true, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
-      : workspace.commit ?? { ok: true, value: { revision: { id: "r3" } } }
+      ? { ok: true as const, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
+      : workspace.commit ?? { ok: true as const, value: { revision: { id: "r3" } } }
     if (body.operation === "workspace.commit" && answer.ok) committed = true
-    return Response.json(answer, { status: answer.ok ? 200 : 409 })
+    return operationRpcResponse(init?.body, answer.ok ? answer : { ...answer, status: 409 })
   }
   return { fetch, requests }
 }
@@ -183,7 +172,6 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
       changed: ["vitehub.lock", "content/news.md"],
       results: [{ pull: { files: [{ action: "added", path: "news.md" }], from: "r1", head: "r2", ref: "main", workspace: "docs" }, pushed: ["guide.md"], ref: "main", revision: "r3", workspace: "docs" }],
     })
-    // The push runs after the host deploy, against the remote that the lock names.
     expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.changes", "workspace.commit"])
     expect(app.requests[0]!.hostCallsBefore).toBe(0)
     const deployCalls = (await hosts.calls()).length
@@ -335,11 +323,12 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     }
     for (const [name, project] of Object.entries(projects)) {
       const root = await builtProject("cloudflare", project.files)
+      isolateProjectPackages(root)
       const hosts = await fakeHosts(cloudflareEnv)
       const app = workspaceApp(hosts)
       const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env, { fetch: app.fetch })
-      expect(result.exitCode, name).toBe(0)
-      expect(result.json, name).toEqual({ host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
+      expect(result.exitCode, `${name}: ${result.stdout}${result.stderr}`).toBe(0)
+      expect(result.json, name).toEqual({ env: { checked: [], missing: [], pushed: [], stage: "production" }, host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
       expect(result.stderr.split("\n").filter(line => line.startsWith("[vitehub] vitehub.lock")).map(line => `${line}\n`).join(""), name).toBe(project.stderr)
       expect(app.requests, name).toEqual([])
     }

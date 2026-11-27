@@ -1,17 +1,22 @@
-import { readFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { resolve } from "node:path"
-import { createInterface } from "node:readline/promises"
+import { pathToFileURL } from "node:url"
 
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { askOnTerminal, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
+import { isRecord } from "@vite-hub/internal/object"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { previewEmailTemplate } from "./preview.ts"
+import { compileEmailVueTemplates, emailTemplateFileName } from "./vue-compile.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { EmailOutboxDelivery, EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
+import type { EmailTemplate } from "./templates.ts"
+import type { RenderedEmail } from "./types.ts"
+import type { EmailVueBuildOptions } from "./vue-compile.ts"
 
 export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
@@ -21,6 +26,7 @@ export interface EmailCliOptions {
   fetch?: typeof fetch
   /** Directories that hold Email templates. The Vite plugin passes its `server/emails` roots. */
   templateRoots?: () => readonly string[]
+  vue?: (template: EmailTemplate) => EmailVueBuildOptions
 }
 
 type OutboxBodyFormat = "html" | "json" | "text"
@@ -39,7 +45,7 @@ interface OutboxCommand {
   description: string
   formats?: boolean
   id?: boolean
-  name: "clear" | "list" | "show"
+  name: "clear" | "get" | "list"
   operation: "outbox-clear" | "outbox-list" | "outbox-show"
 }
 
@@ -49,15 +55,16 @@ const emailDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const outboxCommands: readonly OutboxCommand[] = [
   { description: "List captured messages, newest first.", name: "list", operation: "outbox-list" },
-  { description: "Show one captured message.", formats: true, id: true, name: "show", operation: "outbox-show" },
+  { description: "Show one captured message.", formats: true, id: true, name: "get", operation: "outbox-show" },
   { description: "Remove every captured message.", name: "clear", operation: "outbox-clear" },
 ]
 
-const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
+const outboxUsage = "vitehub email outbox <list|get|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
 const previewUsage = "vitehub email preview <template> [--data <json|@file>] [--html|--text|--json]"
 
 function outboxCommandUsage(command: OutboxCommand): string {
@@ -139,11 +146,6 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): Parse
   return parsed
 }
 
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
-
 function deliveryLabel(delivery: EmailOutboxDelivery): string {
   switch (delivery.status) {
     case "pending":
@@ -189,9 +191,7 @@ function formatMessage(message: EmailOutboxMessage): string {
     ...(message.bcc?.length ? [`Bcc: ${message.bcc.join(", ")}`] : []),
     ...(message.replyTo?.length ? [`Reply-To: ${message.replyTo.join(", ")}`] : []),
     `Subject: ${message.subject}`,
-    ...(message.preheader ? [`Preheader: ${message.preheader}`] : []),
     ...(message.scheduledAt ? [`Scheduled at: ${message.scheduledAt}`] : []),
-    ...(message.template ? [`Provider template: ${message.template}`] : []),
     ...(headers.length ? ["Headers:", ...headers.map(([name, value]) => `  ${name}: ${value}`)] : []),
     ...(message.attachments.length
       ? ["Attachments:", ...message.attachments.map(attachment => `  ${attachment.filename} (${[attachment.contentType, `${attachment.size} bytes`, attachment.disposition].filter(Boolean).join(", ")})`)]
@@ -201,10 +201,6 @@ function formatMessage(message: EmailOutboxMessage): string {
     message.text ?? "(no text body)",
     "",
   ].join("\n")
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !Array.isArray(value) && v.is(v.record(v.string(), v.unknown()), value)
 }
 
 const deliverySchema = v.variant("status", [
@@ -218,8 +214,8 @@ const attachmentSchema = v.object({ cid: v.optional(v.string()), contentType: v.
 const outboxMessageSchema = v.object({
   ...messageFields, attachments: v.array(attachmentSchema), bcc: v.optional(v.array(v.string())), cc: v.optional(v.array(v.string())),
   headers: v.record(v.string(), v.string()), html: v.optional(v.string()), metadata: v.optional(v.record(v.string(), v.string())),
-  preheader: v.optional(v.string()), replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()), stream: v.optional(v.string()),
-  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), template: v.optional(v.string()), text: v.optional(v.string()),
+  replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()),
+  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), text: v.optional(v.string()),
 })
 const nonnegativeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0))
 const resultSchemas = {
@@ -241,12 +237,6 @@ function parseOutboxResult(operation: OutboxCommand["operation"], value: unknown
   }
 }
 
-function writeFailure(json: boolean, context: EmailCliContext, failure: { code?: string, fix?: string, message: string }): number {
-  if (json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
 function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): string {
   if (parsed.json) return `${JSON.stringify(result.operation === "outbox-show" ? result.value.message : result.value, null, 2)}\n`
   switch (result.operation) {
@@ -265,16 +255,6 @@ function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): str
   }
 }
 
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
-}
-
 async function runOutboxCommand(command: OutboxCommand, args: string[], context: EmailCliContext, options: EmailCliOptions): Promise<number> {
   let parsed: ParsedOutboxArgs
   try {
@@ -282,7 +262,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeOutboxUsage(command, context.stderr)
     return 1
@@ -294,7 +274,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
   if (command.name === "clear" && !parsed.yes) {
     const question = `Remove every captured message from the Email outbox at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
+    if (!confirmed) return writeCliFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
   }
   const called = await callOperationFromCli({
     ...(command.name === "clear" ? { confirmed: true } : {}),
@@ -304,9 +284,9 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
   }, `email.${command.operation}`, parsed.id === undefined ? {} : { id: parsed.id })
-  if (!called.ok) return writeFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  if (!called.ok) return writeCliFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
   const result = parseOutboxResult(command.operation, called.value)
-  if (!result) return writeFailure(parsed.json, context, { message: "The email operation answered with an invalid result." })
+  if (!result) return writeCliFailure(parsed.json, context, { message: "The email operation answered with an invalid result." })
   context.stdout.write(formatOutboxResult(parsed, result))
   return 0
 }
@@ -314,7 +294,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
 /**
  * Runs one `vitehub email outbox` command through the `email.outbox-*` operations, on the dev server of this project or
  * on a deployed app with `--url`.
- * `args[0]` is the command name: `list`, `show`, or `clear`.
+ * `args[0]` is the command name: `list`, `get`, or `clear`.
  */
 export async function runEmailOutboxCli(args: string[], context: EmailCliContext, options: EmailCliOptions = {}): Promise<number> {
   const [name, ...rest] = args
@@ -325,7 +305,7 @@ export async function runEmailOutboxCli(args: string[], context: EmailCliContext
   const command = outboxCommands.find(entry => entry.name === name)
   if (!command) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure(true, context, { message: `Unknown outbox command: ${name}` })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: `Unknown outbox command: ${name}` })
     context.stderr.write(`Unknown outbox command: ${name}\n`)
     writeOutboxCommands(context.stderr)
     return 1
@@ -377,7 +357,7 @@ function writePreviewUsage(stream: ViteHubCliStreams["stdout"]): void {
     "  --data <json|@file>  Template data as a JSON object, or @ and a JSON file path.",
     "  --html               Print only the rendered HTML.",
     "  --text               Print only the text body.",
-    "  --json               Print JSON with template, file, html, and text.",
+    "  --json               Print JSON with template, file, subject, html, and text.",
     "  -h, --help           Show this help.",
     "",
   ].join("\n"))
@@ -406,9 +386,23 @@ async function readPreviewData(value: string | undefined, cwd: string): Promise<
   return data
 }
 
+async function renderVueTemplate(rootDir: string, template: EmailTemplate, data: Record<string, unknown>, vue?: EmailVueBuildOptions): Promise<RenderedEmail> {
+  const parent = resolve(rootDir, ".vitehub", "email")
+  await mkdir(parent, { recursive: true })
+  const outputRoot = await mkdtemp(resolve(parent, "preview-"))
+  try {
+    await compileEmailVueTemplates([template], outputRoot, rootDir, vue)
+    const module: { default: (data: Record<string, unknown>) => Promise<RenderedEmail> } = await import(pathToFileURL(resolve(outputRoot, `${emailTemplateFileName(template.name)}.mjs`)).href)
+    return await module.default(data)
+  }
+  finally {
+    await rm(outputRoot, { force: true, recursive: true })
+  }
+}
+
 /**
- * Renders one Email template with `renderEmailMarkdown()` and prints it. The template name is the path under
- * `server/emails` without `.md`, the same name as the `#vitehub/emails/<name>` import.
+ * Renders one Email template and prints it. The template name is the path under `server/emails` without the
+ * extension, the same name as the `#vitehub/emails/<name>` import.
  */
 export async function runEmailPreviewCli(args: string[], context: EmailCliContext, options: EmailCliOptions = {}): Promise<number> {
   let parsed: ParsedPreviewArgs
@@ -427,16 +421,16 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
   const json = parsed.format === "json"
   const roots = options.templateRoots?.() ?? [resolve(context.rootDir, "server", "emails")]
   try {
-    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd))
+    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd), (template, data) => renderVueTemplate(context.rootDir, template, data, options.vue?.(template)))
     if (parsed.format === "html") context.stdout.write(`${rendered.html}\n`)
     else if (parsed.format === "text") context.stdout.write(`${rendered.text}\n`)
     else if (json) context.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`)
-    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
+    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, ...(rendered.subject === undefined ? [] : [`Subject: ${rendered.subject}`]), "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
     return 0
   }
   catch (error) {
     const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined
-    return writeFailure(json, context, { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) })
+    return writeCliFailure(json, context, { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -446,7 +440,7 @@ export function createEmailCliContributor(options: EmailCliOptions = {}): ViteHu
       description: "Inspect the development outbox and preview Email templates.",
       features: [
         {
-          description: "List, show, or clear messages that the development outbox captured.",
+          description: "List, get, or clear messages that the development outbox captured.",
           name: "outbox",
           run: async (args: string[], context: ViteHubCliContext) => await runEmailOutboxCli(args, context, options),
           usage: outboxUsage,

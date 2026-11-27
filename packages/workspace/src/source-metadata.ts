@@ -1,8 +1,9 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { readCurrentSourceSnapshot } from "./sources/materialization.ts"
 import { resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
 import type { WorkspaceEntry, WorkspaceSourceMaterializationStatus } from "./core/types.ts"
 import type { WorkspaceSourceMetadata } from "./sources/config.ts"
+
+export { assertWorkspaceRules } from "./core/rule-keys.ts"
 
 export async function listMaterializedWorkspaceEntries(workspace: unknown): Promise<WorkspaceEntry[] | undefined> {
   const metadata = await resolveWorkspaceMetadataTarget(workspace)
@@ -38,13 +39,13 @@ export async function readWorkspaceSourceMaterializationStatus(
   const metadata = await resolveWorkspaceMetadataTarget(workspace)
   if (metadata?.workspaceName === undefined) return
   const snapshot = await readCurrentSourceSnapshot(metadata, metadata.workspaceName, source)
-  if (!hasRuntimeType(snapshot, "object") || snapshot === null) return
+  if (typeof snapshot !== "object" || snapshot === null) return
   const status = snapshot.status
   if (status !== "lazy" && status !== "updating" && status !== "ready" && status !== "error") return
   return {
-    materializedAt: hasRuntimeType(snapshot.materializedAt, "string") ? snapshot.materializedAt : undefined,
-    mountPath: hasRuntimeType(snapshot.mountPath, "string") ? snapshot.mountPath : "",
-    source: hasRuntimeType(snapshot.source, "string") ? snapshot.source : source.key,
+    materializedAt: typeof snapshot.materializedAt === "string" ? snapshot.materializedAt : undefined,
+    mountPath: typeof snapshot.mountPath === "string" ? snapshot.mountPath : "",
+    source: typeof snapshot.source === "string" ? snapshot.source : source.key,
     status,
   }
 }

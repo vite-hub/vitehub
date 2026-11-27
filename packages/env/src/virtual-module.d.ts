@@ -6,7 +6,6 @@ declare module "#vitehub/env/public" {
 
 declare module "#vitehub/env/server" {
   export interface ServerEnv extends Record<string, unknown> {}
-  export function manageServerEnv(request: Request, options?: { allowedOrigin?: string }): Promise<Response>
   export function describeServerEnv(): import("@vite-hub/env").ServerEnvDescription
   export interface ServerEnvInspectionEntry {
     masked: boolean
@@ -20,15 +19,16 @@ declare module "#vitehub/env/server" {
     entries: readonly ServerEnvInspectionEntry[]
   }
   export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
-  type DeepReadonly<T> = T extends import("@vite-hub/env/secret").SecretEnv<unknown>
+  type DeepReadonly<T> = T extends import("@vite-hub/env").SecretEnv<unknown>
     ? T
     : T extends (...args: infer TArguments) => infer TResult
     ? (...args: TArguments) => TResult
     : T extends object
       ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }
       : T
-  export function inspectServerEnv(event?: import("@vite-hub/env/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>
-  export function loadServerEnv(event?: import("@vite-hub/env/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>
-  export function useServerEnv(event?: import("@vite-hub/env/server").ViteHubContext): ServerEnv
-  export function runWithServerEnv<T>(event: import("@vite-hub/env/server").ViteHubContext | undefined, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>
+  export function inspectServerEnv(event?: import("@vite-hub/env/internal/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>
+  export function loadServerEnv(event?: import("@vite-hub/env/internal/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>
+  export function useServerEnv(event?: import("@vite-hub/env/internal/server").ViteHubContext): ServerEnv
+  export function deriveSecret(purpose: string, options?: { event?: import("@vite-hub/env/internal/server").ViteHubContext; root?: string }): Promise<string>
+  export function runWithServerEnv<T>(event: import("@vite-hub/env/internal/server").ViteHubContext | undefined, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>
 }

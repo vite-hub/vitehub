@@ -2,14 +2,10 @@ import { defineDiagnostics } from "nostics"
 
 import { formatBytes } from "./bytes.ts"
 
-/** The largest Worker that Cloudflare accepts, before compression. */
-// Source: https://developers.cloudflare.com/workers/platform/limits/#worker-size, "Worker size (uncompressed): 64 MiB"
-// on the Free and the Paid plan. "There is no compressed size limit. Only the uncompressed bundle size counts."
 export const cloudflareWorkerSizeLimit = 64 * 1024 * 1024
 
-// Keep published codes stable. Each code has a generated docs page.
 export const bundleDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/bundle/diagnostics",
   codes: {
     BUNDLE_STARTUP_UNUSED: {
       why: ({ packages, reason }: { packages: ReadonlyArray<{ name: string, bytes: number }>, reason: string }) =>

@@ -1,7 +1,9 @@
 import { installOperationSectionResolver } from "@vite-hub/internal/operation-registry"
+import { invariant, invariantError } from "@vite-hub/internal/invariant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { isConsoleDevelopmentBuild } from "./development.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { ConsoleUser } from "../../auth-types.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -15,29 +17,18 @@ const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-warning")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open", "token"])
+const modes = new Set<ConsoleAccessMode>(["local", "open", "token"])
 
-export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
+export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } takes Console calls without a signature. Anyone who can reach /_vitehub/rpc can use the Console. Remove console.auth so the app takes only signed calls."
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
-  if (!(policy instanceof Object) || !modes.has(policy.mode)) {
-    throw new TypeError("[vitehub] Console access requires a known access mode.")
-  }
-  if ("check" in policy && policy.check !== undefined && typeof policy.check !== "function") {
-    throw new TypeError("[vitehub] Console access check must be a function.")
-  }
+  invariant(policy instanceof Object && modes.has(policy.mode), "generated Console output passes an access mode that resolveConsoleOptions() derived from checked options")
   if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
-    throw new TypeError("[vitehub] console.authorize must default-export a function.")
-  }
-  if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
-    throw new TypeError("[vitehub] Console access user reader must be a function.")
-  }
-  if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
-    throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
+    throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_NOT_FUNCTION({ site: "file" })
   }
   if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
-    throw new TypeError("[vitehub] console.impersonation must be true or false.")
+    throw invariantError("generated Console output passes console.impersonation after resolveConsoleOptions() checked it")
   }
   if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentBuild() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
@@ -47,8 +38,8 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   installOperationSectionResolver(async ({ user }) => {
     if (policy.mode === "local" || !policy.authorize) return "all"
     // Agents have no browser request and no token, so `authorize` gets a request without headers, `via: "agent"`, and
-    // the user that the Actor stands for. It never sees `via: "token"` here: that means a verified Console token.
-    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    // the user that the Actor stands for. It never sees `via: "console"` or `via: "cli"` here: those mean a verified signature.
+    const request = new Request("http://vitehub.local/_vitehub/rpc", { method: "POST" })
     const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser, via: "agent" } : { request, via: "agent" })
     if (result === true) return "all"
     return isRuntimeResponse(result) ? [] : consoleAuthorizedSections(result) ?? []
@@ -57,14 +48,6 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 
 export function installedConsoleAccessPolicy(): ConsoleAccessPolicy | undefined {
   return scope[policyKey]
-}
-
-/** Whether a value stays a path on the same origin after URL normalization. */
-export function isConsoleSignInPage(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
-  if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
-  // Dot segments can turn a single-slash input into a network-path reference when serialized.
-  return !new URL(value, "http://vitehub.local").pathname.startsWith("//")
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
@@ -80,4 +63,17 @@ export function consoleAuthorizedSections(result: unknown): readonly ConsoleSect
   const sections: unknown[] = sectionsValue
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
+}
+
+/**
+ * The `grants` of a `console.authorize` result: the page tool roles that Site access gives. `undefined` without the
+ * field, and `false` when the field is not a list of role ids.
+ */
+export function consoleAuthorizedGrants(result: unknown): readonly string[] | undefined | false {
+  if (result === null || typeof result !== "object" || !("grants" in result)) return undefined
+  const value: unknown = Reflect.get(result, "grants")
+  if (!Array.isArray(value)) return false
+  const grants: unknown[] = value
+  if (!grants.every((grant): grant is string => typeof grant === "string" && grant.length > 0)) return false
+  return Object.freeze([...new Set(grants)])
 }

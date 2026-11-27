@@ -2,49 +2,53 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
-import { blobError, blobResult } from "./errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
+import { blobError, blobHttpError, blobResult } from "./errors.ts"
+import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import { parseDuration } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
-import { byteRangeBounds } from "./internal/byte-range.ts"
+import { downloadDisposition, isActiveContentType } from "./internal/active-content.ts"
+import { matchesETag, parseByteRange, selectByteRange } from "./internal/serve-request.ts"
+import { edgeCacheKey, keepInEdgeCache, matchEdgeCache } from "./internal/edge-cache.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
-import { assertValidPathname } from "./internal/pathname.ts"
+import { assertValidPathname, decodePathname, normalizeBlobPath, pathnameIssue } from "./internal/pathname.ts"
+import { blobSizeToBytes } from "./internal/size.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
 
-/** The request and the response fields that `serve()` reads and writes. */
-interface BlobServeEvent {
-  req: Request
-  res: { headers: Headers, status?: number }
+const blobStorageHealthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
+
+export function registerBlobStorageHealthCheck(storage: BlobStorage, check: () => Promise<void>): void {
+  blobStorageHealthChecks.set(storage, check)
 }
 
-function serveEvent(event: Request | ViteHubContext): BlobServeEvent {
-  const { req, res } = getStandardContext(event)
-  res.headers ??= new Headers()
-  // SAFETY: The line above gives `res` its headers, and `serve()` must write status and headers to the host's object.
-  return { req, res: res as BlobServeEvent["res"] }
+export async function checkBlobStorageHealth(storage: BlobStorage): Promise<void> {
+  const check = blobStorageHealthChecks.get(storage)
+  if (check) return check()
+  const [error] = await storage.head("vitehub-health-check")
+  if (error) throw error
 }
 
-function matchesETag(condition: string | null, etag: string | undefined): boolean {
-  if (!condition) return false
-  if (condition.trim() === "*") return true
-  return Boolean(etag && condition.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag.replace(/^W\//, "")))
+export async function checkBlobDriverHealth(driver: BlobDriverAdapter<unknown>): Promise<void> {
+  if (driver.checkHealth) await driver.checkHealth()
+  else if (driver.name === "s3") await driver.list({ limit: 1 })
+  else await driver.head("vitehub-health-check")
 }
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
@@ -67,19 +71,13 @@ export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: 
 }
 
 function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
-  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
+  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare, or vercel driver.` })
 }
 
-// Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
+
+// Reject the decoded pathname before a driver, filesystem, or URL can resolve it elsewhere.
 function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(pathname)
-  }
-  catch {
-    decoded = pathname
-  }
-  return assertValidPathname(decoded.replace(/^\/+/, ""), options)
+  return assertValidPathname(decodePathname(pathname), options)
 }
 
 // `_vitehub/derived/` holds cached variants and `_vitehub/media/` holds media records and crop replacements.
@@ -94,15 +92,46 @@ function resolvedParts(pathname: string): string[] {
   return parts
 }
 
+// The fs driver keeps metadata, hashes, and multipart parts under `.vitehub/`. Every driver reserves it, so a store
+// behaves the same on every host.
 function isReservedPath(pathname: string): boolean {
-  const parts = resolvedParts(pathname)
-  return parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || reservedNamespaces.includes(parts[1]!.toLowerCase()))
+  const [first, second] = resolvedParts(pathname).map(part => part.toLowerCase())
+  if (first === ".vitehub") return true
+  return first === "_vitehub" && (second === undefined || reservedNamespaces.includes(second))
+}
+
+// No object lives under `.vitehub/`: writes there fail on every driver. `_vitehub/media/` holds crop replacements that
+// an app reads, so it is not in this check.
+function isInternalPath(pathname: string): boolean {
+  return resolvedParts(pathname)[0]?.toLowerCase() === ".vitehub"
 }
 
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: _vitehub/derived or _vitehub/media." })
+    // An H3 `HTTPError`, so a route that writes a client pathname answers 403, like the Blob operations.
+    throw blobHttpError(403, blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." }))
   }
+}
+
+// `access` was a put() option that only Vercel Blob read. Other drivers dropped it and served the object anyway.
+function assertNoPutAccess(options: object) {
+  if (Object.hasOwn(options, "access")) {
+    throw blobErrorDiagnostics.BLOB_R0045({ message: "`access` is not a Blob put() option. One object cannot be private on its own: the store and `blob.serve` decide who may read it." })
+  }
+}
+
+/**
+ * An error response keeps the CORS headers of the `headers` option, so a page on another origin can read its status.
+ * The other headers describe the object, such as `Cache-Control`, and stay off.
+ */
+function blobErrorResponse(request: Request, options: BlobServeResponseOptions, status: 400 | 404 | 405, error: string, allow?: string): Response {
+  const headers = new Headers()
+  for (const [name, value] of new Headers(options.headers)) {
+    if (name.startsWith("access-control-")) headers.set(name, value)
+  }
+  if (allow) headers.set("Allow", allow)
+  const response = Response.json({ error }, { headers, status })
+  return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
 async function hashCacheKey(value: unknown): Promise<string> {
@@ -114,6 +143,9 @@ async function hashBlob(body: Blob): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", await body.arrayBuffer())
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("")
 }
+
+// One driver call deletes at most this many objects, so a large prefix does not open thousands of requests at once.
+const deleteBatchSize = 100
 
 async function derivedCachePrefix(pathname: string): Promise<string> {
   return `${vitehubOwnedPrefix}derived/${await hashCacheKey(pathname)}/`
@@ -133,92 +165,42 @@ async function readDerived(cache: Blob | null, fingerprint: string): Promise<Blo
   }
 }
 
-function joinPath(...parts: Array<string | undefined>): string {
-  return parts
-    .filter((part): part is string => Boolean(part && part.length > 0))
-    .join("/")
-    .replace(/\/+/g, "/")
-    .replace(/^\/+/, "")
-}
-
-// Expects pathname already normalized via normalizePathname.
-function splitPath(pathname: string) {
-  const segments = pathname.split("/").filter(Boolean)
-  const filename = segments.pop() || ""
-  const dotIndex = filename.lastIndexOf(".")
-
-  return {
-    dir: segments.join("/"),
-    ext: dotIndex > 0 ? filename.slice(dotIndex) : "",
-    name: dotIndex > 0 ? filename.slice(0, dotIndex) : filename,
-  }
-}
-
 // Expects pathname already normalized via normalizePathname.
 function guessContentType(pathname: string): string {
   const filename = pathname.split("/").pop() || ""
   const dotIndex = filename.lastIndexOf(".")
   const extension = dotIndex > 0 ? filename.slice(dotIndex).toLowerCase() : ""
   const known: Record<string, string> = {
+    ".avif": "image/avif",
+    ".css": "text/css; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
     ".gif": "image/gif",
     ".html": "text/html; charset=utf-8",
+    ".ico": "image/x-icon",
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
     ".pdf": "application/pdf",
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".txt": "text/plain; charset=utf-8",
+    ".vtt": "text/vtt; charset=utf-8",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
     ".webp": "image/webp",
+    ".woff2": "font/woff2",
   }
   return known[extension] || "application/octet-stream"
 }
 
-function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
-  const { dir, ext, name } = splitPath(pathname)
-  const filename = options.addRandomSuffix
-    ? `${name}-${globalThis.crypto.randomUUID().split("-")[0]}${ext}`
-    : `${name}${ext}`
-  const normalized = joinPath(dir, filename)
-  // The prefix and the suffix can change the pathname, so check the final value.
-  return assertValidPathname(options.prefix
-    ? joinPath(options.prefix, normalized)
-    : normalized)
-}
-
-/** Reads one `Range: bytes=` spec. Returns `undefined` for no range, several ranges, or a malformed header. */
-function parseByteRange(header: string | null): BlobDriverByteRange | undefined {
-  if (!header) return
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
-  if (!match || (!match[1] && !match[2])) return
-  if (!match[1]) return { suffix: Number(match[2]) }
-  const offset = Number(match[1])
-  if (!match[2]) return { offset }
-  const end = Number(match[2])
-  return end < offset ? undefined : { offset, length: end - offset + 1 }
-}
-
-/**
- * Selects the bytes to send. Returns `undefined` to send the whole body: no range, several ranges, a stale `If-Range`,
- * or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
- */
-function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
-  // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
-  if (event.req.method !== "GET") return
-  const range = parseByteRange(event.req.headers.get("range"))
-  if (!range) return
-  const ifRange = event.req.headers.get("if-range")
-  // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
-  if (ifRange !== null && (!etag || ifRange !== etag)) return
-  return byteRangeBounds(range, size) ?? "unsatisfiable"
-}
-
-function setNotModified(event: BlobServeEvent, headers: Headers): void {
-  for (const [name, value] of headers) event.res.headers.set(name, value)
-  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
-  event.res.status = 304
-  event.res.headers.set("X-Content-Type-Options", "nosniff")
+function notModified(headers: Headers): Response {
+  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) headers.delete(name)
+  headers.set("X-Content-Type-Options", "nosniff")
+  return new Response(null, { headers, status: 304 })
 }
 
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
@@ -233,9 +215,9 @@ export interface BlobStorageOptions {
 function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
   if (options?.remote !== true) return
   const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
-  const target = options.driver === "vercel-blob"
+  const target = options.driver === "vercel"
     ? "Vercel Blob store"
-    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+    : options.driver === "cloudflare" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
   console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
 }
 
@@ -243,6 +225,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   warnRemoteStore(hostDriver.options, store)
   const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
+  function logCacheFailure(op: string, message: string, error: unknown, fallback: () => void, request?: Request) {
+    logFailure({ field: "blob", fields: { op, store, driver: hostDriver.name }, message, error, ...(request ? { request } : {}) }, fallback)
+  }
   async function clearDerived(pathname: string) {
     try {
       const prefix = await derivedCachePrefix(driver.canonicalPathname?.(pathname) ?? pathname)
@@ -256,8 +241,46 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (paths.length) await driver.delete(paths)
     }
     catch (error) {
-      console.error("[vitehub/blob] Derived cache cleanup failed", error)
+      logCacheFailure("derived-cache-cleanup", "Blob derived cache cleanup failed", error, () => console.error("[vitehub/blob] Derived cache cleanup failed", error))
     }
+  }
+  // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
+  async function deletePrefix(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>> {
+    // Check after decoding, so `/` or `%2F` cannot become the empty prefix that matches the whole store.
+    const normalizedPrefix = typeof options.prefix === "string" ? normalizePathname(options.prefix, { prefix: true }) : ""
+    if (!normalizedPrefix) {
+      throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: "Blob delete({ prefix }) needs a non-empty prefix. Use list() and delete() to empty a whole store." }))
+    }
+    // `_vitehub` alone is reserved as a pathname, but as a prefix it also matches app objects such as `_vitehub-notes.txt`.
+    const reservedPrefix = resolvedParts(normalizedPrefix).length > 1 && isReservedPath(normalizedPrefix)
+    return blobResult("delete", store, async () => {
+      const paths: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await driver.list({ prefix: normalizedPrefix, cursor })
+        for (const object of page.blobs) {
+          if (isInternalPath(object.pathname) || (!reservedPrefix && isReservedPath(object.pathname))) continue
+          paths.push(object.pathname)
+        }
+        cursor = page.hasMore ? page.cursor : undefined
+      } while (cursor)
+      for (let index = 0; index < paths.length; index += deleteBatchSize) {
+        const batch = paths.slice(index, index + deleteBatchSize)
+        await driver.delete(batch)
+        await Promise.all(batch.map(clearDerived))
+      }
+      return { deleted: paths.length }
+    })
+  }
+  function deleteObjects(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  function deleteObjects(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
+  async function deleteObjects(target: string | string[] | BlobDeletePrefixOptions): Promise<Result<void | BlobDeletePrefixResult, BlobErrorCode>> {
+    if (typeof target === "object" && !Array.isArray(target)) return deletePrefix(target)
+    const normalizedPathnames = toArray(target).map(value => normalizePathname(value))
+    return blobResult("delete", store, async () => {
+      await driver.delete(normalizedPathnames)
+      await Promise.all(normalizedPathnames.map(clearDerived))
+    })
   }
   const media = createBlobMedia({
     clearDerived,
@@ -268,17 +291,45 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     normalizePathname: pathname => normalizePathname(pathname, { prefix: true }),
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
-      del: pathnames => storage.del(pathnames),
+      copy: (from, to, copyOptions) => storage.copy(from, to, copyOptions),
+      delete: deleteObjects,
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
     },
     store,
     ...(options.url ? { url: options.url } : {}),
   })
+  // A driver without a provider copy: read the object, then write it with its content type and custom metadata.
+  async function copyByReading(from: string, to: string) {
+    const object = await driver.head(from)
+    const body = object && await driver.get(from)
+    if (!object || !body) return null
+    const customMetadata = Object.keys(object.customMetadata).length ? { customMetadata: object.customMetadata } : {}
+    return driver.put(to, body, { ...(object.contentType ? { contentType: object.contentType } : {}), ...customMetadata })
+  }
   const storage: BlobStorage = {
     media,
+    async copy(from, to, options = {}) {
+      const source = normalizePathname(from)
+      // The destination follows the rules of put().
+      const target = normalizeBlobPath(normalizePathname(to), {})
+      assertWritablePath(target)
+      const [error, copied] = await blobResult("copy", store, async (): Promise<BlobObject | "conflict" | null> => {
+        const canonical = (pathname: string) => driver.canonicalPathname?.(pathname) ?? pathname
+        if (canonical(source) === canonical(target)) return driver.head(source)
+        if (!options.overwrite && await driver.head(target)) return "conflict"
+        return driver.copy ? driver.copy(source, target) : copyByReading(source, target)
+      })
+      if (error) return [error, undefined]
+      if (copied === "conflict") {
+        return [blobError("BLOB_CONFLICT", "copy", store, { detail: `Blob ${target} already exists in the "${store}" store. Pass { overwrite: true } to replace it.` }), undefined]
+      }
+      if (!copied) return [blobError("BLOB_NOT_FOUND", "copy", store, { detail: `Blob ${source} was not found in the "${store}" store.` }), undefined]
+      return [undefined, copied]
+    },
     async createMultipartUpload(pathname, options = {}) {
       if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
+      assertNoPutAccess(options)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
       const contentType = options.contentType || guessContentType(normalizedPath)
@@ -288,7 +339,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       ))
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    handleUpload: createUploadHandler(() => storage, store),
     async resumeMultipartUpload(pathname, uploadId) {
       if (!driver.resumeMultipartUpload) throw unsupportedMultipart(driver)
       const normalizedPath = normalizePathname(pathname)
@@ -298,95 +349,149 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         store,
       ))
     },
-    async del(pathnames: string | string[]) {
-      const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
-      return blobResult("del", store, async () => {
-        await driver.delete(normalizedPathnames)
-        await Promise.all(normalizedPathnames.map(clearDerived))
-      })
-    },
+    delete: deleteObjects,
+    // A `.vitehub/` pathname reads as a missing object, as in `serve()`, on every driver.
     async get(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("get", store, () => driver.get(normalizedPathname))
     },
     async head(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
+      if (options.limit !== undefined && !(Number.isSafeInteger(options.limit) && options.limit >= 0))
+        throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: `Blob list() limit must be a safe integer of 0 or more, or omitted. Got ${String(options.limit)}.` }))
       const normalizedPrefix = options.prefix ? normalizePathname(options.prefix, { prefix: true }) : options.prefix
       return blobResult("list", store, () => driver.list({
         ...options,
         prefix: normalizedPrefix,
       }))
     },
-    async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
-      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
+    async put(pathname, body, options = {}) {
+      assertNoPutAccess(options)
+      const { ifMatch, overwrite, ...putOptions } = options
+      const condition: BlobDriverPutCondition | undefined = overwrite === false
+        ? { type: "create" }
+        : ifMatch === undefined ? undefined : { etag: ifMatch, type: "replace" }
+      if (condition && !driver.putIf) throw blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED({ driver: driver.name })
+      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), putOptions)
       assertWritablePath(normalizedPath)
-      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
-      return blobResult("put", store, () => driver.put(normalizedPath, body, {
-        ...options,
-        contentType,
-      }))
+      const contentType = putOptions.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
+      const [error, object] = await blobResult("put", store, async () => condition
+        ? driver.putIf!(normalizedPath, body, { ...putOptions, contentType }, condition)
+        : driver.put(normalizedPath, body, { ...putOptions, contentType }))
+      // A driver that finds at write time that it cannot check the condition throws, like the check above.
+      if (blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED.is(error?.cause)) throw error.cause
+      if (error) return [error, undefined]
+      if (!object) {
+        return [blobError("BLOB_CONFLICT", "put", store, {
+          detail: condition?.type === "create"
+            ? `Blob ${normalizedPath} already exists in the "${store}" store, and the put() had \`overwrite: false\`.`
+            : `Blob ${normalizedPath} in the "${store}" store does not have the \`ifMatch\` ETag of the put(). Another writer changed or deleted it.`,
+        }), undefined]
+      }
+      return [undefined, object]
     },
     async sign(pathname, options) {
-      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
-        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
+      const expiresIn = typeof options.expiresIn === "string" ? parseDuration(options.expiresIn) / 1000 : options.expiresIn
+      if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive whole number of seconds or a duration such as \"15m\"." })
+      }
+      if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
+        throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
+      }
+      if (options.method === "PUT" && options.contentLength !== undefined && !(Number.isSafeInteger(options.contentLength) && options.contentLength >= 0)) {
+        throw blobErrorDiagnostics.BLOB_SIGN_CONTENT_LENGTH_INVALID()
       }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, { ...options, expiresIn }, { store }))
     },
-    async serve(input, pathname: string, options = {}) {
-      const event = serveEvent(input)
-      const added = Object.entries(options.headers ?? {})
-      const previous = added.map(([name]) => [name, event.res.headers.get(name)] as const)
-      const previousCookies = event.res.headers.getSetCookie()
-      for (const [name, value] of added) event.res.headers.set(name, value)
-      const restoreHeaders = () => {
-        for (const [name, value] of previous) {
-          if (name.toLowerCase() === "set-cookie") {
-            event.res.headers.delete(name)
-            for (const cookie of previousCookies) event.res.headers.append(name, cookie)
-          }
-          else if (value === null) event.res.headers.delete(name)
-          else event.res.headers.set(name, value)
-        }
+    async serve(request, pathname, options = {}) {
+      // Like a static file server, answer every other method without reading storage, so a POST to a file URL does
+      // not download the file.
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return blobErrorResponse(request, options, 405, `Blob serve() answers GET and HEAD, not ${request.method}.`, "GET, HEAD")
       }
-      try {
-        const result = await serveRequest(event, pathname, options)
-        if (result[0]) restoreHeaders()
-        return result
+      const { edgeCache } = options
+      if (edgeCache && (!Number.isSafeInteger(edgeCache.maxAge) || edgeCache.maxAge <= 0)) {
+        throw blobErrorDiagnostics.BLOB_R0047({ message: "`edgeCache.maxAge` must be a positive integer." })
       }
-      catch (error) {
-        restoreHeaders()
-        throw error
-      }
+      const decodedPath = decodePathname(pathname)
+      const issue = pathnameIssue(decodedPath)
+      if (issue) return blobErrorResponse(request, options, 400, `Invalid Blob pathname: it ${issue}.`)
+      if (isReservedPath(decodedPath)) return blobErrorResponse(request, options, 404, "Blob not found.")
+      const edge = edgeCache && !options.variant && !options.transform
+        ? { key: edgeCacheKey(request, store, driver.canonicalPathname?.(decodedPath) ?? decodedPath), maxAge: edgeCache.maxAge }
+        : undefined
+      const kept = edge && await matchEdgeCache(request, edge.key)
+      if (kept) return keptResponse(kept, options, decodedPath)
+      const [error, response] = await serveRequest(request, decodedPath, options)
+      if (!error) return edge ? keepInEdgeCache(request, edge.key, response, edge.maxAge) : response
+      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, options, 404, "Blob not found.")
+      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, options, 400, error.message)
+      throw error
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
-  async function serveRequest(event: BlobServeEvent, pathname: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
-    const normalizedPath = normalizePathname(pathname)
-    if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+  // Expects a pathname that `serve()` decoded and checked.
+  async function serveRequest(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     if (options.variant && !options.transform) {
       const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
       if (error) return [error, undefined]
-      if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+      if (plan) return serveObject(request, plan.source, { ...options, transform: plan.transform })
     }
-    return serveObject(event, normalizedPath, options)
+    return serveObject(request, normalizedPath, options)
   }
-  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
+  // Starts from the `headers` option, so the headers that `serve()` sets replace it.
+  function responseHeaders(options: BlobServeResponseOptions, normalizedPath: string): Headers {
+    const headers = new Headers(options.headers)
+    headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
+    const disposition = downloadDisposition(normalizedPath, options.download)
+    if (disposition) headers.set("Content-Disposition", disposition)
+    return headers
+  }
+  // The cache lookup applied Blob's range and `If-None-Match` rules using object metadata. Other headers come from this
+  // request's options, like a response that reads storage.
+  function keptResponse(kept: Response, options: BlobServeResponseOptions, normalizedPath: string): Response {
+    const headers = responseHeaders(options, normalizedPath)
+    const etag = kept.headers.get("etag")
+    if (etag) headers.set("ETag", etag)
+    const contentType = kept.headers.get("content-type") ?? undefined
+    sandboxActiveContent(headers, options, contentType)
+    if (kept.status === 304) return notModified(headers)
+    for (const name of ["content-length", "content-range"]) {
+      const value = kept.headers.get(name)
+      if (value !== null) headers.set(name, value)
+    }
+    headers.set("Accept-Ranges", "bytes")
+    if (contentType) headers.set("Content-Type", contentType)
+    headers.set("X-Content-Type-Options", "nosniff")
+    return new Response(kept.body, { headers, status: kept.status })
+  }
+  // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
+  // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.
+  // Without a type, for example before a transform runs, the response always gets the sandbox.
+  function sandboxActiveContent(headers: Headers, options: BlobServeResponseOptions, contentType?: string) {
+    if (contentType !== undefined && !isActiveContentType(contentType)) return
+    const policy = new Headers(options.headers).get("Content-Security-Policy")
+    headers.set("Content-Security-Policy", policy ? `${policy}, sandbox` : "sandbox")
+  }
+  async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
         // without holding it in memory. A video and every seek in it cost one read and only the bytes sent.
-        if (!options.transform && driver.getStream && event.req.method === "GET") {
-          const requested = parseByteRange(event.req.headers.get("range"))
+        if (!options.transform && driver.getStream && request.method === "GET") {
+          const requested = parseByteRange(request.headers.get("range"))
           let read = await driver.getStream(normalizedPath, { range: requested })
           if (read === false) return false
           if (!read) {
@@ -394,15 +499,17 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
             return
           }
           const { object } = read
+          const contentType = object.contentType || guessContentType(normalizedPath)
           const etag = object.httpEtag ? `"${await hashCacheKey([object.httpEtag, object.contentType])}"` : undefined
-          const headers = new Headers({ "Cache-Control": options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache" })
+          const headers = responseHeaders(options, normalizedPath)
           if (etag) headers.set("ETag", etag)
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
+          // A 304 updates the headers that a cache stored, so it carries the sandbox too.
+          sandboxActiveContent(headers, options, contentType)
+          if (matchesETag(request.headers.get("if-none-match"), etag)) {
             await read.body.cancel()
-            setNotModified(event, headers)
-            return null
+            return notModified(headers)
           }
-          const range = selectByteRange(event, etag, object.size)
+          const range = selectByteRange(request, etag, object.size)
           if (requested && !range) {
             // A stale If-Range: send the whole body of the version just read.
             await read.body.cancel()
@@ -415,26 +522,21 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
             }
           }
           headers.set("Accept-Ranges", "bytes")
-          headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))
+          headers.set("Content-Type", contentType)
           headers.set("X-Content-Type-Options", "nosniff")
-          let body = read.body
           if (range === "unsatisfiable") {
-            await body.cancel()
-            body = new Blob([]).stream()
+            await read.body.cancel()
             headers.set("Content-Range", `bytes */${object.size}`)
             headers.set("Content-Length", "0")
-            event.res.status = 416
+            return new Response(null, { headers, status: 416 })
           }
-          else if (range) {
+          if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${object.size}`)
             headers.set("Content-Length", String(range.end - range.start + 1))
-            event.res.status = 206
+            return new Response(read.body, { headers, status: 206 })
           }
-          else {
-            headers.set("Content-Length", String(object.size))
-          }
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return body
+          headers.set("Content-Length", String(object.size))
+          return new Response(read.body, { headers })
         }
 
         const meta = await driver.head(normalizedPath)
@@ -461,29 +563,28 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
         }
 
-        const cacheControl = options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache"
-        const headers = new Headers({ "Cache-Control": cacheControl })
+        const headers = responseHeaders(options, normalizedPath)
         if (etag) headers.set("ETag", etag)
-        if (["GET", "HEAD"].includes(event.req.method)) {
-          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
-            setNotModified(event, headers)
-            return null
-          }
+        if (!options.transform) sandboxActiveContent(headers, options, meta.contentType || guessContentType(normalizedPath))
+        if (["GET", "HEAD"].includes(request.method) && matchesETag(request.headers.get("if-none-match"), etag)) {
+          // A 304 replaces the headers that a cache stored. The transform result type is not known here, so a 304 for a
+          // transform always carries the sandbox. The sandbox does not change how an `<img>` shows an image.
+          if (options.transform) sandboxActiveContent(headers, options)
+          return notModified(headers)
         }
 
-        if (event.req.method === "HEAD" && !options.transform && meta.contentType
+        if (request.method === "HEAD" && !options.transform && meta.contentType
           && meta.size !== undefined && Number.isSafeInteger(meta.size) && meta.size >= 0) {
           headers.set("Accept-Ranges", "bytes")
           headers.set("Content-Length", String(meta.size))
           headers.set("Content-Type", meta.contentType)
           headers.set("X-Content-Type-Options", "nosniff")
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return new Blob([]).stream()
+          return new Response(null, { headers })
         }
 
         const cached = cachePath
           ? await driver.get(cachePath).catch((error) => {
-            console.error("[vitehub/blob] Transform cache read failed", error)
+            logCacheFailure("transform-cache-read", "Blob transform cache read failed", error, () => console.error("[vitehub/blob] Transform cache read failed", error), request)
             return null
           })
           : null
@@ -526,7 +627,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
                   if (!await driver.head(normalizedPath)) await driver.delete([key])
                 }
                 catch (error) {
-                  console.error("[vitehub/blob] Transform cache write failed", error)
+                  logCacheFailure("transform-cache-write", "Blob transform cache write failed", error, () => console.error("[vitehub/blob] Transform cache write failed", error), request)
                 }
               }
               return derived
@@ -538,28 +639,30 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           body = transformed ?? null
         }
         if (!body) return
+        let status = 200
         if (!transform) {
           headers.set("Accept-Ranges", "bytes")
-          const range = selectByteRange(event, etag, body.size)
+          const range = selectByteRange(request, etag, body.size)
           if (range === "unsatisfiable") {
             headers.set("Content-Range", `bytes */${body.size}`)
             body = new Blob([])
-            event.res.status = 416
+            status = 416
           }
           else if (range) {
             headers.set("Content-Range", `bytes ${range.start}-${range.end}/${body.size}`)
             body = body.slice(range.start, range.end + 1, body.type)
-            event.res.status = 206
+            status = 206
           }
         }
-        const stream = body.stream()
+        const contentType = transform
+          ? body.type || "application/octet-stream"
+          : meta.contentType || body.type || guessContentType(normalizedPath)
         headers.set("X-Content-Type-Options", "nosniff")
         headers.set("Content-Length", String(body.size))
-        headers.set("Content-Type", transform
-          ? body.type || "application/octet-stream"
-          : meta.contentType || body.type || guessContentType(normalizedPath))
-        for (const [name, value] of headers) event.res.headers.set(name, value)
-        return stream
+        headers.set("Content-Type", contentType)
+        sandboxActiveContent(headers, options, contentType)
+        // A HEAD response has the headers of the GET response and no body.
+        return new Response(request.method === "HEAD" ? null : body.stream(), { headers, status })
       })
       if (error) return [error, undefined]
       if (payload === false) continue
@@ -568,7 +671,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
-      throw new Error("Blob changed repeatedly while preparing its response.")
+      throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "response" })
     })
   }
   return storage

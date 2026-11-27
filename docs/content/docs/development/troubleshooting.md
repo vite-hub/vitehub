@@ -18,10 +18,11 @@ host output.
 | Definition is missing | File path and default export shape | [File conventions](/docs/reference/file-conventions) and `.vitehub/**` |
 | Stable import fails | Vite plugin and generated TypeScript includes | [Generated files](/docs/development/generated-files) |
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
-| Agent CLI cannot inspect or invoke | A running Vite server and `agent` on in `vitehub()` | [CLI](/docs/development/cli) |
+| Agent CLI cannot inspect or invoke | A running Vite server and `agent` on in `vitehub()` | [CLI](/docs/cli) |
 | Agent changed behaviour | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/agents/evals) |
-| Agent check times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stuck provider/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
+| Agent check times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stuck provider/session setup | [CLI](/docs/cli) and [Agent Evals](/docs/agents/evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
+| A build printed a warning with a code | The `fix` under it, or `.vitehub/hints.json` | The `docs` link of the code |
 
 ## Discovery failures
 
@@ -49,13 +50,13 @@ A provider failure is usually missing credentials, missing Provision State
 for the host). Dry-run provisioning, then build and inspect the output.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
-A build also fails when the preset cannot give a feature you turned on. For
-example, `queue: true` fails on `node`, `netlify`, and `deno`, and
+A build also fails when the host cannot give a feature you turned on. For
+example, `queue: true` fails on `netlify` and `deno`, and
 `rateLimit: true` fails on `vercel`, `netlify`, and `deno`. Turn the feature off
 or set a provider in its package. The
 [support matrix](/docs/frameworks-hosts/support-matrix) lists providers per host.
@@ -65,7 +66,7 @@ or set a provider in its package. The
 Tell runtime failures apart from model behavior. Use `vitehub agent dev` to
 inspect one run. Use Agent Evals when the bad behavior repeats. If the check
 times out before it reaches the failure, raise the dev-loop inactivity
-`--timeout` or `agent.eval.testTimeout` in `vite.config.ts`.
+`--timeout` or `agent.eval.testTimeout` in `nuxt.config.ts` or `vite.config.ts`.
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json

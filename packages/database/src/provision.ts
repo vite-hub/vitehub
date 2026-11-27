@@ -5,10 +5,10 @@ import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { CollectedDatabaseContributions } from "./contributions.ts"
-import type { DBModulePublicOptions } from "./types.ts"
+import type { DatabaseOptions } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicOptions, false> & { nuxtHostResource: true })
+type DatabaseProvisionOptions = DatabaseOptions | (Exclude<DatabaseOptions, false> & { nuxtHostResource: true })
 
 interface CloudflareD1Database {
   uuid?: string
@@ -74,7 +74,7 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
     }
     else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false, readReplication })
   }
-  const integrationDatabaseName = options && options.driver === "d1" && nuxtHostResource
+  const integrationDatabaseName = options && options.driver === "cloudflare" && nuxtHostResource
     ? resolveConfigValue(options.databaseName)
     : undefined
   if (integrationDatabaseName) {

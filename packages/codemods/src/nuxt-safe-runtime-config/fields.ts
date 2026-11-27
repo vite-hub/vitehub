@@ -1,15 +1,17 @@
 import { snakeCase } from "scule"
 
 import type { LiteralValue } from "../shared/nuxt-config.ts"
+import type { JsonLiteral } from "./nuxt-config.ts"
+import type { AccessStep } from "./field-schema.ts"
 
-export type EnvFieldKind = "boolean" | "enum" | "number" | "string"
+export type EnvFieldKind = "boolean" | "enum" | "json" | "number" | "string"
 
 export type { LiteralValue }
 
 /** One runtime config value that moves to an Env declaration. */
 export interface EnvField {
   section: "public" | "server"
-  /** Path in Nuxt `runtimeConfig`, without the `public` segment. */
+  /** Path in `runtimeConfig`. A Nuxt public path has no `public` segment. */
   configPath: string[]
   /** Path in Public Env or Server Env. Public Env paths have one segment. */
   envPath: string[]
@@ -17,19 +19,25 @@ export interface EnvField {
   variable: string
   /** Other host variables to read after `variable`. */
   extraVariables?: string[]
-  /** Treat an empty variable as unset, as `process.env.NAME || fallback` did. */
-  skipEmpty?: boolean
   kind: EnvFieldKind
   values?: string[]
   required: boolean
   secret: boolean
-  default?: LiteralValue
+  default?: LiteralValue | Exclude<JsonLiteral, null>
+  /**
+   * Set when the field's `$schema` rules move to a schema module. `steps` read the field schema from the `$schema`.
+   * A `string` field passes the raw value to the schema, and a `json` field passes the parsed JSON value.
+   */
+  schema?: { steps: AccessStep[] }
 }
 
-/** Nuxt's rule: `NUXT_` and the upper snake case path. Public paths start with `PUBLIC`. */
-export function nuxtVariableName(section: EnvField["section"], configPath: readonly string[]): string {
+/** The framework whose `runtimeConfig` the codemod migrates. */
+export type Framework = "nitro" | "nuxt"
+
+/** The rule of Nuxt and Nitro: the framework prefix and the upper snake case path. Public paths start with `PUBLIC`. */
+export function nuxtVariableName(section: EnvField["section"], configPath: readonly string[], framework: Framework = "nuxt"): string {
   const path = section === "public" ? ["public", ...configPath] : configPath
-  return `NUXT_${snakeCase(path.join("_")).toUpperCase()}`
+  return `${framework === "nitro" ? "NITRO_" : "NUXT_"}${snakeCase(path.join("_")).toUpperCase()}`
 }
 
 /** Public Env is flat, so a nested public path joins its segments in camel case. */

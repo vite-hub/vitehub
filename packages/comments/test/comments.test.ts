@@ -113,6 +113,18 @@ describe("defineComments", () => {
     expect(await editorsOnly.can({ user: { id: "e", role: "editor" }, action: "write" })).toBe(true)
   })
 
+  it("gives authorize the gate's development, and console only from the context", async () => {
+    const seen: { development?: boolean, console?: boolean }[] = []
+    const comments = defineComments({ authorize: ({ development, console }) => {
+      seen.push({ development, console })
+      return true
+    } })
+    await comments.can({ user: null, action: "read" })
+    await comments.can({ user: null, action: "read" }, { development: true, console: true })
+    await comments.can({ user: null, action: "read", console: true })
+    expect(seen).toEqual([{ development: false, console: undefined }, { development: true, console: undefined }, { development: false, console: true }])
+  })
+
   it("allows only when the policy returns true", async () => {
     // SAFETY: a JavaScript policy may return nothing, which TypeScript forbids.
     const comments = defineComments({ authorize: (({ action }: { action: string }) => action === "read" ? true : undefined) as never })
@@ -140,6 +152,32 @@ describe("defineComments", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: { id: "guest:1", name: "Visitor" } })
     expect(thread!.author).toEqual({ id: "guest:1", name: "Visitor", guest: true })
     expect((await comments.get(thread!.id))[1]!.messages[0]!.author.guest).toBe(true)
+  })
+
+  it("gives a guest's retry with the same requestId the first thread", async () => {
+    const comments = await createComments()
+    const author = { id: "visitor-1", name: "Visitor", guest: true }
+    const [, first] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    const [retryError, retry] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    expect(retryError).toBeUndefined()
+    expect(retry!.id).toBe(first!.id)
+  })
+
+  it("finds the thread and the reply of a requestId before a retry, and stores a retried reply once", async () => {
+    const comments = await createComments()
+    const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Typo", author: ada, requestId: "draft-1" })
+    expect(await comments.findThread({ page: "/pricing/", requestId: "draft-1" })).toEqual([undefined, thread])
+    expect(await comments.findThread({ subject: { kind: "page", id: "/pricing" }, requestId: "draft-2" })).toEqual([undefined, null])
+
+    expect(await comments.findReply(thread!.id, "reply-1")).toEqual([undefined, null])
+    const [, first] = await comments.reply(thread!.id, { body: "Fixed", author: grace, requestId: "reply-1" })
+    const [retryError, retry] = await comments.reply(thread!.id, { body: "Fixed", author: grace, requestId: "reply-1" })
+    expect(retryError).toBeUndefined()
+    expect(retry).toEqual(first)
+    expect(await comments.findReply(thread!.id, "reply-1")).toEqual([undefined, first])
+    expect((await comments.get(thread!.id))[1]!.messages).toHaveLength(2)
+    expect((await comments.reply(thread!.id, { body: "Fixed", author: ada, requestId: "reply-1" }))[0]?.code).toBe("COMMENTS_INVALID_INPUT")
+    expect((await comments.findReply("thread_missing", "reply-1"))[0]?.code).toBe("COMMENTS_NOT_FOUND")
   })
 
   it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {

@@ -13,7 +13,7 @@ import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 const nodeMajor = Number(process.versions.node.split(".")[0])
 
 const execFileAsync = promisify(execFile)
-const drizzleKitBin = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+const drizzleKitBin = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
 const tempDirs: string[] = []
 
 afterEach(async () => {
@@ -25,16 +25,17 @@ async function createProject() {
   tempDirs.push(rootDir)
   await mkdir(join(rootDir, "server/databases"), { recursive: true })
   await writeFile(join(rootDir, "package.json"), '{ "type": "module" }\n')
+  // Kit 1.0 reads the nearest tsconfig and warns about the `paths` of this package's tsconfig.
+  await writeFile(join(rootDir, "tsconfig.json"), "{}\n")
   return rootDir
 }
 
 async function writeDefinition(rootDir: string, options: string) {
-  await writeFile(join(rootDir, "server/databases/config.ts"), [
+  await writeFile(join(rootDir, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "const users = sqliteTable('users', { id: integer().primaryKey(), displayName: text() })",
     "const schema = { users }",
-    "const drizzle = { casing: 'snake_case' as const }",
     `export default defineDatabase({ ${options} })`,
   ].join("\n"))
   const config = resolveDBViteConfig(undefined, rootDir)!

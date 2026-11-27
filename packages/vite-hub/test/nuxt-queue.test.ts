@@ -14,7 +14,7 @@ afterEach(async () => {
 
 it.each([
   { queue: true, viteRoot: "app" },
-  { queue: { provider: "cloudflare" as const }, viteRoot: "app" },
+  { queue: { driver: "cloudflare" as const }, viteRoot: "app" },
   { queue: true, viteRoot: "." },
 ])("adds Cloudflare Queue bindings to the Nuxt Nitro config (queue: $queue, Vite root: $viteRoot)", async ({ queue, viteRoot }) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-queue-"))
@@ -37,7 +37,7 @@ it.each([
       srcDir: join(rootDir, "app"),
       // Nuxt sets the Vite root to its srcDir. A Vite root at the project root must give the same result.
       vite: { define: {}, root: join(rootDir, viteRoot) },
-      vitehub: { preset: "cloudflare" as const, queue },
+      vitehub: { host: "cloudflare" as const, queue },
     },
   }
 

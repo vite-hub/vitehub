@@ -143,12 +143,16 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
 function cloudflareFixture() {
   const machine = new VirtualMachine();
   const stub: CloudflareSandboxStub = {
+    async cancelExec() {},
     async deleteFile(path) {
       machine.files.delete(normalize(path));
       return { success: true };
     },
     async destroy() {
       machine.stops++;
+      machine.files.clear();
+      machine.directories.clear();
+      for (const path of ["/", "/home", "/workspace"]) machine.directories.add(path);
     },
     async exec(command, options) {
       if (command.startsWith("rm -rf -- ")) {

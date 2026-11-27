@@ -3,7 +3,7 @@ title: Collaborative Editor
 description: "A document editor that shows who is in the room, the connection, the save state, and everyone's carets."
 navigation.order: 14
 navigation.group: Blocks
-icon: i-ph-users-three-light
+icon: i-lucide-users
 ---
 
 This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`](/docs/ui/connection-status), [`SyncStatus`](/docs/ui/sync-status), and the [caret styles](/docs/ui/carets) around a document. Ben types, and Cleo has a phrase selected. Save to see the save state. Drop the connection to see the header wait, then show Reconnecting. The room is fake. No editor runs and no requests leave the page.
@@ -25,7 +25,7 @@ This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`]
 ```vue [DocumentEditor.vue]
 <script setup lang="ts">
 import { EditorContent, useEditor } from "@tiptap/vue-3";
-import type { SyncStatusValue } from "@vite-hub/ui";
+import type { SyncStatusValue } from "vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 import { computed, ref } from "vue";
 
@@ -86,7 +86,7 @@ const editor = useEditor({ extensions: realtime.extensions.value });
 
 ## What to keep
 
-- `people` comes from the room's awareness (shared presence state). With `auth: true`, the server sets each name and image from the session. Do not let the client choose them.
+- `people` comes from the room's awareness (shared presence state). With `authorize: true`, the server sets each name and image from the session. Do not let the client choose them.
 - `AvatarStack` shows a person with two tabs as one face.
 - Presence colors are `#RRGGBB`. Avatar rings, carets, and selections all use them, so each person has one color.
 

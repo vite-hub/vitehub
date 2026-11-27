@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
 
@@ -54,6 +54,7 @@ function inspectPlugins(rootDir: string) {
           providerOutput: [
             { description: "Rate Limit manifest", owner: "rate-limit", path: join(rootDir, ".vitehub/rate-limit/manifest.json") },
             { description: "Generated Cloudflare Worker config", owner: "vite-hub", path: join(rootDir, "dist/server/wrangler.json") },
+            { description: "Deployment manifest", owner: "vite-hub", path: join(rootDir, "dist/deployment.json") },
           ],
         },
       },
@@ -82,7 +83,7 @@ describe("vitehub inspect", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("inspect")
-    expect(result.stdout).toContain("Inspect discovered Definitions, host resources, and generated Provider Output.")
+    expect(result.stdout).toContain("Inspect discovered Definitions, host resources, server routes, and generated Provider Output.")
   })
 
   it("prints every contributed Definition kind in human output", async () => {
@@ -144,14 +145,58 @@ describe("vitehub inspect", () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub/rate-limit"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/rate-limit/manifest.json"), JSON.stringify({ ids: ["login"] }))
-    const result = await run(rootDir, ["inspect", "provider-output"])
+    const result = await run(rootDir, ["inspect", "output"])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("Provider Output: 1 of 3 present")
+    expect(result.stdout).toContain("Provider Output: 1 of 4 present")
     expect(result.stdout).toContain("  .vitehub/rate-limit/manifest.json  (rate-limit) Rate Limit manifest")
     expect(result.stdout).toContain("Not generated:")
     expect(result.stdout).toContain("  .vitehub/provision.json  (cli)")
     expect(result.stdout).toContain("  dist/server/wrangler.json  (vite-hub)")
+  })
+
+  it("resolves build-only Provider Output in production mode", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default ({ command, mode }) => ({
+  plugins: command === "build" && mode === "production" ? [{
+    name: "production-output",
+    apply: "build",
+    vitehub: { inspect: { providerOutput: [{ description: "Production manifest", owner: "test", path: ${JSON.stringify(join(rootDir, ".vitehub/production.json"))} }] } },
+  }] : [],
+})
+`)
+    const stdout = stream()
+    const exitCode = await runViteHubCli({
+      args: ["inspect", "output", "--json"],
+      cwd: rootDir,
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.output()).providerOutput).toEqual(expect.arrayContaining([
+      expect.objectContaining({ owner: "test", path: ".vitehub/production.json" }),
+    ]))
+  })
+
+  it("passes build discovery to project and Nuxt config loaders", async () => {
+    const rootDir = await createTempDir()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: rootDir }))
+    const loadNuxtViteConfig = vi.fn(async () => ({ plugins: inspectPlugins(rootDir), root: rootDir }))
+    const stdout = stream()
+
+    expect(await runViteHubCli({
+      args: ["inspect", "output", "--json"],
+      cwd: rootDir,
+      loadConfig,
+      loadNuxtViteConfig,
+      stdout,
+    })).toBe(0)
+    expect(loadConfig).toHaveBeenCalledWith(rootDir, "build")
+    expect(loadNuxtViteConfig).toHaveBeenCalledWith(rootDir, "build")
+    expect(JSON.parse(stdout.output()).providerOutput).toEqual(expect.arrayContaining([
+      expect.objectContaining({ owner: "rate-limit", path: ".vitehub/rate-limit/manifest.json" }),
+    ]))
   })
 
   it("redacts secrets in Provider Output JSON content", async () => {
@@ -162,7 +207,7 @@ describe("vitehub inspect", () => {
       name: "app",
       vars: { PUBLIC_FLAG: "on", STRIPE_KEY: "sk_live_value" },
     }))
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).not.toContain("sk_live_value")
@@ -181,13 +226,48 @@ describe("vitehub inspect", () => {
     expect(parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")).toMatchObject({ exists: false, owner: "cli" })
   })
 
+  it("keeps the boolean secret flags of deployment.json env entries and redacts credentials", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(join(rootDir, ".vitehub/rate-limit"), { recursive: true })
+    await writeFile(join(rootDir, "dist/deployment.json"), JSON.stringify({
+      env: [
+        { hasDefault: false, names: ["VITEHUB_SECRET"], owners: ["env"], required: false, secret: true },
+        { hasDefault: true, names: ["PUBLIC_URL"], required: true, secret: false },
+        { hasDefault: false, names: ["LEAKED"], required: false, secret: "sk_live_value" },
+      ],
+      host: "node",
+      services: { database: { token: "db-token-value", url: "libsql://user:db-password@example.com" } },
+    }))
+    await writeFile(join(rootDir, ".vitehub/rate-limit/manifest.json"), JSON.stringify({ env: [{ secret: true }] }))
+    const result = await run(rootDir, ["inspect", "output", "--json"])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).not.toContain("sk_live_value")
+    expect(result.stdout).not.toContain("db-token-value")
+    expect(result.stdout).not.toContain("db-password")
+    const parsed = JSON.parse(result.stdout)
+    const manifest = parsed.providerOutput.find((entry: { path: string }) => entry.path === "dist/deployment.json")
+    expect(manifest.content).toEqual({
+      env: [
+        { hasDefault: false, names: ["VITEHUB_SECRET"], owners: ["env"], required: false, secret: true },
+        { hasDefault: true, names: ["PUBLIC_URL"], required: true, secret: false },
+        { hasDefault: false, names: ["LEAKED"], required: false, secret: "[redacted]" },
+      ],
+      host: "node",
+      services: { database: { token: "[redacted]", url: "[redacted]" } },
+    })
+    const other = parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/rate-limit/manifest.json")
+    expect(other.content).toEqual({ env: [{ secret: "[redacted]" }] })
+  })
+
   it("preserves provisioned resource names in Provider Output JSON", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
       vercel: { blob: { api_key: "resource-id", invalid: 42, credentials: "https://user:secret@example.com/store" } },
     }))
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
@@ -204,7 +284,7 @@ describe("vitehub inspect", () => {
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     const path = join(rootDir, ".vitehub/provision.json")
     await writeFile(path, raw)
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
@@ -219,7 +299,7 @@ describe("vitehub inspect", () => {
   it("reports a directory at the provision-state path without reading it as state", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub/provision.json"), { recursive: true })
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
@@ -230,7 +310,7 @@ describe("vitehub inspect", () => {
 
   it("rejects unknown arguments", async () => {
     const rootDir = await createTempDir()
-    const result = await run(rootDir, ["inspect", "provider-output", "--kind", "queue"])
+    const result = await run(rootDir, ["inspect", "output", "--kind", "queue"])
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Unknown inspect argument: --kind")
@@ -332,5 +412,116 @@ describe("vitehub inspect resources", () => {
       stdout,
     })).resolves.toBe(0)
     expect(stdout.output()).toBe("No Definition maps to a host resource.\n")
+  })
+})
+
+describe("vitehub inspect routes", () => {
+  async function createRoutesProject() {
+    const tempDir = await createTempDir()
+    const rootDir = join(tempDir, "app")
+    const agentDir = join(tempDir, "packages/agent")
+    await mkdir(rootDir, { recursive: true })
+    await mkdir(agentDir, { recursive: true })
+    await writeFile(join(agentDir, "package.json"), JSON.stringify({ name: "@vite-hub/agent" }))
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  plugins: [
+    {
+      name: "blob",
+      config: () => ({ nitro: { handlers: [
+        { handler: ${JSON.stringify(join(rootDir, ".vitehub/nitro/blob/serve.mjs"))}, method: "get", route: "/_blob/**" },
+        { handler: ${JSON.stringify(join(rootDir, ".vitehub/auth/access-middleware.mjs"))}, middleware: true, route: "/**" },
+      ] } }),
+    },
+    {
+      name: "agent",
+      config: () => ({ nitro: { handlers: [
+        { handler: ${JSON.stringify(join(agentDir, "dist/health.mjs"))}, method: ["get", "head"], route: "/_agent/health" },
+        { handler: "server/handlers/status.ts", route: "/status" },
+      ] } }),
+    },
+  ],
+}
+`)
+    return rootDir
+  }
+
+  async function runRoutes(rootDir: string, args: string[]) {
+    const stdout = stream()
+    const stderr = stream()
+    const exitCode = await runViteHubCli({ args: ["inspect", "routes", ...args], cwd: rootDir, stderr, stdout })
+    return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
+  }
+
+  it("lists the routes of the build with method, path, owner, and handler", async () => {
+    const rootDir = await createRoutesProject()
+    const result = await runRoutes(rootDir, [])
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(result.stdout).toBe([
+      "METHOD    PATH            OWNER            HANDLER",
+      "*         /**             auth             .vitehub/auth/access-middleware.mjs  (middleware)",
+      "GET       /_blob/**       blob             .vitehub/nitro/blob/serve.mjs",
+      "GET,HEAD  /_agent/health  @vite-hub/agent  @vite-hub/agent/dist/health.mjs",
+      "*         /status         app              server/handlers/status.ts",
+      "",
+    ].join("\n"))
+  })
+
+  it("prints the routes as JSON", async () => {
+    const rootDir = await createRoutesProject()
+    const result = await runRoutes(rootDir, ["--json"])
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      routes: [
+        { handler: ".vitehub/auth/access-middleware.mjs", method: "*", middleware: true, owner: "auth", route: "/**" },
+        { handler: ".vitehub/nitro/blob/serve.mjs", method: "GET", owner: "blob", route: "/_blob/**" },
+        { handler: "@vite-hub/agent/dist/health.mjs", method: "GET,HEAD", owner: "@vite-hub/agent", route: "/_agent/health" },
+        { handler: "server/handlers/status.ts", method: "*", owner: "app", route: "/status" },
+      ],
+    })
+  })
+
+  it("resolves Nitro aliases, roots, and templates while preserving virtual handlers", async () => {
+    const rootDir = await createRoutesProject()
+    const configPath = join(rootDir, "vite.config.mjs")
+    await writeFile(configPath, `export default { nitro: {
+      rootDir: ${JSON.stringify(join(rootDir, "backend"))},
+      alias: { "#health": ${JSON.stringify(join(rootDir, "../packages/agent/dist/health.mjs"))} },
+      handlers: [
+        { handler: "#health", route: "/health" },
+        { handler: "handlers/status.ts", route: "/status" },
+        { handler: "{{ rootDir }}/handlers/template.ts", route: "/template" },
+        { handler: "#virtual-handler", route: "/virtual" },
+        { handler: "\\u0000virtual-handler", route: "/null-virtual" },
+      ],
+    } }`)
+    const result = await runRoutes(rootDir, ["--json"])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout).routes).toEqual([
+      { handler: "@vite-hub/agent/dist/health.mjs", owner: "@vite-hub/agent", method: "*", route: "/health" },
+      { handler: "backend/handlers/status.ts", owner: "app", method: "*", route: "/status" },
+      { handler: "backend/handlers/template.ts", owner: "app", method: "*", route: "/template" },
+      { handler: "#virtual-handler", owner: "app", method: "*", route: "/virtual" },
+      { handler: "\u0000virtual-handler", owner: "app", method: "*", route: "/null-virtual" },
+    ])
+  })
+
+  it("says so when no plugin adds a route", async () => {
+    const rootDir = await createTempDir()
+    const stdout = stream()
+    const exitCode = await runViteHubCli({
+      args: ["inspect", "routes"],
+      cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }),
+      loadNuxtViteConfig: async () => undefined,
+      stderr: stream(),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("No plugin adds a server route.\n")
   })
 })

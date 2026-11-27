@@ -1,66 +1,27 @@
-import { existsSync } from "node:fs"
-
-import { createNetlifyApiClient, ProvisionRequestError } from "@vite-hub/internal/provision"
-import { join } from "pathe"
+import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
+import { createNetlifyApiClient, isProvisionRequestError } from "@vite-hub/internal/provision"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commitMessage, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, optionalString, parseCommitMessage } from "./host.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
+import { commitMessage, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, lastJsonObject, optionalString, parseCommitMessage } from "./host.ts"
 
-import type { DeployAdapter, DeployContext, HostDeployment, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployContext, HostDeployment, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 interface NetlifySite {
   id: string
   accountId?: string
 }
 
-/** Nitro's Netlify preset writes static files to `dist` (`output.publicDir`). */
 const publishDir = "dist"
 
-/** Netlify contexts that read the Console hash: `--prod` deploys and draft deploys. */
-const secretContexts = ["production", "deploy-preview"] as const
-
-// Netlify CLI 27.11: `netlify deploy --help` and `netlify env:set --help`, recorded in test/fixtures/host-cli-help/.
-// `env:set` takes the value as an argument, so the secret goes through the environment variables API instead:
-// https://open-api.netlify.com/#tag/environmentVariables. The CLI reads NETLIFY_AUTH_TOKEN from the environment.
 export function netlifyAdapter(context: DeployContext): DeployAdapter {
   const netlify = hostCli("netlify", "netlify-cli", context.root, context.env)
   const linked = context.link?.host === "netlify" && context.link.project.id ? context.link : undefined
   let site: NetlifySite | undefined = linked?.project.id ? { id: linked.project.id, ...(linked.account ? { accountId: linked.account.id } : {}) } : undefined
 
-  const api = () => {
-    if (!context.credentials.ok) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: "Set NETLIFY_AUTH_TOKEN.", host: "netlify" }), setupExitCodes.inputNeeded)
-    return createNetlifyApiClient(context.credentials.token, context.fetch)
-  }
-
-  /** The account of the site, which the environment variables API needs. */
-  async function account(): Promise<{ accountId: string, siteId: string }> {
-    if (!site) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: "the Netlify site id" }), setupExitCodes.error)
-    if (!site.accountId) {
-      const value = await api()(`/sites/${encodeURIComponent(site.id)}`)
-      const accountId = isRecord(value) ? optionalString(value.account_id) : undefined
-      if (!accountId) throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] The Netlify API returned a site without account_id." })
-      site = { ...site, accountId }
-    }
-    return { accountId: site.accountId!, siteId: site.id }
-  }
-
-  async function readVariable(name: string): Promise<unknown> {
-    const { accountId, siteId } = await account()
-    try {
-      return await api()(`/accounts/${encodeURIComponent(accountId)}/env/${encodeURIComponent(name)}`, { query: { site_id: siteId } })
-    }
-    catch (error: unknown) {
-      if (error instanceof ProvisionRequestError && error.status === 404) return
-      throw error
-    }
-  }
-
   return {
     async deploy() {
       const args = ["deploy", "--no-build", "--dir", publishDir, "--json", ...(context.preview ? ["--context", "deploy-preview"] : ["--prod"])]
-      // ViteHub writes this wrapper for the older Nitro layout. Netlify finds `.netlify/v1/functions` by itself.
-      if (existsSync(join(context.outputDir, "functions", "server.mjs"))) args.push("--functions", join(context.outputDir, "functions"))
       args.push(...(site ? ["--site", site.id] : ["--site-name", context.projectName]))
       if (context.commit) args.push("--message", commitMessage(context.commit))
       const result = await context.run(netlify[0], [...netlify.slice(1), ...args], { cwd: context.root, env: context.env, show: true })
@@ -74,19 +35,98 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
       const name = optionalString(json?.site_name) ?? context.projectName
       return { url, ...(deploymentId ? { deploymentId } : {}), project: { ...(site ? { id: site.id } : {}), name, ...(site?.accountId ? { accountId: site.accountId } : {}) } }
     },
-    async setSecret(name, value) {
-      const { accountId, siteId } = await account()
-      const values = secretContexts.map(deployContext => ({ context: deployContext, value }))
-      const path = `/accounts/${encodeURIComponent(accountId)}/env`
-      const body = { is_secret: true, key: name, scopes: ["functions"], values }
-      if (await readVariable(name) === undefined) await api()(path, { body: [body], method: "POST", query: { site_id: siteId } })
-      else await api()(`${path}/${encodeURIComponent(name)}`, { body, method: "PUT", query: { site_id: siteId } })
+  }
+}
+
+const netlifyContexts = { preview: "deploy-preview", production: "production" } as const
+
+const allContexts = ["production", "deploy-preview", "branch-deploy", "dev", "dev-server"] as const
+
+interface NetlifyValue {
+  context: string
+  value: string
+  context_parameter?: string
+}
+
+function netlifyValues(value: unknown): NetlifyValue[] | undefined {
+  if (!Array.isArray(value)) return
+  const values: NetlifyValue[] = []
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.context !== "string" || typeof item.value !== "string") return
+    values.push({ context: item.context, value: item.value, ...(typeof item.context_parameter === "string" ? { context_parameter: item.context_parameter } : {}) })
+  }
+  return values
+}
+
+function netlifyUpdate(existing: unknown, name: string, context: string, value: string, secret: boolean) {
+  const refuse = (reason: string) => setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "netlify", name, reason }), setupExitCodes.conflict)
+  if (!isRecord(existing) || !Array.isArray(existing.scopes)) throw refuse("The Netlify API returned the variable without its scopes.")
+  const scopes = existing.scopes.filter(scope => typeof scope === "string")
+  const wasSecret = existing.is_secret === true
+  if (scopes.includes("functions") && (wasSecret || !secret)) return
+  const values = netlifyValues(existing.values)
+  if (!values) throw refuse("The Netlify API returned the variable without its values.")
+  const others = values.flatMap(item => item.context === "all" ? allContexts.map(each => ({ ...item, context: each })) : [item]).filter(item => item.context !== context)
+  if (wasSecret && others.some(item => item.context !== "dev")) {
+    throw refuse(`It is a secret without Functions scope, and Netlify does not return the secret values of its other contexts, so ViteHub cannot keep them. Add Functions scope to ${name} in Netlify, then push again.`)
+  }
+  const isSecret = wasSecret || secret
+  return {
+    is_secret: isSecret,
+    key: name,
+    scopes: [...new Set([...scopes, "functions"])].filter(scope => !isSecret || !/^post[-_]processing$/u.test(scope)),
+    values: [...others, { context, value }],
+  }
+}
+
+/**
+ * The environment variables of the linked site for one deploy context. Netlify CLI 27.11 (`netlify env:list --help`,
+ * `netlify env:import --help`, in test/fixtures/host-cli-help/). `env:list --json` prints the names with values, so
+ * its stdout never goes into an error. `env:set` takes the value as an argument, and `env:import` replaces a variable
+ * in every context, so a value goes through the environment variables API with NETLIFY_AUTH_TOKEN instead:
+ * https://open-api.netlify.com/#tag/environmentVariables
+ */
+export function netlifyEnv(context: HostEnvContext): HostEnv {
+  const netlify = hostCli("netlify", "netlify-cli", context.root, context.env)
+  const siteId = context.link.project.id ?? ""
+  if (!siteId) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED({ host: "netlify" }), setupExitCodes.inputNeeded, { missing: [{ field: "project.id" }], rerun: "vitehub link --host netlify" })
+  const deployContext = netlifyContexts[context.target]
+  let accountId = context.link.account?.id
+
+  async function api() {
+    const credentials = await resolveHostCredentials("netlify", { cwd: context.root, env: context.env })
+    if (!credentials.ok) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: credentials.fix, host: "netlify" }), setupExitCodes.inputNeeded, { missing: credentials.missing.map(field => ({ field })) })
+    const request = createNetlifyApiClient(credentials.token, context.fetch)
+    if (!accountId) {
+      const site = await request(`/sites/${encodeURIComponent(siteId)}`)
+      accountId = isRecord(site) ? optionalString(site.account_id) : undefined
+      if (!accountId) throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] The Netlify API returned a site without account_id." })
+    }
+    return { path: `/accounts/${encodeURIComponent(accountId)}/env`, query: { site_id: siteId }, request }
+  }
+
+  return {
+    async listSecretNames() {
+      const result = await context.run(netlify[0], [...netlify.slice(1), "env:list", "--context", deployContext, "--scope", "functions", "--json", "--site", siteId], { cwd: context.root, env: context.env })
+      if (result.exitCode !== 0) throw hostListFailed("netlify env:list", result, context.secrets)
+      const value = lastJsonObject(result.stdout)
+      if (!value) throw hostListFailed("netlify env:list printed no JSON", result, context.secrets)
+      return Object.keys(value)
     },
-    async hasSecret(name) {
-      const value = await readVariable(name)
-      return isRecord(value) && value.key === name
+    async setSecret(name, value, { secret }) {
+      const { path, query, request } = await api()
+      const existing = await request(`${path}/${encodeURIComponent(name)}`, { query }).catch((error: unknown) => {
+        if (isProvisionRequestError(error) && error.status === 404) return undefined
+        throw error
+      })
+      if (existing === undefined) {
+        await request(path, { body: [{ is_secret: secret, key: name, scopes: ["functions"], values: [{ context: deployContext, value }] }], method: "POST", query })
+        return
+      }
+      const update = netlifyUpdate(existing, name, deployContext, value, secret)
+      if (update) await request(`${path}/${encodeURIComponent(name)}`, { body: update, method: "PUT", query })
+      else await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
     },
-    projectExists: async () => site !== undefined,
   }
 }
 
@@ -104,7 +144,6 @@ function parseNetlifyDeploys(value: unknown, published: string | undefined): Hos
   return value.flatMap((item: unknown) => {
     const id = isRecord(item) ? optionalString(item.id) : undefined
     if (!id || !isRecord(item)) return []
-    // `netlify deploy --message` is the deploy `title`. A Git build has `commit_ref`.
     const marked = parseCommitMessage(item.title)
     const ref = optionalString(item.commit_ref)
     const commit: HostDeployment["commit"] = marked ? { ...marked, from: "vitehub" } : ref ? { dirty: false, from: "host", sha: ref } : undefined
@@ -128,8 +167,8 @@ function parseNetlifyDeploys(value: unknown, published: string | undefined): Hos
  * - `GET /api/v1/sites/{site_id}`: `published_deploy.id` is the deploy that serves production (`getSite`).
  */
 export const listNetlifyDeployments: ListDeployments = async (context, { limit, includeLive }) => {
-  const siteId = context.link.project.id
-  if (!siteId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED({ host: "netlify" }), setupExitCodes.inputNeeded, { missing: [{ field: "project.id" }], rerun: "vitehub link --host netlify" })
+  const siteId = context.link.project.id ?? ""
+  if (!siteId) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED({ host: "netlify" }), setupExitCodes.inputNeeded, { missing: [{ field: "project.id" }], rerun: "vitehub link --host netlify" })
   const client = createNetlifyApiClient(context.credentials.token, context.fetch)
   const path = `/sites/${encodeURIComponent(siteId)}`
   const [site, deploys] = await Promise.all([client(path), client(`${path}/deploys`, { query: { page: "1", per_page: String(limit) } })])

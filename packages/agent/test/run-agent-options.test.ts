@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest"
-import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, agentWorkflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentHostCapabilities } from "../src/server/internal.ts"
 import { installAgentRegistry } from "#vitehub/agent/registry"
@@ -112,7 +112,7 @@ it("runs an explicit Workflow Agent inline with invocation tools", async () => {
     driver: { async run({ tools }) {
       return await tools?.send_message?.execute?.({ text: "Roast" })
     } },
-    runtime: workflow("durable-roast"),
+    runtime: agentWorkflow("durable-roast"),
   })
   await expect(runAgent(agent, { prompt: "Write the roast" }, {
     schedule,

@@ -11,13 +11,13 @@ import { getViteHubErrorShape } from "@vite-hub/runtime"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 
 import { workspaceError } from "./errors.ts"
-import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
+import { deleteWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, sha256 } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
-import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, provideWorkspaceStoreTarget, resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
@@ -41,6 +41,7 @@ import type {
   WorkspaceRetainedHistory,
   WorkspaceEntry,
   WorkspaceSessionOptions,
+  WorkspaceLookupName,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
@@ -49,15 +50,17 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceRebaseOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
   WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
+  WorkspaceAuthor,
 } from "./types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
-type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
+type WorkspaceWritablePath<Name extends WorkspaceLookupName> = WorkspaceAssetPath<Name> | (string & {})
 
 type WorkspaceWithDefinitionSync = Workspace & {
   __workspaceDefinitionSyncKey?: object
@@ -149,7 +152,7 @@ export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
   write: <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceWriteTools<Options>
 }
 
-export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
+export type ReadonlyWorkspaceFs<Name extends WorkspaceLookupName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
 
 export interface HistoryCheckpoint {
   createdAt: string
@@ -159,13 +162,15 @@ export interface HistoryCheckpoint {
 
 export interface HistoryCheckpointOptions {
   message?: string
+  /** Who made the change. See `SnapshotOptions.author`. */
+  author?: WorkspaceAuthor
 }
 
 export interface History<TCheckpoint extends HistoryCheckpoint = HistoryCheckpoint> {
   checkpoint(options?: HistoryCheckpointOptions): Promise<TCheckpoint>
 }
 
-export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName> {
+export interface WritableWorkspaceFs<Name extends WorkspaceLookupName = WorkspaceName> {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: WorkspaceWritablePath<Name>, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   appendFile(path: WorkspaceWritablePath<Name>, content: string): Promise<void>
@@ -180,21 +185,23 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
   copyPath(from: WorkspaceWritablePath<Name>, to: WorkspaceWritablePath<Name>, options?: { overwrite?: boolean }): Promise<void>
 }
 
-export interface ReadonlyWorkspaceFiles<Name extends WorkspaceName = WorkspaceName> {
+export interface ReadonlyWorkspaceFiles<Name extends WorkspaceLookupName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
-  history: WorkspaceHistoryReader
+  history: WorkspaceHistoryReader & Pick<WorkspaceRetainedHistory, "diff">
   getMeta?(key: string): Promise<unknown>
 }
 
-export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> extends ReadonlyWorkspaceFiles<Name> {
+export interface ReadonlyWorkspaceFacade<Name extends WorkspaceLookupName = WorkspaceName> extends ReadonlyWorkspaceFiles<Name> {
   tools: WorkspaceReadToolSet
 }
 
 export interface WorkspaceHistory extends History<WorkspaceSnapshot>, WorkspaceRetainedHistory {
+  /** Throws `WORKSPACE_R0069` when the Store cannot delete refs. */
+  deleteRef(options: WorkspaceHistoryDeleteRefOptions): Promise<boolean>
   rebase(options?: WorkspaceRebaseOptions): Promise<void>
 }
 
-export interface WritableWorkspaceFiles<Name extends WorkspaceName = WorkspaceName> {
+export interface WritableWorkspaceFiles<Name extends WorkspaceLookupName = WorkspaceName> {
   capabilities(): Promise<WorkspaceCapabilities>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
@@ -207,11 +214,11 @@ export interface WritableWorkspaceFiles<Name extends WorkspaceName = WorkspaceNa
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
 }
 
-export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> extends WritableWorkspaceFiles<Name> {
+export interface WritableWorkspaceFacade<Name extends WorkspaceLookupName = WorkspaceName> extends WritableWorkspaceFiles<Name> {
   tools: WorkspaceWriteToolSet
 }
 
-export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode extends UseWorkspaceOptions["mode"] = "read"> =
+export type WorkspaceFacade<Name extends WorkspaceLookupName = WorkspaceName, Mode extends UseWorkspaceOptions["mode"] = "read"> =
   Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
 
 function normalizePath(path: string, allowEmpty = false) {
@@ -245,11 +252,15 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
   return await workspace.materializeSources(options)
 }
 
-function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
+function createLazyWorkspace(name: WorkspaceLookupName, definition?: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
 
   async function resolveWorkspace() {
-    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)
+    // A failed resolution lets the next call try again.
+    workspacePromise ||= (definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)).catch((error: unknown) => {
+      workspacePromise = undefined
+      throw error
+    })
     return await workspacePromise
   }
 
@@ -316,28 +327,26 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
         if (!history?.openPullRequest) throw workspaceError("[vitehub] This Workspace Store cannot open pull requests.")
         return await history.openPullRequest(options)
       },
+      deleteRef: async options => await deleteWorkspaceHistoryRef((await resolveWorkspace()).history, options),
       head: async options => await requireWorkspaceHistory(await resolveWorkspace()).head(options),
       list: async options => await requireWorkspaceHistory(await resolveWorkspace()).list(options),
       refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),
       open: async id => await requireWorkspaceHistory(await resolveWorkspace()).open(id),
       usage: async () => await requireWorkspaceHistory(await resolveWorkspace()).usage(),
+      diff: async options => await requireWorkspaceHistory(await resolveWorkspace()).diff(options),
       commit: async options => {
         const history = requireWorkspaceHistory(await resolveWorkspace())
         validateHistoryMessage(options.message)
         const ref = normalizeHistoryRef(options.ref)
         // Reject a stale head before build Sources synchronize.
         const head = await history.head({ ref })
-        if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
+        if ((head?.id ?? null) !== options.ifHead) rejectHistoryHead(options, historyConflict(ref, options.ifHead, head?.id ?? null))
         return await requireWorkspaceHistory(await resolveSyncedWorkspace()).commit(options)
       },
     },
     async capabilities() {
       const resolved = await resolveWorkspace()
       return await resolved.capabilities?.() ?? { conditionalWrites: false }
-    },
-    async [workspaceStoreTarget]() {
-      const resolved = await resolveWorkspace() as Workspace & { [workspaceStoreTarget]?: () => unknown }
-      return await resolved[workspaceStoreTarget]?.()
     },
     async sync(options) {
       const resolved = await resolveWorkspace()
@@ -407,6 +416,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await (await resolveSyncedWorkspace()).startSession(options)
     },
   } as Workspace
+  provideWorkspaceStoreTarget(workspace, async () => await resolveWorkspaceStoreTarget(await resolveWorkspace()))
   attachWorkspaceMetadataTarget(workspace, async () => await resolveWorkspaceMetadataTarget(await resolveWorkspace()))
 
   return attachWorkspaceSourceRequestExecution(workspace, {
@@ -419,7 +429,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   })
 }
 
-function createWritableFs<Name extends WorkspaceName>(name: Name, workspace: Workspace): WritableWorkspaceFs<Name> {
+function createWritableFs<Name extends WorkspaceLookupName>(name: Name, workspace: Workspace): WritableWorkspaceFs<Name> {
   return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
     writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
@@ -444,7 +454,7 @@ function createWritableFs<Name extends WorkspaceName>(name: Name, workspace: Wor
   }, getWorkspaceSourceRequestExecution(workspace))
 }
 
-function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
+function useOptionalWorkspaceAssets<Name extends WorkspaceLookupName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
   try {
     return useWorkspaceAssets(name)
   }
@@ -487,7 +497,7 @@ function mergeSearchHits(primary: WorkspaceSearchHit[] = [], fallback: Workspace
   })
 }
 
-export function createReadonlyFs<Name extends WorkspaceName>(
+export function createReadonlyFs<Name extends WorkspaceLookupName>(
   name: Name,
   workspace: Workspace,
 ): ReadonlyWorkspaceFs<Name> {
@@ -594,19 +604,17 @@ export function createReadonlyFs<Name extends WorkspaceName>(
   return readonlyFs
 }
 
-export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions) {
+export function createWorkspaceFileRuntime<Name extends WorkspaceLookupName>(name: Name, options?: UseWorkspaceOptions) {
   if (options?.mode === "write") {
     const workspace = createLazyWorkspace(name, options.definition)
-    const facade: WritableWorkspaceFiles<Name> & WorkspaceStoreTargetCarrier = {
-      [workspaceStoreTarget]: async () => {
-        return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
-      },
+    const facade: WritableWorkspaceFiles<Name> = {
       capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
       fs: createWritableFs(name, workspace),
       history: {
         ...workspace.history,
-        checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+        deleteRef: async options => await deleteWorkspaceHistoryRef(workspace.history, options),
+        checkpoint: async options => await workspace.snapshot({ name: options?.message, ...(options?.author ? { author: options.author } : {}) }),
         rebase: async options => await workspace.rebase(options),
       },
       getMeta: async key => await workspace.getMeta?.(key),
@@ -617,6 +625,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Nam
       sync: async options => await workspace.sync(options),
     }
     forwardWorkspaceMetadataTarget(workspace, facade)
+    forwardWorkspaceStoreTarget(workspace, facade)
     return { mode: "write" as const, workspace, facade }
   }
 
@@ -630,6 +639,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Nam
       refs: () => requireWorkspaceHistory(workspace).refs(),
       open: (id: string) => requireWorkspaceHistory(workspace).open(id),
       usage: () => requireWorkspaceHistory(workspace).usage(),
+      diff: (options: import("./types.ts").WorkspaceHistoryDiffOptions) => requireWorkspaceHistory(workspace).diff(options),
     },
     getMeta: async (key: string) => await workspace.getMeta?.(key),
   }
@@ -639,9 +649,9 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Nam
 }
 
 /** File and history access without constructing Agent tools or bundling a shell. */
-export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFiles<Name>
-export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFiles<Name>
-export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFiles<Name>
-export function useWorkspaceFiles<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name> {
+export function useWorkspaceFiles<Name extends WorkspaceLookupName>(name: Name): ReadonlyWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceLookupName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceLookupName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFiles<Name>
+export function useWorkspaceFiles<Name extends WorkspaceLookupName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name> {
   return createWorkspaceFileRuntime(name, options).facade
 }

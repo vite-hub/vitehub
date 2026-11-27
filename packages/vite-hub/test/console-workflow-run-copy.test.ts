@@ -1,43 +1,37 @@
-import { readFileSync } from "node:fs"
-
-import { compile, createSSRApp, defineComponent, h } from "vue"
-import { renderToString } from "vue/server-renderer"
-import { expect, it } from "vitest"
+// @vitest-environment happy-dom
+import { flushPromises, mount } from "@vue/test-utils"
+import { expect, it, vi } from "vitest"
 
 import type { ConsoleWorkflowRunView } from "../src/console/runtime/client/workflow"
 
-const source = readFileSync(new URL("../src/console/runtime/components/console-workflow-actions.vue", import.meta.url), "utf8")
-// Render the actual run list without the start and resume forms.
-const start = source.indexOf('<section v-if="workflowRuns.length"')
-const template = source.slice(start, source.indexOf("</section>", start) + "</section>".length)
+const mocks = vi.hoisted(() => ({ start: vi.fn() }))
+vi.mock("../src/console/runtime/client/workflow", async original => ({
+  ...await original<typeof import("../src/console/runtime/client/workflow")>(),
+  startConsoleWorkflow: mocks.start,
+}))
 
-async function renderRuns(run: ConsoleWorkflowRunView): Promise<string> {
-  const app = createSSRApp({
-    render: compile(template),
-    setup: () => ({
-      busyRun: undefined,
-      copy: () => {},
-      isConsoleWorkflowRunActive: () => false,
-      refresh: () => {},
-      statusOf: () => ({ label: "Succeeded", tone: "success" }),
-      workflowRuns: [run],
-    }),
+import WorkflowActions from "../src/console/runtime/components/console-workflow-actions.vue"
+
+async function startRun(run: ConsoleWorkflowRunView) {
+  mocks.start.mockResolvedValueOnce(run)
+  const button = { inheritAttrs: false, props: ["label"], emits: ["click"], template: "<button v-bind=\"$attrs\" @click=\"$emit('click')\">{{ label }}</button>" }
+  const wrapper = mount(WorkflowActions, {
+    props: { base: "/_vitehub/api/workflow", canResume: false, canStart: true, workflow: run.workflow },
+    global: { stubs: { CopyButton: { template: "<button />" }, UButton: button, UTextarea: true, UTooltip: { template: "<slot />" } } },
   })
-  app.component("UButton", defineComponent({ props: { ariaLabel: String }, setup: props => () => h("button", { "aria-label": props.ariaLabel }) }))
-  for (const name of ["ConsoleStatus", "UTooltip"]) {
-    app.component(name, defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
-  }
-  return renderToString(app)
+  await wrapper.findAll("button").find(button => button.text() === "Start")!.trigger("click")
+  await flushPromises()
+  return wrapper
 }
 
 it("offers to copy the run ID and the result of a finished run", async () => {
-  const html = await renderRuns({ id: "wrun_1", provider: "memory", result: "{\n  \"ok\": true\n}", status: "succeeded", workflow: "release" })
-  expect(html).toContain("aria-label=\"Copy run ID\"")
-  expect(html).toContain("aria-label=\"Copy result\"")
+  const wrapper = await startRun({ id: "wrun_1", provider: "memory", result: "{\n  \"ok\": true\n}", status: "succeeded", workflow: "release" })
+  expect(wrapper.find("[aria-label=\"Copy run ID\"]").exists()).toBe(true)
+  expect(wrapper.find("[aria-label=\"Copy result\"]").exists()).toBe(true)
 })
 
 it("offers no result copy while a run has no result", async () => {
-  const html = await renderRuns({ id: "wrun_2", provider: "memory", status: "running", workflow: "release" })
-  expect(html).toContain("aria-label=\"Copy run ID\"")
-  expect(html).not.toContain("Copy result")
+  const wrapper = await startRun({ id: "wrun_2", provider: "memory", status: "running", workflow: "release" })
+  expect(wrapper.find("[aria-label=\"Copy run ID\"]").exists()).toBe(true)
+  expect(wrapper.find("[aria-label=\"Copy result\"]").exists()).toBe(false)
 })

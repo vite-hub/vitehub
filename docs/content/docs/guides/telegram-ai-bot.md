@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-simple-icons-telegram
 ---
 
-Create a bot with BotFather, add `telegram()` from `vite-hub/agent/channels` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/api/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
+Create a bot with BotFather, add `telegram()` from `vite-hub/channels/adapters` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
 
 ## What a ViteHub Telegram bot is
 
@@ -42,9 +42,7 @@ Start with the app from [Installation](/docs/getting-started/installation). `vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -59,9 +57,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -77,9 +73,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -87,13 +81,13 @@ export default defineConfig({
 :::
 ::
 
-`workflow: false` runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
+The Agent runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
 
 ### Define the Agent
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/agent/channels'
+import { telegram } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -156,9 +150,7 @@ Vite blocks unknown host names, so add the tunnel domain to `server.allowedHosts
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     agent: true,
-    workflow: false,
   },
   vite: {
     server: { allowedHosts: ['.trycloudflare.com'] },
@@ -177,9 +169,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -196,9 +186,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -209,7 +197,7 @@ export default defineConfig({
 Check the webhook route. A `HEAD` request returns `204` and names the provider:
 
 ```bash [Terminal]
-curl -I https://your-tunnel.trycloudflare.com/api/_vitehub/agents/assistant/webhooks/telegram
+curl -I https://your-tunnel.trycloudflare.com/_vitehub/agents/assistant/webhooks/telegram
 # HTTP/2 204
 # x-vitehub-channel-provider: telegram
 ```
@@ -227,7 +215,7 @@ pnpm vitehub channels sync --stage development \
   --apply --confirm-origin https://your-tunnel.trycloudflare.com
 ```
 
-It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks) for other flags.
+It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/cli/agents#synchronize-channel-webhooks) for other flags.
 
 Send the bot a direct message, and it replies to your message. In a group, mention it: `@acme_assistant_bot what is ViteHub?`.
 
@@ -235,7 +223,7 @@ A quick tunnel gets a new URL on each start. Run `channels sync` again after a r
 
 ## Deploy the bot
 
-This example deploys the `node` preset to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+This example deploys the `node` host to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -262,20 +250,20 @@ The webhook route also works off Node:
 - On Cloudflare, Agent State lives in a Durable Object. The Agent must answer in about 28 seconds, because Cloudflare stops background work after 30.
 - On Vercel and Netlify, set `VITEHUB_AGENT_STATE_URL` to a hosted libSQL database, because they reject `file:` URLs.
 
-See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those presets.
+See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those hosts.
 
 ## Limits
 
-- **Mentions.** The bot answers every direct message, but in a group only mentions. To also answer replies in a thread the bot joined, set `messages: { replyToSubscribedThreads: true }`. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
-- **Other bots.** ViteHub ignores other bots' messages, so two bots do not answer each other forever. Set `messages: { allowBots: true }` to change this.
-- **Allowed users.** `allowedUserIds` is a filter, not sign-in. A Telegram user ID is not a trusted identity. Before the Agent reads private data, resolve a trusted [Actor](/docs/agents/actors).
-- **History.** Telegram keeps only 100 messages for seven days for a bot. With durable Agent State, ViteHub also keeps a transcript of each chat. See [Keep transcripts](/docs/agents/channels#keep-transcripts).
-- **Polling.** The generated routes serve webhook mode. With `mode: 'polling'`, `channels sync` plans to remove the webhook, and your app starts the listener with `createTelegramPollingRouteHandler()` from `vite-hub/agent/server`.
-- **Proof.** We have contract tests for the Telegram Channel and its webhook route. CI runs no deployed Telegram bot.
+- **Mentions.** In a direct chat, the bot answers every message. In a group, it answers only messages that mention it. To also answer replies in a thread that the bot already joined, set `messages: { replyToSubscribedThreads: true }`. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
+- **Other bots.** ViteHub ignores messages from other bots, so two bots do not answer each other without end. Set `messages: { allowBots: true }` to change this.
+- **Allowed users.** `allowedUserIds` is a filter, not sign-in. A Telegram user ID is not a trusted identity for your app. When the Agent reads private data, resolve a trusted [Invoker](/docs/agents/trusted-invokers) first.
+- **History.** Telegram keeps only 100 messages for seven days for a bot. With durable Agent State, ViteHub also keeps a transcript of each chat. Read [Keep transcripts](/docs/agents/channels#keep-transcripts).
+- **Polling.** The generated routes serve webhook mode. With `mode: 'polling'`, `channels sync` plans to remove the webhook, and your app must start the listener itself with `createTelegramPollingRouteHandler()` from `vite-hub/agent/server`.
+- **Proof.** ViteHub has contract tests for the Telegram Channel and its webhook route. It does not run a deployed Telegram bot in CI.
 
 ## Next steps
 
 - [Agent Channels](/docs/agents/channels): admission, delivery, attachments, and Channel instructions.
-- [Agent Actors](/docs/agents/actors): pass a trusted identity to the Agent.
-- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces.
+- [Trusted Invokers](/docs/agents/trusted-invokers): pass a trusted identity to the Agent.
+- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces to the same Agent.
 - [Build an AI Slack bot](/docs/guides/slack-ai-bot) and [Build an AI Discord bot](/docs/guides/discord-ai-bot) with the same Agent file.

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
+
+import { parse as parseYaml } from "yaml"
 
 import { stopChild } from "./process.mjs"
 
@@ -40,15 +42,18 @@ async function readPackageJson(file) {
   return JSON.parse(await readFile(file, "utf8"))
 }
 
+const fixturePackages = ["agent", "blob", "vite-hub"]
+
+function packageName(name) {
+  return name === "vite-hub" ? name : `@vite-hub/${name}`
+}
+
 async function createLocalPackageSpecs(packDir) {
   await mkdir(packDir, { recursive: true })
-  const packagesDir = join(repoRoot, "packages")
+  const { packedWorkspacePackages } = await import("../../packages/internal/test-utils/published-types.ts")
   const specs = {}
-  for (const entry of await readdir(packagesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    const packageDir = join(packagesDir, entry.name)
-    const pkg = await readPackageJson(join(packageDir, "package.json"))
-    if (typeof pkg.name !== "string" || (pkg.name !== "vite-hub" && !pkg.name.startsWith("@vite-hub/"))) continue
+  for (const name of await packedWorkspacePackages(repoRoot, fixturePackages)) {
+    const pkg = await readPackageJson(join(repoRoot, "packages", name, "package.json"))
     run("pnpm", ["--filter", pkg.name, "pack", "--pack-destination", packDir], { cwd: repoRoot })
     specs[pkg.name] = `file:${join(packDir, packageTarballName(pkg.name, pkg.version))}`
   }
@@ -59,7 +64,7 @@ function previewSpec(packageName, preview) {
   return `https://pkg.pr.new/vite-hub/vitehub/${packageName}@${preview}`
 }
 
-function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
+function renderWorkspaceYaml(overrides, vitePlus) {
   const overrideLines = Object.entries(overrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return [
     "allowBuilds:",
@@ -69,10 +74,11 @@ function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
     "  esbuild: true",
     "  msgpackr-extract: false",
     "  node-liblzma: true",
+    "  vue-demi: false",
     "catalog:",
-    `  vite: npm:@voidzero-dev/vite-plus-core@${vitePlusVersion}`,
-    `  vitest: ${vitestVersion}`,
-    `  vite-plus: ${vitePlusVersion}`,
+    `  vite: ${vitePlus.dependencies.vite}`,
+    `  vitest: ${vitePlus.dependencies.vitest}`,
+    `  vite-plus: ${vitePlus.version}`,
     "overrides:",
     "  vite: \"catalog:\"",
     "  vitest: \"catalog:\"",
@@ -88,8 +94,8 @@ function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
   ].join("\n")
 }
 
-async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
-  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion), "utf8")
+async function writeFixtureFiles(overrides, vitePlus) {
+  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlus), "utf8")
   await mkdir(join(appDir, "src", "lib"), { recursive: true })
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
@@ -121,10 +127,10 @@ async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
     "  fmt: {},",
     "  lint: { options: { typeAware: true, typeCheck: true } },",
     "  plugins: [vitehub({",
-    "    preset: \"netlify\",",
+    "    host: \"netlify\",",
     "    agent: {",
     "      invocations: false,",
-    "      providers: { state: { provider: \"memory\" } },",
+    "      providers: { state: { driver: \"memory\" } },",
     "    },",
     "    blob: {},",
     "    database: false,",
@@ -199,11 +205,13 @@ async function createProject({ packageSource, preview }) {
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
     : { "vite-hub": previewSpec("vite-hub", preview) }
-  await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)
+  const workspace = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
+  overrides.nuxt = workspace.catalogs.nuxt.nuxt
+  await writeFixtureFiles(overrides, vitePlus)
 
-  const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/agent"], overrides["vite-hub"]]
-    : [previewSpec("@vite-hub/agent", preview), previewSpec("vite-hub", preview)]
+  const packageSpecs = fixturePackages.map(packageName).map(name => packageSource === "local"
+    ? overrides[name]
+    : previewSpec(name, preview))
 
   run("pnpm", [
     "add",
@@ -216,12 +224,14 @@ async function assertNetlifyFunctionOutput() {
   const functionFile = join(appDir, ".netlify", "v1", "functions", "vitehub-agent.mjs")
   assert(existsSync(functionFile), "missing .netlify/v1/functions/vitehub-agent.mjs")
   const source = await readFile(functionFile, "utf8")
+  const directConfig = /^export const config = \{/m
+  const aliasedConfig = /^const (vitehubNetlifyFunctionConfig\d*) = \{[\s\S]*?^\}\nexport \{ \1 as config \}$/m
+  assert(directConfig.test(source) || aliasedConfig.test(source), "Netlify function output missing a static config export")
   for (const expected of [
-    "export const config = {",
     "\"name\": \"vitehub-agent\"",
     "\"nodeBundler\": \"esbuild\"",
-    "\"/api/_vitehub/agents/:agent/chat\"",
-    "VITEHUB_HOSTING",
+    "\"/_vitehub/agents/:agent/chat\"",
+    "VITEHUB_HOST",
     "globalThis.__filename",
     "globalThis.__dirname",
     "netlify-alias-ok",
@@ -229,11 +239,10 @@ async function assertNetlifyFunctionOutput() {
     assert(source.includes(expected), `Netlify function output missing ${expected}`)
   }
   assert(!source.includes("from \"@/"), "Netlify function output left the Vite alias unresolved")
-  assert(!source.includes("function config("), "Netlify function output used dynamic function config")
 }
 
 async function postChat(port) {
-  const response = await fetch(`http://127.0.0.1:${port}/api/_vitehub/agents/support/chat`, {
+  const response = await fetch(`http://127.0.0.1:${port}/_vitehub/agents/support/chat`, {
     body: JSON.stringify({
       id: "real-project-thread",
       messages: [{

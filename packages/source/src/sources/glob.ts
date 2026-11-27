@@ -82,7 +82,6 @@ interface GlobKeyCache {
  */
 export function glob(input: GlobInput): FileSource<string> {
   const options = resolveGlobInput(input)
-  // createSource retains one context for each reader's preparation and reads.
   const caches = new WeakMap<SourceContext, GlobKeyCache>()
 
   function cacheFor(ctx: SourceContext) {

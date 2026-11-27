@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsDatabase, resolveDefaultAgentInvocationsLocation } from "../src/invocations/default.ts"
+import { createDefaultAgentInvocations as createCoreAgentInvocations } from "../src/invocations/default-core.ts"
 
 const opens = vi.hoisted(() => ({ count: 0, delayMs: 0 }))
 
@@ -46,12 +47,48 @@ describe("default Agent Invocation journal", () => {
     await expect(resolveDefaultAgentInvocationsLocation({ d1, databaseUrl: "file:other.sqlite", env, projectRoot })).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
   })
 
+  it("keeps the journal next to a file Agent State, from the runtime working directory", async () => {
+    const buildRoot = join(tmpdir(), "vitehub-journal-build-root")
+    expect(process.cwd()).not.toBe(buildRoot)
+    const stateUrl = "file:.data/agent-state.db"
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: pathToFileURL(join(process.cwd(), ".data/agent-invocations.sqlite")).href })
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl: "file:///var/lib/app/state.sqlite?mode=rwc" })).resolves.toEqual({ url: "file:///var/lib/app/agent-invocations.sqlite" })
+    await expect(resolveDefaultAgentInvocationsLocation({ env: { VITEHUB_AGENT_STATE_URL: "file:///srv/state.db" }, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: "file:///srv/agent-invocations.sqlite" })
+    const defaultFile = { url: pathToFileURL(join(buildRoot, ".vitehub/data/agent-invocations.sqlite")).href }
+    await expect(resolveDefaultAgentInvocationsLocation({ env: { VITEHUB_AGENT_STATE_URL: "libsql://state.example.com" }, projectRoot: buildRoot, stateUrl })).resolves.toEqual(defaultFile)
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl: "file::memory:" })).resolves.toEqual(defaultFile)
+    await expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "file:data/journal.sqlite", env: {}, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: pathToFileURL(join(buildRoot, "data/journal.sqlite")).href })
+  })
+
   it("imports no Node builtin outside the lazy file module, so a Worker without Node compatibility can start", () => {
-    for (const file of ["default.ts", "default-location.ts", "d1.ts"]) {
+    for (const file of ["default.ts", "default-core.ts", "default-libsql.ts", "default-location.ts", "d1.ts"]) {
       const source = readFileSync(new URL(`../src/invocations/${file}`, import.meta.url), "utf8")
       expect(source, file).not.toMatch(/from ["']node:/)
     }
-    expect(readFileSync(new URL("../src/invocations/default.ts", import.meta.url), "utf8")).toContain('import("./default-file.ts")')
+    expect(readFileSync(new URL("../src/invocations/default-libsql.ts", import.meta.url), "utf8")).toContain('import("./default-file.ts")')
+  })
+
+  it("keeps the libSQL client out of the core entry", () => {
+    const source = readFileSync(new URL("../src/invocations/default-core.ts", import.meta.url), "utf8")
+    expect(source).not.toMatch(/^import (?!type\s)[^\n]*["'](?:@libsql\/|\.\/sqlite\.ts|\.\/default-libsql\.ts)/m)
+    expect(source).not.toMatch(/import\(\s*["'](?:@libsql\/|\.\/sqlite\.ts|\.\/default-libsql\.ts)/)
+  })
+
+  it("selects D1 and memory without the libSQL driver, and rejects SQLite or libSQL with AGENT_R1036", () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const d1 = { binding: "DB", env: () => ({}) }
+    expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ d1, env: {}, projectRoot: "/worker" }))?.driver).toBe("d1")
+    expect(defaultAgentInvocationsDatabase(createCoreAgentInvocations({ env: {}, projectRoot: "/worker" }))).toBeUndefined()
+    const env = { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.example.com" }
+    expect(() => createCoreAgentInvocations({ d1, env, projectRoot: "/worker" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
+    vi.unstubAllGlobals()
+    expect(() => createCoreAgentInvocations({ env: {}, projectRoot: "/app" })).toThrow(expect.objectContaining({
+      code: "AGENT_R1036",
+      message: expect.stringContaining("built without the libSQL driver"),
+    }))
   })
 
   it("keeps records in memory on a Worker without D1 or a remote URL", () => {

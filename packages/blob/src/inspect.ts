@@ -4,14 +4,14 @@ import { isMaskedBlobRuntimeValue } from "./config.ts"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { ViteHubResourceSummary } from "@vite-hub/internal/inspect"
-import type { BlobModuleOptions } from "./types.ts"
+import type { BlobOptions } from "./types.ts"
 
 /**
  * Lists the R2 buckets and the Vercel Blob store that Blob stores use. Reads local config only.
  * R2 binds a bucket by name. Vercel Blob uses a configured token, or the project's `BLOB_STORE_ID` / `BLOB_READ_WRITE_TOKEN`.
  */
 export function inspectBlobResources(
-  options: BlobModuleOptions | undefined,
+  options: BlobOptions | undefined,
   input: { env?: Record<string, string | undefined>, hosting?: string } = {},
 ): ViteHubResourceSummary[] {
   const env = input.env ?? process.env
@@ -20,7 +20,7 @@ export function inspectBlobResources(
   if (config.blob === false) return []
   const resources: ViteHubResourceSummary[] = []
   for (const [storeName, store] of Object.entries(config.blob.stores ?? { default: config.blob.store })) {
-    if (store.driver === "cloudflare-r2") {
+    if (store.driver === "cloudflare") {
       resources.push({
         binding: store.binding,
         definition: storeName,
@@ -32,14 +32,16 @@ export function inspectBlobResources(
           : { note: "No bucket name. Set `bucketName` or `BLOB_BUCKET_NAME`." }),
       })
     }
-    else if (store.driver === "vercel-blob") {
+    else if (store.driver === "vercel") {
       const storeId = readEnv(env, "BLOB_STORE_ID")
       resources.push({
         definition: storeName,
         host: "vercel",
         kind: "vercel-blob-store",
         owner: "blob",
-        ...(!isMaskedBlobRuntimeValue(store.token)
+        ...(store.secretEnv?.token
+          ? { env: store.secretEnv.token, source: "env" }
+          : !isMaskedBlobRuntimeValue(store.token)
           ? { source: "config" }
           : !store.tokenFromConfig && storeId
             ? { env: "BLOB_STORE_ID", id: storeId, source: "env" }

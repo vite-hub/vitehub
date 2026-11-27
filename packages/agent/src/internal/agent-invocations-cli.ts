@@ -1,31 +1,51 @@
 import { existsSync } from "node:fs"
+import { createRequire } from "node:module"
 import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
+import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
+import { askOnTerminal, discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, isViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
-import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
-import type { AgentInvocationCancelResult, AgentInvocationListResult, AgentInvocationRecord, AgentInvocationStore } from "../invocations.ts"
+import { isCompatibleAgentDevServerRoot } from "./agent-dev-loop-cli.ts"
+import type { AgentInvocationCancelResult, AgentInvocationListResult, AgentInvocationRecord, AgentInvocationRecordStatus, AgentInvocationStore } from "../invocations.ts"
 import type { AgentInvocationsDevRequestBody } from "../invocations-dev.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
-import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, type RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
+import { invocationActivityTrace } from "../invocations/activity.ts"
+import { formatInvocationPageChanges, invocationPageChanges } from "../invocations/page-changes.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
-import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
+import { agentUsagePeriod, agentUsageRow, agentUsageStatuses, matchesAgentUsageQuery, parseAgentUsageStatus, parseAgentUsageWindow, summarizeAgentUsage } from "../usage.ts"
+import type { AgentUsagePeriod, AgentUsageQuery, AgentUsageRow, AgentUsageSummary } from "../usage.ts"
+import { defaultAgentJournalPostgresPrefix } from "../invocations/postgres-table-names.ts"
+import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 
+/** The Postgres default Database that keeps the default journal of a Node server. */
+export interface AgentJournalPostgres {
+  driver?: "node-postgres"
+  /** The connection URL. Without it, the driver reads the PG* environment variables. */
+  url?: string
+}
+
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
+  journalPostgres?: () => Promise<AgentJournalPostgres | undefined>
   /** Project root that the Compatible Vite Development Server must serve. Defaults to the current directory. */
   rootDir?: string
+  /**
+   * The `file:` Agent State URL of the app config. Without `--database` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`,
+   * the journal is `agent-invocations.sqlite` next to it, as on the server.
+   */
+  stateUrl?: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -40,27 +60,39 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "compact" | "delete" | "export" | "list" | "prune" | "show" | "tail" | "wait-idle"
+type Action = "capabilities" | "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "usage" | "wait-idle" | "workspace"
 
-const actions = new Set<string>(["compact", "delete", "export", "list", "prune", "show", "tail", "wait-idle"] satisfies Action[])
+const actions = new Set<string>(["capabilities", "compact", "delete", "export", "get", "list", "prune", "tail", "undo", "usage", "wait-idle", "workspace"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
-const journalActions = new Set<string | undefined>(["compact", "export", "list", "prune", "wait-idle"])
+const journalActions = new Set<string | undefined>(["capabilities", "compact", "export", "list", "prune", "usage", "wait-idle"])
+const consoleActions = new Set<string | undefined>(["capabilities", "workspace"])
 function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
-/** Actions that can read a journal file with --database instead of asking the app. */
-const fileActions = new Set<string | undefined>(["export", "list", "show", "tail", "wait-idle"])
+/** Actions that can read the journal file selected by --database. */
+const fileActions = new Set<string | undefined>(["export", "get", "list", "tail", "usage", "wait-idle"])
+
+function readsJournalFile(parsed: ParsedArgs): boolean {
+  return fileActions.has(parsed.action) && parsed.database !== undefined
+}
 
 interface ParsedArgs {
   action?: Action | "cancel"
+  /** export adds a compact activity trace. */
+  activity: boolean
   /** wait-idle only waits on this Agent's Invocations. */
   /** export only prints this Agent's Invocations. */
   agent?: string
-  /** Base URL of a deployed Console. list, show, tail, and cancel then use its RPC endpoint. */
+  /** undo puts back this page change. */
+  change?: string
+  /** The app URL from `--url`. Commands use the Console RPC under it. */
   console?: URL
+  /** cancel on a localhost app URL. When no Console answers there, the command uses the dev endpoint of that dev server. */
+  consoleFallback?: boolean
   database?: string
   dryRun: boolean
+  yes: boolean
   help: boolean
   id?: string
   interval: number
@@ -81,14 +113,17 @@ interface ParsedArgs {
   tablePrefix?: string
   timeout?: number
   url: string
-  /** `--server` selects the Vite Development Server, never a Console. */
-  server: boolean
+  search?: string
   /** wait-idle ignores pending or running records last updated before this age. */
   staleAfter: number
   urlSet: boolean
   /** How long wait-idle waits. `timeout` stays the request timeout. */
   waitTimeout: number
+  window?: string
+  workspace: { cursor?: string, history?: boolean, path?: string, ref?: string, revision?: string }
 }
+
+const workspaceValueOptions = ["cursor", "path", "ref", "revision"] as const
 
 const cancelEndpoint = { ...agentInvocationsDevGuard, route: agentInvocationsDevRoute }
 
@@ -100,8 +135,8 @@ interface AgentInvocationsDevDiscovery {
 }
 
 function parseCancelDiscovery(value: unknown): AgentInvocationsDevDiscovery {
-  if (!isRuntimeRecord(value) || !hasRuntimeType(value.root, "string") || !hasRuntimeType(value.runtime, "string")
-    || (value.message !== undefined && !hasRuntimeType(value.message, "string"))) {
+  if (!isRuntimeRecord(value) || typeof value.root !== "string" || typeof value.runtime !== "string"
+    || (value.message !== undefined && typeof value.message !== "string")) {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancellation discovery returned an invalid response." })
   }
   const discovery: AgentInvocationsDevDiscovery = { root: value.root, runtime: value.runtime }
@@ -114,6 +149,7 @@ const devTargetErrors = {
   invalidInlineTimeout: (message: string) => agentDiagnostics.AGENT_R0503({ message }),
   invalidTimeout: (message: string) => agentDiagnostics.AGENT_R0503({ message }),
   missingValue: (message: string) => agentDiagnostics.AGENT_R0502({ message }),
+  unknownOption: (message: string) => agentDiagnostics.AGENT_R0504({ message }),
 }
 
 const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
@@ -123,29 +159,35 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [options]",
+    "Usage: vitehub agent invocations <list|get|tail|export|usage|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [options]",
     "",
-    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "list, get, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
+    "get prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
+    "to put one change back, through the app's Console (--url).",
     "",
-    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "capabilities lists the capabilities an Invocation can get, and workspace <id> reads the Workspace files of one,",
+    "through the app's Console.",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
-    "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
+    "usage adds up the token use and cost of the Invocations that ended in a window, as the Console does.",
+    "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal. delete <id> --url",
+    "deletes through the Console of that app, after a question or with --yes.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
-    "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
-    "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
-    "With --database, list, show, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
+    "With --url, list, get, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
+    "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
+    "When no dev server runs and a Node app keeps its journal in a Postgres default Database, list, get, tail,",
+    "export, and wait-idle read that Database with its configured connection, read-only.",
+    "With --database, list, get, tail, export, usage, and wait-idle read a local SQLite journal file read-only, without",
+    "the app.",
     "This command does not load the project config.",
     "",
     "Options:",
-    "  --url <url>               Deployed app URL, such as https://app.example.com. Uses the Console RPC endpoint.",
-    "                            Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and",
-    "                            CF_ACCESS_CLIENT_SECRET to authenticate. A localhost URL uses the Console only for a",
-    "                            /_vitehub path, such as http://localhost:3000/_vitehub.",
-    "                            Other localhost URLs: the invocation endpoint for list, show, and tail",
-    "                            (default http://localhost:5173/api/invocations), or the Development Server for cancel.",
-    "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
+    "  --url <url>               App URL, such as https://app.example.com or http://localhost:3000, as in every",
+    "                            vitehub command. Uses the Console RPC endpoint under it. Set",
+    "                            VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls to a deployment.",
+    "                            Without --url, the commands use the dev server of this project",
+    "                            (.vitehub/dev-server.json) and its Console.",
     "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
     "                            Defaults to 30m.",
     "  --status <status>         Filter list results by pending, running, completed, failed, or cancelled.",
@@ -153,10 +195,12 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --interval <ms>           Polling interval, such as 500 or 5s. Defaults to 1000 for tail and 5s for wait-idle.",
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
-    "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
-    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the default journal file.",
-    "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
-    "                            a running container. They do not migrate or write it.",
+    "  --agent <name>            Filter Console or Postgres list results, or wait-idle, by Agent.",
+    "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
+    "                            agent-invocations.sqlite next to a file: Agent State URL in the config, else",
+    "                            .vitehub/data/agent-invocations.sqlite in the project. list, get, tail, export, and",
+    "                            wait-idle read a local SQLite file read-only, such as the journal inside a running",
+    "                            container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
     "  --older-than <duration>   Prune records last updated before this age, such as 12h or 7d. Defaults to 30d.",
     "  --max-records <count>     Prune the oldest records past this count. With --max-size, --older-than is",
@@ -171,6 +215,13 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --agent <name>            export only this Agent's Invocations.",
     "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
     "  --observations            export every observation too.",
+    "  --window <window>         usage adds up this window: 24h, 7d, 14d, 30d, or 90d. Defaults to 30d.",
+    "  --search <text>           usage counts only Invocations whose id, title, or Agent name has this text.",
+    "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
+    "                            token usage, approvals, and errors, in order. Long text is cut.",
+    "  --change <id>             The page change that undo puts back, as get lists it.",
+    "  --path <path>             Read a path in an Invocation Workspace.",
+    "  --ref, --revision, --cursor, --history  Select a Workspace ref, revision, page, or history.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -191,7 +242,7 @@ function positiveInteger(value: string, flag: string): number {
 
 function duration(value: string, flag: string): number {
   const result = parseRetentionDuration(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_DURATION_INVALID({ flag })
   return result
 }
 
@@ -199,7 +250,7 @@ function size(value: string, flag: string): RetentionSizeLimit {
   // A bare integer is a number of bytes, as in the maxSize option.
   const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
   const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_SIZE_INVALID({ flag })
   return result
 }
 
@@ -247,20 +298,23 @@ function redactCliArgument(argument: string): string {
 
 function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const parsed: ParsedArgs = {
+    activity: false,
     dryRun: false,
+    yes: false,
     help: false,
     interval: 1_000,
     json: false,
     observations: false,
-    server: false,
     staleAfter: waitIdleDefaults.staleAfter,
-    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
+    // Without --url or this variable, useProjectDevServer() reads the dev server of the project.
+    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "",
     urlSet: false,
     waitTimeout: waitIdleDefaults.timeout,
+    workspace: {},
   }
   const target: { timeout?: number, url: string } = { url: parsed.url }
   // --timeout is the request timeout, except for wait-idle, where it is how long to wait.
-  const actionOptionsWithValues = new Set(["--agent", "--url", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since"])
+  const actionOptionsWithValues = new Set(["--agent", "--url", "--server", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since", "--cursor", "--path", "--ref", "--revision", "--window", "--search"])
   let actionFromPositionals: Action | "cancel" | undefined
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
@@ -273,6 +327,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   let staleAfterSet = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
+    const workspaceOption = workspaceValueOptions.find(key => argument === `--${key}` || argument.startsWith(`--${key}=`))
     const used = waiting && (argument === "--timeout" || argument.startsWith("--timeout="))
       ? undefined
       : readViteHubDevTargetOption(args, index, target, devTargetErrors)
@@ -280,19 +335,40 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (waiting && argument.startsWith("--timeout=")) parsed.waitTimeout = milliseconds(argument.slice("--timeout=".length), "--timeout")
     else if (used !== undefined) {
       index += used
-      if (argument === "--url" || argument === "--server" || argument.startsWith("--url=")) {
-        parsed.urlSet = true
-        parsed.server = argument === "--server"
-      }
+      if (argument === "--url" || argument.startsWith("--url=")) parsed.urlSet = true
       parsed.url = target.url
       if (target.timeout !== undefined) parsed.timeout = target.timeout
     }
     else if (argument === "-h" || argument === "--help") parsed.help = true
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
+    else if (argument === "--yes" || argument === "-y") parsed.yes = true
     else if (argument === "--observations") parsed.observations = true
+    else if (argument === "--activity") parsed.activity = true
+    else if (workspaceOption) {
+      const flag = `--${workspaceOption}`
+      const value = argument === flag ? optionValue(args, index++, flag) : argument.slice(flag.length + 1)
+      if (!value) throw agentDiagnostics.AGENT_R0502({ message: `Missing value for ${flag}.` })
+      parsed.workspace[workspaceOption] = value
+    }
+    else if (argument === "--no-history") parsed.workspace.history = false
+    else if (argument === "--history" || argument.startsWith("--history=")) {
+      const value = argument === "--history" ? args[index + 1] : argument.slice("--history=".length)
+      if (value === "true" || value === "false") {
+        parsed.workspace.history = value === "true"
+        if (argument === "--history") index += 1
+      }
+      else if (argument === "--history") parsed.workspace.history = true
+      else throw agentDiagnostics.AGENT_R0503({ message: "--history must be true or false." })
+    }
+    else if (argument === "--change") { parsed.change = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--change=")) parsed.change = argument.slice("--change=".length)
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
+    else if (argument === "--window") { parsed.window = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--window=")) parsed.window = argument.slice("--window=".length)
+    else if (argument === "--search") { parsed.search = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--search=")) parsed.search = argument.slice("--search=".length)
     else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--agent=")) parsed.agent = argument.slice("--agent=".length)
     else if (argument === "--since") { parsed.since = sinceTime(optionValue(args, index, argument)); index += 1 }
@@ -334,69 +410,99 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
 
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, wait-idle, cancel, delete, prune, or compact." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, usage, wait-idle, cancel, undo, capabilities, workspace, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
-  if (!parsed.help && !waiting && parsed.action !== "export" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle and export." })
+  if (!parsed.help && !waiting && parsed.action !== "list" && parsed.action !== "export" && parsed.action !== "usage" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for list, wait-idle, export, usage, and capabilities." })
+  if (!parsed.help && parsed.yes && parsed.action !== "delete") throw agentDiagnostics.AGENT_R0505({ message: "--yes is only supported for delete." })
+  if (!parsed.help && parsed.action !== "workspace" && Object.keys(parsed.workspace).length) throw agentDiagnostics.AGENT_R0505({ message: "Workspace options are only supported for workspace." })
+  if (!parsed.help && consoleActions.has(parsed.action) && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} reads the Console of the app. Pass --url instead of --database.` })
+  if (!parsed.help && parsed.action === "delete" && parsed.urlSet && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
-  if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
-  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined]] as const
+  if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url." })
+  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
   const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
   if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
+  if (!parsed.help && parsed.action !== "usage" && (parsed.window !== undefined || parsed.search !== undefined)) throw agentDiagnostics.AGENT_R0505({ message: "--window and --search are only supported for usage." })
+  if (parsed.action === "usage" && parsed.window !== undefined && !parseAgentUsageWindow(parsed.window)) throw agentDiagnostics.AGENT_R0503({ message: "--window must be one of 24h, 7d, 14d, 30d, or 90d." })
+  if (parsed.action === "usage" && parsed.status !== undefined && !parseAgentUsageStatus(parsed.status)) {
+    throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${agentUsageStatuses.join(", ")} for usage.` })
+  }
   if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
-  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune" && parsed.action !== "compact") {
-    parsed.console = consoleBaseUrl(parsed.url)
+  if (!parsed.help && parsed.urlSet && parsed.action !== "prune" && parsed.action !== "compact") {
+    const app = appUrl(parsed.url)
+    parsed.console = app.base
+    parsed.consoleFallback = app.loopback && parsed.action === "cancel"
+  }
+  if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations get <id>` lists." })
+  if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
+  if (!parsed.help && parsed.action === "undo" && !parsed.console) {
+    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000." })
+  }
+  if (!parsed.urlSet && !env.VITEHUB_AGENT_INVOCATIONS_URL && parsed.database === undefined && fileActions.has(parsed.action)) {
+    parsed.database = env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim() || undefined
   }
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
-    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url instead of --database." })
   }
-  const readsFile = parsed.database !== undefined && fileActions.has(parsed.action)
-  if (!parsed.help && readsFile && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
-  if ((parsed.console || readsFile) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+  if (!parsed.help && parsed.database !== undefined && fileActions.has(parsed.action) && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
+  if ((parsed.console || readsJournalFile(parsed)) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
-  // cancel targets the Vite Development Server, not the application inspection route.
-  if (parsed.action === "cancel" && !parsed.urlSet) parsed.url = resolveViteHubDevServerUrl(env)
   return parsed
 }
 
-const invocationStatuses = new Set<string>(["pending", "running", "completed", "failed", "cancelled"])
+const invocationStatuses = new Set<string>(["pending", "running", "completed", "failed", "cancelled"] satisfies AgentInvocationRecordStatus[])
+function isInvocationStatus(value: string): value is AgentInvocationRecordStatus {
+  return invocationStatuses.has(value)
+}
 
 function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]"
 }
 
 /**
- * A deployed host, or any URL of a Console page such as `http://localhost:3000/_vitehub`, selects the Console.
- * Other loopback URLs keep their local meaning: the invocation endpoint, or the Vite Development Server for cancel.
+ * `--url` is the app URL, as in every `vitehub` command, so the command calls the Console RPC under it. A Console URL
+ * (a `/_vitehub` path) fails with the app URL to pass instead.
  */
-function consoleBaseUrl(value: string): URL | undefined {
+function appUrl(value: string): { base: URL, loopback: boolean } {
   let url: URL
   try {
     url = new URL(value)
   }
   catch {
-    return
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must be the app URL, such as https://app.example.com or http://localhost:3000." })
   }
-  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(url.pathname)
   const loopback = isLoopbackHost(url.hostname)
-  if (loopback && !consolePath) return
   if (url.protocol !== "https:" && !(loopback && url.protocol === "http:")) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed Console, except for localhost." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed app, except for localhost." })
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE for credentials." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls." })
   }
-  // Accept the app URL or a pasted Console page URL. The RPC endpoint is under the app base.
+  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(url.pathname)
+  // The RPC endpoint is under the app base.
   const base = consolePath ? url.pathname.slice(0, consolePath.index) : url.pathname
   url.pathname = base.endsWith("/") ? base : `${base}/`
-  return url
+  if (consolePath) throw agentDiagnostics.AGENT_R0503({ message: `--url is the app URL, not the Console URL. Pass --url ${displayUrl(url)}.` })
+  return { base: url, loopback }
+}
+
+/** A URL without credentials, a query, or a fragment, for messages. */
+function displayUrl(value: string | URL): string {
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname === "/" ? "" : url.pathname}`
+  }
+  catch {
+    return "the URL"
+  }
 }
 
 function endpoint(parsed: ParsedArgs, id?: string): URL {
@@ -411,17 +517,17 @@ type ResponseParser<T> = (value: unknown) => T
 
 function isInvocationSummary(value: unknown): boolean {
   return isRuntimeRecord(value)
-    && hasRuntimeType(value.createdAt, "string")
-    && hasRuntimeType(value.cursor, "string")
-    && hasRuntimeType(value.id, "string")
-    && hasRuntimeType(value.status, "string")
-    && hasRuntimeType(value.traceId, "string")
-    && hasRuntimeType(value.updatedAt, "string")
+    && typeof value.createdAt === "string"
+    && typeof value.cursor === "string"
+    && typeof value.id === "string"
+    && typeof value.status === "string"
+    && typeof value.traceId === "string"
+    && typeof value.updatedAt === "string"
     && (value.error === undefined || isRuntimeRecord(value.error))
 }
 
 function parseInvocationList(value: unknown): AgentInvocationListResult {
-  if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && !hasRuntimeType(value.cursor, "string")) {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && typeof value.cursor !== "string") {
     throw agentDiagnostics.AGENT_R0508({ message: "Invocation inspection returned an invalid list response." })
   }
   // SAFETY: The list parser validates its cursor and every summary field consumed by the CLI.
@@ -430,12 +536,12 @@ function parseInvocationList(value: unknown): AgentInvocationListResult {
 
 function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
   if (!isRuntimeRecord(value) || !isInvocationSummary(value.invocation) || !Array.isArray(value.observations)
-    || (value.observationCursor !== undefined && !hasRuntimeType(value.observationCursor, "string"))
-    || (value.appendObservations !== undefined && !hasRuntimeType(value.appendObservations, "boolean"))) {
+    || (value.observationCursor !== undefined && typeof value.observationCursor !== "string")
+    || (value.appendObservations !== undefined && typeof value.appendObservations !== "boolean")) {
     throw agentDiagnostics.AGENT_R0509({ message: "Invocation inspection returned an invalid detail response." })
   }
   for (const observation of value.observations) {
-    if (!isRuntimeRecord(observation) || !hasRuntimeType(observation.name, "string") || !hasRuntimeType(observation.sequence, "number") || !hasRuntimeType(observation.timestamp, "string")) {
+    if (!isRuntimeRecord(observation) || typeof observation.name !== "string" || typeof observation.sequence !== "number" || typeof observation.timestamp !== "string") {
       throw agentDiagnostics.AGENT_R0510({ message: "Invocation inspection returned an invalid observation." })
     }
   }
@@ -444,7 +550,6 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 }
 
 /** Console RPC contract owned by `vite-hub/console`. Its tests drive this client against the real handler. */
-const consoleCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 /** The Console returns at most 100 records per page. */
 const consolePageLimit = 100
 const consoleDefaultListLimit = 50
@@ -457,50 +562,90 @@ interface ConsoleTarget {
 }
 
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
 async function consoleCall<T>(target: ConsoleTarget, operation: string, input: Record<string, unknown>, parseResponse: ResponseParser<T>): Promise<T> {
   const url = new URL(operationRpcPath.slice(1), target.base)
-  let response: Response
+  let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
   try {
-    response = await target.fetch(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation, input }),
-      headers: operationHeaders(target.env),
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout),
+    outcome = await callOperationRpc(operation, input, async (body) => {
+      const response = await target.fetch(url.href, {
+        body,
+        headers: await signedOperationHeaders(target.env, url, body),
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
   }
   catch (error) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}` })
   }
-  const text = await response.text()
-  let json: unknown
-  try {
-    json = text ? JSON.parse(text) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && isRuntimeRecord(json) && json.ok === true) return parseResponse(json.value)
-  const message = isRuntimeRecord(json) && hasRuntimeType(json.message, "string") && json.message ? json.message.replace(/\.$/, "") : undefined
-  const status = response.ok && isRuntimeRecord(json) && hasRuntimeType(json.status, "number") ? json.status : response.status
+  if (outcome.ok) return parseResponse(outcome.value)
+  const { body: json, response } = outcome.answer
+  // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+  const failure: unknown = outcome.error ?? json
+  const answered = outcome.error !== undefined || (isRuntimeRecord(json) && json.ok === false)
+  const message = isRuntimeRecord(failure) && typeof failure.message === "string" && failure.message ? failure.message.replace(/\.$/, "") : undefined
+  const status = outcome.error?.status ?? (response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status)
   if (status === 401 || (status >= 300 && status < 400)) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${operationCredentialHint}` })
   }
   if (status === 403) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${consoleCredentialHint}`}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${operationCredentialHint}`}` })
   }
-  if (!isRuntimeRecord(json)) {
-    throw agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
+  // A page, another JSON endpoint, or a missing route, not a Console reply. On localhost, cancel asks the dev endpoint instead.
+  if (!answered && (!isRuntimeRecord(json) || status < 300 || status === 404 || status === 405)) {
+    const error = agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
+    notConsoleAnswers.add(error)
+    throw error
   }
   throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })
 }
 
 type InvocationSummary = AgentInvocationListResult["invocations"][number]
+
+/** Errors of a URL where no ViteHub Console answered. */
+const notConsoleAnswers = new WeakSet<Error>()
+
+/**
+ * cancel on a localhost app URL: its Console. When no Console answers, the command asks the dev endpoint of that dev
+ * server, as it does without --url.
+ */
+function appInvocationsTarget(consoleTarget: InvocationsTarget, local: () => InvocationsTarget): InvocationsTarget {
+  let chosen: InvocationsTarget | undefined
+  async function use<T>(call: (target: InvocationsTarget) => Promise<T>): Promise<T> {
+    if (chosen) return await call(chosen)
+    try {
+      const value = await call(consoleTarget)
+      chosen = consoleTarget
+      return value
+    }
+    catch (error) {
+      if (!(error instanceof Error) || !notConsoleAnswers.has(error)) throw error
+      chosen = local()
+      return await call(chosen)
+    }
+  }
+  return {
+    cancel: async id => await use(target => target.cancel(id)),
+    detail: async (id, observations) => await use(target => target.detail(id, observations)),
+    list: async () => await use(target => target.list()),
+    scan: async (statuses, timeout) => await use(target => target.scan(statuses, timeout)),
+    usage: async (query, period) => await use(target => readUsage(target, query, period)),
+  }
+}
 
 /** Follow list cursors until `wanted` records pass `keep` or the pages end. A repeated cursor ends the read. */
 async function collectPages(
@@ -527,10 +672,11 @@ async function collectPages(
 }
 
 /** List through the Console. The Console has no status filter, so the CLI filters and follows cursors until it has enough records. */
-async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>): Promise<InvocationSummary[]> {
+async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>, agent?: string): Promise<InvocationSummary[]> {
   return await collectPages(async (cursor, collected) => {
     const input: Record<string, unknown> = { limit: Math.min(consolePageLimit, statuses ? consolePageLimit : wanted - collected) }
     if (cursor !== undefined) input.cursor = cursor
+    if (agent !== undefined) input.agent = agent
     return await consoleCall(target, invocationOperationNames.list, input, parseInvocationList)
   }, record => !statuses || statuses.has(record.status), wanted)
 }
@@ -542,6 +688,7 @@ interface InvocationsTarget {
   list: () => Promise<AgentInvocationListResult>
   /** Every record with one of these statuses, following list cursors to the end. */
   scan: (statuses: readonly string[], timeout?: number) => Promise<InvocationSummary[]>
+  usage?: (query: AgentUsageQuery, period: AgentUsagePeriod) => Promise<AgentUsageSummary>
 }
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
@@ -552,32 +699,49 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
       ...(observations === undefined ? {} : { observationCount: observations.count, observationCursor: observations.cursor }),
     }, parseInvocationDetail),
     list: async () => ({
-      invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),
+      invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined, parsed.agent),
     }),
     // One pass over the Console pages serves every status.
     scan: async (statuses, timeout) => {
       const requestTarget = timeout === undefined ? target : { ...target, timeout }
       return await listConsoleInvocations(requestTarget, Number.POSITIVE_INFINITY, new Set(statuses))
     },
+    usage: async query => await consoleCall(target, "invocations.usage", {
+      ...(query.agentName === undefined ? {} : { agent: query.agentName }),
+      ...(query.search === undefined ? {} : { search: query.search }),
+      ...(query.status === undefined ? {} : { status: query.status }),
+      ...(query.window === undefined ? {} : { window: query.window }),
+    }, parseUsageSummary),
   }
+}
+
+function parseUsageSummary(value: unknown): AgentUsageSummary {
+  if (!isRuntimeRecord(value) || !isRuntimeRecord(value.totals) || !Array.isArray(value.agents) || typeof value.from !== "string" || typeof value.to !== "string") {
+    throw agentDiagnostics.AGENT_R0511({ message: "The Console answered invocations.usage without usage totals." })
+  }
+  // SAFETY: the app built this value with readAgentUsage() or summarizeAgentUsage(); the check above covers the fields that the CLI prints.
+  return value as unknown as AgentUsageSummary
 }
 
 /** Read a journal file through the same response parsers as an endpoint, so every target prints the same records. */
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_NOT_FILE()
   }
-  if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
+  if (!existsSync(database.path)) {
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, ...(parsed.database === undefined ? { hint: "Pass --database with the journal file, or --url with the app URL." } : {}) })
+  }
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
   return {
     cancel: async () => {
-      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url instead of --database." })
     },
     close: file.close,
+    ...(file.usage ? { usage: file.usage } : {}),
     detail: async (id) => {
       const detail = file.get(id)
-      if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
+      if (!detail) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location: database.label })
       return parseInvocationDetail(detail)
     },
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
@@ -593,6 +757,77 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       }
       return [...records.values()]
     },
+  }
+}
+
+function requireProjectDriver(name: "pg" | "postgres", rootDir: string): unknown {
+  try {
+    return createRequire(resolve(rootDir, "package.json"))(name)
+  }
+  catch (error) {
+    throw agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_MISSING({ cause: error, name })
+  }
+}
+
+interface PostgresJsModule {
+  (url: string, options: Record<string, unknown>): { end: (options: { timeout: number }) => Promise<void> }
+  (options: Record<string, unknown>): { end: (options: { timeout: number }) => Promise<void> }
+}
+
+interface NodePostgresModule {
+  Pool: new (options: Record<string, unknown>) => { end: () => Promise<void> }
+}
+
+function connectJournalPostgres(journal: AgentJournalPostgres, rootDir: string): { client: unknown, close: () => Promise<void> } {
+  if (journal.driver === "node-postgres") {
+    // SAFETY: node-postgres exports the Pool class. agentInvocationPostgresClient() checks the client that it makes.
+    const { Pool } = requireProjectDriver("pg", rootDir) as NodePostgresModule
+    const pool = new Pool({ ...journal.url ? { connectionString: journal.url } : {}, connectionTimeoutMillis: 10_000, max: 1 })
+    return { client: pool, close: async () => await pool.end() }
+  }
+  // SAFETY: postgres.js exports its connect function. agentInvocationPostgresClient() checks the client that it makes.
+  const connect = requireProjectDriver("postgres", rootDir) as PostgresJsModule
+  const options = { connect_timeout: 10, max: 1, onnotice: () => {} }
+  const sql = journal.url ? connect(journal.url, options) : connect(options)
+  return { client: sql, close: async () => await sql.end({ timeout: 5 }) }
+}
+
+async function journalPostgresTarget(parsed: ParsedArgs, journal: AgentJournalPostgres, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => Promise<void> }> {
+  const [{ createPostgresAgentInvocationStore }, { agentInvocationPostgresClient }] = await Promise.all([
+    import("../invocations/postgres-store.ts"),
+    import("../invocations/postgres-clients.ts"),
+  ])
+  const connection = connectJournalPostgres(journal, context.rootDir ?? process.cwd())
+  const store = createPostgresAgentInvocationStore({
+    client: () => agentInvocationPostgresClient(connection.client, "default"),
+    database: "default",
+    maxAge: false,
+    maxRecords: false,
+    tablePrefix: parsed.tablePrefix ?? defaultAgentJournalPostgresPrefix,
+  })
+  const location = "the Postgres default Database"
+  const status = parsed.status
+  if (status !== undefined && !isInvocationStatus(status)) throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
+  return {
+    cancel: async () => {
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url with the app URL." })
+    },
+    close: connection.close,
+    detail: async (id) => {
+      const record = await store.get(id)
+      if (!record) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location })
+      const { observations, ...invocation } = record
+      return parseInvocationDetail({ invocation, observations })
+    },
+    list: async () => parseInvocationList(await store.list({
+      limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit),
+      ...(parsed.agent === undefined ? {} : { agentName: parsed.agent }),
+      ...(status === undefined ? {} : { status }),
+    })),
+    scan: async statuses => await collectPages(
+      async cursor => parseInvocationList(await store.list({ ...(cursor === undefined ? {} : { cursor }), limit: maxAgentInvocationListLimit, status: statuses.filter(isInvocationStatus) })),
+      () => true,
+    ),
   }
 }
 
@@ -634,10 +869,10 @@ const cancelOutcomes = new Set<unknown>(["not-found", "requested", "terminal", "
 function parseCancelResult(value: unknown): AgentInvocationCancelResult {
   if (
     !isRuntimeRecord(value)
-    || !hasRuntimeType(value.id, "string")
+    || typeof value.id !== "string"
     || !cancelOutcomes.has(value.outcome)
-    || (value.status !== undefined && !hasRuntimeType(value.status, "string"))
-    || (value.notEnforcedBy !== undefined && !hasRuntimeType(value.notEnforcedBy, "string"))
+    || (value.status !== undefined && typeof value.status !== "string")
+    || (value.notEnforcedBy !== undefined && typeof value.notEnforcedBy !== "string")
     || (value.delivery !== undefined && value.delivery !== "journal" && value.delivery !== "local")
   ) {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancel returned an invalid response." })
@@ -663,14 +898,14 @@ async function requestCancel(parsed: ParsedArgs, id: string, context: AgentInvoc
   const discovery = parseCancelDiscovery(server.discovery)
   // Nuxt and plain Vite do not run Nitro in the Vite process, so the cancel cannot reach the application runtime.
   if (discovery.runtime !== "nitro") {
-    context.stderr.write(`${hasRuntimeType(discovery.message, "string") ? discovery.message : agentInvocationsDevRuntimeUnavailableMessage}\n`)
+    context.stderr.write(`${typeof discovery.message === "string" ? discovery.message : agentInvocationsDevRuntimeUnavailableMessage}\n`)
     return
   }
   const body: AgentInvocationsDevRequestBody = { id, operation: "cancel" }
-  if (!hasRuntimeType(discovery.workspaceDevTokenServerId, "string")) {
+  if (typeof discovery.workspaceDevTokenServerId !== "string") {
     throw agentDiagnostics.AGENT_R0971({ message: "Invocation cancellation discovery did not publish a token server ID." })
   }
-  const token = await readWorkspaceDevToken(hasRuntimeType(discovery.root, "string") ? discovery.root : rootDir, { serverId: discovery.workspaceDevTokenServerId })
+  const token = await readWorkspaceDevToken(typeof discovery.root === "string" ? discovery.root : rootDir, { serverId: discovery.workspaceDevTokenServerId })
   if (!token) throw agentDiagnostics.AGENT_R0972({ message: "No private Agent Dev token found. Start the Compatible Vite Development Server first." })
   const response = await fetchViteHubDevEndpoint(fetchImpl, url, cancelEndpoint, {
     body: JSON.stringify(body),
@@ -687,7 +922,7 @@ async function cancelFailureMessage(response: Response): Promise<string> {
   try {
     const value: unknown = JSON.parse(text)
     const message: unknown = isRuntimeRecord(value) && isRuntimeRecord(value.error) ? value.error.message : undefined
-    if (hasRuntimeType(message, "string") && message) return message
+    if (typeof message === "string" && message) return message
   }
   catch {
     // Plain text responses carry the message as the body.
@@ -704,6 +939,34 @@ function cancelMessage(result: AgentInvocationCancelResult): string {
   if (result.notEnforcedBy) return `${result.id} cancel requested, not enforced by ${result.notEnforcedBy}`
   if (result.delivery === "journal") return `${result.id} cancel request recorded; execution stop is unconfirmed`
   return `${result.id} cancel requested`
+}
+
+/** What `invocations.undo` answers: the page put the value back, or why not. */
+interface PageUndoResult {
+  ok: boolean
+  change: string
+  notRestored: unknown[]
+  code?: string
+  error?: string
+}
+
+function parseUndoResult(value: unknown): PageUndoResult {
+  if (!isRuntimeRecord(value) || typeof value.ok !== "boolean" || typeof value.change !== "string") {
+    throw agentDiagnostics.AGENT_R0971({ message: "The page undo response was not valid." })
+  }
+  return {
+    ok: value.ok,
+    change: value.change,
+    notRestored: Array.isArray(value.notRestored) ? value.notRestored : [],
+    ...(typeof value.code === "string" ? { code: value.code } : {}),
+    ...(typeof value.error === "string" ? { error: value.error } : {}),
+  }
+}
+
+function undoMessage(result: PageUndoResult): string {
+  if (result.ok) return `${result.change} put back on the page`
+  if (result.code) return `${result.change} not put back: ${result.code}${result.error ? ` ${result.error}` : ""}`
+  return `${result.change} not put back: ${result.error ?? "the person changed the field since, or it left the page"}`
 }
 
 function cancelExitCode(result: AgentInvocationCancelResult): number {
@@ -724,12 +987,15 @@ function summary(record: AgentInvocationRecord | AgentInvocationListResult["invo
 }
 
 function writeRecord(context: AgentInvocationsCliContext, record: AgentInvocationRecord, json: boolean): void {
-  if (json) context.stdout.write(`${JSON.stringify(record, null, 2)}\n`)
+  // The changes the Agent made on a person's page, from the `agent.page.change` observations.
+  const { approvals, pageChanges } = invocationPageChanges(record.observations)
+  if (json) context.stdout.write(`${JSON.stringify(pageChanges.length || approvals.length ? { ...record, approvals, pageChanges } : record, null, 2)}\n`)
   else {
     context.stdout.write(`${summary(record)}\n`)
     for (const observation of record.observations) {
       context.stdout.write(`  ${observation.sequence} ${observation.timestamp} ${observation.name}\n`)
     }
+    for (const line of formatInvocationPageChanges(pageChanges)) context.stdout.write(`${line}\n`)
   }
 }
 
@@ -765,7 +1031,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
       location = new URL(configured)
     }
     catch {
-      throw agentDiagnostics.AGENT_R0931({ message: "The Agent Invocation journal database URL is invalid." })
+      throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_URL_INVALID()
     }
     for (const value of [location.username, location.password]) {
       if (value) secrets.push(value, safeDecode(value))
@@ -775,7 +1041,11 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
     }
     return { ...token, label: `${location.protocol}//${location.host}${location.pathname === "/" ? "" : location.pathname}`, secrets, url: configured }
   }
-  const target = configured || resolve(root, defaultAgentInvocationsPath)
+  // Without a URL of its own, the server puts the journal next to a `file:` State, which resolves from the working directory.
+  const beside = configured ? undefined : agentJournalBesideState(context.stateUrl, context.env)
+  // Keep the URL encoded, so `%23` and `%3F` in the path stay path characters when the query and fragment split below.
+  const besideUrl = beside && (beside.cwd ? new URL(beside.url.slice("file:".length), pathToFileURL(`${context.rootDir ?? process.cwd()}/`)).href : beside.url)
+  const target = configured || besideUrl || resolve(root, defaultAgentInvocationsPath)
   const withoutFragment = target.split("#", 1)[0]!
   const queryIndex = withoutFragment.indexOf("?")
   const location = queryIndex === -1 ? withoutFragment : withoutFragment.slice(0, queryIndex)
@@ -792,7 +1062,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
 async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>, retention: AgentRetentionPolicy = {}): Promise<T> {
   const database = journalDatabase(parsed, context)
   if (database.path !== undefined && !existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal URL.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal URL." })
   }
   const [{ createClient }, { createLibsqlAgentInvocationStore }] = await Promise.all([
     import("@libsql/client"),
@@ -810,7 +1080,7 @@ async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocations
     const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, ...retention, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     return await use(store)
   }
@@ -828,7 +1098,7 @@ function redactedJournalError(error: unknown, database: JournalDatabase): unknow
   let message = error.message.split(database.url).join(database.label)
   for (const secret of database.secrets) message = message.split(secret).join("[redacted]")
   if (message === error.message) return error
-  return agentDiagnostics.AGENT_R0931({ message })
+  return agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_FAILED({ message })
 }
 
 async function deleteInvocation(parsed: ParsedArgs, context: AgentInvocationsCliContext, id: string): Promise<number> {
@@ -849,7 +1119,7 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   const olderThanMs = parsed.olderThanMs ?? defaultPruneAgeMs
   const cutoff = new Date(Date.now() - olderThanMs)
   if (Number.isNaN(cutoff.getTime())) {
-    throw agentDiagnostics.AGENT_R0930({ message: "--older-than must produce a cutoff within JavaScript's Date range." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID()
   }
   const updatedBefore = cutoff.toISOString()
   const result = await withJournalStore(parsed, context, async store => await store.prune!({ ...(parsed.dryRun ? { dryRun: true } : {}), updatedBefore }))
@@ -934,8 +1204,9 @@ function observationAttributes(observations: readonly Observation[], name: strin
 /**
  * One export line: the record without observations, plus the prompt, the final assistant text, and each Channel
  * delivery that the observations carry. `final` is the finish result text, or the final message deltas before finish.
+ * `--activity` adds the compact activity trace, and `--observations` every observation.
  */
-function exportLine(record: AgentInvocationRecord, includeObservations: boolean) {
+function exportLine(record: AgentInvocationRecord, options: { activity: boolean, observations: boolean }) {
   const { cursor: _cursor, observations, ...invocation } = record
   const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
   const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
@@ -944,10 +1215,10 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
     if (observation.name !== "agent.message.delta") return
     const delta = observation.attributes ?? {}
     if (delta["message.phase"] !== "final" && delta["message.phase"] !== "final_answer") return
-    const id = hasRuntimeType(delta["message.id"], "string") ? delta["message.id"] : "__anonymous"
+    const id = typeof delta["message.id"] === "string" ? delta["message.id"] : "__anonymous"
     const group = finalDeltaGroups.get(id) ?? { sequence: index, text: "" }
     group.sequence = index
-    if (hasRuntimeType(delta["message.content"], "string")) group.text += delta["message.content"]
+    if (typeof delta["message.content"] === "string") group.text += delta["message.content"]
     finalDeltaGroups.set(id, group)
   })
   const deltas = [...finalDeltaGroups.values()].sort((left, right) => right.sequence - left.sequence)[0]?.text
@@ -955,15 +1226,16 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
     ...invocation,
     runId: start["agent.run.id"],
     prompt: start["input.prompt"],
-    final: hasRuntimeType(finish, "string") ? finish : deltas || undefined,
+    final: typeof finish === "string" ? finish : deltas || undefined,
     deliveries: observationAttributes(observations, "agent.channel.delivery.effect").map(effect => ({
-      channel: hasRuntimeType(effect["channel.effect.channel"], "string") ? effect["channel.effect.channel"] : "unknown",
+      channel: typeof effect["channel.effect.channel"] === "string" ? effect["channel.effect.channel"] : "unknown",
       content: effect["channel.effect.content"],
       intent: effect["channel.effect.intent"],
       kind: effect["channel.effect.kind"],
       ...(effect["channel.effect.skipped"] === undefined ? {} : { skipped: effect["channel.effect.skipped"] }),
     })),
-    ...(includeObservations ? { observations } : {}),
+    ...(options.activity ? invocationActivityTrace(observations) : {}),
+    ...(options.observations ? { observations } : {}),
   }
 }
 
@@ -975,9 +1247,44 @@ async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCl
       && (parsed.since === undefined || record.createdAt >= parsed.since))
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
   for (const summary of records) {
-    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed.observations))}\n`)
+    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed))}\n`)
   }
   return 0
+}
+
+async function readUsage(target: InvocationsTarget, query: AgentUsageQuery, period: AgentUsagePeriod): Promise<AgentUsageSummary> {
+  if (target.usage) return await target.usage(query, period)
+  const rows: AgentUsageRow[] = []
+  const summaries = (await target.scan(agentUsageStatuses))
+    .filter(summary => matchesAgentUsageQuery(agentUsageRow(summary), query, period))
+    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+  for (const summary of summaries) rows.push(agentUsageRow(detailRecord(await target.detail(summary.id))))
+  return summarizeAgentUsage(rows, query, period)
+}
+
+async function summarizeUsage(parsed: ParsedArgs, context: AgentInvocationsCliContext, target: InvocationsTarget): Promise<number> {
+  const window = parsed.window === undefined ? undefined : parseAgentUsageWindow(parsed.window)
+  const status = parsed.status === undefined ? undefined : parseAgentUsageStatus(parsed.status)
+  const search = parsed.search?.trim()
+  const query: AgentUsageQuery = { ...(window ? { window } : {}), ...(parsed.agent ? { agentName: parsed.agent } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) }
+  const period = agentUsagePeriod(query)
+  if ("problem" in period) throw agentDiagnostics.AGENT_R0503({ message: "--window must be one of 24h, 7d, 14d, 30d, or 90d." })
+  const result = await readUsage(target, query, period)
+  context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : usageText(result))
+  return 0
+}
+
+function usageText(result: AgentUsageSummary): string {
+  const line = (label: string, totals: AgentUsageSummary["totals"]) => {
+    const tokens = totals.totalTokensAvailable ? `${totals.totalTokens} tokens` : "tokens not recorded"
+    const cost = totals.costAvailable ? `, ${totals.costEstimated ? "about " : ""}$${totals.costUsd}` : ""
+    return `${label}: ${totals.invocations} Invocation${totals.invocations === 1 ? "" : "s"}, ${tokens}${cost}\n`
+  }
+  return [
+    line(`Agent usage from ${result.from} to ${result.to}`, result.totals),
+    ...result.agents.map(agent => line(`  ${agent.agent}`, agent)),
+    ...(result.partial ? ["Some Invocations did not record all of their usage.\n"] : []),
+  ].join("")
 }
 
 /** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
@@ -1010,13 +1317,13 @@ const defaultCompactBusyTimeoutMs = 5_000
 async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, options: AgentInvocationsCliOptions): Promise<number> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: `compact rebuilds a local SQLite file. ${database.label} is a remote libSQL database, which manages its own storage. Pass --database with a local file path.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({ remote: database.label })
   }
   if (basename(database.path) === ":memory:" || /[?&]mode=memory(?:&|$)/i.test(database.url)) {
-    throw agentDiagnostics.AGENT_R0931({ message: "compact rebuilds a local SQLite file. An in-memory database has no file to compact. Pass --database with a local file path." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({})
   }
   if (!existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal file.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal file." })
   }
   const { createClient } = await import("@libsql/client")
   const client = createClient({ url: database.url })
@@ -1025,7 +1332,7 @@ async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsC
     const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     result = await compactJournalFile({
       busyTimeoutMs: options.compactBusyTimeoutMs ?? defaultCompactBusyTimeoutMs,
@@ -1083,6 +1390,37 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
   return { ...result.invocation, observations: result.observations }
 }
 
+/**
+ * Without --url or --database, list, get, tail, export, wait-idle, and cancel use the dev server that wrote
+ * `.vitehub/dev-server.json` in this project, as every `vitehub` command does. Reads go through its Console. It never
+ * guesses a port, since another project may use it. Returns false when no dev server runs.
+ */
+function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
+  if (parsed.database !== undefined && fileActions.has(parsed.action)) return true
+  if (parsed.action !== "cancel" && (parsed.urlSet || (!consoleActions.has(parsed.action) && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)))) return true
+  const rootDir = context.rootDir ?? process.cwd()
+  const roots = [rootDir, resolveViteHubProjectRoot(rootDir)]
+  if (parsed.urlSet) {
+    if (isViteHubDevServerUrl(new URL(parsed.url), roots, context.env)) {
+      delete parsed.console
+      delete parsed.consoleFallback
+    }
+    return true
+  }
+  const found = findViteHubDevServerUrl(roots, context.env)
+  // cancel asks the Nitro runtime of the dev server, not its Console.
+  if (parsed.action === "cancel") {
+    if (!found) return false
+    parsed.url = found
+    return true
+  }
+  const app = found ? appUrl(found) : undefined
+  if (!found || !app) return false
+  parsed.url = found
+  parsed.console = app.base
+  return true
+}
+
 export async function runAgentInvocationsCli(
   args: string[],
   context: AgentInvocationsCliContext,
@@ -1093,7 +1431,7 @@ export async function runAgentInvocationsCli(
     parsed = parse(args, context.env)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     usage(context)
     return 1
   }
@@ -1101,34 +1439,77 @@ export async function runAgentInvocationsCli(
     usage(context)
     return 0
   }
+  let postgres: AgentJournalPostgres | undefined
+  if (!useProjectDevServer(parsed, context)) {
+    try {
+      postgres = fileActions.has(parsed.action) ? await context.journalPostgres?.() : undefined
+    }
+    catch (error) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+      return 1
+    }
+    if (!postgres) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_INVOCATIONS_NO_DEV_SERVER({ root: context.rootDir ?? process.cwd() }))}\n`)
+      return 1
+    }
+  }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000
   const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
-  let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
+  let opened: { close: () => unknown } | undefined
   try {
-    const target = parsed.database !== undefined && fileActions.has(parsed.action)
-      ? file = await journalFileTarget(parsed, context)
-      : parsed.console
-        ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed)
-        : localInvocationsTarget(parsed, context, fetchImpl, timeout)
+    if (parsed.action === "list" && parsed.agent !== undefined && !postgres && (!parsed.console || readsJournalFile(parsed))) throw agentDiagnostics.AGENT_R0505({ message: "list with --agent needs the app's Console. Pass --url <app>." })
+    const local = () => localInvocationsTarget(parsed, context, fetchImpl, timeout)
+    const consoleTarget = parsed.console ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed) : undefined
+    const target = postgres
+      ? opened = await journalPostgresTarget(parsed, postgres, context)
+      : readsJournalFile(parsed)
+        ? opened = await journalFileTarget(parsed, context)
+        : consoleTarget && parsed.consoleFallback
+          ? appInvocationsTarget(consoleTarget, local)
+          : consoleTarget ?? local()
     if (parsed.action === "cancel") {
       const result = await target.cancel(parsed.id!)
       if (!result) return 1
       context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${cancelMessage(result)}\n`)
       return cancelExitCode(result)
     }
+    if (parsed.action === "undo") {
+      const result = await consoleCall({ base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }, "invocations.undo", { change: parsed.change!, id: parsed.id! }, parseUndoResult)
+      context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${undoMessage(result)}\n`)
+      return result.ok ? 0 : 1
+    }
+    if (parsed.action === "capabilities" || parsed.action === "workspace") {
+      const call = { base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }
+      const value = parsed.action === "capabilities"
+        ? await consoleCall(call, "invocations.capabilities", parsed.agent === undefined ? {} : { agent: parsed.agent }, value => value)
+        : await consoleCall(call, "invocations.workspace", { id: parsed.id!, ...parsed.workspace }, value => value)
+      context.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+      return 0
+    }
+    if (parsed.action === "delete" && parsed.console) {
+      const question = `Delete the Agent Invocation ${parsed.id} at ${displayUrl(parsed.console)}? [y/N] `
+      if (!parsed.yes && !(process.stdin.isTTY && process.stderr.isTTY && await askOnTerminal(question))) {
+        context.stderr.write("delete removes the Invocation from the app and was not confirmed. Answer y in a terminal, or run it again with --yes.\n")
+        return 1
+      }
+      const result = await consoleCall({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, "invocations.delete", { id: parsed.id! }, value => value)
+      context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `Deleted ${parsed.id}.\n`)
+      return 0
+    }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
     if (parsed.action === "compact") return await compactInvocations(parsed, context, options)
     if (parsed.action === "wait-idle") return await waitIdle(parsed, context, target, sleep)
     if (parsed.action === "export") return await exportInvocations(parsed, context, target)
+    if (parsed.action === "usage") return await summarizeUsage(parsed, context, target)
     if (parsed.action === "list") {
       const result = await target.list()
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
       else for (const record of result.invocations) context.stdout.write(`${summary(record)}\n`)
       return 0
     }
-    if (parsed.action === "show") {
+    if (parsed.action === "get") {
       writeRecord(context, detailRecord(await target.detail(parsed.id!)), parsed.json)
       return 0
     }
@@ -1153,10 +1534,10 @@ export async function runAgentInvocationsCli(
     }
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
   finally {
-    file?.close()
+    await opened?.close()
   }
 }

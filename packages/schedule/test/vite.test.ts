@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
@@ -29,16 +29,27 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 }
 
+function hookHandler<T>(hook: unknown): T {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: Each test passes the argument subset that the hook reads.
+  return handler as T
+}
+
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
-  return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/registry")
+  return hookHandler<(id: string) => unknown>(plugin.resolveId)("#vitehub/schedule/registry")
 }
 
 async function loadScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
-  return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/registry")
+  return await hookHandler<(id: string) => string | Promise<string>>(plugin.load)("\0#vitehub/schedule/registry")
 }
 
 async function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
   await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
+}
+
+function ownRuntime(path: string) {
+  return fileURLToPath(new URL(`../dist/${path}.js`, import.meta.url))
 }
 
 describe("Vite schedule integration", () => {
@@ -187,7 +198,7 @@ describe("Vite schedule integration", () => {
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("./provider-registry.js")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("@vite-hub/schedule/runtime/static")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toMatch(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]static\.(?:ts|js)"/)
     const moduleSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")
     expect(moduleSource).toContain("build:before")
     expect(moduleSource).toContain("dedupeCloudflareCrons")
@@ -219,8 +230,8 @@ describe("Vite schedule integration", () => {
 
     expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 6,7 * * *", "* * * * *"] } } } } })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('import { createKVStartedScheduleStore, installStartedSchedules } from "@vite-hub/schedule/runtime"')
-    expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
+    expect(pluginSource).toContain(`import { createKVStartedScheduleStore, installStartedSchedules } from ${JSON.stringify(ownRuntime("runtime"))}`)
+    expect(pluginSource).toContain(`import { scheduleKVStorage } from ${JSON.stringify(ownRuntime("runtime/kv"))}`)
     expect(pluginSource).toContain("    catchUpMs: 0,")
     expect(pluginSource).toContain("cloudflare:scheduled")
     expect(pluginSource).toContain('timeZoneCrons: {"daily":"0 6,7 * * *"}')
@@ -282,11 +293,11 @@ describe("Vite schedule integration", () => {
     expect(userConfig).not.toHaveProperty("nitro.modules")
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('import { installProcessScheduleRuntime, onShutdown } from "@vite-hub/schedule/runtime/process"')
-    expect(pluginSource).toContain('import { createKVScheduleRunStore } from "@vite-hub/schedule/runtime"')
+    expect(pluginSource).toContain(`import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(ownRuntime("runtime/process"))}`)
+    expect(pluginSource).toContain(`import { createKVScheduleRunStore } from ${JSON.stringify(ownRuntime("runtime"))}`)
     expect(pluginSource).not.toContain("RuntimeScheduleStore")
     expect(pluginSource).not.toContain("from \"@vite-hub/kv\"")
-    expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
+    expect(pluginSource).toContain(`import { scheduleKVStorage } from ${JSON.stringify(ownRuntime("runtime/kv"))}`)
     expect(pluginSource).toContain("kvStore: scheduleKVStorage")
     expect(pluginSource).toContain("\"prefix\": \"brujula:schedule\"")
     expect(pluginSource).toContain("\"concurrency\": 2")
@@ -294,11 +305,9 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
     expect(pluginSource).not.toContain("nitroApp.fetch")
-    expect(pluginSource).not.toContain("h3App")
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
-    // ViteHub shutdown owns stop signals. The plugin only registers its drain.
     expect(pluginSource).toContain("onShutdown(nitroApp, 'schedule', () => runtimeInstallation.then(async (result) => {")
     expect(pluginSource).not.toContain("SIGTERM")
     expect(pluginSource).not.toContain("setTimeout")
@@ -327,6 +336,39 @@ describe("Vite schedule integration", () => {
     await resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
+  })
+
+  it("filters the resolveId and load hooks to the Schedule registry", () => {
+    const plugin = hubSchedule({ providerOutput: false })
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = ["#vitehub/schedule/registry", "\0#vitehub/schedule/registry", "#vitehub/schedule/registry.mjs", "\0#vitehub/schedule/targets", "@vite-hub/schedule", "/app/server/schedules/report.ts"]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/schedule/registry"])
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["\0#vitehub/schedule/registry"])
+  })
+
+  it("gives a built Process Runtime the static cron of each Schedule, so it loads Schedule modules when they are due", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-process-timings-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '*/5 * * * *', handler: () => {} })\n", "utf8"),
+      writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
+    ])
+    const generate = async (command: "build" | "serve") => {
+      const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process" } })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)({ root }, { command, mode: command === "build" ? "production" : "development" })
+      return await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    }
+
+    const built = await generate("build")
+    const options = JSON.parse(/const processRuntimeOptions = (\{[\s\S]*?\n\})/.exec(built)![1]!) as unknown
+    expect(options).toEqual({
+      timings: {
+        cleanup: { cron: "*/5 * * * *" },
+        report: { cron: "0 9 * * *", timeZone: "Europe/Madrid" },
+      },
+    })
+    expect(await generate("serve")).not.toContain("timings")
   })
 
   it("installs an explicit Process Runtime with an empty canonical registry", async () => {
@@ -500,19 +542,9 @@ describe("Vite schedule integration", () => {
     const retainedScheduleSpecifier = registry.match(/import\("(\.\/sources\/[^"]+\/cleanup\.schedule\.ts)"\)/)?.[1]
     expect(retainedScheduleSpecifier).toBeDefined()
     const retainedSchedulePath = retainedScheduleSpecifier!.slice(2)
-    for (const directory of [
-      join(root, ".vitehub", "schedule"),
-      join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule"),
-      join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule"),
-    ]) {
-      await expect(readFile(join(directory, retainedSchedulePath), "utf8")).resolves.toContain("Owner decoration.")
-    }
-    await expect(readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
+    const retainedSchedule = await readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8")
+    expect(retainedSchedule).toContain("Owner decoration.")
+    expect(retainedSchedule).toContain("cron: '0 0 * * *'")
   })
 
   it("resets pending Provider Output when schedule preparation fails", async () => {
@@ -688,7 +720,7 @@ describe("Vite schedule integration", () => {
     expect(JSON.stringify(serveConfig.nitro)).not.toContain("dev-handler")
     expect(JSON.stringify(serveConfig.nitro)).not.toContain("/_vitehub/schedule/dev")
     const [contribution] = (plugin.vitehub as { operations: Array<{ export: string, load(): Promise<readonly { name: string }[]>, module: string }> }).operations
-    expect(contribution).toMatchObject({ export: "scheduleOperations", module: "@vite-hub/schedule/operations" })
+    expect(contribution).toMatchObject({ export: "scheduleOperations", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]operations\.(?:ts|js)$/) })
     expect((await contribution!.load()).map(operation => operation.name)).toEqual(["schedule.runs", "schedule.attempts", "schedule.run", "schedule.list", "schedule.start", "schedule.cancel"])
   })
 
@@ -971,9 +1003,9 @@ describe("Vite schedule integration", () => {
     const root = await temporaryDirectory("vitehub-schedule-empty-workflow-")
     const prepareScheduleRuntime = vi.fn(async () => ({
       bundleAlias: {},
-      importBase: "@vite-hub/workflow",
       native: false,
       registryFile: join(root, "workflow-registry.js"),
+      runtimeModules: { state: "/workflow/runtime/state.js", vercelVite: "/workflow/runtime/vercel-vite.js" },
     }))
     const plugin = hubSchedule()
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
@@ -1127,6 +1159,7 @@ describe("Vite schedule integration", () => {
       await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
         build: { outDir: "dist/client" },
         command: "build",
+        logger: { warn: () => {} },
         resolve: { alias: [] },
         root,
       })
@@ -1153,7 +1186,13 @@ describe("Vite schedule integration", () => {
 
       const { default: vercelFunction } = await import(pathToFileURL(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
       const response = { end: vi.fn(), statusCode: 0 }
-      await vercelFunction({ headers: {}, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      vi.stubEnv("CRON_SECRET", "cron-secret")
+      try {
+        await vercelFunction({ headers: { authorization: "Bearer cron-secret" }, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
       expect(response.statusCode).toBe(204)
       expect((globalThis as { cleanupCron?: string }).cleanupCron).toBe("0 0 * * *")
 
@@ -1193,8 +1232,22 @@ describe("Vite schedule integration", () => {
       )
 
       expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } } })
-      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8"))
-        .resolves.toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+      const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+      expect(pluginSource).toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry, triggerCrons: {\"cleanup\":\"0 0 * * *\"} })")
+      expect(pluginSource).toContain('setHostScheduleInventory({ timings: {"cleanup":{"cron":"0 0 * * *","timeZone":"UTC"}} })')
+    })
+
+    it("writes weekday names in Nitro's Cloudflare triggers with tab-separated cron fields", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-nitro-cloudflare-weekdays-")
+      const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
+      await (hubSchedule({ cron: { cleanup: "0\t4 * * 1-5" } }).config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        userConfig,
+        { command: "build", mode: "production" },
+      )
+
+      expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 4 * * MON,TUE,WED,THU,FRI"] } } } } })
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * MON,TUE,WED,THU,FRI\"")
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain('triggerCrons: {"cleanup":"0 4 * * MON,TUE,WED,THU,FRI"}')
     })
 
     it("fails the build when the cron names no Schedule", async () => {
@@ -1209,6 +1262,19 @@ describe("Vite schedule integration", () => {
 
       await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, root, runtime: { driver: "process" } }))
         .rejects.toMatchObject({ code: "SCHEDULE_B0008" })
+    })
+
+    it("reports a hint when the Process Runtime claims occurrences in memory", async () => {
+      const appRoot = await temporaryDirectory("vitehub-schedule-process-memory-hint-app-")
+      const root = await createHourlyCleanup("vitehub-schedule-process-memory-hint-")
+      const warn = vi.fn()
+      const plugin = hubSchedule({ projectRoot: root, runtime: { driver: "process" } })
+      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist/client" }, command: "build", logger: { warn }, resolve: { alias: [] }, root: appRoot })
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Process Runtime claims each Schedule occurrence in memory"))
+      const report = JSON.parse(await readFile(join(appRoot, ".vitehub", "hints.json"), "utf8"))
+      expect(report).toMatchObject({ command: "build", hints: [{ code: "SCHEDULE_PROCESS_CLAIMS_IN_MEMORY", docs: "https://vitehub.dev/docs/schedule/diagnostics/schedule_process_claims_in_memory" }] })
+      await expect(readFile(join(root, ".vitehub", "hints.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     })
 
     it("accepts the cron when host output wakes Static Schedules beside the Process Runtime", async () => {

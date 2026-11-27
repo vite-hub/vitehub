@@ -5,16 +5,20 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
-import { bundleEsmEntry } from "./esbuild.ts"
+import { bundleEsmEntry } from "./rolldown.ts"
 import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { removeProviderOutputArtifactDir } from "./provider-output-sources.ts"
-import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+import { createDefaultVercelOutputRoot, createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+import { createVercelFunctionRuntimePackagesPass } from "./vercel-runtime-packages.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { VercelFunctionRuntimePackagesRequest } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { createDefaultVercelOutputRoot } from "./vercel-config.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
 export {
   contributeCloudflareProviderOutput,
@@ -160,6 +164,8 @@ export interface ProviderDeploymentOutputContribution {
   ready?: () => boolean
   rootDir: string
   write: (context: {
+    /** Adds packages to a Vercel function. They are traced and copied once, after every contribution of the root writes. */
+    addVercelRuntimePackages: (request: VercelFunctionRuntimePackagesRequest) => void
     readCloudflareState: CloudflareProviderDeploymentOutputStateReader
     signal: AbortSignal
     write: ProviderDeploymentOutputWriter
@@ -248,7 +254,7 @@ function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
 
 function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
   if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
-    throw internalErrorDiagnostics.INTERNAL_B0034({ message: `Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}` })
+    throw invariantError(`ViteHub packages pass a plain Provider Output ownership file name (${JSON.stringify(fileName)})`)
   }
   return resolve(outputRoot, fileName)
 }
@@ -298,7 +304,7 @@ async function resolvePersistedProviderOutputOwnership(
   const arrays = { ...ownership?.arrays }
   await Promise.all(Object.entries(files).map(async ([field, fileName]) => {
     const current = arrays[field]
-    if (!current) throw internalErrorDiagnostics.INTERNAL_B0036({ message: `Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.` })
+    invariant(current, `ViteHub packages pass a Provider Output ownership file only for a field that they own as an array (${JSON.stringify(field)})`)
     arrays[field] = {
       ...current,
       values: [
@@ -327,10 +333,6 @@ async function writeProviderOutputOwnershipFiles(
   }))
 }
 
-export function createDefaultVercelOutputRoot(rootDir: string): string {
-  return resolve(rootDir, ".vercel", "output")
-}
-
 export function createDefaultNetlifyOutputRoot(rootDir: string): string {
   return resolve(rootDir, ".netlify", "v1")
 }
@@ -344,7 +346,7 @@ export function recoverNetlifyDeploymentOutput(rootDir: string): void {
 
 function assertNetlifyFunctionName(functionName: string): void {
   if (!functionName || functionName.includes("\\") || functionName.split("/").some(part => !part || part === "." || part === "..")) {
-    throw internalErrorDiagnostics.INTERNAL_B0037({ message: `Invalid Netlify function name: ${functionName}` })
+    throw invariantError(`ViteHub writes Netlify function names from safe Definition names (${functionName})`)
   }
 }
 
@@ -353,10 +355,29 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
+async function declaresTopLevelBinding(code: string, name: string): Promise<boolean> {
+  const { parseSync } = await import("vite")
+  return parseSync("bundle.mjs", code).program.body.some((statement) => {
+    const node = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (node?.type === "FunctionDeclaration" || node?.type === "ClassDeclaration") return node.id?.name === name
+    return node?.type === "VariableDeclaration" && node.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === name)
+  })
+}
+
 async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
-  await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${stringifyProviderOutputConfig(config)}\n`, "utf8")
+  const literal = stringifyProviderOutputConfig(config)
+  // Minification keeps the names of functions and classes, so the bundle can declare its own `config`. Netlify also
+  // reads a config that an export list names.
+  let exported = `export const config = ${literal}`
+  if (await declaresTopLevelBinding(bundled, "config")) {
+    const baseName = "vitehubNetlifyFunctionConfig"
+    let name = baseName
+    for (let suffix = 2; bundled.includes(name); suffix++) name = `${baseName}${suffix}`
+    exported = `const ${name} = ${literal}\nexport { ${name} as config }`
+  }
+  await writeFile(outfile, `${bundled.trimEnd()}\n\n${exported}\n`, "utf8")
 }
 
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {
@@ -370,7 +391,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
     : undefined
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
-    throw internalErrorDiagnostics.INTERNAL_B0038({ message: `Cloudflare output file conflicts with bundle outfile: ${workerOutfile}` })
+    throw invariantError(`no Cloudflare output file that ViteHub writes has the name of the bundle file (${workerOutfile})`)
   }
   const backupRoot = copiesStaticOutput
     ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))
@@ -436,6 +457,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
           await rm(stagedWorkerOutfile, { force: true, recursive: true })
           await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, {
             ...options.bundleOptions,
+            resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
             define: { ...options.bundleDefines, ...options.bundleOptions?.define },
             minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
             minifySyntax: options.bundleOptions?.minifySyntax ?? true,
@@ -553,6 +575,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     }
     await bundleEsmEntry(options.bundleEntry, serverEntry, {
       ...options.bundleOptions,
+      resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
       define: { ...options.bundleDefines, ...options.bundleOptions?.define },
       minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
       minifySyntax: options.bundleOptions?.minifySyntax ?? true,
@@ -657,6 +680,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await mkdir(dirname(outfile), { recursive: true })
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
+      resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
       conditions: func.bundleOptions.conditions ?? ["netlify", "node"],
       define: { ...options.bundleDefines, ...func.bundleOptions.define },
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers ?? true,
@@ -1225,9 +1249,11 @@ export async function finalizeProviderDeploymentOutputs(
             const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
                 try {
+                  const vercelRuntimePackages = createVercelFunctionRuntimePackagesPass(nodeModules => transaction.snapshot([nodeModules]))
                   for (const contribution of rootContributions) {
                     throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({
+                      addVercelRuntimePackages: request => vercelRuntimePackages.add(request),
                       readCloudflareState: async options => await readCloudflareProviderDeploymentOutputState(rootDir, options),
                       signal: controller.signal,
                       write: async (writeOptions) => {
@@ -1237,6 +1263,8 @@ export async function finalizeProviderDeploymentOutputs(
                     })
                     throwIfProviderOutputAborted(controller.signal)
                   }
+                  await vercelRuntimePackages.copy(controller.signal)
+                  throwIfProviderOutputAborted(controller.signal)
                   ready()
                   const rollback = await rootDecision
                   if (rollback !== undefined) throw rollback

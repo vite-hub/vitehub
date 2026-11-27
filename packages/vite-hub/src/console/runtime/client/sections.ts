@@ -1,15 +1,13 @@
 import type { ConsoleContributedSection } from "../definitions"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw, Router } from "vue-router"
 
 import { parseConsoleContributedSection } from "../definitions"
-import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
-import { isRemoteProject, projectFetch } from "./project"
+import { consoleSectionDetails, consoleSectionRouteName, insertConsoleSection, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
+import { consoleProject } from "./project"
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
-  auth: false | true | "cloudflare-access"
-  /** The build id of the deployed Console when this tab loaded it. `watchConsoleBuild()` compares it. */
-  build?: string
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   /** Names of the registered operations that run app code and that this access may run, such as `workflow.start`. */
@@ -20,15 +18,24 @@ export interface ConsoleNavigation {
   /** The access may use only some installed sections. The Console then does not call other sections "not enabled". */
   scoped: boolean
   sections: ConsoleSectionId[]
+  /** The route of the dev Setup endpoints. Only a development server sends it. */
+  setup?: string
 }
+
+/** The Console path of `sections.list`. Views pass it as `sectionsBase`, and the navigation cache keys on it. */
+export const consoleSectionsPath = "/_vitehub/api/sections"
 
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
 const navigationErrors = new Map<string, unknown>()
+// The last navigation of each base, so a subscriber that comes after a load or a seed, such as the router of
+// `main.js`, still gets it.
+const navigationValues = new Map<string, ConsoleNavigation>()
 
-function parseConsoleNavigation(value: unknown): ConsoleNavigation {
+/** Read an untrusted `sections.list` answer. Unknown sections and fields are left out. */
+export function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown, setup?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -39,8 +46,6 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
         isConsoleBuiltinSectionId(section) || (isConsoleSectionId(section) && Object.hasOwn(contributions, section)))
     : []
   return {
-    auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
-    ...(typeof response?.build === "string" && response.build ? { build: response.build } : {}),
     contributions,
     operations: Array.isArray(response?.operations) ? response.operations.filter((name): name is string => typeof name === "string") : [],
     ...(typeof response?.projectName === "string" && response.projectName.trim()
@@ -49,6 +54,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     readOnly: Array.isArray(response?.readOnly) ? response.readOnly.filter((section): section is ConsoleSectionId => isConsoleSectionId(section)) : [],
     scoped: response?.scoped === true,
     sections,
+    ...(typeof response?.setup === "string" && response.setup.startsWith("/") && !response.setup.startsWith("//") ? { setup: response.setup } : {}),
   }
 }
 
@@ -64,14 +70,8 @@ export function resolveConsoleSectionDetails(
     : undefined
 }
 
-/**
- * Requests the page tools session once per loaded Console. It sets the `vitehub-tools` hint cookie when this person may
- * use a page tool, such as Comments, so the app's pages load those tools. The Console ignores the answer. A Console on
- * another origin cannot set a cookie of the app, so it skips the request.
- */
-function openPageToolsSession(): void {
-  if (isRemoteProject()) return
-  void projectFetch("/_vitehub/page/session", { headers: { accept: "application/json" } }).catch(() => undefined)
+function withConsoleServerSections(navigation: ConsoleNavigation): ConsoleNavigation {
+  return consoleProject().remote ? { ...navigation, sections: insertConsoleSection(navigation.sections, "mcp-client") } : navigation
 }
 
 export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
@@ -80,8 +80,8 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
     request = requestConsole(base)
       .then((value) => {
         navigationErrors.delete(base)
-        const navigation = parseConsoleNavigation(value)
-        openPageToolsSession()
+        const navigation = withConsoleServerSections(parseConsoleNavigation(value))
+        navigationValues.set(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
@@ -93,6 +93,36 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+/**
+ * Keep the navigation that `project.get` sent with the project, so the rail and the Overview show it without a
+ * `sections.list` call. A newer answer, such as the answer of this visit after a stored one, replaces it, and the
+ * subscribers get it when it changed.
+ */
+export function seedConsoleNavigation(base: string, answer: ConsoleNavigation): void {
+  const navigation = withConsoleServerSections(answer)
+  const known = navigationValues.get(base)
+  navigationErrors.delete(base)
+  navigationRequests.set(base, Promise.resolve(navigation))
+  navigationValues.set(base, navigation)
+  if (known && JSON.stringify(known) === JSON.stringify(navigation)) return
+  for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
+}
+
+/**
+ * Drop the navigation of `base` that a `project.get` answer gave, such as a stored one, when a newer answer has none.
+ * The sections come from `sections.list` again, and the subscribers get them.
+ */
+export function reloadConsoleNavigation(base: string): void {
+  if (!navigationValues.has(base)) return
+  navigationRequests.delete(base)
+  void loadConsoleNavigation(base)
+}
+
+/** Whether a route shows a section that the navigation does not have, such as one that the access lost. */
+export function isConsoleSectionRevoked(section: unknown, navigation: Pick<ConsoleNavigation, "sections">): boolean {
+  return isConsoleSectionId(section) && !navigation.sections.includes(section)
 }
 
 /** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
@@ -107,6 +137,8 @@ export function subscribeConsoleNavigation(
   const subscribers = navigationSubscribers.get(base) || new Set()
   subscribers.add(subscriber)
   navigationSubscribers.set(base, subscribers)
+  const known = navigationValues.get(base)
+  if (known) subscriber(known)
   return () => {
     subscribers.delete(subscriber)
     if (subscribers.size === 0) navigationSubscribers.delete(base)
@@ -115,4 +147,29 @@ export function subscribeConsoleNavigation(
 
 export function createConsoleSectionLoader(base: string): () => Promise<ConsoleSectionId[] | undefined> {
   return async () => (await loadConsoleNavigation(base))?.sections
+}
+
+/**
+ * Matches every path until the navigation response adds the routes of the contributed sections, so a deep link such
+ * as `/queues` does not log a Vue Router "No match found" warning. It never renders: the guard of
+ * `resolveConsoleSectionDeepLink` always sends the navigation on.
+ */
+export const consolePendingSectionRoute: RouteRecordRaw & { name: string } = {
+  component: { render: () => null },
+  name: "vitehub-console-pending-section",
+  path: "/:pathMatch(.*)*",
+}
+
+/**
+ * Router guard step for a path that only `consolePendingSectionRoute` matches. It waits for `addSectionRoutes`, then
+ * sends the navigation to the real route, or to the Overview when the path is still unknown.
+ */
+export async function resolveConsoleSectionDeepLink(
+  router: Router,
+  to: RouteLocationNormalized,
+  addSectionRoutes: () => Promise<void>,
+): Promise<RouteLocationRaw | undefined> {
+  if (to.name !== consolePendingSectionRoute.name) return undefined
+  await addSectionRoutes()
+  return router.resolve(to.fullPath).name === consolePendingSectionRoute.name ? { name: "vitehub-console" } : to.fullPath
 }

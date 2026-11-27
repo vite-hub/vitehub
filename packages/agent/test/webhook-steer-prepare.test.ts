@@ -4,7 +4,7 @@ import { join } from "node:path"
 import * as v from "valibot"
 import { expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import {
   agentInvocationControlId,
@@ -67,7 +67,7 @@ it.each([false, true])(
       name: "support",
       driver: { run },
       channels: {
-        support: defineChannel("support", {
+        support: channelAdapter("support", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
@@ -100,7 +100,7 @@ it.each([false, true])(
               },
             }),
           },
-          webhooks: { path: "/support", secretToken: false },
+          webhooks: { path: "/support", secret: false },
         }),
       },
     })
@@ -177,7 +177,7 @@ it("rejects webhook steering into a named task", async () => {
             }),
           },
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

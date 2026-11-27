@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
@@ -7,7 +8,7 @@ import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
 import { describe, expect, it } from "vitest"
 
-import { initPackages, nuxiPackage } from "../src/setup/init.ts"
+import { initPackages, nuxiPackage, nuxtNitroPackage, nuxtPnpmWorkspace } from "../src/setup/init.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -16,10 +17,9 @@ import type { SetupError, SetupInitPlan, SetupMissing, SetupStatus } from "../sr
 const repository = fileURLToPath(new URL("../../../", import.meta.url))
 const installation = join(repository, "fixtures/docs-hosts/installation")
 const hosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const
-const hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
 type InitResult = SetupInitPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
-type StatusResult = SetupStatus & { stack: { command: string } | null, console: { pendingId: string } | null }
+type StatusResult = SetupStatus & { stack: SetupInitPlan["stack"] | null }
 
 function init(args: string[], cwd: string, spawn?: ViteHubCliSpawn) {
   return runSetup<InitResult>(["init", ...args, "--json"], cwd, {}, spawn ? { spawn } : {})
@@ -31,7 +31,6 @@ async function snapshot(root: string): Promise<Record<string, string>> {
   return Object.fromEntries(await Promise.all(files.map(async file => [relative(root, file), await readFile(file, "utf8")] as const)))
 }
 
-/** Features that build on `host` without an option, a few per host. */
 function nativeFeatures(host: typeof hosts[number]): string[] {
   return ["kv", "queue", "blob", "cache"].filter(id => featureSupport(id as "kv", host).level === "native").slice(0, 3)
 }
@@ -47,34 +46,44 @@ describe("vitehub init", () => {
     expect(result.json).toMatchObject({ features, framework: "vite", host, mode: "create", root, status: "applied" })
 
     const files = await snapshot(root)
-    expect(Object.keys(files).sort()).toEqual([".gitignore", "README.md", "package.json", "server/api/health.get.ts", "tsconfig.json", "vite.config.ts"])
+    expect(Object.keys(files).sort()).toEqual([".gitignore", "package.json", "server/api/health.get.ts", "tsconfig.json", "vite.config.ts"])
     expect(JSON.parse(files["package.json"]!)).toEqual({ ...JSON.parse(await readFile(join(installation, "package.fixture.json"), "utf8")), name: "my-app" })
     expect(files["tsconfig.json"]).toBe(await readFile(join(installation, "tsconfig.json"), "utf8"))
     expect(files["server/api/health.get.ts"]).toBe(await readFile(join(installation, "server/api/health.get.ts"), "utf8"))
     expect(files[".gitignore"]!.split("\n")).toContain(".vitehub")
 
-    // The config is the fixture with the host and one key per feature.
-    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub({ preset: \"node\" })", "VITEHUB")
+    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub()", "VITEHUB")
     const config = files["vite.config.ts"]!
     expect(config.replace(/vitehub\(\{.*\}\)/u, "VITEHUB")).toBe(fixture)
     expect(locateViteHubConfig("vite.config.ts", config)).toMatchObject({
       ok: true,
-      site: { keys: { preset: { value: host }, ...Object.fromEntries(features.map(id => [id, { value: true }])) } },
+      site: { keys: { host: { value: host }, ...Object.fromEntries(features.map(id => [id, { value: true }])) } },
     })
     expect(result.json.install.packages).toEqual(expect.arrayContaining([...initPackages.vite.prod]))
     expect(result.json.install.devPackages).toEqual([...initPackages.vite.dev])
     expect(result.json.nextSteps).toContain(`Install the packages: ${result.json.install.command}`)
 
-    // The status reads the same stack back.
     const status = await runSetup<StatusResult>(["status", "--json"], root)
     expect(status.json.host).toEqual({ name: host, source: "config" })
     for (const id of features) expect(status.json.features.find(item => item.id === id)?.enabled).toBe("on")
-    expect(status.json.stack).toEqual({ command: `pnpm dlx vite-hub init my-app --host ${host} --features ${features.join(",")} --yes` })
+    expect(status.json.stack).toEqual({ command: `pnpm dlx vite-hub init my-app --host ${host} --features ${[...features].sort().join(",")} --framework vite --pm npm --yes`, omits: [] })
+    expect(result.json.stack).toEqual(status.json.stack)
+  })
+
+  it("ignores every .env file of a new app except .env.example", async () => {
+    const parent = await createProject()
+    const result = await init(["my-app", "--host", "node", "--features", "kv", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const root = join(parent, "my-app")
+    execFileSync("git", ["init", "--quiet"], { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+    const files = [".env", ".env.local", ".env.production", ".env.staging.local", ".env.example"]
+    const ignored = execFileSync("git", ["check-ignore", ...files], { cwd: root, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } })
+    expect(ignored.trim().split("\n")).toEqual([".env", ".env.local", ".env.production", ".env.staging.local"])
   })
 
   it("is a no-op when the same command runs again", async () => {
     const parent = await createProject()
-    const args = ["my-app", "--host", "vercel", "--features", "kv,queue", "--option", "kv.driver=upstash", "--console", `p_1:sha256:${hash}`, "--no-install", "--yes"]
+    const args = ["my-app", "--host", "vercel", "--features", "kv,queue", "--option", "kv.driver=upstash", "--no-install", "--yes"]
     expect((await init(args, parent)).exitCode).toBe(0)
     const before = await snapshot(join(parent, "my-app"))
 
@@ -84,50 +93,22 @@ describe("vitehub init", () => {
     expect(await snapshot(join(parent, "my-app"))).toEqual(before)
   })
 
-  it("writes the reproducing command into README.md without the --console value", async () => {
+  it("reports the same stack as status without writing a README", async () => {
     const parent = await createProject()
-    const result = await init(["shop", "--host", "vercel", "--features", "kv", "--option", "kv.driver=upstash", "--console", `pending-42:sha256:${hash}`, "--no-install", "--yes"], parent)
+    const result = await init(["shop", "--host", "vercel", "--features", "kv", "--option", "kv.driver=upstash", "--no-install", "--yes"], parent)
     expect(result.exitCode, result.stdout).toBe(0)
-    const command = "pnpm dlx vite-hub init shop --host vercel --features kv --option kv.driver=upstash --yes"
-    expect(result.json.stack).toEqual({ command })
-    const readme = await readFile(join(parent, "shop/README.md"), "utf8")
-    expect(readme).toBe(`# shop\n\n<!-- vitehub:stack -->\nCreate the same stack with:\n\n\`\`\`sh\n${command}\n\`\`\`\n<!-- /vitehub:stack -->\n`)
-    expect(readme).not.toContain("pending-42")
-    expect(readme).not.toContain(hash)
+    const command = "pnpm dlx vite-hub init shop --host vercel --features kv --option kv.driver=upstash --framework vite --pm npm --yes"
+    expect(result.json.stack).toEqual({ command, omits: [] })
+    expect(existsSync(join(parent, "shop/README.md"))).toBe(false)
     const status = await runSetup<StatusResult>(["status", "--json"], join(parent, "shop"))
-    expect(status.json.stack).toEqual({ command })
+    expect(status.json.stack).toEqual({ command, omits: [] })
   })
 
-  it("stores only the pendingId and the hash from --console in the gitignored link file", async () => {
+  it("refuses an unknown flag before any write", async () => {
     const parent = await createProject()
-    const result = await init(["app", "--host", "cloudflare", "--features", "kv", "--console", `p_1:sha256:${hash.toUpperCase()}`, "--no-install", "--yes"], parent)
-    expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.console).toEqual({ pendingId: "p_1" })
-    const root = join(parent, "app")
-    expect(JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8"))).toEqual({ console: { pendingId: "p_1", tokenSha256: hash }, schemaVersion: 1 })
-    expect((await readFile(join(root, ".gitignore"), "utf8")).split("\n")).toContain(".vitehub")
-
-    const status = await runSetup<StatusResult>(["status", "--json"], root)
-    expect(status.json).toMatchObject({ console: { pendingId: "p_1" }, link: null })
-    expect(status.stdout).not.toContain(hash)
-    // Unlink removes a host link only. The pending Console link stays.
-    expect((await runSetup(["unlink", "--json"], root)).json).toMatchObject({ removed: false })
-    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(true)
-  })
-
-  it.each([
-    "vh_live_4f2c9a1b8e7d",
-    `p_1:${hash}`,
-    `p_1:sha256:${hash.slice(1)}`,
-    `p_1:sha1:${hash}`,
-    `bad id:sha256:${hash}`,
-    `p/1:sha256:${hash}`,
-  ])("rejects --console %s with exit 1 and never prints it", async (value) => {
-    const parent = await createProject()
-    const result = await init(["app", "--host", "node", "--features", "", "--console", value, "--yes"], parent)
-    expect(result.exitCode).toBe(1)
-    expect(result.json.error).toMatchObject({ code: "SETUP_CONSOLE_INVALID" })
-    expect(result.stdout + result.stderr).not.toContain(value)
+    const result = await init(["app", "--host", "node", "--features", "", "--nope", "--yes"], parent)
+    expect(result.exitCode).not.toBe(0)
+    expect(result.json.error).toMatchObject({ code: "CLI_R0003", message: expect.stringContaining('Unknown argument "--nope"') })
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
@@ -137,7 +118,7 @@ describe("vitehub init", () => {
     expect(json.exitCode).toBe(2)
     expect(json.json.error).toMatchObject({ code: "SETUP_INPUT_NEEDED", message: "Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal." })
     expect(json.json.missing).toEqual([{ choices: [...hosts], field: "host" }])
-    expect(json.json.rerun).toBe("pnpm dlx vite-hub init app --host <host> --features kv --yes --json")
+    expect(json.json.rerun).toBe("pnpm dlx vite-hub init app --host '<host>' --features kv --yes --json")
 
     const text = await runSetup(["init", "app", "--features", "kv", "--yes"], parent)
     expect(text.exitCode).toBe(2)
@@ -146,6 +127,12 @@ describe("vitehub init", () => {
 
     const none = await init([], parent)
     expect(none.json.missing?.map(item => item.field)).toEqual(["dir", "host", "features"])
+  })
+
+  it("keeps the nightly choice when asking for a missing host", async () => {
+    const result = await init(["site", "--nuxt-nightly", "--features", "kv"], await createProject())
+    expect(result.exitCode).toBe(2)
+    expect(result.json.rerun).toContain("--framework nuxt --nuxt-nightly")
   })
 
   it("prints the plan and exits 2 without --yes and without a terminal", async () => {
@@ -165,11 +152,39 @@ describe("vitehub init", () => {
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
+  it("fails the SMTP Email driver on Cloudflare before any write", async () => {
+    const parent = await createProject()
+    for (const mode of ["--dry-run", "--yes"]) {
+      const result = await init(["app", "--host", "cloudflare", "--features", "email", "--option", "email.driver=smtp", "--no-install", mode], parent)
+      expect(result.exitCode, mode).toBe(3)
+      expect(result.json.error).toMatchObject({ code: "SETUP_FEATURE_UNSUPPORTED" })
+    }
+    expect(existsSync(join(parent, "app"))).toBe(false)
+  })
+
+  it("plans the Drizzle release that ViteHub supports for a Database app", async () => {
+    const parent = await createProject()
+    const result = await init(["app", "--host", "node", "--features", "database", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.command).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
+    expect(result.json.install.command).toContain('"drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
+  })
+
+  it("plans nodemailer for the SMTP Email driver on Node", async () => {
+    const parent = await createProject()
+    const result = await init(["app", "--host", "node", "--features", "email", "--option", "email.driver=smtp", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/email", "nodemailer"]))
+    expect(await readFile(join(parent, "app", "vite.config.ts"), "utf8")).toContain("email: { driver: \"smtp\" }")
+  })
+
   it("asks for a provider option with an init rerun", async () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "vercel", "--features", "email", "--no-install", "--yes"], parent)
     expect(result.exitCode).toBe(2)
-    expect(result.json.missing).toEqual([{ choices: ["resend"], field: "email.driver" }])
+    expect(result.json.missing).toEqual([{ choices: ["resend", "log"], field: "email.driver" }])
     expect(result.json.rerun).toBe("pnpm dlx vite-hub init app --host vercel --features email --option email.driver=resend --no-install --yes --json")
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
@@ -177,7 +192,7 @@ describe("vitehub init", () => {
   it("adopts an existing Vite app without overwriting a file", async () => {
     const root = await createProject({
       ".gitignore": "node_modules\n",
-      "README.md": "# Shop\n\nMy app.\n",
+      "README.md": "# Shop\n\nMy app.\n\n<!-- vitehub:stack -->\nold stack\n<!-- /vitehub:stack -->\n",
       "index.html": "<div id=app></div>\n",
       "package.json": JSON.stringify({ devDependencies: { vite: "^8.0.0" }, name: "shop", packageManager: "pnpm@10.0.0", type: "module" }),
       "vite.config.ts": "import { defineConfig } from 'vite'\n\nexport default defineConfig({\n  server: { port: 4000 },\n})\n",
@@ -185,12 +200,11 @@ describe("vitehub init", () => {
     const result = await init([".", "--host", "cloudflare", "--features", "kv", "--no-install", "--yes"], root)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json).toMatchObject({ mode: "adopt", status: "applied" })
-    expect(result.json.changes.map(change => [change.path, change.kind])).toEqual([["README.md", "patch"], [".gitignore", "patch"], ["vite.config.ts", "patch"]])
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe("import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 4000 },\n  plugins: [vitehub({ preset: 'cloudflare', kv: true })],\n})\n")
+    expect(result.json.changes.map(change => [change.path, change.kind])).toEqual([[".gitignore", "patch"], ["vite.config.ts", "patch"]])
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe("import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 4000 },\n  plugins: [vitehub({ host: 'cloudflare', kv: true })],\n})\n")
     expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n")
-    expect(await readFile(join(root, "README.md"), "utf8")).toMatch(/^# Shop\n\nMy app.\n\n<!-- vitehub:stack -->\n/u)
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe("# Shop\n\nMy app.\n\n<!-- vitehub:stack -->\nold stack\n<!-- /vitehub:stack -->\n")
     expect(await readFile(join(root, "index.html"), "utf8")).toBe("<div id=app></div>\n")
-    // vite is declared, so only the missing base packages install.
     expect(result.json.install.devPackages).toEqual(["typescript@^6", "@types/node@^24"])
   })
 
@@ -208,8 +222,8 @@ describe("vitehub init", () => {
 
   it.each(["vite", "nuxt"] as const)("adopts a %s app with a namespace registration without adding another plugin", async (framework) => {
     const config = framework === "nuxt"
-      ? 'import * as hub from "vite-hub/nuxt"\nexport default { modules: [[hub.default, { preset: "node" }]] }\n'
-      : 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ preset: "node" })] }\n'
+      ? 'import * as hub from "vite-hub/nuxt"\nexport default { modules: [[hub.default, { host: "node" }]] }\n'
+      : 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ host: "node" })] }\n'
     const file = `${framework}.config.ts`
     const root = await createProject({
       "package.json": JSON.stringify({ devDependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" }, type: "module" }),
@@ -219,17 +233,17 @@ describe("vitehub init", () => {
     const result = await init(args, root)
     expect(result.exitCode, result.stdout).toBe(0)
     const after = await readFile(join(root, file), "utf8")
-    expect(after).toBe(config.replace('preset: "node"', 'preset: "cloudflare", kv: true'))
+    expect(after).toBe(config.replace('host: "node"', 'host: "cloudflare", kv: true'))
     const again = await init(args, root)
     expect(again.exitCode, again.stdout).toBe(0)
     expect(again.json).toMatchObject({ changes: [], status: "unchanged" })
   })
 
   it.each(["vite", "nuxt"] as const)("leaves host migration of an existing %s stack manual", async (framework) => {
-    for (const options of ["browser: true", 'cache: { driver: "cloudflare-kv-binding" }', "browser: browserOptions"]) {
+    for (const options of ["browser: true", 'cache: { driver: "cloudflare" }', "browser: browserOptions"]) {
       const config = framework === "nuxt"
-        ? `export default { modules: [["vite-hub/nuxt", { preset: "cloudflare", ${options} }]] }\n`
-        : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "cloudflare", ${options} })] }\n`
+        ? `export default { modules: [["vite-hub/nuxt", { host: "cloudflare", ${options} }]] }\n`
+        : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ host: "cloudflare", ${options} })] }\n`
       const root = await createProject({ "package.json": JSON.stringify({ dependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" } }), [`${framework}.config.ts`]: config })
       const before = await snapshot(root)
       const calls: string[] = []
@@ -264,7 +278,7 @@ describe("vitehub init", () => {
     expect(result.json).toMatchObject({ framework, mode: "adopt", status: "applied" })
     expect(locateViteHubConfig(file, await readFile(join(root, file), "utf8"))).toMatchObject({
       ok: true,
-      site: { keys: { kv: { value: true }, preset: { value: "cloudflare" } } },
+      site: { keys: { kv: { value: true }, host: { value: "cloudflare" } } },
     })
     const after = await snapshot(root)
     expect(after).toMatchObject(before)
@@ -315,7 +329,7 @@ describe("vitehub init", () => {
     ["package-lock.json", "npm"],
     ["yarn.lock", "yarn"],
     ["bun.lock", "bun"],
-  ])("keeps the inherited manager from %s in the README and status outside the parent tree", async (lockfile, pm) => {
+  ])("uses the inherited manager from %s until the app moves outside its parent tree", async (lockfile, pm) => {
     const parent = await createProject({ [lockfile]: "" })
     const calls: string[] = []
     const result = await runSetup<InitResult>(["init", "app", "--host", "node", "--features", "kv", "--yes", "--json"], parent, { npm_config_user_agent: "pnpm/10.0.0" }, {
@@ -326,15 +340,15 @@ describe("vitehub init", () => {
     })
     expect(result.exitCode, result.stdout).toBe(0)
     expect(calls).toEqual([pm, pm])
-    const command = `pnpm dlx vite-hub init app --host node --features kv --pm ${pm} --yes`
+    const command = `pnpm dlx vite-hub init app --host node --features kv --framework vite --pm ${pm} --yes`
     expect(result.json.stack.command).toBe(command)
-    expect(await readFile(join(parent, "app/README.md"), "utf8")).toContain(command)
+    expect((await runSetup<StatusResult>(["status", "--json"], join(parent, "app"))).json.stack).toEqual(result.json.stack)
 
     const movedParent = await createProject()
     await rename(join(parent, "app"), join(movedParent, "app"))
     const status = await runSetup<StatusResult>(["status", "--json"], join(movedParent, "app"))
     expect(status.exitCode, status.stdout).toBe(0)
-    expect(status.json.stack).toEqual({ command })
+    expect(status.json.stack).toEqual({ command: command.replace(`--pm ${pm}`, "--pm npm"), omits: [] })
     const replay = await runSetup<InitResult>([...command.split(" ").slice(3), "--dry-run", "--json"], await createProject(), { npm_config_user_agent: "pnpm/10.0.0" })
     expect(replay.exitCode, replay.stdout).toBe(0)
     expect(replay.json.packageManager).toBe(pm)
@@ -342,9 +356,10 @@ describe("vitehub init", () => {
 
   it("reports new app files left on disk after installation fails", async () => {
     const parent = await createProject()
-    const result = await init(["app", "--host", "node", "--features", "kv", "--yes"], parent, async () => ({ exitCode: 1 }))
+    const result = await init(["app", "--host", "node", "--features", "database", "--yes"], parent, async () => ({ exitCode: 1 }))
     expect(result.exitCode).toBe(1)
     expect(result.json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED" })
+    expect(result.json.error?.message).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("app files were written")
     expect(result.json.error?.fix).not.toContain("did not write")
     const files = await snapshot(join(parent, "app"))
@@ -396,34 +411,91 @@ describe("vitehub init", () => {
       { args: ["install", ...result.json.install.packages], command: "npm", cwd: join(parent, "app"), manifest: true },
       { args: ["install", "-D", ...initPackages.vite.dev], command: "npm", cwd: join(parent, "app"), manifest: true },
     ])
-    expect(result.json.stack.command).toBe("pnpm dlx vite-hub init app --host cloudflare --features kv --pm npm --yes")
+    expect(result.json.stack.command).toBe("pnpm dlx vite-hub init app --host cloudflare --features kv --framework vite --pm npm --yes")
   })
 
-  it.each(["pnpm", "yarn"] as const)("creates a Nuxt app with the pinned nuxi using %s, then adopts it", async (pm) => {
+  it.each([
+    ["pnpm", false],
+    ["yarn", false],
+    ["pnpm", true],
+  ] as const)("creates a Nuxt app with the pinned nuxi using %s (Nuxt 5 nightly: %s), then adopts it", async (pm, nightly) => {
     const parent = await createProject()
     const calls: string[][] = []
+    let workspaceAtInstall: string | undefined
     const spawn: ViteHubCliSpawn = async (command, args) => {
       calls.push([command, ...args])
+      if (args[0] === "add") workspaceAtInstall = await readFile(join(parent, "site/pnpm-workspace.yaml"), "utf8").catch(() => undefined)
       if (args.includes("init")) {
-        // The pinned starter with `nuxi init --nightly 5x` declares the resolved nightly version.
         await mkdir(join(parent, "site/server"), { recursive: true })
-        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt: "npm:nuxt-nightly@5.0.0-2611071848-2d8337c", vue: "^3.5.44", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
+        await writeFile(join(parent, "site", pm === "yarn" ? "yarn.lock" : "pnpm-lock.yaml"), "")
+        await writeFile(join(parent, "site/README.md"), "# Nuxt starter\n")
+        const nuxt = args.includes("--nightly") ? "npm:nuxt-nightly@5.0.0-2611071848-2d8337c" : "^4.7.0"
+        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt, vue: "^3.5.45", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
         await writeFile(join(parent, "site/nuxt.config.ts"), "// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true }\n})\n")
       }
       return { exitCode: 0, signal: null }
     }
-    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", "--pm", pm, "--yes"], parent, spawn)
+    const flags = nightly ? ["--nuxt-nightly"] : []
+    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", ...flags, "--pm", pm, "--yes"], parent, spawn)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548", "--nightly", "5x", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
+    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#d4367031fe43d93d4e2a339f73b519ec35e78b38", ...(nightly ? ["--nightly", "5x"] : []), "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
     expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
-    expect(result.json.install.packages.slice(0, 2)).toEqual([...initPackages.nuxt.prod])
+    expect(result.json.install.packages).toEqual([nightly ? "vite-hub" : "vite-hub@>=0.5.1 <1", "h3@^2.0.8", "valibot", ...(nightly ? [] : [nuxtNitroPackage]), "@vite-hub/kv"])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
     const config = await readFile(join(parent, "site/nuxt.config.ts"), "utf8")
-    expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, preset: { value: "vercel" } } } })
-    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt${pm === "yarn" ? " --pm yarn" : ""} --yes`)
+    expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, host: { value: "vercel" } } } })
+    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt${nightly ? " --nuxt-nightly" : ""} --pm ${pm} --yes`)
+    expect(await readFile(join(parent, "site/README.md"), "utf8")).toBe("# Nuxt starter\n")
+    expect(workspaceAtInstall).toBe(pm === "pnpm" && !nightly ? nuxtPnpmWorkspace : undefined)
+    expect((await runSetup<StatusResult>(["status", "--json"], join(parent, "site"))).json.stack).toEqual(result.json.stack)
   })
 
-  it.each([undefined, "latest", "6.0.0", "npm:nuxt-nightly@latest"])("rejects a scaffold without a known Nuxt 5 version (%s)", async (nuxt) => {
+  it.each([
+    [[], ["--framework", "nuxt"], [nuxtNitroPackage]],
+    [["--nuxt-nightly"], ["--framework", "nuxt", "--nuxt-nightly"], []],
+  ] as const)("plans a new Nuxt app with %j as Nuxt 4.7 or the Nuxt 5 nightly", async (flags, replay, nitro) => {
+    const parent = await createProject()
+    const result = await init(["site", "--host", "node", "--features", "kv", ...(flags.length ? [] : ["--framework", "nuxt"]), ...flags, "--dry-run"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", status: "planned" })
+    expect(result.json.scaffold?.command.includes("--nightly 5x")).toBe(flags.length > 0)
+    expect(result.json.install.packages).toEqual([flags.length ? "vite-hub" : "vite-hub@>=0.5.1 <1", "h3@^2.0.8", "valibot", ...nitro, "@vite-hub/kv"])
+    if (!flags.length) expect(result.json.install.command).toContain("'vite-hub@>=0.5.1 <1'")
+    expect(result.json.changes.some(change => change.path === "pnpm-workspace.yaml" && change.after === nuxtPnpmWorkspace)).toBe(flags.length === 0)
+    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host node --features kv ${replay.join(" ")} --pm pnpm --yes`)
+  })
+
+  it("keeps the parent pnpm workspace and points install failures to its build policy", async () => {
+    const workspace = "packages: [apps/*]\ncatalog: { nuxt: '^4.7.0' }\n"
+    const parent = await createProject({ "apps/.keep": "", "pnpm-workspace.yaml": workspace })
+    const args = ["apps/site", "--framework", "nuxt", "--host", "node", "--features", "kv"]
+    const plan = await init([...args, "--dry-run"], parent)
+    expect(plan.exitCode, plan.stdout).toBe(0)
+    expect(plan.json.changes.map(change => change.path)).not.toContain("pnpm-workspace.yaml")
+    const result = await init([...args, "--yes"], parent, async (_command, args) => {
+      if (args.includes("init")) {
+        await mkdir(join(parent, "apps/site"))
+        await writeFile(join(parent, "apps/site/package.json"), JSON.stringify({ dependencies: { nuxt: "^4.7.0" } }))
+        await writeFile(join(parent, "apps/site/nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+        return { exitCode: 0 }
+      }
+      expect(existsSync(join(parent, "apps/site/pnpm-workspace.yaml"))).toBe(false)
+      expect(await readFile(join(parent, "pnpm-workspace.yaml"), "utf8")).toBe(workspace)
+      return { exitCode: 1 }
+    })
+    expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(result.json.error?.fix).toContain(join(parent, "pnpm-workspace.yaml"))
+    expect(result.json.error?.fix).toContain("esbuild: false")
+  })
+
+  it("rejects --nuxt-nightly for a Vite app", async () => {
+    const parent = await createProject()
+    const result = await init(["site", "--host", "node", "--features", "kv", "--framework", "vite", "--nuxt-nightly", "--dry-run"], parent)
+    expect(result.exitCode, result.stdout).not.toBe(0)
+    expect(result.json.error?.message).toContain("--nuxt-nightly needs --framework nuxt.")
+  })
+
+  it.each([undefined, "latest", "6.0.0", "npm:nuxt-nightly@latest"])("rejects a scaffold without a supported Nuxt version (%s)", async (nuxt) => {
     const parent = await createProject()
     const files = {
       "package.json": JSON.stringify({ dependencies: { nuxt }, type: "module" }),
@@ -457,15 +529,66 @@ describe("vitehub init", () => {
       })
       const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
       expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.install.packages).not.toContain(nuxtNitroPackage)
       const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
-      expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, preset: { value: "node" } } } })
+      expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, host: { value: "node" } } } })
       expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
     }
   })
 
-  it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a known Nuxt 5 version in %s before any install or write", async (dependencyKey) => {
+  it.each(["4.7.0", "^4.7.0", "~4.7.2", ">=4.7.0 <5.0.0", "^4.7.0 || ^5.0.0-0", "npm:nuxt@^4.7.0"])("adopts a Nuxt %s app and installs nitro when the app does not declare it", async (nuxt) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt }, type: "module" }),
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const calls: string[][] = []
+    const result = await init([".", "--host", "node", "--features", "kv", "--pm", "pnpm", "--yes"], root, async (command, args) => {
+      calls.push([command, ...args])
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length + 1)).toEqual(["vite-hub@>=0.5.1 <1", ...initPackages.nuxt.prod.slice(1), nuxtNitroPackage])
+    expect(calls).toEqual([["pnpm", "add", ...result.json.install.packages]])
+    const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
+    expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, host: { value: "node" } } } })
+  })
+
+  it.each([
+    { dependencies: { nitro: "3.0.261103-rc", nuxt: "^4.7.0" } },
+    { dependencies: { nuxt: "^4.7.0" }, devDependencies: { nitro: "^3.0.261103-rc" } },
+  ])("adopts a Nuxt 4.7 app that declares nitro without installing nitro again (%j)", async (dependencies) => {
+    const manifest = JSON.stringify({ ...dependencies, type: "module" })
+    const root = await createProject({
+      "package.json": manifest,
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages.some(spec => spec.startsWith("nitro"))).toBe(false)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    { dependencies: { nitro: "3.0.0" } },
+    { devDependencies: { nitro: "3.0.261102-rc" } },
+    { dependencies: { nitro: "^3.0.0" } },
+    { dependencies: { nitro: "^3.0.261103-rc" }, devDependencies: { nitro: "3.0.0" } },
+  ])("rejects an incompatible Nitro declaration before writing files (%j)", async ({ dependencies, devDependencies }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt: "4.7.0", ...dependencies }, devDependencies }),
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const before = await snapshot(root)
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_INIT_NITRO_VERSION")
+    expect(result.json.error?.fix).toContain("^3.0.261103-rc")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a supported Nuxt version in %s before any install or write", async (dependencyKey) => {
     for (const nuxt of [
-      undefined, "^4.6.4", "latest", "*", "npm:nuxt-nightly@latest", "npm:other@5.0.0",
+      undefined, "^4.6.4", "^4.0.0", "4.7.0-alpha.1", ">=4.7.0", "^4.7.0 || 6.0.0", "latest", "*", "npm:nuxt-nightly@latest", "npm:other@5.0.0",
       "6.x", ">=5.0.0", ">=5.0.0 <=6.0.0", "5.x || 6.0.0", "5.x || 6.0.0-beta.1",
       ">=5.0.0 <6.0.0-beta.2", ">=5.0.0 <5.0.0", "<0.0.0-0", "not a range",
     ]) {
@@ -482,6 +605,7 @@ describe("vitehub init", () => {
       expect(result.exitCode, result.stdout).toBe(3)
       expect(result.json.error?.code).toBe("SETUP_INIT_NUXT_VERSION")
       expect(result.json.error?.fix).not.toContain("scaffold files")
+      expect(result.json.error?.fix).toContain("pnpm add nuxt@^4.7.0 nitro")
       expect(calls).toEqual([])
       expect(await snapshot(root)).toEqual(before)
     }

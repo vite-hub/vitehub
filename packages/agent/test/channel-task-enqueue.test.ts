@@ -3,14 +3,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
+import { channelAdapter, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
 import { defineAgent } from "../src/index.ts"
 import { cancelChannelTask, enqueueChannelTask } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import * as channelTasks from "../src/channel-tasks.ts"
 import { hubAgent } from "../src/vite.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 
 const cleanups: (() => Promise<void>)[] = []
 
@@ -25,7 +24,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
   const failed = vi.fn()
   const agent = defineAgent({
     channels: {
-      airtable: defineChannel("airtable", {
+      airtable: channelAdapter("airtable", {
         messages: false,
         triggers: {
           webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
@@ -54,10 +53,10 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
             }),
           } : {}),
         },
-        webhooks: { path: "/api/airtable/webhook", secretToken: false },
+        webhooks: { path: "/api/airtable/webhook", secret: false },
       }),
       ...(options.prefixedChannel ? {
-        "airtable.eu": defineChannel("airtable.eu", {
+        "airtable.eu": channelAdapter("airtable.eu", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
@@ -70,7 +69,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
               },
             }),
           },
-          webhooks: { path: "/api/airtable-eu/webhook", secretToken: false },
+          webhooks: { path: "/api/airtable-eu/webhook", secret: false },
         }),
       } : {}),
     },
@@ -111,8 +110,8 @@ async function installGeneratedHost(resume: () => () => Promise<void>) {
   cleanups.push(() => rm(root, { force: true, recursive: true }))
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "bot.ts"), "export default {}")
-  const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:state.sqlite" } } })
-  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "file:state.sqlite" } } })
+  if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The config hook reads only command and root from this fixture.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
   const source = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
@@ -178,6 +177,30 @@ describe("enqueueChannelTask()", () => {
     expect(ran[0]).toMatchObject({ annotations: { "airtable.record": "recA" }, data: { closeId: "recA" }, runId: receipt!.runId })
     expect(ran[0]!.at).toBeGreaterThanOrEqual(enqueuedAt + 400)
     await vi.waitFor(async () => expect((await deliveries()).find(item => item.sourceId === `task:${receipt!.deliveryId}`)?.status).toBe("completed"))
+  })
+
+  it("keeps absolute starts on the database clock and translates relative starts from a skewed host", async () => {
+    const { state } = await setup()
+    const clock = state.extension("task_clock_test")
+    const now = Date.now
+    const startedAt = now()
+    const notBefore = new Date(startedAt + 60_000)
+    Date.now = () => now() + 300_000
+    try {
+      const [absoluteError, absolute] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { notBefore })
+      const [relativeError, relative] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { delayMs: 60_000 })
+      expect(absoluteError).toBeUndefined()
+      expect(relativeError).toBeUndefined()
+      expect(absolute?.notBefore).toBe(notBefore.getTime())
+      const [absoluteRow, relativeRow] = await Promise.all([absolute, relative].map(async receipt =>
+        (await clock.execute("SELECT available_at, status FROM vitehub_agent_state_webhook_queue WHERE delivery_id = ?", [receipt!.deliveryId]))[0]))
+      expect(absoluteRow).toEqual({ available_at: notBefore.getTime(), status: "queued" })
+      expect(relativeRow?.status).toBe("queued")
+      expect(Number(relativeRow?.available_at)).toBeGreaterThanOrEqual(startedAt + 60_000 - 50)
+      expect(Number(relativeRow?.available_at)).toBeLessThanOrEqual(now() + 60_000 + 50)
+    } finally {
+      Date.now = now
+    }
   })
 
   it("replaces a queued task with the same key, so only the newest input runs", async () => {

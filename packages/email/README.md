@@ -1,21 +1,23 @@
 # `@vite-hub/email`
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Femail&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Femail&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
-Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email` and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
-- Node.js 22.18 or later.
+- Node.js 24.15 or later.
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
-The Vite integration composes one ViteHub-owned provider driver from a stable name and runtime Env declarations.
+The SMTP driver requires TLS when you configure a login. If the relay accepts only some recipients, the driver returns an error; do not retry the entire send.
+
+The Vite integration composes one provider driver from a built-in name or an app driver module, and runtime Env declarations.
 
 ## Quickstart
 
@@ -48,7 +50,7 @@ Set `RESEND_API_KEY` in the server runtime environment. Keep provider credential
 Server code can now use the configured Runtime Helper:
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 
 const [error, sent] = await email.send({
   from: "hello@example.com",
@@ -58,6 +60,8 @@ const [error, sent] = await email.send({
 })
 if (error) throw error
 ```
+
+A message needs `text`, `html`, or both, or a template of `server/emails` (see [Send a template](#send-a-template)). ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
 
 `send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
@@ -70,11 +74,11 @@ The official [`email()` Agent Capability](https://vitehub.dev/docs/email/agent-c
 `renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, and fragments before Comark renders the HTML body.
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
-  data: { user: { name: "Maxi" } },
+  data: { user: { name: "Ada" } },
 })
 
 const [error] = await email.send({
@@ -86,24 +90,44 @@ const [error] = await email.send({
 if (error) throw error
 ```
 
-`html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
+`renderEmailMarkdown()` returns `{ subject?, html, text }`. `subject` is set when the Markdown starts with `subject:` frontmatter. `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
-### Discover application templates
+### Send a template
 
-Place reusable Markdown under `server/emails`:
+Place reusable Markdown under `server/emails`, or a [Vue component](#vue-templates). `subject:` frontmatter sets the subject and can read `{{ data.* }}` values as plain text. A file or folder whose name starts with `_` is a partial, not a template:
 
-```md
+```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
+
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
 
-ViteHub turns `server/emails/welcome.md` into a typed async renderer:
+Send it by name. `email.send()` renders the template once to its subject, HTML, and text. A `subject` in the message overrides the subject of the template, and a template without `subject:` frontmatter needs one (`EMAIL_TEMPLATE_SUBJECT_REQUIRED`):
+
+```ts
+import { email } from "@vite-hub/email"
+
+const [error] = await email.send({
+  template: "welcome",
+  data: { user: { name: "Ada" } },
+  from: "hello@example.com",
+  to: "you@example.com",
+})
+if (error) throw error
+```
+
+TypeScript completes `template` with the names under `server/emails`, and types `data` from the `data.*` values that the template reads. An unknown name or wrong `data` does not compile. The Vite integration writes these types to `.vitehub/types/email-templates.d.ts`, only when the app has templates. When `data` does not fit at runtime, `send()` returns `EMAIL_TEMPLATE_RENDER_FAILED`.
+
+To render a template without sending it, import its typed async renderer:
 
 ```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
 
-const markdown = await renderWelcome({ user: { name: "Maxi" } })
+const { subject, html, text } = await renderWelcome({ user: { name: "Ada" } })
 ```
 
 Nested paths keep their relative name. For example,
@@ -113,6 +137,30 @@ to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
 `.vitehub/email/templates`.
 
 The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `:insert{:markdown="data.fragment"}` component.
+
+### Vue templates
+
+A `.vue` file under `server/emails` is also a template. ViteHub compiles it with the app's `@vitejs/plugin-vue` and renders it with `vue/server-renderer`. Install `vue` in the app. Nuxt adds the plugin, and a Vite or Nitro app adds `vue()` to its Vite `plugins`. The props of the component are the `data` of the template, and `<EmailSubject>` sets the subject:
+
+```vue fragment
+<script setup lang="ts">
+import { EmailSubject } from "@vite-hub/email/vue"
+import Layout from "./_layout.vue"
+
+defineProps<{ name: string, team: string }>()
+</script>
+
+<template>
+  <Layout>
+    <EmailSubject>Join {{ team }}</EmailSubject>
+    <h1>Hi {{ name }}</h1>
+  </Layout>
+</template>
+```
+
+`_layout.vue` is a partial that templates import as a component. Import each component that a template uses: Nuxt auto-imports do not apply to Email templates. `text` comes from the rendered HTML, with the same Markdown markers as a Markdown template. The build stops with `EMAIL_VUE_MISSING` when the app cannot import `vue`, and with `EMAIL_VUE_PLUGIN_MISSING` when the Vite config has no `@vitejs/plugin-vue`.
+
+TypeScript requires a `subject` on Vue template sends because `<EmailSubject>` may not render on every path. A subject in the message overrides the rendered subject.
 
 ## Test without delivery
 
@@ -163,9 +211,9 @@ Read the outbox from a running Development Server, or render a template without 
 
 ```bash
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html
+pnpm vitehub email outbox get outbox-1 --html
 pnpm vitehub email outbox clear
-pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
+pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
 `email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`).
@@ -173,7 +221,7 @@ pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
 Application code can select its generated outbox identity through the public server export:
 
 ```ts
-import { emailOutboxRuntimeId } from "@vite-hub/email/server"
+import { emailOutboxRuntimeId } from "@vite-hub/email"
 import { listEmailOutbox, getEmailOutboxMessage, clearEmailOutbox } from "@vite-hub/email/runtime/console"
 
 const captured = listEmailOutbox(emailOutboxRuntimeId)
@@ -187,7 +235,7 @@ Pass this identity to each reader to inspect this application's configured Email
 
 ## Use another provider
 
-Set `driver` to `resend` or `cloudflare-email` and declare its options in `hubEmail({ driver, options })`. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`.
+Set `driver` to `resend`, `smtp`, or `cloudflare` and declare its options in `hubEmail({ driver, options })`. The `smtp` driver reads `host`, `port`, `secure`, `user`, and `pass`, sends with the optional `nodemailer` peer, and runs on Node hosts only. For another provider, set `driver` to the path of a driver module, such as `"./server/email-driver.ts"`. The path is relative to the project root. The module default-exports a function that gets `options`, with each `env()` value read, and returns an `EmailDriver`. The host compiles it with the app. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 

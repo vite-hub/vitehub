@@ -1,6 +1,5 @@
 import { admin } from "better-auth/plugins"
-import { H3, type Middleware } from "h3"
-import type { UserConfig } from "vite"
+import { H3 } from "h3"
 import virtualAuthRoute, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
@@ -19,34 +18,33 @@ import {
   type AuthDefinitionOptions,
   type AuthDefinitionResolver,
   type AuthFor,
-  type AuthModuleOptions,
+  type AuthOptions,
   type AuthRequest,
   type AuthReservedOption,
   type AuthResolvedDefinitionOptions,
   type AuthRuntimeContext,
   type AuthRuntimeEnv,
-  type AuthRuntimeOptions,
   type AuthSessionRefresh,
   type RegisteredAuth,
-  type ResolvedAuthDatabaseConfiguration,
   type ViteHubAuth,
 } from "../src/index.ts"
 import {
-  auth,
   createAuthForRequest,
   getAuthForDefinition,
-  getAuthorization,
   handleAuthRequest,
   requireAuth,
   requireAuthorization,
+  useAuth,
   withAuth,
   withAuthorization,
-} from "../src/server.ts"
-import * as authServer from "../src/server.ts"
+} from "../src/internal/server.ts"
+import * as authServer from "../src/internal/server.ts"
+import { authDatabase } from "../src/database.ts"
 import { stateless } from "../src/presets.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
+import type { AuthAppDatabase } from "../src/database.ts"
 
 describe("types", () => {
   it("exposes the intended Auth Definition surface", () => {
@@ -62,26 +60,24 @@ describe("types", () => {
           route: "/_vitehub/**",
         }],
         signIn: {
-          callbackURL: "/app",
           provider: "github",
           scopes: ["read:org"],
         },
+        afterSignIn: "/app",
       },
       appName: "ViteHub",
-      database: { name: "auth" },
-      runtime: ({ env, request, requestOrigin }) => {
-        expectTypeOf(request?.url).toMatchTypeOf<string | undefined>()
-        return {
-          baseURL: requestOrigin,
-          secret: typeof env.value === "string" ? env.value : "runtime-secret",
-        }
-      },
-      secondaryStorage: true,
+      database: authDatabase("auth"),
     })
 
     expectTypeOf(definition).toMatchTypeOf<AuthDefinition>()
-    expectTypeOf(definition.options.database).toMatchTypeOf<{ name: string } | true | undefined>()
-    expectTypeOf(definition.options.runtime).toMatchTypeOf<AuthRuntimeOptions | ((context: AuthRuntimeContext) => AuthRuntimeOptions) | undefined>()
+    expectTypeOf(definition.options.database).toEqualTypeOf<AuthAppDatabase>()
+    // @ts-expect-error `runtime` is removed. A callback returns all options.
+    defineAuth({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) })
+    // @ts-expect-error A callback cannot return `runtime` either.
+    defineAuth(() => ({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) }))
+    expectTypeOf(defineAuth({ database: "memory" }).options.database).toEqualTypeOf<"memory">()
+    // @ts-expect-error A static Definition takes `authDatabase()` or "memory", not another string.
+    defineAuth({ database: "postgres" })
     expectTypeOf<AuthRuntimeEnv>().toMatchTypeOf<Record<string, unknown>>()
   })
 
@@ -107,20 +103,16 @@ describe("types", () => {
     expectTypeOf(defineAuth(resolver)).toEqualTypeOf<AuthDefinition<AuthDefinitionResolver<ReturnType<typeof resolver>>>>()
   })
 
-  it("augments vite user config with auth options", () => {
-    const config: UserConfig = {
-      auth: {},
-    }
-
-    expectTypeOf(config.auth).toMatchTypeOf<AuthModuleOptions | undefined>()
+  it("takes Auth options as the plugin argument", () => {
+    expectTypeOf(hubAuth).parameter(0).toEqualTypeOf<AuthOptions | undefined>()
     expectTypeOf(hubAuth()).toHaveProperty("api")
   })
 
   it("exposes the server auth handler shape", () => {
-    expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
-    expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(useAuth().handler).parameters.toEqualTypeOf<[Request]>()
+    expectTypeOf(useAuth().handler).returns.toEqualTypeOf<Promise<Response>>()
 
-    const runtimeAuth = createAuthForRequest(defineAuth({ appName: "ViteHub" }), new Request("https://app.example.com/api/auth"), {
+    const runtimeAuth = createAuthForRequest(defineAuth(() => ({
       socialProviders: {
         github: {
           clientId: "client-id",
@@ -128,7 +120,7 @@ describe("types", () => {
         },
       },
       trustedOrigins: ["https://app.example.com"],
-    })
+    })), new Request("https://app.example.com/api/auth"))
     expectTypeOf(runtimeAuth.handler).parameters.toEqualTypeOf<[Request]>()
 
     const request = new Request("https://app.example.com/api/auth")
@@ -158,8 +150,6 @@ describe("types", () => {
     expectTypeOf(guarded).toEqualTypeOf<(input: typeof event) => Promise<string | Response>>()
     withAuth((_input: typeof event, { session }) => session)
 
-    // @ts-expect-error The old guard returned `Response | undefined` and let the protected action run after a missed check.
-    void authServer.authorizeRequest
     // @ts-expect-error A guard needs the protected handler.
     withAuthorization(true)
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
@@ -173,29 +163,30 @@ describe("types", () => {
     withAuth((_input: typeof event, authorization) => { authorization.user = { id: "admin" } })
   })
 
-  it("types Auth route middleware for H3 2", () => {
-    const signedIn = requireAuth()
-    const owner = requireAuthorization(({ request, user }) => new URL(request.url).pathname.startsWith(`/posts/${user.id}`))
-    expectTypeOf(signedIn).toMatchTypeOf<Middleware>()
-    expectTypeOf(owner).toMatchTypeOf<Middleware>()
-    expectTypeOf(requireAuthorization(true)).toMatchTypeOf<Middleware>()
+  it("types the inline Auth guards", async () => {
+    const event = requestEvent(new Request("https://app.example.com/me"))
+    expectTypeOf(requireAuth(event)).toEqualTypeOf<Promise<AuthAuthorization>>()
+    expectTypeOf(requireAuthorization(event, ({ request, user }) => new URL(request.url).pathname.startsWith(`/posts/${user.id}`))).toEqualTypeOf<Promise<AuthAuthorization>>()
+    expectTypeOf(requireAuthorization(new Request("https://app.example.com/me"), true)).toEqualTypeOf<Promise<AuthAuthorization>>()
 
-    new H3()
-      .get("/me", (event) => {
-        const authorization = getAuthorization(event)
-        expectTypeOf(authorization).toEqualTypeOf<AuthAuthorization>()
-        // @ts-expect-error The checked authorization is read-only.
-        authorization.user = { id: "admin" }
-        return { id: authorization.user.id }
-      }, { middleware: [signedIn] })
-      .delete("/posts/:id", event => getAuthorization(event).user.id, { middleware: [owner] })
+    new H3().get("/me", async (event) => {
+      const authorization = await requireAuth(event)
+      // @ts-expect-error The checked authorization is read-only.
+      authorization.user = { id: "admin" }
+      return { id: authorization.user.id }
+    })
 
-    // @ts-expect-error The middleware is the result of `requireAuth()`, not the function itself.
+    // @ts-expect-error A guard checks an event. It is not route middleware.
     void new H3().get("/me", () => "ok", { middleware: [requireAuth] })
-    // @ts-expect-error `requireAuth()` returns middleware. It does not check an event.
-    void requireAuth(requestEvent(new Request("https://app.example.com/me")))
+    // @ts-expect-error The guard needs the request event.
+    void requireAuth()
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
-    void requireAuthorization(false)
+    void requireAuthorization(event, false)
+  })
+
+  it("types useAuth() with the app's Auth instance", () => {
+    expectTypeOf(useAuth(requestEvent(new Request("https://app.example.com/me")))).toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(useAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<RegisteredAuth>()
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {
@@ -227,14 +218,6 @@ describe("types", () => {
 
   })
 
-  it("exposes resolved database placement metadata", () => {
-    const defaultPlacement = { mode: "default" } satisfies ResolvedAuthDatabaseConfiguration
-    const namedPlacement = { dedicated: true, mode: "named", name: "auth" } satisfies ResolvedAuthDatabaseConfiguration
-
-    expectTypeOf(defaultPlacement).toMatchTypeOf<ResolvedAuthDatabaseConfiguration>()
-    expectTypeOf(namedPlacement).toMatchTypeOf<ResolvedAuthDatabaseConfiguration>()
-  })
-
   it("marks every ViteHub-owned Auth Definition field as reserved", () => {
     expectTypeOf<"access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
   })
@@ -254,9 +237,30 @@ describe("types", () => {
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>>().toEqualTypeOf<AuthFor<typeof definition>>()
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>["api"]["listUsers"]>().toBeFunction()
     expectTypeOf<RegisteredAuth<{}>>().toEqualTypeOf<ViteHubAuth>()
-    expectTypeOf(authServer.getAuthForRequest).returns.toEqualTypeOf<RegisteredAuth>()
-    expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(authServer.useAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
+  })
+
+  it("types the requireAuth() user and Session from the generated Auth registry", () => {
+    const definition = defineAuth({
+      appName: "ViteHub",
+      plugins: [admin()],
+      user: { additionalFields: { team: { type: "string", required: false } } },
+    })
+    type Registered = AuthAuthorization<{ definition: typeof definition }>
+    expectTypeOf<Registered["user"]>().toEqualTypeOf<RegisteredAuth<{ definition: typeof definition }>["$Infer"]["Session"]["user"]>()
+    expectTypeOf<Registered["user"]["email"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["user"]["name"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["user"]>().toHaveProperty("role")
+    expectTypeOf<Registered["user"]>().toHaveProperty("team")
+    expectTypeOf<Registered["session"]["userId"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["session"]["impersonatedBy"]>().toEqualTypeOf<string | null | undefined>()
+
+    // Without a generated registry, the user has the fields of Better Auth's core schema.
+    expectTypeOf<AuthAuthorization<{}>["user"]["email"]>().toEqualTypeOf<string>()
+    // @ts-expect-error A field that no plugin adds is not on the user.
+    void ({} as AuthAuthorization<{}>["user"]).team
+    expectTypeOf(requireAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<Promise<AuthAuthorization>>()
   })
 
   it("types session.onRefresh in static and callback definitions", () => {
@@ -289,14 +293,28 @@ describe("types", () => {
     // @ts-expect-error secret is runtime config, not Auth Definition config.
     defineAuth({ secret: "secret" })
 
-    // @ts-expect-error object-shaped database config requires a name.
-    defineAuth({ database: { dedicated: true } })
+    // @ts-expect-error database placement metadata is not an adapter. Use authDatabase().
+    defineAuth({ database: { name: "auth", dedicated: true } })
+
+    // @ts-expect-error database placement metadata is not an adapter. Use authDatabase().
+    defineAuth({ database: true })
 
     // @ts-expect-error raw Better Auth database adapters do not belong in the Auth Definition.
     defineAuth({ database: { db: {} } })
 
-    // @ts-expect-error object-shaped secondary storage config requires a store.
-    defineAuth({ secondaryStorage: {} })
+    // @ts-expect-error secondary storage placement metadata is not an adapter.
+    defineAuth({ secondaryStorage: { store: "auth" } })
+
+    // @ts-expect-error a static Definition cannot hold a secondary storage adapter. Return it from a callback.
+    defineAuth({ secondaryStorage: { get: async () => null, set: async () => {}, delete: async () => {}, getAndDelete: async () => null, increment: async () => 1 } })
+
+    // @ts-expect-error a callback returns a Better Auth adapter, not placement metadata.
+    defineAuth(() => ({ database: { name: "auth", dedicated: true } }))
+
+    // @ts-expect-error a callback returns a Better Auth adapter, not placement metadata.
+    defineAuth(() => ({ secondaryStorage: { store: "auth" } }))
+
+    defineAuth(() => ({ secondaryStorage: { get: async () => null, set: async () => {}, delete: async () => {}, getAndDelete: async () => null, increment: async () => 1 } }))
 
     // @ts-expect-error route only supports false when provided.
     defineAuth({ route: true })
@@ -309,8 +327,9 @@ describe("types", () => {
     // @ts-expect-error a preset comes from a preset function.
     defineAuth({ preset: { name: "custom" } })
 
-    // @ts-expect-error maxAge is seconds or a duration with a unit.
     stateless({ maxAge: "7 days" })
+    // @ts-expect-error maxAge is seconds or a duration with a unit.
+    stateless({ maxAge: "7" })
   })
 });
 

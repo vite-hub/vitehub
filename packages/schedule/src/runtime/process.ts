@@ -1,14 +1,23 @@
-export { onShutdown } from "@vite-hub/runtime/shutdown"
+export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 
-import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
+
+import { isRecordOrFunction as isObject } from "@vite-hub/internal/object"
+
+import { createMemoryLeaseStore, getInstanceId } from "@vite-hub/runtime"
+
+import { createProcessWakeDriver, DEFAULT_CATCH_UP_MS } from "../internal/process-wake-runtime.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { createScheduleError } from "../errors.ts"
+import { createOccurrenceClaims } from "./claims.ts"
 import { scheduleIdempotencyKey } from "./date.ts"
 import { isScheduleDue } from "./due.ts"
-import { executeStaticSchedule } from "./execute.ts"
+import { executeStaticSchedule, toRunId } from "./execute.ts"
+import { markLoggedScheduleError } from "./static.ts"
 import { runStartedSchedules } from "./started.ts"
-import { getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
+import { getScheduleOccurrenceClaims, getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleOccurrenceClaims, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
-import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
+import type { LeaseStore } from "@vite-hub/runtime"
+import type { ProcessScheduleWake, ProcessWakeContext } from "../internal/process-wake-runtime.ts"
 import type { ScheduleCronRecord } from "./due.ts"
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
 
@@ -23,11 +32,30 @@ export interface ProcessScheduleRuntimeOptions {
   concurrency?: number
   /** Milliseconds between two checks, from 1 to 60000. Defaults to `60000`. */
   intervalMs?: number
+  /**
+   * Milliseconds that a process holds an occurrence after it stops renewing it, for example after a crash. Then another
+   * process runs the occurrence, if no process finished it. The holder renews it every third of this time. Defaults to
+   * `60000`.
+   */
+  leaseTtlMs?: number
+  /**
+   * Where processes claim each occurrence, so one process runs it. Give every process the same shared store, such as
+   * `createSqlLeaseStore()` from `@vite-hub/runtime` on the app Database. Defaults to `createMemoryLeaseStore()`, which
+   * works for one process only.
+   */
+  leases?: LeaseStore
   /** Clock for tests. Defaults to the system clock. */
   now?: () => Date
   onError?: (error: unknown) => void
+  /** Namespace for occurrence leases. Use the same prefix as the app's Schedule stores. Defaults to `vitehub:schedule`. */
+  prefix?: string
   /** Static Schedule Definitions that this process runs on their cron. */
   registry: ScheduleDefinitionRegistry
+  /**
+   * The cron and time zone that the build read from the source of each Schedule in `registry`. The runtime loads the
+   * module of a Schedule listed here when it is due, not at startup. It loads the other Schedules at startup.
+   */
+  timings?: Readonly<Record<string, ProcessScheduleTiming>>
   /** Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. */
   scheduleRunStore: ScheduleRunStore
 }
@@ -36,23 +64,23 @@ export interface ScheduleRuntimeController {
   close(): Promise<void>
 }
 
-/** A Definition with its own cron. Definitions without `cron` run only through started Schedules. */
-type CronScheduleDefinition = ScheduleDefinition & { cron: string }
-
-interface StaticScheduleEntry {
-  definition: CronScheduleDefinition
-  name: string
+/** The cron of a Schedule and its time zone, UTC when not set. */
+export interface ProcessScheduleTiming {
+  cron: string
+  timeZone?: string
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
+type CronScheduleDefinition = ScheduleDefinition & { cron: string }
+
+interface StaticScheduleEntry extends ProcessScheduleTiming {
+  definition: () => Promise<CronScheduleDefinition>
+  name: string
 }
 
 function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefinition {
   return isObject(value)
     && Object.hasOwn(value, "cron")
     && Object.hasOwn(value, "handler")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
 }
 
@@ -61,19 +89,40 @@ function unwrapDefinition(loaded: unknown): CronScheduleDefinition | undefined {
   return isStaticScheduleDefinition(loaded) ? loaded : undefined
 }
 
-async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry): Promise<Map<string, StaticScheduleEntry>> {
-  const entries = await Promise.all(Object.entries(registry).map(async ([name, load]) => {
+function isTiming(value: unknown): value is ProcessScheduleTiming {
+  return isObject(value) && String(value.cron) === value.cron && (value.timeZone === undefined || String(value.timeZone) === value.timeZone)
+}
+
+function lazyDefinition(name: string, load: ScheduleDefinitionRegistry[string]): () => Promise<CronScheduleDefinition> {
+  let loading: Promise<CronScheduleDefinition> | undefined
+  return () => loading ??= load().then((loaded) => {
+    const definition = unwrapDefinition(loaded)
+    if (!definition) throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_EXPORT_INVALID({ name })
+    return definition
+  }).catch((error: unknown) => {
+    loading = undefined
+    throw error
+  })
+}
+
+async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry, timings: ProcessScheduleRuntimeOptions["timings"] = {}): Promise<Map<string, StaticScheduleEntry>> {
+  const entries = await Promise.all(Object.entries(registry).map(async ([name, load]): Promise<StaticScheduleEntry | undefined> => {
+    const timing = Object.hasOwn(timings, name) ? timings[name] : undefined
+    if (isTiming(timing)) {
+      return { cron: timing.cron, definition: lazyDefinition(name, load), name, ...(timing.timeZone ? { timeZone: timing.timeZone } : {}) }
+    }
     const definition = unwrapDefinition(await load())
-    return definition ? { definition, name } : undefined
+    if (!definition) return undefined
+    return { cron: definition.cron, definition: async () => definition, name, ...(definition.timeZone ? { timeZone: definition.timeZone } : {}) }
   }))
   return new Map(entries.flatMap(entry => entry ? [[entry.name, entry] as const] : []))
 }
 
 function scheduleCronRecord(entry: StaticScheduleEntry): ScheduleCronRecord {
   return {
-    cron: entry.definition.cron,
+    cron: entry.cron,
     id: entry.name,
-    ...(entry.definition.timeZone ? { timeZone: entry.definition.timeZone } : {}),
+    ...(entry.timeZone ? { timeZone: entry.timeZone } : {}),
   }
 }
 
@@ -87,16 +136,39 @@ function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]):
   }
 }
 
+const DEFAULT_LEASE_TTL_MS = 60_000
+const minuteMs = 60_000
+
+function resolveLeaseTtlMs(value: unknown): number {
+  if (value === undefined) return DEFAULT_LEASE_TTL_MS
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw scheduleErrorDiagnostics.SCHEDULE_R0024({ message: "Process Schedule Runtime leaseTtlMs must be a positive number." })
+  }
+  return value
+}
+
 /**
  * Runs Static Schedule Definitions on their cron, in their `timeZone` (UTC by default), in this long-running process. It checks every minute, runs each
  * due minute once, and records each run in `scheduleRunStore`. After a restart it runs the minutes that no process
  * checked, within `catchUpMs`, for Schedules with a prior cron-triggered run or indeterminate legacy history.
- * Call `close()` during host shutdown.
+ * Processes that share `leases` run each occurrence once between them. Call `close()` during host shutdown.
  */
 export async function installProcessScheduleRuntime(options: ProcessScheduleRuntimeOptions): Promise<ScheduleRuntimeController> {
   const previousRegistry = getScheduleRuntimeRegistry()
   const previousScheduleRunStore = getScheduleRunStore()
+  const previousClaims = getScheduleOccurrenceClaims()
   const reportError = createErrorReporter(options.onError)
+  const leaseTtlMs = resolveLeaseTtlMs(options.leaseTtlMs)
+  const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
+  const claims = createOccurrenceClaims({
+    doneTtlMs: catchUpMs + leaseTtlMs + 2 * minuteMs,
+    leases: options.leases ?? createMemoryLeaseStore(),
+    owner: getInstanceId(),
+    prefix: options.prefix,
+    reportError,
+    ttlMs: leaseTtlMs,
+  })
+  const held = new Map<string, ProcessScheduleWake>()
   const pendingWork = new Set<Promise<unknown>>()
   const activeWakes = new Set<Promise<void>>()
   let closing = false
@@ -116,19 +188,17 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
 
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
-      // Manual runs can use simulated times and must not move the cron catch-up cursor.
       const [run] = await options.scheduleRunStore.listRuns({ scheduleId, idPrefix: "srun_static_", limit: 1 })
-      if (!run || run.id.startsWith("srun_static_")) return run?.scheduledAt
-      // Older custom stores may ignore idPrefix. Look for a cron run without loading their full history.
-      const limit = 100
-      const recent = await options.scheduleRunStore.listRuns({ scheduleId, limit })
-      const latest = recent.find(record => record.id.startsWith("srun_static_"))
-      if (latest) return latest.scheduledAt
-      // A full page cannot prove there is no earlier cron run. Check the configured window instead;
-      // deterministic static IDs deduplicate existing occurrences, including ones outside this page.
-      return recent.length < limit ? undefined : "unknown"
+      return run?.scheduledAt
     },
     reportError,
+    retries() {
+      const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
+      for (const [runId, input] of held) {
+        if (currentMinute > (input.startBy ?? input.scheduledAt.getTime() + catchUpMs)) held.delete(runId)
+      }
+      return [...held.values()]
+    },
     wake(input) {
       if (closing) return Promise.resolve()
       const wake = (async () => {
@@ -136,8 +206,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         if (!entry || !isScheduleDue(scheduleCronRecord(entry), input.scheduledAt)) {
           throw createScheduleError("SCHEDULE_NOT_DUE")
         }
-        if (entry.definition.handler === runStartedSchedules) {
-          // The tick of started Schedules records no run: it would add one each minute. Each started Schedule records its own.
+        const definition = await entry.definition()
+        if (definition.handler === runStartedSchedules) {
           await runStartedSchedules({
             id: `tick_${input.scheduledAt.toISOString()}`,
             idempotencyKey: scheduleIdempotencyKey(entry.name, input.scheduledAt),
@@ -148,13 +218,28 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           })
           return
         }
-        await executeStaticSchedule({
-          cron: entry.definition.cron,
-          definition: entry.definition,
-          name: entry.name,
-          scheduledAt: input.scheduledAt,
-          waitUntil,
-        })
+        const runId = toRunId("static", entry.name, input.scheduledAt)
+        let logged = false
+        try {
+          const result = await claims.run(runId, onExecution => executeStaticSchedule({
+            claimed: true,
+            cron: entry.cron,
+            definition,
+            name: entry.name,
+            onExecution,
+            onRunLogged: () => { logged = true },
+            scheduledAt: input.scheduledAt,
+            waitUntil,
+          }))
+          // The claim of a crashed process can end after the catch-up window. Retry until the window of its done marker ends.
+          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt, startBy: input.scheduledAt.getTime() + catchUpMs + leaseTtlMs + minuteMs })
+          else held.delete(runId)
+        }
+        catch (error) {
+          // Keep the retry window of an earlier held result, so one lease store error does not drop a failover.
+          held.set(runId, { ...held.get(runId), scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          throw logged ? markLoggedScheduleError(error) : error
+        }
       })()
       activeWakes.add(wake)
       void wake.finally(() => activeWakes.delete(wake)).catch(() => {})
@@ -163,10 +248,36 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   }
   const driver = createProcessWakeDriver(options, context)
 
+  async function recoverUnfinishedOccurrences(): Promise<void> {
+    if (catchUpMs <= 0) return
+    const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
+    const since = currentMinute - catchUpMs
+    for (const entry of definitions.values()) {
+      try {
+        let due = 0
+        for (let minute = Math.ceil(since / minuteMs) * minuteMs; minute <= currentMinute; minute += minuteMs) {
+          if (isScheduleDue(scheduleCronRecord(entry), new Date(minute))) due++
+        }
+        if (due === 0) continue
+        const runs = await options.scheduleRunStore.listRuns({ idPrefix: "srun_static_", limit: due, scheduleId: entry.name })
+        for (const run of runs) {
+          if (run.scheduledAt.getTime() < since) continue
+          if (run.status !== "pending" && run.status !== "running") continue
+          held.set(run.id, { scheduleId: entry.name, scheduledAt: run.scheduledAt })
+        }
+      }
+      catch (error) {
+        reportError(error)
+      }
+    }
+  }
+
   setScheduleRuntimeRegistry(options.registry)
   setScheduleRunStore(options.scheduleRunStore)
+  setScheduleOccurrenceClaims(claims)
   try {
-    definitions = await loadStaticDefinitions(options.registry)
+    definitions = await loadStaticDefinitions(options.registry, options.timings)
+    await recoverUnfinishedOccurrences()
     await driver.reconcile([...definitions.values()].map(scheduleCronRecord))
   }
   catch (error) {
@@ -178,10 +289,11 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     }
     setScheduleRuntimeRegistry(previousRegistry)
     setScheduleRunStore(previousScheduleRunStore)
+    setScheduleOccurrenceClaims(previousClaims)
     throw error
   }
 
-  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, entry.definition]))
+  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, { cron: entry.cron, ...(entry.timeZone ? { timeZone: entry.timeZone } : {}) }]))
   const unregisterDefinitions = registerProcessScheduleDefinitions(processDefinitions)
 
   let closePromise: Promise<void> | undefined
@@ -198,6 +310,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         }
         await driver.close()
         unregisterDefinitions()
+        if (getScheduleOccurrenceClaims() === claims) setScheduleOccurrenceClaims(undefined)
       })()
     },
   }

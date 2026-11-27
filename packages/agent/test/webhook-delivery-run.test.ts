@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, resolveAgentTriggerInvocation } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import type { AgentTriggerRunInvokeResult } from "../src/types.ts"
@@ -8,7 +8,7 @@ import type { AgentTriggerRunInvokeResult } from "../src/types.ts"
 function agentWith(result: AgentTriggerRunInvokeResult) {
   return defineAgent({
     channels: {
-      tickets: defineChannel("tickets", {
+      tickets: channelAdapter("tickets", {
         messages: false,
         triggers: { opened: defineChannelTrigger({ invoke: () => result }) },
       }),

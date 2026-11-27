@@ -1,11 +1,11 @@
 import { DatabaseSync } from "node:sqlite"
-import { SQLiteSyncDialect } from "drizzle-orm/sqlite-core"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQL } from "drizzle-orm"
 import type { EnvDatabase } from "@vite-hub/env/database"
 
 export function eventDatabase(path = ":memory:") {
   const sqlite = new DatabaseSync(path)
-  const dialect = new SQLiteSyncDialect()
+  const dialect = new SQLiteDialect()
   const queries: string[] = []
   const statement = (query: SQL) => {
     const compiled = dialect.sqlToQuery(query)

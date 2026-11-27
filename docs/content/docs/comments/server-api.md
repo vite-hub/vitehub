@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options). |
+| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options) and [Use without ViteHub](/docs/comments#use-without-vitehub). |
 | `defineComments` from `vite-hub/comments` | Define Comments in `server/comments.ts`. Export the result as `comments`. |
 | `Comments`, `CommentThread`, `CommentMessage`, `CommentAnchor`, `CommentUser`, `CommentSubject`, `CommentsErrorCode` from `vite-hub/comments` | Types for the runtime, threads, messages, anchors, people, subjects, and error codes, shared with the browser client and comment operations. |
 | `defineCommentSubject` from `vite-hub/comments` | Your own subject kind, with its numbering scope. See [Comments in your own UI](/docs/comments/configure#comments-in-your-own-ui). |
@@ -18,13 +18,13 @@ icon: i-lucide-code-2
 | `normalizeCommentPage` from `vite-hub/comments` | The page key that Comments stores for a path. |
 | `installComments` from `vite-hub/comments/server` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it on the first Comments call. |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
 
-Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
+`@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
 
 ## `comments()` options
 
-`comments()` turns Comments on in a Vite app without `vite-hub`. It uses `server/comments.ts` if present. It adds [Nitro](https://nitro.build) unless the app adds `nitro()`. With `vitehub()`, it does nothing, because `vitehub()` runs Comments.
+`comments()` turns Comments on in a Vite app without `vite-hub`. It uses `server/comments.ts` if present. It adds [Nitro](https://nitro.build) unless the app adds `nitro()`. Do not add it next to `vitehub()`: the build throws `COMMENTS_B0003`, because `vitehub()` runs Comments.
 
 | Option | Default | Behavior |
 | --- | --- | --- |
@@ -34,15 +34,19 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `authorize({ user, actor?, action, thread?, subject? })` | GitHub users who can push to the repository, and users of other sign-ins, may do everything. Guests only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
-| `identify({ event })` | The Console user, else the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) | Return the request's user, with a string `id`, or `null`. `identify` and `authorize` then decide on every surface, instead of Console access. See [Use your own login](/docs/comments/configure#use-your-own-login). |
-| `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
+| `authorize({ user, actor?, action, thread?, subject?, console?, development? })` | See the [default access policy](/docs/comments/configure#decide-who-can-comment). | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. `development` is `true` on the dev server, and `console` is `true` for Console callers. |
+| `identify({ event })` | On pages, the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github). Through the Console, the CLI, and MCP, the Console caller. | Return the request's user, with a string `id`, or `null`. `identify` and `authorize` then decide on every surface, instead of Console access. See [Use your own login](/docs/comments/configure#use-your-own-login). |
+| `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. Any other value fails the build with `COMMENTS_B0004`. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `subjects` | `page` and `content` | More subject kinds, from `defineCommentSubject({ kind, scope, emptyBody?, link? })`. |
 | `people` | ViteHub Auth users, else authors of earlier comments | `{ search(query, limit), byIds(ids) }`: where `@` finds people. See [Mention people](/docs/comments/configure#mention-people). |
 | `canMention({ user, person, thread?, subject? })` | `person` may read the thread | Return `true` when `user` may mention `person` there. |
 | `onMention({ users, message, thread, link? })` | None | Runs once per message that mentions people for the first time. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people). |
 | `onComment({ thread, message, mentions })` | None | Runs after a new thread or reply saves, before the response. Errors are logged, not returned. |
 | `storeAttachment(file, { user, subject? })` | The app's Blob store | Stores an uploaded file and returns its key. See [Attach files](/docs/comments/configure#attach-files). |
+| `readAttachment(key, { user, thread })` | Reads Comments uploads from the app's Blob store only when `storeAttachment` is unset. With a custom `storeAttachment`, a missing `readAttachment` returns `501` (`COMMENTS_R0021`). | Returns a `Blob` with its media type, or `null` when gone, after Comments checks that `user` may read `thread`. See [Attach files](/docs/comments/configure#attach-files). |
+| `rateLimit` | None | `{ limit, window }`, such as `{ limit: 5, window: '1m' }`. Limits writes and uploads per guest address; returns `COMMENTS_GUEST_RATE_LIMITED` (`429`). |
+| `page({ url, event })` | `{ kind: 'page', id: url.pathname }` | Maps a page URL to the subject and optional `revision` that the overlay comments on. |
+| `send` | None | `true` or `{ payload?, address?, grant?, hosts?, prompt? }`. Turns on **Send** in the comment pill to hand waiting threads to a member's agent. Requires a ViteHub app with Webhooks and a SQLite-compatible Comments Database. See [Send comments to your agent](/docs/comments/send). |
 | `forge` | None | `{ provider: 'github', repository?, pullRequest?(thread), token?(author), title?, apiUrl? }`. Posts threads to the preview's pull request. See [Post comments to the pull request](/docs/comments/configure#post-comments-to-the-pull-request). |
 
 ## Runtime methods
@@ -72,24 +76,52 @@ export default defineEventHandler(async (event) => {
 | `get(id)` | One thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByNumber(scope, n)` | Thread `#n` of a scope, such as `site`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByMessage(messageId)` | The thread holding a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
-| `create({ subject?, page?, anchor?, context?, metadata?, revision?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number in its scope. Give `subject`, or `page` for a page subject. `anchor` defaults to `{ kind: 'page' }`. Runs `onComment` and `onMention`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, actor?, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with open threads until someone resolves it again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
-| `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
-| `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
+| `create({ subject?, page?, anchor?, context?, metadata?, revision?, requestId?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number in its scope. Give `subject`, or `page` for a page subject. `anchor` defaults to `{ kind: 'page' }`. Runs `onComment` and `onMention`. With `requestId`, a retry by the same author for the same subject returns the first thread and runs no hooks. Another author or subject with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `reply(threadId, { body, author, actor?, mentions?, attachments?, requestId? }, { allowResolved? })` | The new message. Replying to a resolved thread fails with `COMMENTS_RESOLVED` unless `allowResolved` is `true`. The thread stays in the Resolved list until someone reopens it. With `requestId`, a retry by the same author in the same thread returns the first message and runs no hooks. Another author with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `findThread({ subject?, page?, requestId })` | The thread that a `create` with this `requestId` stored in the scope of the subject, or `null`. It does not compare authors: `create` does. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `findReply(threadId, requestId)` | The message that a `reply` with this `requestId` stored in the thread, or `null`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
+| `resolve(threadId, { by, actor? })` | The thread, with `status: 'resolved'`, `resolvedBy`, `resolvedAt`, and `resolvedActor` when you pass the Agent that resolves it for `by`. Threads show "Resolved by Claude (Ana)". The `comments.resolve` operation records the person only. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
+| `reopen(threadId)` | The thread, with `status: 'open'`. With `send`, a done inbox send can go back to `sent`, or the thread can wait to be sent to a webhook agent again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and its messages. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `removeMessage(messageId)` | Nothing. Deleting the first message deletes the thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `edit(messageId, { body, mentions? })` | The message with new text and `editedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `removeScope(scope)` | `{ removed }`, the number of threads deleted with their messages. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, thread?, subject?, limit? })` | Up to 20 people whose name contains `query` and whom `user` may mention there. | `COMMENTS_NOT_INSTALLED` |
+| `listSends(user, { states?, limit?, gate?, console? })` | With `send`, the sends of `user`, newest first, with the threads that `user` may still read. Default: `sent` and `working`, at most 20. It marks finished sends as done as it scans. See [Read sends on the server](/docs/comments/send#read-sends-on-the-server). | `COMMENTS_NOT_INSTALLED`, `COMMENTS_SEND_OFF` |
+| `readSend(user, id, { gate?, console? })` | With `send`, one send of `user`, as `comments_get_send` opens it. A `sent` send becomes `working`. It opens a send whose delivery waits for the receiver's answer. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_SEND_OFF` |
 | `can({ user, action, thread?, subject? }, gate?)` | `true` when `authorize` allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, syncs the thread's pull request comments now, and retries failed posts. | None |
 | `flush()` | Nothing. Waits for pending pull request syncs and `onMention` calls. | None |
+
+A route of your own can do work for a comment before it calls `create` or `reply`, such as storing pasted images. Look up the retry key first to skip that work if the first comment has already been saved. A lookup does not reserve the key: overlapping calls can both get `null`. If the work must happen only once, make it idempotent separately.
+
+For example, a route can return the saved reply before doing any additional work:
+
+```ts [server/api/feedback/[id]/replies.post.ts] fragment
+import { defineEventHandler, getRouterParam, HTTPError, readBody } from 'h3'
+import { comments } from '../../../comments'
+
+export default defineEventHandler(async (event) => {
+  const threadId = getRouterParam(event, 'id')!
+  const payload = await readBody<{ body?: string, requestId?: string }>(event)
+  if (typeof payload?.body !== 'string' || typeof payload.requestId !== 'string' || !payload.requestId) {
+    throw new HTTPError({ status: 400, message: 'Body and requestId are required.' })
+  }
+  const { body, requestId } = payload
+  const [findError, earlier] = await comments.findReply(threadId, requestId)
+  if (findError) throw findError
+  if (earlier) return earlier
+  const [error, message] = await comments.reply(threadId, { body, requestId, author: { id: 'support-bot', name: 'Support bot' } })
+  if (error) throw error
+  return message
+})
+```
 
 Comments normalizes `page` before storing or comparing: it drops the query and hash, joins repeated slashes, and removes a trailing slash. `/pricing/?plan=pro#faq` becomes `/pricing`.
 
 `COMMENTS_NOT_INSTALLED` means the method ran before the server installed Comments, such as at import time. See [Limits and errors](/docs/comments/limits-and-errors).
 
-Open pages see server-side changes on tab focus, or within 30 seconds while visible.
+When the host has Realtime, open pages displaying the changed subject read their threads again after a server write. This also works for custom subjects shared by several paths, even when a thread has no creation URL. Without Realtime, pages see the change on tab focus, or within 30 seconds while visible.
 
 ## Types
 
@@ -113,6 +145,7 @@ interface CommentThread {
   author: CommentUser
   actor?: CommentActor            // the Agent that wrote it for `author`
   resolvedBy?: CommentUser
+  resolvedActor?: CommentActor    // the Agent that resolved it for `resolvedBy`
   resolvedAt?: number             // milliseconds since the epoch
   createdAt: number
   updatedAt: number
@@ -184,7 +217,7 @@ interface CommentsGitHubAccess {
 
 ### Anchors
 
-An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `@vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
+An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
 
 ```ts
 type CommentAnchor =
@@ -254,18 +287,18 @@ The Console shows the context in each thread's fields. `describeCommentContext(c
 
 ## HTTP routes
 
-The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/api/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
+The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
 
 The routes run the same actions and checks as the [comment operations](/docs/comments/operations/server-api), for the request's user. They need no Console access, so guests and `identify` users, such as share link readers, can use them. They serve threads on every subject `authorize` lets the reader see, not only `page`.
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page. Adds `signIn: { provider, url }` when GitHub sign-in is possible, and `github` with `signOut` once signed in. `can.delete` means the person may delete others' comments. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
+| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page. Adds `signIn: { provider, url }` when GitHub sign-in is possible, and `github` with `signOut` once signed in. `can.delete` means the person may delete others' comments. It sets no cookie: `GET /_vitehub/page/tools` owns the `vitehub-tools` hint. |
 | `GET /threads` | `read` | Lists readable threads, like `comments.list`. Search parameters: `page`, or `subjectKind` with `subjectId`, or `subjectKind` alone; `status`, `mine`, `mentions`, `revision` (at most this revision), `limit`, and `beforeId` with `beforeUpdatedAt` for the next page. `403` when the reader may not read the filter. |
 | `GET /threads/:id` | `read` | One thread, or `null` when it is missing or the reader may not read it. |
 | `GET /scopes/:scope/threads/:n` | `read` | Thread `#n` of a scope, such as `site`, or `null`. |
-| `POST /threads` | `read` and `write` | Starts a thread from `comments.create` input: `{ subject, anchor?, body, mentions?, attachments?, metadata?, revision? }`. `page` may replace `subject`, and a page thread may carry the overlay's `context`. `mentions` are ids. |
-| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments? }`. Returns the message as `data` and the thread as `thread`. A resolved thread returns `COMMENTS_RESOLVED`. |
+| `POST /threads` | `read` and `write` | Starts a thread from `comments.create` input: `{ subject, anchor?, body, mentions?, attachments?, metadata?, revision?, requestId? }`. `page` may replace `subject`, and a page thread may carry the overlay's `context`. `mentions` are ids. |
+| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments?, requestId? }`. Returns the message as `data` and the thread as `thread`. A resolved thread returns `COMMENTS_RESOLVED`. A retry with the same `requestId` returns the first message. |
 | `PATCH /threads/:id/comments/:messageId` | Your own message | Changes its text with `{ body, mentions? }`. Returns the thread. |
 | `POST /threads/:id/resolve`, `POST /threads/:id/reopen` | `resolve` | Resolves or reopens the thread. |
 | `DELETE /threads/:id` | `write` when every message is yours, else `delete` | Deletes the thread. Returns `null`. |
@@ -296,7 +329,7 @@ The server sets a message's author from the request's user. A guest sends its id
 | `501` | `COMMENTS_R0014`, `COMMENTS_R0021`: no place to store or read attachments |
 | `503` | `COMMENTS_NOT_INSTALLED`, `COMMENTS_R0019` |
 
-The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js`.
+The overlay script is a static file at `/_vitehub/comments/assets/overlay.js`.
 
 ### REST transport
 
@@ -311,7 +344,7 @@ const transport = createRestTransport({
   // The name that a guest typed, when `authorize` lets anonymous people write.
   guest: () => readGuest(),
 })
-const client = createCommentsClient({ transport, user, query: { subject: { kind: 'drop', id: '42' } } })
+const client = createCommentsClient({ transport, user, query: { subject: { kind: 'doc', id: '42' } } })
 
 // A thumbnail of an attachment: the URL checks that the reader may read its thread.
 const src = transport.attachmentUrl(thread.messages[0].attachments[0])
@@ -325,7 +358,9 @@ const src = transport.attachmentUrl(thread.messages[0].attachments[0])
 | `credentials` | `same-origin` | Sends the session cookie. |
 | `fetch` | `globalThis.fetch` | For tests or a server. |
 
-A failed request throws `CommentsRestError` with the response's `code`, `why`, `fix`, and `status`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
+`files` in `create` and `reply` go to `POST /attachments` first, one request each, and their keys to `attachments`. To keep comments that are written offline, see [Write comments offline](/docs/comments/offline).
+
+A failed request throws a diagnostic with the response's `code`, `fix`, and `status`, and `retryAfter` in milliseconds when the answer has `Retry-After`. Its `message` is the `why`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
 
 ## Content field addresses
 
@@ -335,27 +370,29 @@ Content owns the address format, `<collection>[:<id>]#<field.path>`. Comments on
 | --- | --- |
 | `contentField(collection, field)` | Returns `{ 'data-content-field': 'about#hero.title' }` for a singleton. |
 | `contentField(collection, id, field)` | Returns `{ 'data-content-field': 'customers:acme#name' }` for a document in a `documents()` collection. |
-| `formatContentField({ collection, id?, field })` | Returns the address string. Throws a `TypeError` for a collection name, id, or field path the format cannot hold. |
+| `formatContentField({ collection, id?, field })` | Returns the address string. Throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a collection name, id, or field path the format cannot hold. |
 | `parseContentField(value)` | Returns `{ collection, id?, field }`, or `undefined` for any other string. |
 
 Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An id cannot contain `#`. See [Mark Content fields](/docs/comments/configure#mark-content-fields).
 
 ## Presence rooms
 
-When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
+When the host has a [Realtime room driver](/docs/realtime/configure#choose-a-driver), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
 
-`connectRealtimeRoom(definition, documentId, options?)` from `@vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
+The overlay also joins `comments-notices` for its current subject. The server resolves the subject from the requested page and checks the same read policy before granting access. This room does not share presence; its notices only tell tabs to reload through the Comments API.
+
+`connectRealtimeRoom(definition, documentId, options?)` from `vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 
 ## Generated output
 
 With `server/comments.ts` or `comments()`, the integration writes these build files. Do not import them.
 
-- `.vitehub/nitro/comments/handler.mjs` serves `/api/_vitehub/comments/**`.
+- `.vitehub/nitro/comments/handler.mjs` serves `/_vitehub/comments/**`.
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
-- `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
+- `.vitehub/nitro/comments/page-tools-route.mjs` serves `GET /_vitehub/page/tools`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.
-- `comments.mjs`, with a room authority, is the Realtime presence room definition.
+- `comments.mjs`, with a room driver, is the Realtime presence room definition.
 
 The package serves the page tools loader at `/_vitehub/page/assets/loader.js`. These routes work without the Console. A root-relative Vite `base` or Nuxt `app.baseURL` prefixes them. Absolute and protocol-relative Vite asset URLs leave them at root, unless you set an explicit ViteHub application base.

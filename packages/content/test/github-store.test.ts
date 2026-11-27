@@ -14,7 +14,7 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import { createFakeGitHub, textSha } from "../../workspace/test/fake-github.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents } from "../src/collections.ts"
-import { defineContent } from "../src/index.ts"
+import { defineContent, defineContentHandler } from "../src/index.ts"
 import { defineContentPreset } from "../src/presets.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 
@@ -61,14 +61,14 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     const client = createClient({ url: `file:${join(root, "sessions.sqlite")}` })
     cleanup.push(() => client.close())
-    database = drizzle(client, { schema: contentSessionsSchema })
+    database = drizzle({ client: client })
     for (const statement of sessionsTable.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   }
   const workspace = `github-${process.pid}-${++workspaces}`
   registerWorkspace(workspace, {
     store: {
-      provider: "github",
-      repository: "onmax/repo",
+      driver: "github",
+      repo: "onmax/repo",
       ...("token" in options ? (options.token === undefined ? {} : { token: options.token }) : { token: "token" }),
       branch: "main",
       root: options.root ?? "",
@@ -95,11 +95,59 @@ describe("Content on the GitHub store", () => {
     await expect(posts.get("a")).rejects.toMatchObject(named)
   })
 
+  it("answers /api/content with the code and fix of the missing token", async () => {
+    const { content } = await setup({ token: undefined })
+    const response = await defineContentHandler(content).fetch(new Request(`https://example.com/api/content/get/posts/a`))
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      error: "internal_error",
+      code: "WORKSPACE_R0072",
+      message: expect.stringContaining("VITEHUB_GITHUB_TOKEN"),
+      fix: expect.stringContaining("VITEHUB_GITHUB_TOKEN"),
+      docs: expect.stringMatching(/workspace_r0072$/),
+    })
+  })
+
   it("reads published documents from the main branch", async () => {
     const { posts } = await setup()
     expect(await posts.get("a")).toMatchObject({ data: { title: "A" }, body: "Body\n" })
     expect((await posts.list()).items.map(item => item.id)).toEqual(["a"])
     expect(await posts.status("a")).toMatchObject({ state: "published" })
+  })
+
+  it("reads documents and sitemap dates when GitHub file history times out", async () => {
+    const { content, posts } = await setup({ url: "/posts/:id" })
+    const date = "2026-10-20T08:00:00.000Z"
+    fake.commit("main", { "content/posts/a.md": page("Edited") }, { author: { date, name: "Ada" } })
+    fake.commit("main", { "README.md": "# Edited readme\n" })
+    fake.respond(request => request.operation === "FileHistory" ? new Response("Gateway Timeout", { status: 504 }) : undefined)
+
+    expect(await posts.get("a")).toMatchObject({ updatedAt: date })
+    expect((await posts.list()).items).toMatchObject([{ id: "a", updatedAt: date }])
+    expect(await content.sitemap()).toMatchObject([{ id: "a", lastmod: date }])
+    expect(fake.requests.some(request => request.operation === "FileHistory")).toBe(true)
+  })
+
+  it("uses the published merge date, not the draft edit returned by GitHub file history", async () => {
+    const { content, posts } = await setup({ url: "/posts/:id" })
+    const published = fake.branch("vitehub/content", "main")
+    const editedAt = "2026-10-14T08:00:00.000Z"
+    const edited = fake.commit("vitehub/content", { "content/posts/a.md": page("Edited") }, { author: { date: editedAt, name: "Ada" } })
+    fake.openPull("vitehub/content", "main", "Publish A")
+    fake.mergePullRequest(1)
+    const merged = fake.head("main")!
+    const mergedAt = new Date(fake.commits.get(merged)!.author!.date!).toISOString()
+    const head = fake.commit("main", { "README.md": "# After publication\n" })
+    fake.respond(request => request.operation === "FileHistory" ? Response.json({ data: { repository: { object: {
+      ...(String(request.body?.query).includes("recent:") ? { recent: { nodes: [
+        { oid: head, parents: { nodes: [{ oid: merged }] } },
+        { oid: merged, parents: { nodes: [{ oid: published }, { oid: edited }] } },
+      ] } } : {}),
+      p0: { nodes: [{ oid: edited, authoredDate: editedAt }] },
+    } } } }) : undefined)
+
+    expect(await posts.get("a")).toMatchObject({ updatedAt: mergedAt })
+    expect(await content.sitemap()).toMatchObject([{ id: "a", lastmod: mergedAt }])
   })
 
   it("creates the draft branch with the first save, without a seed commit", async () => {
@@ -193,7 +241,7 @@ describe("Content on the GitHub store", () => {
 
   it("reports scheduling as unavailable to the Console without calling GitHub", async () => {
     const { content } = await setup()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
 
     expect((await actions.setup!({ user: null })).schedule).toEqual({
       message: "The GitHub store does not support scheduled publishing. Publish documents with Publish instead.",
@@ -264,7 +312,7 @@ describe("Content on the GitHub store", () => {
 
     it("lets the Console compare and resolve a document that changed on both branches", async () => {
       const { posts, content } = await setup({ authorize: () => true })
-      const actions = createContentConsoleActions({ content })
+      const actions = createContentConsoleActions({ default: content })
       const context = { user: { id: "joy", name: "Joy" } }
       const a = (await posts.raw("a"))!
       await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
@@ -624,7 +672,7 @@ describe("Content on the GitHub store", () => {
         logger: false,
       })
       cleanup.push(() => editor.dispose())
-      const result = await createContentConsoleActions({ content: editor }).publish({ collection: "posts", expect: [{ id: "b", digest: saved.digest }] }, { user: { id: "ada" } } as never)
+      const result = await createContentConsoleActions({ default: editor }).publish({ collection: "posts", expect: [{ id: "b", digest: saved.digest }] }, { user: { id: "ada" } } as never)
       expect(result).toMatchObject({ documents: [{ id: "b", change: "add" }], pullRequest: { number: 1, url: "https://github.com/onmax/repo/pull/1" } })
     })
 
@@ -909,7 +957,7 @@ describe("Content on the GitHub store", () => {
     const intro = await posts.save("docs/pages/intro", { data: { title: "Intro" }, body: "Hi\n" })
     expect(intro.path).toBe("docs/pages/intro.md")
     expect((await posts.save("packages/ui/docs/readme", { data: { title: "UI" }, body: "" })).path).toBe("packages/ui/docs/readme.md")
-    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("outside collection") })
+    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION", message: expect.stringContaining("outside collection") })
     await expect(content.resolve("/intro")).resolves.toBeNull()
     await expect(content.resolve("/intro", { ref: "draft" })).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
 
@@ -936,5 +984,109 @@ describe("Content on the GitHub store", () => {
     await expect(content.resolve("/intro")).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
     await expect(content.resolve("/ui/readme")).resolves.toEqual({ collection: "posts", id: "packages/ui/docs/readme" })
     expect(await posts.status("docs/pages/intro")).toMatchObject({ state: "published" })
+  })
+})
+
+describe("Content reads on the GitHub store", () => {
+  /** Requests by shape, such as `GET /commits` or `GET /git/trees/:sha`. */
+  const shapes = () => fake.requests.map(request => `${request.method} ${request.path.replace(/^\/repos\/onmax\/repo/, "").replace(/[0-9a-f]{40}/g, ":sha")}`)
+
+  /** 30 documents, 60 commits on `main` that edit them, and a saved draft. */
+  async function longHistory() {
+    const files: Record<string, string> = { "README.md": "# Docs\n" }
+    for (let index = 0; index < 30; index++) files[`content/posts/p${index}.md`] = page(`P${index}`)
+    const setup = await setupWith(files)
+    for (let index = 0; index < 60; index++) fake.commit("main", { [`content/posts/p${index % 30}.md`]: page(`P${index % 30}`, `Edit ${index}\n`) })
+    await setup.posts.save("new", { data: { title: "New" }, body: "Draft\n" })
+    return setup
+  }
+
+  async function setupWith(files: Record<string, string>) {
+    return await setup({ files, publish: "pr", authorize: () => true })
+  }
+
+  it("reads the Console overview with a few requests, not one per commit or per document", async () => {
+    const { content } = await longHistory()
+    // A new runtime holds nothing in memory, like a server instance that just started.
+    const workspace = `github-${process.pid}-${++workspaces}`
+    registerWorkspace(workspace, {
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      rules: { "**": { write: false } },
+    })
+    const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })
+    cleanup.push(() => fresh.dispose())
+    fake.requests.length = 0
+    const overview = await createContentConsoleActions({ default: fresh }).overview({}, { user: { id: "ada" } } as never)
+    expect(overview.collections[0]).toMatchObject({ name: "posts", states: { draft: 1, published: 30, changed: 0, deleted: 0 }, changes: [{ id: "new", state: "draft", title: "New" }] })
+    expect(overview.activity.map(entry => entry.action)).toEqual(["save"])
+    const requests = shapes()
+    expect(requests.filter(shape => shape.startsWith("GET /git/blobs/"))).toEqual([])
+    expect(requests.filter(shape => shape === "GET /commits/:sha")).toEqual([])
+    expect(requests.length).toBeLessThanOrEqual(10)
+    // The same overview, read again, matches the one the first runtime reads.
+    expect(await createContentConsoleActions({ default: content }).overview({}, { user: { id: "ada" } } as never)).toEqual(overview)
+  })
+
+  it("lists the Console pages with one file history request, not a tree per commit", async () => {
+    const files: Record<string, string> = { "README.md": "# Docs\n" }
+    for (let index = 0; index < 30; index++) files[`content/posts/p${index}.md`] = page(`P${index}`)
+    const { posts } = await setupWith(files)
+    // Each page changes once, a minute apart, and a commit outside the collection comes last.
+    for (let index = 0; index < 30; index++) {
+      fake.commit("main", { [`content/posts/p${index}.md`]: page(`P${index}`, `Edit ${index}\n`) }, { author: { date: new Date(Date.UTC(2026, 9, 20, 8, index)).toISOString(), name: "Ada" } })
+    }
+    fake.commit("main", { "README.md": "# Docs, again\n" }, { author: { date: "2026-10-21T08:00:00.000Z", name: "Ada" } })
+    // Other branches list before the draft branch, as GitHub sorts them by name.
+    for (const name of ["a", "b", "c", "d", "e", "f"]) {
+      fake.branch(`feature/${name}`, "main")
+      fake.commit(`feature/${name}`, { [`notes/${name}.md`]: `${name}\n` })
+    }
+    // A save, then a commit by another writer, so the status reads an older draft commit by its id.
+    await posts.save("p1", { data: { title: "P1, draft" }, body: "Draft\n" })
+    fake.commit("vitehub/content", { "README.md": "# Draft readme\n" })
+    // A new runtime holds nothing in memory, like a server instance that just started.
+    const workspace = `github-${process.pid}-${++workspaces}`
+    registerWorkspace(workspace, {
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      rules: { "**": { write: false } },
+    })
+    const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })
+    cleanup.push(() => fresh.dispose())
+    fake.requests.length = 0
+    const listed = await createContentConsoleActions({ default: fresh }).list({ collection: "posts", limit: 50, sort: { field: "title", direction: "asc" } }, { user: { id: "ada" } } as never)
+    expect(listed.items).toHaveLength(30)
+    for (const item of listed.items) {
+      const index = Number(item.id.slice(1))
+      if (index === 1) expect(item.updatedAt).not.toBeNull()
+      else expect(item.updatedAt).toBe(new Date(Date.UTC(2026, 9, 20, 8, index)).toISOString())
+    }
+    const requests = shapes()
+    expect(requests.filter(shape => shape.startsWith("GET /git/trees/")).length).toBeLessThanOrEqual(3)
+    expect(requests.filter(shape => shape === "POST /graphql")).toHaveLength(1)
+    // Finding the branch of an older draft commit asks the default and the draft branch, not every branch.
+    expect(requests.filter(shape => shape.startsWith("GET /compare/")).length).toBeLessThanOrEqual(4)
+    expect(requests.length).toBeLessThanOrEqual(16)
+  })
+
+  it("lists each page with the updatedAt that get() reads", async () => {
+    const { posts } = await longHistory()
+    const seen: Array<{ id: string, updatedAt: string | null }> = []
+    let cursor: string | undefined
+    do {
+      const listed = await posts.list({ ref: "draft", limit: 7, ...(cursor ? { cursor } : {}) })
+      seen.push(...listed.items.map(item => ({ id: item.id, updatedAt: item.updatedAt })))
+      cursor = listed.nextCursor ?? undefined
+    } while (cursor)
+    expect(seen).toHaveLength(31)
+    for (const item of seen) expect(item.updatedAt).toBe((await posts.get(item.id, { ref: "draft" }))!.updatedAt)
+    // The Console sorts by updatedAt, a field that the collection types leave out.
+    const sorted = await posts.list({ ref: "draft", sort: { field: "updatedAt" as never, direction: "desc" }, limit: 1 })
+    expect(sorted.items[0]!.id).toBe("new")
+  })
+
+  it("asks GitHub for no schedules ref", async () => {
+    const { posts } = await setup()
+    await posts.status()
+    expect(shapes().some(shape => shape.includes("schedules"))).toBe(false)
   })
 })

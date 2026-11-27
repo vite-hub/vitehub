@@ -14,6 +14,8 @@ export type CommentsSchemaState = "empty" | "live" | "outdated" | "current"
 export interface CommentsMigrationOptions {
   /** `postgresql` for a Postgres Database. Default `sqlite`: SQLite, libSQL, and D1. */
   dialect?: "sqlite" | "postgresql"
+  /** The SQL name of the threads table that tells the state. Default `vitehub_comment_threads`. */
+  table?: string
 }
 
 export interface CommentsMigration {
@@ -29,7 +31,10 @@ export interface CommentsMigration {
 export const liveThreadsBackup = "vitehub_comment_threads_live"
 
 /** The columns that one model added to `vitehub_comment_threads` after its first version. */
-const addedColumns = { metadata: "text", context: "text", revision: "integer" } as const
+const addedColumns = { metadata: "text", context: "text", revision: "integer", request_id: "text" } as const
+
+/** The unique index of the `comments.create` retry key, which came with `request_id`. */
+const requestIndex = commentsTables.find(statement => statement.includes("`vitehub_comment_threads_scope_request`"))!
 
 const scopeOf = "CASE WHEN `scope` = 'pages' THEN 'site' ELSE `scope` END"
 
@@ -78,6 +83,7 @@ function liveToCurrent(): string[] {
 function postgresCurrent(): string[] {
   return [
     ...Object.entries(addedColumns).map(([column, type]) => `ALTER TABLE "vitehub_comment_threads" ADD COLUMN IF NOT EXISTS "${column}" ${type === "integer" ? "bigint" : type}`),
+    requestIndex.replaceAll("`", "\""),
     "CREATE TABLE IF NOT EXISTS \"vitehub_comment_forge\" (\"id\" text PRIMARY KEY NOT NULL, \"thread_id\" text, \"repository\" text NOT NULL, \"pull_request\" bigint NOT NULL, \"remote_id\" text, \"node_id\" text, \"url\" text, \"digest\" text, \"posted_as\" text, \"minimized\" boolean DEFAULT false NOT NULL, \"error\" text, \"updated_at\" bigint NOT NULL)",
     "CREATE INDEX IF NOT EXISTS \"vitehub_comment_forge_thread\" ON \"vitehub_comment_forge\" (\"thread_id\")",
     "CREATE INDEX IF NOT EXISTS \"vitehub_comment_forge_pull_request\" ON \"vitehub_comment_forge\" (\"repository\",\"pull_request\")",
@@ -85,20 +91,21 @@ function postgresCurrent(): string[] {
 }
 
 /**
- * The SQL of a migration, to put in a custom migration file: `vitehub db generate --custom`, or
+ * The SQL of a migration, to put in a custom migration file: `vitehub database generate --custom`, or
  * `wrangler d1 execute --file`. `from: "live"` moves the live-site tables of SQLite, libSQL, or D1 to one model;
  * `from: "outdated"` adds the columns of this version, on SQLite or Postgres. Run each SQL once. `migrateComments()`
  * reads the Database first, so it can run on every deploy.
  */
 export function commentsMigrationSql(options: CommentsMigrationOptions & { from: "live" | "outdated", missing?: readonly string[] }): string[] {
   if (options.dialect === "postgresql") {
-    if (options.from === "live") throw new TypeError("[vitehub] The live-site comments model had no Postgres tables, so there is nothing to move.")
+    if (options.from === "live") throw commentsErrorDiagnostics.COMMENTS_MIGRATION_LIVE_POSTGRES()
     return postgresCurrent()
   }
   if (options.from === "live") return liveToCurrent()
   const missing = options.missing ?? Object.keys(addedColumns)
   return [
     ...Object.entries(addedColumns).filter(([column]) => missing.includes(column)).map(([column, type]) => `ALTER TABLE \`vitehub_comment_threads\` ADD COLUMN \`${column}\` ${type}`),
+    requestIndex,
     ...commentsTables.filter(statement => statement.includes("vitehub_comment_forge")),
   ]
 }
@@ -128,15 +135,16 @@ function names(rows: unknown): string[] {
   return list.map(row => String(Array.isArray(row) ? row[0] : Object.values(Object(row))[0]))
 }
 
-async function columns(db: MigrationDatabase, postgres: boolean): Promise<string[]> {
-  if (postgres) return names(await db.execute!(sql.raw("SELECT column_name FROM information_schema.columns WHERE table_name = 'vitehub_comment_threads' AND table_schema = current_schema()")))
-  return names(await db.all!(sql.raw("SELECT name FROM pragma_table_info('vitehub_comment_threads')")))
+async function columns(db: MigrationDatabase, postgres: boolean, table = "vitehub_comment_threads"): Promise<string[]> {
+  const name = `'${table.replaceAll("'", "''")}'`
+  if (postgres) return names(await db.execute!(sql.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = ${name} AND table_schema = current_schema()`)))
+  return names(await db.all!(sql.raw(`SELECT name FROM pragma_table_info(${name})`)))
 }
 
 /** What the Database has: no comments yet, the live-site tables, one model without newer columns, or nothing to do. */
 export async function commentsSchemaState(db: object, options: CommentsMigrationOptions = {}): Promise<{ state: CommentsSchemaState, missing: string[] }> {
   // SAFETY: Drizzle databases of every supported driver have these methods; `postgres` picks the ones it calls.
-  const found = await columns(db as MigrationDatabase, options.dialect === "postgresql")
+  const found = await columns(db as MigrationDatabase, options.dialect === "postgresql", options.table)
   if (!found.length) return { missing: [], state: "empty" }
   if (found.includes("number") && found.includes("created_by")) return { missing: [], state: "live" }
   const missing = Object.keys(addedColumns).filter(column => !found.includes(column))
@@ -157,7 +165,7 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
   if (state === "empty" || state === "current") return { from: state, statements: [] }
   const statements = commentsMigrationSql({ ...options, from: state, missing })
   if (postgres) {
-    if (!target.transaction) throw new TypeError("[vitehub] migrateComments() needs a Postgres Drizzle database with transaction().")
+    if (!target.transaction) throw commentsErrorDiagnostics.COMMENTS_MIGRATION_DATABASE_UNSUPPORTED({ dialect: "postgresql" })
     await target.transaction(async (tx) => {
       for (const statement of statements) await tx.execute!(sql.raw(statement))
     })
@@ -170,7 +178,7 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
     await target.transaction(tx => runSqliteStatements(tx, statements))
   }
   else {
-    throw new TypeError("[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.")
+    throw commentsErrorDiagnostics.COMMENTS_MIGRATION_DATABASE_UNSUPPORTED({ dialect: "sqlite" })
   }
   return { from: state, statements, ...(state === "live" ? { backup: liveThreadsBackup } : {}) }
 }

@@ -1,27 +1,34 @@
 <script setup lang="ts">
-import { createAuthClient } from "@vite-hub/auth/vue";
-import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
-import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
-import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
-import { clearConsoleDocumentCaches } from "../client/document-cache";
-import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
-import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
-import { isConsoleSignInRequired } from "../client/request";
+import { setConsoleNavigationName, useConsoleApp } from "../client/app-identity";
+import { operationItems } from "../client/operation-view";
+import { showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { isConsoleSignInRequired, requestConsoleOperation } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
-import { consoleSignInURL } from "../client/sign-in";
+import { openConsoleAddPrimitive } from "../client/add-primitive";
+import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch } from "../client/sidebar";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
-import ConsoleMark from "./console-mark.vue";
+import { consoleGoToKey, consoleOverviewShortcut, consoleSectionGroupLabels, consoleSectionShortcut, groupConsoleSections, resolveConsoleSectionGroup } from "../sections";
 import ConsoleProjectSwitcher from "./console-project-switcher.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleSidebar from "./console-sidebar.vue";
+import ConsoleSidebarItem from "./console-sidebar-item.vue";
+import ConsoleUserMenu from "./console-user-menu.vue";
 
+// Only an `account` Console shows it, so it loads with the Better Auth client.
+const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-menu.vue"));
+// The dialog loads the first time it opens, and then stays mounted so it can animate out.
+const ConsoleAddPrimitive = defineAsyncComponent(() => import("./console-add-primitive.vue"));
+
+/**
+ * The sidebar of an open app: the app tile, Overview, the app's sections in groups, and Add a primitive. It owns the
+ * "Go to" chords, because it is on every page of an app.
+ */
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
   active?: ConsoleSectionId;
@@ -30,101 +37,94 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+// Successful navigation includes browser history and links outside the rail.
+watch(() => route.fullPath, closeConsoleSidebarDrawer);
 const navigation = shallowRef<ConsoleNavigation>();
-const updateReady = useConsoleUpdate();
+const addPrimitiveLoaded = ref(false);
+watch(consoleAddPrimitiveOpen, (open) => { if (open) addPrimitiveLoaded.value = true; });
 const navigationFailed = ref(false);
-// Loading again cannot help without a session, so the rail offers no retry then. The page says how to sign in.
+// Loading again cannot help when the project refuses the signature, so the sidebar offers no retry then.
 const signedOut = ref(false);
-const signedIn = ref(false);
-const signingOut = ref(false);
-const signOutFailed = ref(false);
-const accessIdentity = ref<{ label?: string; signOutURL: string }>();
-const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
-const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
-const authClientURL = projectUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
-const signInURL = projectUrl("/_vitehub/sign-in");
-let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
 const projects = useConsoleProjects();
-// The app session and the Console build belong to the app origin. A Console on another origin reads neither.
-const remote = isRemoteProject();
-// The embedded Console of an `auth: "token"` app keeps the token in this browser. Sign out removes it.
-// The embedded app signs out of its Console token. A hosted Console signs out of the OAuth tokens of the open project.
-const tokenSignedIn = computed(() => projects.mode === "embedded" ? Boolean(projects.current.value?.token) : Boolean(projects.current.value?.oauth));
-const projectName = computed(() => navigation.value?.projectName || projects.info.value?.name || "ViteHub");
+const app = useConsoleApp();
+const team = computed(() => projects.account.value?.teams.find(item => item.id === projects.account.value?.teamId)?.name);
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
     return details ? [{ id: section, ...details, shortcut: consoleSectionShortcut(section) }] : [];
   }),
 );
-// The standalone Console provides its appearance. A Nuxt host owns color mode, so the rail hides the control there.
-const appearance = inject(consoleAppearanceKey, undefined);
-const appearanceItems = computed<DropdownMenuItem[]>(() => [
-  { type: "label", label: "Appearance" },
-  ...consoleAppearances.map((option): DropdownMenuItem => ({
-    type: "checkbox",
-    icon: consoleAppearanceOptions[option].icon,
-    label: consoleAppearanceOptions[option].label,
-    checked: appearance?.preference.value === option,
-    onSelect: () => appearance?.select(option),
+// Setup changes the app, not its data, so it sits under the Overview with the app's own pages.
+const setup = computed(() => sections.value.find(section => section.id === "setup"));
+const groups = computed(() =>
+  groupConsoleSections(sections.value.filter(section => section.id !== "setup")).map(items => ({
+    label: consoleSectionGroupLabels[resolveConsoleSectionGroup(items[0]!.id)],
+    items,
   })),
-]);
-const groups = computed(() => groupConsoleSections(sections.value));
-const userLabel = computed(() => userIdentity.value?.name || userIdentity.value?.email || accessIdentity.value?.label || "Account");
-const userEmail = computed(() => userIdentity.value?.email && userIdentity.value.email !== userLabel.value ? userIdentity.value.email : undefined);
-const userInitials = computed(() => {
-  if (!signedIn.value) return "";
-  const words = userLabel.value.split(/\s+/).filter(Boolean);
-  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
-});
-const userMenuLabel = computed(() => signedIn.value ? userLabel.value : "Account");
-const userMenuItems = computed<DropdownMenuItem[]>(() => {
-  const items: DropdownMenuItem[] = [];
-  if (signedIn.value) {
-    items.push({ type: "label", label: userLabel.value });
-    if (userEmail.value) items.push({ type: "label", label: userEmail.value });
-  }
-  if (appearance) {
-    if (items.length > 0) items.push({ type: "separator" });
-    items.push(...appearanceItems.value);
-  }
-  if (tokenSignedIn.value) {
-    if (items.length > 0) items.push({ type: "separator" });
-    items.push({ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleProject() });
-  }
-  if (signedIn.value) {
-    items.push({ type: "separator" }, {
-      icon: signingOut.value ? "i-lucide-loader-circle" : "i-lucide-log-out",
-      label: signOutFailed.value ? "Retry sign out" : "Sign out",
-      disabled: signingOut.value,
-      onSelect: () => void signOut(),
-    });
-  }
-  return items;
-});
+);
 
-function reload(): void {
-  window.location.reload();
-}
+// Settings is a page of the app, not a section, so the route name marks it.
+const settingsOpen = computed(() => route.name === resolveConsoleRouteName(route.name, "vitehub-console-app-settings"));
+
+// The brand row leads to the apps of the team. An embedded Console has one app, so its home is the Overview.
 
 async function open(routeName: string): Promise<void> {
   const name = resolveConsoleRouteName(route.name, routeName);
   const agent = decodeAgentRouteParam(route.params.agent);
+  closeConsoleSidebarDrawer();
   await router.push({
     name,
     ...(name === resolveConsoleRouteName(route.name, "vitehub-console-usage") && agent ? { query: { returnAgent: agent } } : {}),
   });
 }
 
-// The rail is on every page, so it owns the "Go to" chords. Only enabled sections get one.
+function goHome(event: MouseEvent): void {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  event.preventDefault();
+  if (projects.mode === "account") showConsoleAccountPage("home");
+  else void open("vitehub-console");
+}
+
+function search(): void {
+  closeConsoleSidebarDrawer();
+  openConsoleSearch();
+}
+
+function addPrimitive(): void {
+  closeConsoleSidebarDrawer();
+  openConsoleAddPrimitive();
+}
+
+// The number of open threads of a section whose list has an `open` filter, such as Comments. The count reloads when
+// the person leaves the section, where they resolve threads.
+const openCounts = shallowRef<Readonly<Record<string, string>>>({});
+const countLimit = 100;
+
+async function loadOpenCounts(): Promise<void> {
+  const counts: Record<string, string> = {};
+  await Promise.all(Object.values(navigation.value?.contributions ?? {}).map(async (section) => {
+    if (section.view.kind !== "operation-view" || !navigation.value?.sections.includes(section.id)) return;
+    const filter = section.view.filters?.find(item => item.id === "open");
+    if (!filter) return;
+    const items = operationItems(await requestConsoleOperation(section.view.operation, { ...filter.input, limit: countLimit }).catch(() => undefined));
+    if (items.length) counts[section.id] = items.length >= countLimit ? `${countLimit - 1}+` : String(items.length);
+  }));
+  openCounts.value = counts;
+}
+
+watch(() => props.active, (active, previous) => {
+  if (previous && openCounts.value[previous] !== undefined && active !== previous) void loadOpenCounts();
+});
+
+// The sidebar is on every page, so it owns the "Go to" chords. Only enabled sections get one.
 // Chords do not run while an input, a textarea, or editable content has focus.
 let goToStartedOutsideEditor = false;
 
 function editing(): boolean {
   const active = document.activeElement;
-  return active instanceof HTMLElement && (active.matches("input, textarea") || active.isContentEditable);
+  return active instanceof HTMLElement && (active.matches("input, textarea, select") || active.isContentEditable);
 }
 
 function trackGoToStart(event: KeyboardEvent): void {
@@ -165,86 +165,13 @@ async function loadNavigation(): Promise<void> {
   signedOut.value = isConsoleSignInRequired(consoleNavigationError(props.sectionsBase));
 }
 
-/**
- * Shows the sections of a navigation that this rail or another part of the page loaded, such as the Overview after
- * someone signed in. The account loads once, with the first navigation.
- */
+/** Shows the sections of a navigation that this sidebar or another part of the page loaded, such as the Overview. */
 function showNavigation(result: ConsoleNavigation): void {
-  const first = !navigation.value;
   navigation.value = result;
+  setConsoleNavigationName(result.projectName);
   navigationFailed.value = false;
   signedOut.value = false;
-  if (!first || remote) return;
-  if (result.auth === "cloudflare-access") void loadAccessIdentity();
-  else if (result.auth) void loadAuthSession();
-}
-
-async function loadAccessIdentity(): Promise<void> {
-  try {
-    const response = await projectFetch(`${authBase}/identity`, { headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error("Identity request failed");
-    // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
-    const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
-    if (typeof identity?.signOutURL !== "string" || !identity.signOutURL.startsWith("/") || identity.signOutURL.startsWith("//")) throw new Error("Invalid identity");
-    const label = typeof identity.email === "string" ? identity.email : typeof identity.commonName === "string" ? identity.commonName : undefined;
-    accessIdentity.value = { label, signOutURL: identity.signOutURL };
-    signedIn.value = true;
-  } catch {
-    accessIdentity.value = undefined;
-    signedIn.value = false;
-  }
-}
-
-async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>> {
-  authClientRequest ??= import(/* @vite-ignore */ authClientURL)
-    .then(() => {
-      // SAFETY: The generated Console Auth client script is the only writer for this symbol and stores a createAuthClient result.
-      return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
-    })
-    .catch(() => undefined)
-    .then((configured) => {
-      // The page's Auth base already holds the app mount, such as `/portal/api/auth`. Only the Console route gets the project mount.
-      const pageAuthBase = document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content");
-      return configured ?? createAuthClient({ basePath: pageAuthBase || projectUrl(authBase) });
-    });
-  return await authClientRequest;
-}
-
-async function loadAuthSession(): Promise<void> {
-  try {
-    const authClient = await consoleAuthClient();
-    const { data } = await authClient.getSession();
-    const session = data as { session?: unknown; user?: unknown } | null | undefined;
-    const user = session?.user as { email?: unknown; image?: unknown; name?: unknown } | null | undefined;
-    const name = typeof user?.name === "string" && user.name.trim() ? user.name.trim() : undefined;
-    const email = typeof user?.email === "string" && user.email.trim() ? user.email.trim() : undefined;
-    const image = typeof user?.image === "string" && user.image.trim() ? user.image.trim() : undefined;
-    userIdentity.value = name || email || image ? { ...(email ? { email } : {}), ...(image ? { image } : {}), ...(name ? { name } : {}) } : undefined;
-    signedIn.value = Boolean(session?.session);
-  } catch {
-    userIdentity.value = undefined;
-    signedIn.value = false;
-  }
-}
-
-async function signOut(): Promise<void> {
-  clearConsoleDocumentCaches();
-  signingOut.value = true;
-  signOutFailed.value = false;
-  if (accessIdentity.value) {
-    window.location.assign(resolveProjectUrl(accessIdentity.value.signOutURL));
-    return;
-  }
-  try {
-    const authClient = await consoleAuthClient();
-    const { error } = await authClient.signOut();
-    if (error) throw error;
-    window.location.assign(consoleSignInURL(window) ?? signInURL);
-  } catch {
-    userIdentity.value = undefined;
-    signOutFailed.value = true;
-    signingOut.value = false;
-  }
+  void loadOpenCounts();
 }
 
 onMounted(() => {
@@ -253,7 +180,6 @@ onMounted(() => {
   window.addEventListener("blur", invalidateGoToStart);
   unsubscribe = subscribeConsoleNavigation(props.sectionsBase, showNavigation);
   void loadNavigation();
-  if (!remote) watchConsoleBuild(props.sectionsBase);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", trackGoToStart, true);
@@ -264,158 +190,48 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- The expanded rail shows each label, so the tooltips turn off while it is open. -->
-  <PrimitiveRail class="vitehub-console__rail" label="Console">
-    <template #header="{ expanded }">
-      <UTooltip :text="`${projectName} overview`" :kbds="[...consoleOverviewShortcut]" :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem
-          class="vitehub-console__rail-home"
-          :current="!active && route.name !== 'vitehub-console-connect'"
-          :label="`${projectName} overview`"
-          @click="open('vitehub-console')"
-        >
-          <ConsoleMark class="size-[1.125rem]" />
-        </PrimitiveRailItem>
-      </UTooltip>
-      <ConsoleProjectSwitcher v-if="projects.mode === 'hosted'" />
+  <ConsoleSidebar :home-href="projects.home" :home-label="projects.mode === 'account' ? 'ViteHub, all apps' : `${app.name} overview`" :team="team" @home="goHome" @search="search">
+    <template #app>
+      <ConsoleProjectSwitcher :app="app" />
     </template>
 
-    <template #default="{ expanded }">
-      <template v-if="!navigation && !navigationFailed">
-        <USkeleton v-for="index in 5" :key="index" class="my-px size-9 rounded-md" />
-      </template>
-      <UTooltip v-if="navigationFailed && !navigation && !signedOut" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">
-          <UIcon name="i-lucide-refresh-cw" class="size-[1.125rem]" />
-        </PrimitiveRailItem>
-      </UTooltip>
-      <PrimitiveRailGroup v-for="(group, index) in groups" :key="index">
-        <UTooltip
-          v-for="section in group"
-          :key="section.id"
-          :text="section.label"
-          :kbds="section.shortcut ? [...section.shortcut] : undefined"
-          :content="{ side: 'right' }"
-          :disabled="expanded"
-        >
-          <PrimitiveRailItem
-            :current="section.id === active"
-            :label="section.label"
-            @click="open(section.routeName)"
-          >
-            <ConsoleSectionIcon :icon="section.icon" class="size-[1.125rem]" />
-          </PrimitiveRailItem>
-        </UTooltip>
-      </PrimitiveRailGroup>
-    </template>
+    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active && !settingsOpen" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Settings" icon="i-lucide-settings" :current="settingsOpen" @click="open('vitehub-console-app-settings')" />
+    <ConsoleSidebarItem v-if="setup" :label="setup.label" :current="active === 'setup'" :shortcut="setup.shortcut" @click="open(setup.routeName)">
+      <template #icon><ConsoleSectionIcon :icon="setup.icon" /></template>
+    </ConsoleSidebarItem>
 
-    <template #footer="{ expanded }">
-      <!-- A newer Console is deployed. The item stays until a reload, and the status region announces it once. -->
-      <UTooltip v-if="updateReady" text="Update ready. Reload to use the new Console." :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem class="vitehub-console__rail-update" label="Update ready, reload" @click="reload">
-          <UIcon name="i-lucide-rotate-cw" class="size-[1.125rem]" />
-          <template #label>
-            Update ready <span class="vitehub-console__rail-update-action">Reload</span>
-          </template>
-        </PrimitiveRailItem>
-      </UTooltip>
-      <span role="status" class="sr-only">{{ updateReady ? "A new Console version is ready. Reload to use it." : "" }}</span>
-      <UTooltip text="Connect an agent" :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem
-          :current="route.name === 'vitehub-console-connect'"
-          label="Connect an agent"
-          @click="open('vitehub-console-connect')"
-        >
-          <UIcon name="i-lucide-bot" class="size-[1.125rem]" />
-        </PrimitiveRailItem>
-      </UTooltip>
-      <!--
-        The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
-        Its slots give it the same icon sandbox and label as a rail item.
-      -->
-      <UTooltip text="Search" :kbds="['meta', 'k']" :content="{ side: 'right' }" :disabled="expanded">
-        <UDashboardSearchButton class="vh-primitive-rail__item vitehub-console__rail-search" collapsed label="Search">
-          <template #leading>
-            <span class="vh-primitive-rail__icon" aria-hidden="true">
-              <UIcon name="i-lucide-search" class="size-4" />
-            </span>
-          </template>
-          <span class="vh-primitive-rail__label">Search</span>
-        </UDashboardSearchButton>
-      </UTooltip>
-      <UDropdownMenu
-        v-if="appearance || signedIn || tokenSignedIn"
-        :items="userMenuItems"
-        :content="{ side: 'right', align: 'end', sideOffset: 8 }"
-        :ui="{ content: 'min-w-52' }"
+    <template v-if="!navigation && !navigationFailed">
+      <USkeleton v-for="index in 5" :key="index" class="mx-[0.5625rem] my-2 size-[1.125rem] shrink-0 rounded-sm" />
+    </template>
+    <ConsoleSidebarItem v-if="navigationFailed && !navigation && !signedOut" label="Retry loading primitives" icon="i-lucide-refresh-cw" @click="loadNavigation" />
+
+    <div v-for="group in groups" :key="group.label" class="vitehub-sidebar__group" role="group" :aria-label="group.label">
+      <div class="vitehub-sidebar__group-label" aria-hidden="true">{{ group.label }}</div>
+      <ConsoleSidebarItem
+        v-for="section in group.items"
+        :key="section.id"
+        :label="section.label"
+        :current="section.id === active"
+        :shortcut="section.shortcut"
+        :badge="openCounts[section.id]"
+        badge-label="open"
+        @click="open(section.routeName)"
       >
-        <UTooltip :text="userMenuLabel" :content="{ side: 'right' }" :disabled="expanded">
-          <PrimitiveRailItem :label="userMenuLabel">
-            <UAvatar
-              :src="userIdentity?.image"
-              :alt="userLabel"
-              :text="userInitials"
-              :icon="userInitials ? undefined : 'i-lucide-user-round'"
-              size="sm"
-              class="size-5"
-            />
-          </PrimitiveRailItem>
-        </UTooltip>
-      </UDropdownMenu>
+        <template #icon><ConsoleSectionIcon :icon="section.icon" /></template>
+      </ConsoleSidebarItem>
+    </div>
+
+    <div v-if="navigation" class="vitehub-sidebar__group">
+      <ConsoleSidebarItem class="vitehub-sidebar__quiet" label="Add a primitive" icon="i-lucide-plus" @click="addPrimitive" />
+    </div>
+
+    <ConsoleAddPrimitive v-if="addPrimitiveLoaded" :app-name="app.name" :navigation="navigation" />
+
+    <template #footer>
+      <!-- An `account` Console signs people in to itself, not to the app. -->
+      <ConsoleAccountMenu v-if="projects.mode === 'account'" />
+      <ConsoleUserMenu v-else />
     </template>
-  </PrimitiveRail>
+  </ConsoleSidebar>
 </template>
-
-<style>
-.vh-primitive-rail .vitehub-console__rail-update {
-  color: var(--ui-text-highlighted);
-}
-
-/* A dot in the corner of the icon box marks the update while the rail is collapsed. The ring cuts it from the icon. */
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon {
-  position: relative;
-}
-
-.vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: var(--vh-bg-muted);
-  background: var(--ui-info);
-  border-radius: 9999px;
-  box-shadow: 0 0 0 2px var(--vitehub-console-rail-update-ring);
-  content: "";
-  inset-block-start: 0.375rem;
-  inset-inline-end: 0.375rem;
-  position: absolute;
-  height: 0.375rem;
-  width: 0.375rem;
-}
-
-.dark .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: #000;
-}
-
-@media (hover: hover) {
-  .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
-    --vitehub-console-rail-update-ring: var(--vh-bg-elevated);
-  }
-}
-
-.vh-primitive-rail .vitehub-console__rail-update-action {
-  color: var(--ui-text-dimmed);
-  margin-inline-start: 0.25rem;
-}
-
-.vh-primitive-rail .vitehub-console__rail-home {
-  color: var(--ui-text-highlighted);
-}
-
-/* The search button is a Nuxt UI button. The rail item class sets its size and states, and its slots set the icon sandbox and label. */
-.vitehub-console .vitehub-console__rail-search {
-  box-shadow: none !important;
-  gap: 0 !important;
-  padding: 0 !important;
-}
-
-.vitehub-console .vitehub-console__rail-search:not(:hover) {
-  background: transparent !important;
-}
-</style>

@@ -21,10 +21,10 @@ afterEach(() => {
 function setup() {
   const client = createClient({ url: ":memory:" });
   cleanup.push(() => client.close());
-  const db = drizzle(client);
+  const db = drizzle({ client: client });
   const runtimeAttribution = vi.fn(() => undefined);
   function namespace(name: string, encryptionKey = new Uint8Array(32).fill(8)) {
-    const store = createDatabaseEnvStore({ db, namespace: name, encryptionKey });
+    const store = createDatabaseEnvStore({ db, namespace: name, encryptionKeys: [encryptionKey] });
     return { store, bridge: createEnvBridge({ ...store, runtimeActor: { kind: "service", id: "runtime" }, runtimeAttribution }) };
   }
   return { db, namespace, runtimeAttribution };
@@ -106,7 +106,7 @@ describe("Env Bridge storage and request isolation", () => {
       sql`SELECT payload FROM vitehub_env_secrets WHERE namespace = 'first' AND key = 'token'`,
     );
     expect(after!.payload).not.toBe(before!.payload);
-    expect(after!.payload.split(":")[0]).not.toBe(before!.payload.split(":")[0]);
+    expect(after!.payload.split(":")[2]).not.toBe(before!.payload.split(":")[2]);
     const wrongKey = namespace("first", new Uint8Array(32).fill(9)).bridge;
     await expect(wrongKey.read({ env: {}, keys: ["token"], access: admin })).rejects.toMatchObject({
       code: "ENV_BRIDGE_OPERATION_FAILED",

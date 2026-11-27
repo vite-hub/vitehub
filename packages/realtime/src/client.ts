@@ -6,28 +6,42 @@ import * as Y from "yjs"
 
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { keepRealtimeSocketAlive } from "./keepalive.ts"
+import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
+  decodeRealtimeRequestFramePayload,
   decodeWorkspaceChangePayload,
+  encodeRealtimeRequestFrame,
   encodeWorkspaceChange,
   messageAwareness,
   messageRealtimeControl,
+  messageRealtimeRequest,
   messageWorkspaceChange,
   workspaceRoomId,
 } from "./protocol.ts"
 
-import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeDocumentStatus, RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 
 export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
+
+/** Answers one request from the server. Its value goes back as JSON. */
+export type RealtimeRequestHandler = (body: unknown) => unknown
+
+const maxAnswerBytes = 1024 * 1024 - 1024
 
 export interface RealtimeRoomOptions {
   /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
   baseURL?: string
+  /**
+   * The app's origin, such as `https://app.example.com`, for a client running on another site's page. Defaults to the
+   * page's own origin. The definition must let that page's origin in with `origins`.
+   */
+  origin?: string
   /** Query parameters sent to the definition's authorization on presence and workspace connections. */
   params?: Record<string, string>
   /**
-   * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
+   * The person this browser shows as. A definition with `identify` or `authorize: true` replaces it with the server's
    * identity, so only public definitions show it as given.
    */
   identity?: { id: string, name?: string, image?: string }
@@ -45,27 +59,47 @@ export interface RealtimeRoom {
   /** The field values that each other client set with `setLocal()`, by client id. */
   states(): Map<number, Record<string, unknown>>
   status(): RealtimeRoomStatus
+  /**
+   * The save status of the room document, as the server writes it: its `digest`, `savedAt`, `savedBy`, `error`, and
+   * `issues`. `undefined` until the room syncs, and again while it joins a new seed. `onUpdate()` runs when it changes.
+   */
+  saveStatus(): RealtimeDocumentStatus | undefined
   /** Sets one field of this browser's awareness state, such as a cursor. `null` removes it. */
   setLocal(field: string, value: unknown): void
   /** Sends a change hint to every other browser of the definition. Needs `changes: true`. */
   notify(change: RealtimeWorkspaceChange): void
-  /** Runs when the people, their awareness fields, or the status change. Returns a function that removes it. */
+  /** Runs when the people, their awareness fields, the status, or the save status change. Returns a function that removes it. */
   onUpdate(listener: () => void): () => void
   /** Runs for each change hint from another browser. Needs `changes: true`. Returns a function that removes it. */
   onChange(listener: (change: RealtimeWorkspaceChange) => void): () => void
+  /**
+   * Answers the server's `requestRealtimeRoom()` calls to this room with what `handler` returns, as JSON. A thrown
+   * error, or an answer over 1 MiB, reaches the caller as `REALTIME_ROOM_REFUSED`. One handler at a time: a new one
+   * replaces the last. Needs a Definition with `requests: true`. Returns a function that removes it.
+   */
+  onRequest(handler: RealtimeRequestHandler): () => void
+  /**
+   * Runs for each `notifyRealtimeRoom()` call to this room, with the body the server sent. Use it to load data again
+   * that the server changed. Returns a function that removes it.
+   */
+  onNotice(listener: (body: unknown) => void): () => void
   destroy(): void
 }
 
 /**
  * Joins one room of a Realtime Definition for presence: who is there and what each person shares through awareness,
- * such as a cursor. It does not edit the room document. Use it outside Vue, or when a page needs presence without an
- * editor; `useRealtimeTiptap()` from `@vite-hub/realtime/vue` is the editor client.
+ * such as a cursor. It also reads the room's save status, such as the digest of the stored document. It does not edit
+ * the room document and loads no editor. Use it outside Vue, or when a page needs presence or the save status without
+ * an editor; `useRealtimeTiptap()` from `@vite-hub/realtime/vue` is the editor client.
  */
 export function connectRealtimeRoom(definition: string, documentId: string, options: RealtimeRoomOptions = {}): RealtimeRoom {
   const updateListeners = new Set<() => void>()
   const changeListeners = new Set<(change: RealtimeWorkspaceChange) => void>()
+  const noticeListeners = new Set<(body: unknown) => void>()
   const pendingChanges: RealtimeWorkspaceChange[] = []
+  let requestHandler: RealtimeRequestHandler | undefined
   let currentStatus: RealtimeRoomStatus = "connecting"
+  let synced = false
   let destroyed = false
   let document: Y.Doc
   let provider: WebsocketProvider
@@ -73,15 +107,17 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     for (const listener of updateListeners) listener()
   }
   const url = () => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
+    const app = options.origin ? new URL(options.origin) : window.location
+    const protocol = app.protocol === "https:" ? "wss:" : "ws:"
+    return `${protocol}//${app.host}${resolveRealtimeApplicationPath(`/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}
 
   function connect() {
+    synced = false
     document = new Y.Doc()
-    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params } })
+    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params, clientId: String(document.clientID) } })
     const current = provider
     keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
@@ -92,12 +128,20 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
         current.params.epoch = control.epoch
         return
       }
-      // The room re-seeded. Presence holds no document state, so join the new seed.
       current.destroy()
       document.destroy()
-      if (!destroyed) connect()
+      if (destroyed) return
+      connect()
+      emit()
     }
-    // Send only this client's awareness: the server closes a connection that changes clients it does not own.
+    current.messageHandlers[messageRealtimeRequest] = (_encoder, decoder) => {
+      // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
+      const frame = decodeRealtimeRequestFramePayload(decoder as decoding.Decoder)
+      if (frame?.kind === "request") void answer(current, frame.id, frame.body)
+      if (frame?.kind === "notice") {
+        for (const listener of noticeListeners) listener(frame.body)
+      }
+    }
     current.awareness.off("update", current._awarenessUpdateHandler)
     current.awareness.on("update", ({ added, removed, updated }: { added: number[], removed: number[], updated: number[] }) => {
       const own = [...added, ...updated, ...removed].filter(client => client === current.doc.clientID)
@@ -111,6 +155,12 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     const identity = options.identity ?? { id: `guest:${document.clientID}` }
     current.awareness.setLocalState({ ...localState, user: createRealtimeIdentity({ ...identity, id: identity.id || `guest:${document.clientID}` }) })
     current.awareness.on("change", emit)
+    document.getMap(realtimeDocumentLayout.status).observe(emit)
+    current.on("sync", (value: boolean) => {
+      if (provider !== current) return
+      synced = value
+      emit()
+    })
     current.on("status", (event: { status: RealtimeRoomStatus }) => {
       currentStatus = event.status
       emit()
@@ -137,6 +187,20 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     })
   }
 
+  async function answer(current: WebsocketProvider, id: string, body: unknown) {
+    const refusal = (why: string) => encodeRealtimeRequestFrame({ kind: "answer", id, ok: false, why })
+    let frame: Uint8Array
+    try {
+      frame = requestHandler ? encodeRealtimeRequestFrame({ kind: "answer", id, ok: true, body: await requestHandler(body) }) : refusal("This page does not answer requests.")
+      if (frame.byteLength > maxAnswerBytes) frame = refusal(`The answer has ${frame.byteLength} bytes, over the 1 MiB limit.`)
+    }
+    catch (error) {
+      frame = refusal(error instanceof Error ? error.message : String(error))
+    }
+    const socket = current.ws
+    if (current.wsconnected && socket && socket.readyState === socket.OPEN) socket.send(Uint8Array.from(frame))
+  }
+
   function flush() {
     const socket = changes?.ws
     if (!changes?.wsconnected || !socket || socket.readyState !== socket.OPEN) return
@@ -157,10 +221,18 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       return states
     },
     status: () => currentStatus,
+    saveStatus: () => synced ? readRealtimeStatus(document) : undefined,
     setLocal(field, value) {
-      if (value === null) delete localState[field]
-      else localState[field] = value
-      provider.awareness.setLocalStateField(field, value)
+      if (value !== null) {
+        localState[field] = value
+        provider.awareness.setLocalStateField(field, value)
+        return
+      }
+      delete localState[field]
+      const state = provider.awareness.getLocalState()
+      if (!state || !Object.hasOwn(state, field)) return
+      const { [field]: _removed, ...rest } = state
+      provider.awareness.setLocalState(rest)
     },
     notify(change) {
       if (!changes) return
@@ -175,6 +247,16 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       changeListeners.add(listener)
       return () => changeListeners.delete(listener)
     },
+    onRequest(handler) {
+      requestHandler = handler
+      return () => {
+        if (requestHandler === handler) requestHandler = undefined
+      }
+    },
+    onNotice(listener) {
+      noticeListeners.add(listener)
+      return () => noticeListeners.delete(listener)
+    },
     destroy() {
       destroyed = true
       provider.destroy()
@@ -183,6 +265,8 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       changes?.doc.destroy()
       updateListeners.clear()
       changeListeners.clear()
+      noticeListeners.clear()
+      requestHandler = undefined
     },
   }
 }

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -75,9 +76,9 @@ describe("defineComments", () => {
     expect(definition.options.authorize).toBe(authorize)
     expect(builtinCommentSubjects.map(subject => [subject.kind, subject.scope("x")])).toEqual([["page", "site"], ["content", "site"]])
     expect(commentsOperations.map(operation => operation.name)).toEqual([
-      "comments.list", "comments.get", "comments.create", "comments.reply", "comments.edit", "comments.delete", "comments.resolve", "comments.reopen", "comments.users", "comments.upload", "comments.attachment", "comments.session",
+      "comments.threads", "comments.list", "comments.get", "comments.create", "comments.reply", "comments.edit", "comments.delete", "comments.resolve", "comments.reopen", "comments.users", "comments.upload", "comments.attachment", "comments.session",
     ])
-    expect(commentsOperations.map(operation => operation.kind)).toEqual(["read", "read", "write", "write", "write", "destructive", "write", "write", "read", "write", "read", "read"])
+    expect(commentsOperations.map(operation => operation.kind)).toEqual(["read", "read", "read", "write", "write", "write", "destructive", "write", "write", "read", "write", "read", "read"])
     expect(commentsOperations.every(operation => operation.section === "comments")).toBe(true)
   })
 })
@@ -104,7 +105,7 @@ describe("hubComments", () => {
     expect(await plugin.vitehub.databases(unused)).toEqual([{ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", name: "comments", reason: expect.stringContaining("comment threads"), tables: commentsTableNames }])
     const operations = plugin.vitehub.operations
     const entries = operations instanceof Function ? await operations() : operations
-    expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: "@vite-hub/comments/operations" })])
+    expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: ownModule(import.meta.url, "operations") })])
     expect(await entries[0]!.load!()).toBe(commentsOperations)
   })
 
@@ -160,10 +161,35 @@ describe("hubComments", () => {
     expect(source).toContain('import { commentsPostgresSchema as schema } from "vite-hub/comments/database/postgres"')
     expect(source).toContain('dialect: "postgresql"')
     // The page tool stays unless the app turns the overlay off.
-    expect(source).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js')
+    expect(source).toContain('overlay: "/_vitehub/comments/assets/overlay.js')
     const off = hubComments({ overlay: false })
     await configHook(off)({ nitro: { plugins: [] }, root })
     expect(await readFile(file, "utf8")).toContain("overlay: false")
+  })
+
+  it("imports and calls the pill segments of other packages only while the overlay is on", async () => {
+    const root = await project(true)
+    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    const pillSegments = [{ module: "vite-hub/console/pill", export: "installConsolePill", options: { version: "1.2.3" } }]
+    await configHook(hubComments({ pillSegments }))({ nitro: { plugins: [] }, root })
+    const on = await readFile(file, "utf8")
+    expect(on).toContain('import { installConsolePill as pillSegment0 } from "vite-hub/console/pill"')
+    expect(on).toContain('pillSegments: [(nitroApp, context) => pillSegment0(nitroApp, { ...context, ...{"version":"1.2.3"} })]')
+    await configHook(hubComments({ overlay: false, pillSegments }))({ nitro: { plugins: [] }, root })
+    const off = await readFile(file, "utf8")
+    expect(off).not.toContain("installConsolePill")
+    expect(off).not.toContain("pillSegments")
+  })
+
+  it("passes checkRateLimit to the runtime only when Rate Limit counts in a shared store", async () => {
+    const root = await project(true)
+    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    await configHook(hubComments({ rateLimit: true, imports: { rateLimit: "vite-hub/rate-limit" } }))({ nitro: { plugins: [] }, root })
+    const shared = await readFile(file, "utf8")
+    expect(shared).toContain('import { checkRateLimit } from "vite-hub/rate-limit"')
+    expect(shared).toContain("rateLimit: checkRateLimit")
+    await configHook(hubComments())({ nitro: { plugins: [] }, root })
+    expect(await readFile(file, "utf8")).not.toContain("checkRateLimit")
   })
 
   it("fails the build when the app has no Database", async () => {

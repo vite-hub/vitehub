@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configuration
 
-`browser: true` turns on Cloudflare Browser Run. Pass an object only to change the binding or engine, or to use the hosted service locally.
+A file in `server/browsers/` turns on Cloudflare Browser Run, so you do not add a `browser` option. Pass an object only to change the binding or engine, or to use the hosted service locally.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -16,7 +16,7 @@ icon: i-lucide-sliders-horizontal
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: {
       binding: 'RENDER_BROWSER',
       remote: true,
@@ -35,7 +35,7 @@ import { nitro } from 'nitro/vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
         remote: true,
@@ -55,7 +55,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
         remote: true,
@@ -94,7 +94,7 @@ Keep the default `'kitesurf'` unless an Agent or a route must keep one page open
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { engine: 'chromium' },
   },
 })
@@ -109,7 +109,7 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { engine: 'chromium' },
   }), nitro()],
 })
@@ -123,7 +123,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { engine: 'chromium' },
   })],
 })

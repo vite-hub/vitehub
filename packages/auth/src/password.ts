@@ -1,5 +1,7 @@
 import { isWebContainer } from "@vite-hub/web-container/env"
 
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { BetterAuthOptions } from "better-auth"
 
 type PasswordOptions = NonNullable<NonNullable<BetterAuthOptions["emailAndPassword"]>["password"]>
@@ -24,7 +26,8 @@ export async function hashPasswordWithNoble(password: string): Promise<string> {
 /** Verifies a hash that Better Auth's default hasher or `hashPasswordWithNoble()` made. */
 export async function verifyPasswordWithNoble({ hash, password }: { hash: string, password: string }): Promise<boolean> {
   const [salt, key] = hash.split(":")
-  if (!salt || !key) throw new Error("Invalid password hash")
+  // The default verifier of `@better-auth/utils`, which this one replaces, has the same message.
+  if (!salt || !key) throw authErrorDiagnostics.AUTH_PASSWORD_HASH_INVALID()
   const derived = await scryptKey(password, salt)
   return derived === key
 }

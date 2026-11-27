@@ -9,6 +9,7 @@ import { expect, it } from "vitest"
 
 import { runAgentChannelReplayCli } from "../../agent/src/internal/channel-replay-cli.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../../agent/src/invocation-stream.ts"
+import { agentRuntimeModule } from "../../agent/src/vite.ts"
 
 it("journals authenticated Vite SSR dry-run replays in the configured Agent journal", async () => {
   // Load the built host integration, as an application does, without typechecking unrelated primitives here.
@@ -29,13 +30,13 @@ it("journals authenticated Vite SSR dry-run replays in the configured Agent jour
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/support.ts"), `
 import { defineAgent } from '@vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'
 import { channelDelivery } from '@vite-hub/agent/capabilities'
 export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   driver: { async run({ tools, input }) { if (input.context?.skipDelivery) return 'No delivery'; await tools.send_message.execute({ message: 'Synthetic raw draft' }); return 'Synthetic final answer' } },
   capabilities: [channelDelivery({ required: true, channel: { name: 'teams', send: async () => { throw new Error('Connector must never run') } }, options: {} , format: message => 'Formatted: ' + message })],
-  channels: { mailbox: defineChannel('mailbox', { messages: false,
-    webhooks: { secretHeader: 'x-signature', secretToken: 'secret', signature: 'github-sha256' },
+  channels: { mailbox: channelAdapter('mailbox', { messages: false,
+    webhooks: { secretHeader: 'x-signature', secret: () => 'secret', signature: 'github' },
     history: { key: item => item.id, thread: item => item.thread, collection: {
       parseQuery: async query => { if (query.turns !== 'last') throw new Error('Expected turns query'); return query },
       page: async ({ query }) => ({ items: [{ id: query.delivery === 'skip' ? 'm2' : 'm1', thread: 't1' }], nextCursor: null }),
@@ -44,15 +45,14 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   }) },
 })
 `)
-    await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
-      plugins: [vitehub({ preset: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
-        console: { auth: false, authorize: "./authorize.ts" },
+      plugins: [vitehub({ host: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
+        console: false,
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {
         "@vite-hub/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
-        "vite-hub/_internal/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
+        [agentRuntimeModule("server/internal")]: join(packageRoot, "src/server/internal.ts"),
       } },
       server: { port: 0, watch: null, fs: { allow: [root, join(packageRoot, "../..")] } },
     })
@@ -64,7 +64,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
     expect(discovery.status, await discovery.text()).toBe(200)
     const stdout = { write: () => {} }
     const errors: string[] = []
-    const code = await runAgentChannelReplayCli(["--server", origin, "--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "native-round", "--query", "turns=last", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
+    const code = await runAgentChannelReplayCli(["--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "native-round", "--query", "turns=last", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
     expect(errors).toEqual([])
     expect(code).toBe(0)
     const rows = await client.execute("SELECT status, record FROM vitehub_agent_invocations")
@@ -76,7 +76,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
     const effects = record.observations.filter((observation: { name: string }) => observation.name === "agent.channel.delivery.effect")
     expect(effects).toHaveLength(1)
     expect(effects[0].attributes).toMatchObject({ "channel.effect.channel": "teams", "channel.effect.skipped": "dry-run", "channel.effect.content": "Synthetic raw draft" })
-    const missingDelivery = await runAgentChannelReplayCli(["--server", origin, "--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "missing-delivery", "--query", "turns=last", "--query", "delivery=skip", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
+    const missingDelivery = await runAgentChannelReplayCli(["--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "missing-delivery", "--query", "turns=last", "--query", "delivery=skip", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
     expect(missingDelivery).toBe(1)
     const failed = await client.execute("SELECT status, record FROM vitehub_agent_invocations WHERE status = 'failed'")
     expect(failed.rows).toHaveLength(1)

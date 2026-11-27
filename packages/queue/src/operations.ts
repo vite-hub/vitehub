@@ -1,21 +1,18 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { LocalQueueJob, LocalQueueJobDetail, QueueJobsClearInput, QueueJobsListInput, QueueJobsListResult, QueueListResult, QueueSendOperationInput, QueueSendOperationResult } from "./runtime/operations.ts"
 
-// The runtime module reaches the Queue configuration that the generated server installs. The operations load it when
-// they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 function defineQueueOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The Queue runtime answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "queues", user: false })
 }
 
 const list = defineQueueOperation<Record<string, never>, QueueListResult>({
   cli: { namespace: "queue" },
-  description: "List the Queue Definitions of the app and the provider that sends their jobs. The local provider also reports where it stores jobs and the job counts.",
+  description: "List the Queue Definitions of the app and the provider that sends their jobs. The local and postgres providers also report where they store jobs and the job counts.",
   input: v.strictObject({}),
   kind: "read",
   name: "queue.list",
@@ -26,8 +23,7 @@ const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationRes
   cli: { namespace: "queue", positional: ["queue", "payload"] },
   description: "Send one job to a Queue Definition. The payload is a JSON value.",
   input: v.strictObject({
-    delaySeconds: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
-    id: v.optional(v.pipe(v.string(), v.minLength(1))),
+    delay: v.optional(v.pipe(v.string(), v.minLength(1), v.description("Time before delivery, such as 1m or 30s."))),
     idempotencyKey: v.optional(v.pipe(v.string(), v.minLength(1))),
     payload: v.unknown(),
     queue: v.pipe(v.string(), v.minLength(1)),
@@ -40,11 +36,6 @@ const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationRes
 
 const queueName = v.pipe(v.string(), v.minLength(1))
 const jobId = v.pipe(v.string(), v.minLength(1))
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function nextTime(job: LocalQueueJob): string {
   if (job.state === "dead") return job.failedAt ?? "-"
@@ -72,7 +63,7 @@ function formatJob({ job }: { job: LocalQueueJobDetail }): string {
     ...(job.idempotencyKey ? [`Idempotency key: ${job.idempotencyKey}`] : []),
     ...(job.error ? [`Error: ${job.error.code ? `${job.error.code} ` : ""}${job.error.message}`] : []),
     ...(job.error?.stack ? ["Stack:", job.error.stack] : []),
-    `File: ${job.file}`,
+    ...(job.file ? [`File: ${job.file}`] : []),
     "Payload:",
     JSON.stringify(job.payload ?? null, null, 2),
     "",
@@ -81,7 +72,7 @@ function formatJob({ job }: { job: LocalQueueJobDetail }): string {
 
 const jobsList = defineQueueOperation<QueueJobsListInput, QueueJobsListResult>({
   cli: { command: "jobs list", format: formatJobs, namespace: "queue" },
-  description: "List the stored Queue jobs, newest first: pending, running, and dead jobs. In `vite dev` every job runs in the dev server, so this lists them for any provider.",
+  description: "List the stored Queue jobs, newest first: pending, running, and dead jobs, from the local or postgres provider. In `vite dev` every job runs in the dev server, so this lists them for any provider.",
   input: v.strictObject({
     queue: v.optional(queueName),
     state: v.optional(v.picklist(["dead", "pending", "running"])),
@@ -92,7 +83,7 @@ const jobsList = defineQueueOperation<QueueJobsListInput, QueueJobsListResult>({
 })
 
 const jobsShow = defineQueueOperation<{ id: string }, { job: LocalQueueJobDetail }>({
-  cli: { command: "jobs show", format: formatJob, namespace: "queue", positional: ["id"] },
+  cli: { command: "jobs get", format: formatJob, namespace: "queue", positional: ["id"] },
   description: "Show one stored Queue job by message ID, with its payload, attempts, and last error.",
   input: v.strictObject({ id: jobId }),
   kind: "read",
@@ -123,8 +114,9 @@ const jobsClear = defineQueueOperation<QueueJobsClearInput, { cleared: number }>
 })
 
 /**
- * The `queue.*` operations: list and send, and the stored jobs of the local provider. `vite dev` runs every job with
- * the local provider. Cloudflare and Vercel do not let a producer read their queue, so the job operations fail there.
+ * The `queue.*` operations: list and send, and the stored jobs of the local and postgres providers. `vite dev` runs
+ * every job with the local provider. Cloudflare and Vercel do not let a producer read their queue, so the job
+ * operations fail there.
  */
 export const queueOperations: readonly AnyOperation[] = [list, send, jobsList, jobsShow, jobsRetry, jobsClear]
 

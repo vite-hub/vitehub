@@ -4,27 +4,14 @@ import {
   supportMatrixGroups,
   supportMatrixHosts,
   supportMatrixStatuses,
-  supportProofStates,
+  type SupportMatrixCell,
   type SupportMatrixRow,
-  type SupportMatrixStatus,
 } from "../../data/support-matrix";
-import {
-  supportProofFor,
-  supportProofLedger,
-  supportProofPresentation,
-} from "../../data/support-proof";
 
 // The Markdown tables in the default slot are the text version of this matrix for Copy page and agents.
 // The matrix renders the same data from the data files, so the slot stays hidden.
 
-type MatrixCell = {
-  detail: string;
-  display?: string;
-  evidence?: { observedAt: string; url: string };
-  status: SupportMatrixStatus;
-};
-
-type MatrixRow = SupportMatrixRow & { cells: MatrixCell[]; group: string };
+type MatrixRow = SupportMatrixRow & { cells: SupportMatrixCell[]; group: string };
 
 const hosts = supportMatrixHosts;
 const coverageGroup = "Server primitives";
@@ -35,31 +22,18 @@ const filter = ref("");
 const differing = ref(false);
 const hoveredColumn = ref<number>();
 const highlighted = computed(() => hosts.findIndex((host) => host.id === route.query.host));
-// The server and the first client render share this time, so proof states hydrate without a mismatch.
-const proofObservedAt = useState("support-proof-observed-at", () => new Date().toISOString());
-
-const groups = computed(() => {
-  const now = new Date(proofObservedAt.value);
-  return supportMatrixGroups.map((group) => ({
+const groups = computed(() =>
+  supportMatrixGroups.map((group) => ({
     ...group,
     rows: group.rows.map(
       (row): MatrixRow => ({
         ...row,
         group: group.label,
-        cells: hosts.map((host) => {
-          if ("values" in row) return row.values[host.id];
-          const proof = supportProofPresentation(supportProofFor(row.proof, host.id), now);
-          return {
-            detail: proof.detail,
-            display: proof.display,
-            evidence: proof.evidence,
-            status: proof.state,
-          };
-        }),
+        cells: hosts.map((host) => row.values[host.id]),
       }),
     ),
-  }));
-});
+  })),
+);
 const rows = computed(
   () => new Map(groups.value.flatMap((group) => group.rows.map((row) => [row.id, row]))),
 );
@@ -131,42 +105,11 @@ function leave() {
   tip.value = undefined;
 }
 
-function describe(cell: MatrixCell) {
+function describe(cell: SupportMatrixCell) {
   const label = supportMatrixStatuses[cell.status].label;
   return cell.display && cell.display !== "—" ? `${label}: ${cell.display}` : label;
 }
 
-// A proof state goes stale when its evidence passes the freshness limit, so refresh at the next expiry.
-let proofRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-
-function scheduleProofRefresh(): void {
-  const now = Date.now();
-  const nextExpiry = supportProofLedger
-    .flatMap((claim) => {
-      const observedAt = Date.parse(claim.evidence.observedAt ?? "");
-      const maxAgeDays = claim.freshness.maxAgeDays;
-      return Number.isFinite(observedAt) && maxAgeDays !== null
-        ? [observedAt + maxAgeDays * 86_400_000]
-        : [];
-    })
-    .filter((expiresAt) => expiresAt >= now)
-    .sort((left, right) => left - right)[0];
-  if (nextExpiry === undefined) return;
-
-  proofRefreshTimer = setTimeout(
-    () => {
-      proofObservedAt.value = new Date().toISOString();
-      scheduleProofRefresh();
-    },
-    Math.min(nextExpiry - now + 1, 2_147_000_000),
-  );
-}
-
-onMounted(() => {
-  proofObservedAt.value = new Date().toISOString();
-  scheduleProofRefresh();
-});
-onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 </script>
 
 <template>
@@ -178,25 +121,17 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         placeholder="Filter primitives or providers"
         aria-label="Filter primitives or providers"
         class="w-full sm:w-72"
-        :ui="{ base: 'font-mono text-xs' }"
       />
       <USwitch v-model="differing" label="Only rows that differ" size="sm" />
       <p class="sr-only" role="status">{{ status }}</p>
     </div>
 
     <div class="space-y-2 text-xs text-muted">
-      <div
-        v-for="legend of [
-          { label: 'Support', statuses: supportLevels },
-          { label: 'Proof', statuses: supportProofStates },
-        ]"
-        :key="legend.label"
-        class="flex gap-3"
-      >
-        <span class="w-14 shrink-0 font-mono text-toned">{{ legend.label }}</span>
+      <div class="flex gap-3">
+        <span class="w-14 shrink-0 font-mono text-toned">Support</span>
         <ul class="flex flex-wrap items-center gap-x-5 gap-y-2">
           <li
-            v-for="level of legend.statuses"
+            v-for="level of supportLevels"
             :key="level"
             class="inline-flex items-center gap-2"
           >
@@ -210,7 +145,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         <summary
           class="inline-flex cursor-pointer list-none items-center gap-1.5 hover:text-highlighted [&::-webkit-details-marker]:hidden"
         >
-          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open:rotate-90" />
+          <UIcon name="i-lucide-chevron-right" class="size-3.5 group-open:rotate-90" />
           What the statuses mean
         </summary>
         <dl
@@ -227,10 +162,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
             </dt>
             <dd class="max-sm:mb-1.5">{{ meta.description }}</dd>
           </template>
-          <dd class="sm:col-span-2">
-            Hover over a cell to see the provider and its limits. Select a proof cell to open its
-            evidence.
-          </dd>
+          <dd class="sm:col-span-2">Hover over a cell to see the provider and its limits.</dd>
         </dl>
       </details>
     </div>
@@ -266,7 +198,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
               <component
                 :is="host.to ? NuxtLink : 'span'"
                 :to="host.to"
-                class="relative flex flex-col items-center justify-end gap-2 pb-2 font-mono text-[11px] text-muted transition hover:text-highlighted lg:text-xs"
+                class="relative flex flex-col items-center justify-end gap-2 pb-2 font-mono text-[11px] text-muted transition-colors hover:text-highlighted lg:text-xs"
                 :class="{
                   'text-highlighted': index === hoveredColumn || index === highlighted,
                 }"
@@ -307,23 +239,11 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
               <span class="sr-only">. {{ row.description }}</span>
             </th>
             <td v-for="(cell, index) of row.cells" :key="hosts[index]!.id">
-              <a
-                v-if="cell.evidence"
-                :href="cell.evidence.url"
-                target="_blank"
-                rel="noreferrer"
-                class="support-cell-link"
-                :aria-label="`${hosts[index]!.label}, ${row.label}: ${describe(cell)}. Evidence from ${cell.evidence.observedAt}`"
-              >
-                <span class="support-cell support-swatch" :data-status="cell.status" />
-              </a>
-              <template v-else>
-                <span
-                  class="support-cell support-swatch"
-                  :data-status="cell.status"
-                  aria-hidden="true"
-                /><span class="sr-only">{{ describe(cell) }}</span>
-              </template>
+              <span
+                class="support-cell support-swatch"
+                :data-status="cell.status"
+                aria-hidden="true"
+              /><span class="sr-only">{{ describe(cell) }}</span>
             </td>
           </tr>
         </tbody>
@@ -364,7 +284,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
                 />
               </span>
               <span
-                class="mt-1.5 block font-mono text-[11px] text-muted tabular-nums"
+                class="mt-1.5 block font-mono text-xs text-muted tabular-nums"
                 aria-hidden="true"
               >
                 {{ coverage[index]!.counts.available + coverage[index]!.counts.package }}
@@ -381,7 +301,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 
       <div
         v-if="tip && tipCell"
-        class="pointer-events-none absolute z-20 w-72 -translate-x-1/2 -translate-y-full rounded-md border border-default bg-default p-3 text-xs shadow-lg"
+        class="pointer-events-none absolute z-20 w-72 -translate-x-1/2 -translate-y-full rounded-xl bg-(--vh-floating) p-3 text-xs shadow-(--vh-shadow-floating) backdrop-blur-md"
         :style="{ left: `${tip.x}px`, top: `${tip.y - 8}px` }"
         aria-hidden="true"
       >
@@ -408,13 +328,6 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         <p class="mt-3 border-t border-default pt-2 leading-relaxed text-muted">
           {{ tipCell.detail }}
         </p>
-        <div
-          v-if="tipCell.evidence"
-          class="mt-2 flex items-center gap-1 font-mono text-[11px] text-toned"
-        >
-          <UIcon name="i-lucide-external-link" class="size-3" />
-          Evidence from {{ tipCell.evidence.observedAt }}
-        </div>
       </div>
     </div>
 
@@ -436,8 +349,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
   vertical-align: middle;
 }
 
-.support-swatch[data-status="available"],
-.support-swatch[data-status="current"] {
+.support-swatch[data-status="available"] {
   background: var(--support-ink);
 }
 
@@ -451,50 +363,15 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--support-ink) 55%, transparent);
 }
 
-.support-swatch[data-status="stale"] {
-  background: color-mix(in oklab, var(--support-ink) 12%, transparent);
-  outline: 1px dashed var(--support-ink);
-  outline-offset: -1px;
-}
 
-.support-swatch[data-status="incomplete"] {
-  background: linear-gradient(to top, var(--support-ink) 50%, transparent 50%);
-  box-shadow: inset 0 0 0 1px var(--support-ink);
-}
 
-.support-swatch[data-status="failed"] {
-  background:
-    linear-gradient(45deg, transparent calc(50% - 1px), var(--support-ink) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
-    linear-gradient(-45deg, transparent calc(50% - 1px), var(--support-ink) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
-  box-shadow: inset 0 0 0 1px var(--support-ink);
-}
 
-.support-swatch[data-status="none"],
-.support-swatch[data-status="unpublished"] {
+.support-swatch[data-status="none"] {
   background: color-mix(in oklab, var(--ui-bg-accented) 70%, transparent);
 }
 
-.support-swatch[data-status="not-applicable"] {
-  background:
-    linear-gradient(to top right, transparent calc(50% - 1px), var(--ui-text-muted) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
-    color-mix(in oklab, var(--ui-bg-accented) 35%, transparent);
-}
 
-.support-cell-link {
-  display: inline-flex;
-  vertical-align: middle;
-  border-radius: 2px;
-}
 
-.support-cell-link:hover .support-cell {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
-
-.support-cell-link:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
 
 .support-matrix tr[data-row] > * {
   border-top: 1px solid color-mix(in oklab, var(--ui-border) 60%, transparent);

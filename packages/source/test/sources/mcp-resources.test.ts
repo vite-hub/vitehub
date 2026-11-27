@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { mcpResources } from "../../src/mcp.ts"
@@ -103,13 +105,15 @@ function createEmptyCursorClient(): McpResourcesClient {
 }
 
 describe("mcpResources", () => {
-  it("owns the MCP SDK as a private build dependency", async () => {
+  it("takes the MCP SDK as an optional peer and loads it only when MCP Resources run", async () => {
     const { default: pkg } = await import("../../package.json", { with: { type: "json" } })
+    const built = await readFile(new URL("../../dist/mcp.js", import.meta.url), "utf8")
 
     expect(Object.hasOwn(pkg.dependencies, "@modelcontextprotocol/sdk")).toBe(false)
     expect(pkg.devDependencies?.["@modelcontextprotocol/sdk"]).toBe("catalog:ai")
-    expect(Object.hasOwn(pkg.peerDependencies, "@modelcontextprotocol/sdk")).toBe(false)
-    expect(Object.hasOwn(pkg.peerDependenciesMeta, "@modelcontextprotocol/sdk")).toBe(false)
+    expect(pkg.peerDependencies?.["@modelcontextprotocol/sdk"]).toBe("catalog:ai")
+    expect(pkg.peerDependenciesMeta?.["@modelcontextprotocol/sdk"]).toEqual({ optional: true })
+    expect(built).not.toMatch(/from\s*["']@modelcontextprotocol\//)
   })
 
   it("lists paginated MCP resources as source paths", async () => {

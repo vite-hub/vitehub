@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleDateTime } from "../client/time";
+import { consoleDateTime } from "../client/format";
 
 type WorkspaceRevision = {
   id: string;
@@ -47,31 +47,30 @@ function revisionLabel(revision: WorkspaceRevision): string {
 function revisionDate(revision: WorkspaceRevision): string {
   return consoleDateTime(revision.createdAt);
 }
+
+// A select item cannot have an empty value, so the current files get their own key.
+const currentFiles = "current-files";
+const refItems = computed(() => props.refs.map(item => ({ label: item.name, value: item.name })));
+const revisionItems = computed(() => [
+  { label: "Current files", value: currentFiles },
+  ...props.revisions.map(revision => ({ label: revisionLabel(revision), value: revision.id })),
+]);
+function selectRevision(value: unknown): void {
+  emit("selectRevision", value === currentFiles || typeof value !== "string" ? undefined : value);
+}
 </script>
 
 <template>
-  <section v-if="props.refs.length" class="session-inspector__history" aria-label="Workspace history">
-    <label>
-      <span>Ref</span>
-      <select :value="props.selectedRef" aria-label="Workspace history ref" @change="emit('selectRef', ($event.target as HTMLSelectElement).value)">
-        <option v-for="item in props.refs" :key="item.name" :value="item.name">{{ item.name }}</option>
-      </select>
-    </label>
-    <label>
-      <span>Revision</span>
-      <select :value="props.selectedRevision ?? ''" aria-label="Workspace history revision" @change="emit('selectRevision', (($event.target as HTMLSelectElement).value || undefined))">
-        <option value="">Current files</option>
-        <option v-for="revision in props.revisions" :key="revision.id" :value="revision.id">{{ revisionLabel(revision) }}</option>
-      </select>
-    </label>
-    <a v-if="selectedUrl" :href="selectedUrl" target="_blank" rel="noreferrer" aria-label="Open revision on GitHub">
-      <UIcon name="i-lucide-github" aria-hidden="true" />
-      GitHub
-    </a>
-    <small v-if="selected" :title="selected.createdAt">{{ revisionDate(selected) }}</small>
-    <button v-if="props.cursor" type="button" :disabled="props.loading" @click="emit('loadMore')">
-      {{ props.loading ? "Loading…" : "Load older" }}
-    </button>
-    <p v-if="props.error" role="alert">{{ props.error }}</p>
+  <section v-if="props.refs.length" class="flex flex-wrap items-end gap-3" aria-label="Workspace history">
+    <UFormField label="Ref">
+      <USelect :model-value="props.selectedRef" :items="refItems" class="w-40" aria-label="Workspace history ref" @update:model-value="emit('selectRef', String($event))" />
+    </UFormField>
+    <UFormField label="Revision">
+      <USelect :model-value="props.selectedRevision ?? currentFiles" :items="revisionItems" class="w-64" aria-label="Workspace history revision" @update:model-value="selectRevision" />
+    </UFormField>
+    <UButton v-if="selectedUrl" :to="selectedUrl" target="_blank" rel="noreferrer" variant="ghost" icon="i-lucide-github" label="GitHub" aria-label="Open revision on GitHub" />
+    <small v-if="selected" class="text-xs text-dimmed" :title="selected.createdAt">{{ revisionDate(selected) }}</small>
+    <UButton v-if="props.cursor" variant="outline" :loading="props.loading" :label="props.loading ? 'Loading…' : 'Load older'" @click="emit('loadMore')" />
+    <p v-if="props.error" role="alert" class="w-full text-sm text-error">{{ props.error }}</p>
   </section>
 </template>

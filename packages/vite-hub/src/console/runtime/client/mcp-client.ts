@@ -4,7 +4,7 @@ import type { ConsoleMcpAuth, ConsoleMcpCandidate, ConsoleMcpConnection, Console
 
 type ConsoleMcpAnswer = ConsoleMcpOutcome & { connection: ConsoleMcpConnection }
 
-/** What each operation of the MCP section returns (`runtime/server/mcp-client.ts`). */
+/** What each operation of the MCP section returns. `@vite-hub/console` answers them. */
 export interface ConsoleMcpResults {
   "mcp-client.call": ConsoleMcpAnswer
   "mcp-client.complete": ConsoleMcpConnection
@@ -17,10 +17,13 @@ export interface ConsoleMcpResults {
   "mcp-client.reconnect": ConsoleMcpConnectResult
 }
 
-/** Call one operation of the MCP client section. */
+/**
+ * Call one operation of the MCP client section. The Console server, such as console.vitehub.dev, runs the MCP client,
+ * so the calls go to `/p/<project>/mcp-client` on that server and not to the app.
+ */
 export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
-  // SAFETY: The server operation of this name returns this shape. Console and server ship in one build.
-  return await requestConsoleOperation(operation, input, signal ? { signal } : {}) as ConsoleMcpResults[Operation]
+  // SAFETY: The server operation of this name returns this shape. @vite-hub/console answers with these types.
+  return await requestConsoleOperation(operation, input, { path: "/mcp-client", ...(signal ? { signal } : {}) }) as ConsoleMcpResults[Operation]
 }
 
 /** Status words and colors. The word always comes with the color, so the status never depends on color alone. */
@@ -47,12 +50,6 @@ export function consoleMcpAccount(connection: ConsoleMcpConnection): { primary: 
   if (connection.auth === "bearer") return { primary: connection.label, secondary: `Token ••••${connection.grant?.hint ?? ""}` }
   if (identity?.subject) return { primary: connection.label, secondary: `Subject ${identity.subject}` }
   return { primary: connection.label, ...(connection.auth === "none" || connection.auth === "console" ? { secondary: consoleMcpAuthLabels[connection.auth] } : {}) }
-}
-
-/** Up to two initials of a name or an email, for an avatar. */
-export function consoleMcpInitials(value: string): string {
-  const words = value.replace(/@.*$/, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : (words[0] ?? "?").slice(0, 2)).toUpperCase()
 }
 
 /** A host and path without the scheme, such as `example.com/mcp`. */

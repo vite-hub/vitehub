@@ -30,26 +30,6 @@ import {
 } from "typescript"
 import { describe, expect, it } from "vitest"
 
-/**
- * Grant contract. A check that guards a sensitive action must return a grant that the action requires
- * (`@vite-hub/runtime/internal/grant`). This test fails on four known "check here, act there" shapes in
- * `packages/*\/src` TypeScript files:
- *
- * 1. `admin-literal`: `admin: true` in an object literal outside `packages/env`. Only Env creates administrator access.
- * 2. `secret-compare`: a `===`, `!==`, `==`, or `!=` comparison that reads a credential with a plain comparison.
- *    Heuristic: one side names a secret, token, signature, or state value (an identifier, property, or call name that
- *    is `secret`, `token`, `signature`, or `state`, or ends in `Secret`, `Token`, `Signature`, or `State`, also inside a
- *    template literal), and the comparison reads a request or expected credential: an `authorization` value, a cookie,
- *    a `Bearer …` template, an `expected…` value, or a `read…Token` or `read…Secret` call. Comparisons with a literal or
- *    `typeof` are ignored. Code inside string literals, for example generated host output, is not parsed.
- * 3. `response-guard`: an exported function in Auth or Console server code with a guard name (`check`, `verify`,
- *    `require`, `guard`, `authorize`, `assert`, `ensure`, or `protect`) whose declared return type is
- *    `Response | undefined` or `Promise<Response | undefined>`. A caller can ignore `undefined` and act anyway.
- * 4. `symbol-for-capability`: `Symbol.for("vitehub.…")` whose last name segment says that it reaches a privileged
- *    object: it ends in `Target`, `Override`, `Grant`, `Authority`, `Capability`, `Approve`, `Approval`, `Verifier`,
- *    or `Materializer`. Any code can create the same key with `Symbol.for()`.
- */
-
 const repoRoot = resolve(import.meta.dirname, "..")
 
 type GrantRule = "admin-literal" | "response-guard" | "secret-compare" | "symbol-for-capability"
@@ -62,17 +42,9 @@ interface GrantFinding {
 
 type GrantException = GrantFinding & ({ pr: number, reason?: undefined } | { pr?: undefined, reason: string })
 
-/**
- * Known shapes on main. An entry with `pr` is removed by that open PR. An entry with `reason` has no open PR.
- * The test fails when an entry no longer matches the source, so remove the entry in the PR that removes the shape.
- */
 const exceptions: readonly GrantException[] = [
-  { file: "packages/agent/src/access-runtime.ts", pattern: "Symbol.for(\"vitehub.agent.workspaceOverride\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
-  { file: "packages/agent/src/internal/channel-delivery.ts", pattern: "Symbol.for(\"vitehub.agent.channel-delivery-ownership-verifier\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
-  { file: "packages/workspace/src/storage/materialization.ts", pattern: "Symbol.for(\"vitehub.workspace.revisionMaterializer\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
-  { file: "packages/workspace/src/storage/target.ts", pattern: "Symbol.for(\"vitehub.workspace.storeTarget\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
-  { file: "packages/auth/src/server.ts", pattern: "requireAuthAccessRoutes", reason: "Access-route middleware. It runs before the host route handler and cannot pass a grant to it.", rule: "response-guard" },
-  { file: "packages/vite-hub/src/console/auth-cloudflare-access.ts", pattern: "verifyCloudflareAccessConsoleRequest", reason: "Console access policy check. Only withConsoleAccess() reads it and turns success into a grant.", rule: "response-guard" },
+  { file: "packages/agent/src/invocations/app.ts", pattern: "Symbol.for(\"vitehub.agent.invocations.override\")", reason: "Shared journal resolver state, not an authorization grant; installAgentInvocationsOverride() is a public host installer.", rule: "symbol-for-capability" },
+  { file: "packages/auth/src/internal/server.ts", pattern: "requireAuthAccessRoutes", reason: "Access-route middleware. It runs before the host route handler and cannot pass a grant to it.", rule: "response-guard" },
 ]
 
 const credentialName = /^(?:secret|token|signature|state)$|(?:Secret|Token|Signature|State)$/
@@ -102,7 +74,6 @@ function isLiteralOperand(node: Expression): boolean {
     || (isIdentifier(value) && value.text === "undefined")
 }
 
-/** Names that an operand reads: the identifier, the last property, the called function, or template parts. */
 function operandNames(node: Expression): string[] {
   const value = unwrap(node)
   if (isIdentifier(value)) return [value.text]
@@ -165,8 +136,6 @@ async function packageSourceFindings(): Promise<GrantFinding[]> {
   for (const file of tracked.split("\0")) {
     if (!/^packages\/[^/]+\/src\/.+\.[cm]?tsx?$/.test(file) || file.endsWith(".d.ts")) continue
     const path = resolve(repoRoot, file)
-    // Keep modified tracked sources in the scan, but use the index blob when a tracked file
-    // is absent from the worktree (for example after a local deletion or in a sparse checkout).
     const source = existsSync(path)
       ? readFileSync(path, "utf8")
       : execFileSync("git", ["show", `:${file}`], { cwd: repoRoot, encoding: "utf8" })

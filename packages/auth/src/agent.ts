@@ -2,12 +2,12 @@ import {
   invalidAuthenticationErrorOptions,
   throwAuthenticationProviderError,
 } from "./errors.ts"
-import { getAuthenticationSession } from "./session.ts"
+import { authenticationRefusalError, getAuthenticationSession } from "./session.ts"
+import { prepareSessionCookies } from "./session-cookies.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type {
-  AgentActor,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerResolveContext,
@@ -16,11 +16,16 @@ import type {
 } from "@vite-hub/agent"
 import type { AuthenticationSessionSnapshot } from "./session.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 // The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
-// One shared import also keeps Vitest module mocks in place for concurrent first calls.
-let server: Promise<typeof import("./server.ts")> | undefined
-const loadServer = () => server ??= import("./server.ts")
+// One shared import also keeps Vitest module mocks in place for concurrent first calls. A failed import lets the next
+// call try again.
+let server: Promise<typeof import("./internal/server.ts")> | undefined
+const loadServer = () => server ??= import("./internal/server.ts").catch((error: unknown) => {
+  server = undefined
+  throw error
+})
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -98,20 +103,20 @@ export interface AuthenticatedOptions<
 
 /**
  * The `auth` primitive that Agent Capabilities receive when Auth is configured. Generated Agent routes and Schedules
- * pass it, so a Capability can act for the Auth user behind an Agent Actor.
+ * pass it, so a Capability can act for the Auth user behind an Agent Invoker.
  */
 export interface AgentAuth {
   /**
-   * The Auth user an Actor stands for. `authenticated()` records the user id as `actor.meta.authUserId`, and this reads
-   * that user from the Auth database again, so it also works when an approved tool call runs later. Null for an Actor
+   * The Auth user an Invoker stands for. `authenticated()` records the user id as `invoker.meta.authUserId`, and this reads
+   * that user from the Auth database again, so it also works when an approved tool call runs later. Null for an Invoker
    * without `authUserId`, or when the user no longer exists.
    */
-  user(actor: AgentActor | null | undefined): Promise<AuthenticatedUser | null>
+  user(invoker: AgentInvoker | null | undefined): Promise<AuthenticatedUser | null>
 }
 
 export const agentAuth: AgentAuth = {
-  async user(actor) {
-    const meta: unknown = actor?.meta
+  async user(invoker) {
+    const meta: unknown = invoker?.meta
     const userId = isRecord(meta) ? readString(meta.authUserId) : undefined
     if (!userId) return null
     const { getAuth } = await loadServer()
@@ -180,15 +185,19 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticationSessionSnapshot | null | undefined> {
   if (!context.request) return undefined
 
-  const { getAuthForRequest } = await loadServer()
-  const auth = getAuthForRequest(context.request)
-  return await getAuthenticationSession(auth, {
+  const { useAuth } = await loadServer()
+  const auth = useAuth(context.request)
+  const { refusal, session, setCookies } = await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
       disableCookieCache: true,
       disableRefresh: true,
     },
   })
+  // Without a refresh, Better Auth only deletes the cookies of an ended session. The Agent route sends them like a guard.
+  prepareSessionCookies(context.request, setCookies)
+  if (refusal) throw authenticationRefusalError(refusal)
+  return session
 }
 
 function readProviderField<T>(read: () => T): T {
@@ -266,6 +275,3 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}

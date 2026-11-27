@@ -19,10 +19,10 @@ function run(status: TraceRunView["status"], steps: TraceStepView[] = [], durati
 
 describe("TraceRun", () => {
   it.each([
-    ["cancelled", undefined, "Cancelled · 320 ms"],
-    ["completed", undefined, "Completed · 320 ms"],
-    ["failed", "error", "Failed · 320 ms"],
-    ["running", "running", "Working · 320 ms"],
+    ["cancelled", undefined, "Cancelled · 320ms"],
+    ["completed", undefined, "Completed · 320ms"],
+    ["failed", "error", "Failed · 320ms"],
+    ["running", "running", "Working · 320ms"],
   ] as const)("shows a %s run as a trace line with its status in text", (status, lineStatus, text) => {
     const wrapper = mount(TraceRun, { global, props: { run: run(status, [], 320) } });
     const line = wrapper.get("[data-slot=trace-collapsible-trigger] [data-slot=trace-line]");
@@ -65,7 +65,7 @@ describe("TraceRun", () => {
     cyclic.self = cyclic;
     const wrapper = mount(TraceRun, { attachTo: document.body, global, props: { defaultOpen: true, run: run("completed", [step("loop", "completed", cyclic)]) } });
     await wrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
-    expect(wrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    expect(wrapper.get("[data-slot=code-block-content]").text()).toContain('"self": "[Circular]"');
     wrapper.unmount();
 
     const throwingKeys = new Proxy({ value: 1 }, { ownKeys: () => { throw new Error("cannot inspect attributes"); } });
@@ -75,7 +75,7 @@ describe("TraceRun", () => {
     proxyWrapper.vm.$forceUpdate();
     await proxyWrapper.vm.$nextTick();
     await proxyWrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
-    expect(proxyWrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    expect(proxyWrapper.get("[data-slot=code-block-content]").text()).toBe("[Unable to display payload: cannot inspect attributes]");
     proxyWrapper.unmount();
   });
 });

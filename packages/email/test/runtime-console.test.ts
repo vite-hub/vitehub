@@ -71,8 +71,8 @@ describe("Email outbox runtime reader", () => {
       const outbox = await createEmailDevOutboxDriver({ deliver: true, driver: () => driver, provider: "resend" })
       await outbox.send(message, { attempt: 1, driver: outbox.name, meta: {} })
     }
-    await send({ name: "resend", send: () => ({ data: { at: new Date(), driver: "resend", id: "re_1" }, error: null }) })
-    await send({ name: "resend", send: () => ({ data: null, error: emailProviderError("resend", "AUTH", "Resend rejected the API key.") }) })
+    await send({ name: "resend", send: () => [undefined, { at: new Date(), driver: "resend", id: "re_1" }] })
+    await send({ name: "resend", send: () => [emailProviderError("resend", "AUTH", "Resend rejected the API key."), undefined] })
 
     const [failed, sent] = readEmailOutboxConsoleRecords()
     expect(failed?.cells.delivery).toBe("Failed")
@@ -90,14 +90,14 @@ describe("Email outbox runtime reader", () => {
     expect(shortHtml).toBe(message.html)
     const longHtml = long?.fields.find(field => field.label === "HTML source")?.value
     expect(typeof longHtml).toBe("string")
-    expect(String(longHtml)).toHaveLength(emailConsoleHtmlSourceLimit + "\n... 21 more characters. Use `vitehub email outbox show outbox-2 --html`.".length)
-    expect(String(longHtml)).toContain("Use `vitehub email outbox show outbox-2 --html`.")
+    expect(String(longHtml)).toHaveLength(emailConsoleHtmlSourceLimit + "\n... 21 more characters. Use `vitehub email outbox get outbox-2 --html`.".length)
+    expect(String(longHtml)).toContain("Use `vitehub email outbox get outbox-2 --html`.")
   })
 
   it("declares a runtime record-table section that the Console renders as text", async () => {
     expect(emailConsoleSection).toMatchObject({
       id: "email",
-      runtime: { export: "readEmailOutboxConsoleRecords", module: "@vite-hub/email/runtime/console" },
+      runtime: { export: "readEmailOutboxConsoleRecords", module: expect.stringMatching(/[\\/]email[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) },
       view: { kind: "record-table" },
     })
     expect(emailConsoleSection.view.columns.map(column => column.key)).toEqual(["subject", "to", "provider", "delivery", "captured"])

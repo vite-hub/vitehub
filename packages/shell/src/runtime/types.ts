@@ -12,9 +12,9 @@ export interface ShellRuntimeExecOptions {
   budgetCharged?: boolean
   cwd?: string
   env?: Record<string, string>
-  /** Abort the command and any provider-owned work, such as a Source request. */
+  /** Abort the command and any driver-owned work, such as a Source request. */
   signal?: AbortSignal
-  /** A provider may enforce this before buffering output. The runtime always enforces its policy limit. */
+  /** A driver may enforce this before buffering output. The runtime always enforces its policy limit. */
   maxOutputLength?: number
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
@@ -42,6 +42,7 @@ export interface ShellObservation {
 
 export interface ShellAnalyzeOptions {
   maxInputBytes?: number
+  /** Limits the parse. The first call also loads the WebAssembly parser, which this limit does not include. Defaults to 100. */
   timeoutMs?: number
 }
 
@@ -80,12 +81,12 @@ export interface ShellBoundary {
     enforcedBy: "provider" | "runtime" | "unsupported"
     supported: boolean
   }
-  /** Provider execution details that callers can inspect without knowing the host implementation. */
+  /** Driver execution details that callers can inspect without knowing the host implementation. */
   execution?: {
     isolation: "in_process" | "process" | "provider_managed" | "unknown"
     model: "virtual" | "host" | "unknown"
   }
-  /** Resource controls that this provider can enforce before buffering work. */
+  /** Resource controls that this driver can enforce before buffering work. */
   resources?: {
     output: {
       enforcedBy: "provider" | "runtime" | "unsupported"
@@ -101,7 +102,7 @@ export interface ShellProcess {
   stop(): Promise<ShellObservation>
 }
 
-export interface ShellExecutionProvider {
+export interface ShellDriver {
   analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
   boundary: ShellBoundary
   exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
@@ -125,7 +126,8 @@ export interface ShellRuntime {
 }
 
 export interface CreateShellRuntimeOptions {
-  provider: ShellExecutionProvider
+  /** The driver that runs commands, such as `createJustBashDriver()`. */
+  driver: ShellDriver
   policy?: ShellSessionPolicy
 }
 

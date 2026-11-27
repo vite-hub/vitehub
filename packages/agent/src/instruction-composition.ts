@@ -1,7 +1,12 @@
 import { parseMarkdown } from "comark"
+import alert from "comark/plugins/alert"
+import attributes from "comark/plugins/attributes"
+import components from "comark/plugins/components"
+import frontmatter from "comark/plugins/frontmatter"
+import html from "comark/plugins/html"
+import taskList from "comark/plugins/task-list"
 import { renderMarkdownTemplateInternal } from "@vite-hub/markdown-template/internal/composition"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface ComposeInstructionDocumentOptions {
   context?: Record<string, unknown>
@@ -54,14 +59,14 @@ export async function composeInstructionDocument(content: string, options: Compo
   const customTree = await parseInstructionTemplate(customMasked)
   const customInCode = instructionTokensInCode(customTree.nodes, customPrefix)
   for (const index of rawHtmlCodeSlotIndexes(content, customPattern)) customInCode.add(index)
-  if (customInstructions !== undefined && !hasRuntimeType(customInstructions, "string")) {
-    throw new TypeError("[vitehub] context.customInstructions must be a string.")
+  if (customInstructions !== undefined && typeof customInstructions !== "string") {
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING()
   }
   if (hasExecutableCustomInstructionReference(content)) {
-    throw new TypeError("[vitehub] context.customInstructions is available only through the authored {{{ context.customInstructions }}} slot.")
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_REFERENCE_INVALID()
   }
   if (customInstructions && customCount === customInCode.size) {
-    throw new TypeError("[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.")
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_SLOT_MISSING()
   }
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(customMasked, coverageMarker)
@@ -191,7 +196,7 @@ export async function fillInstructionSlot(template: string, content: string): Pr
   const tree = await parseInstructionTemplate(masked)
   const inCode = instructionTokensInCode(tree.nodes, prefix)
   if (count - inCode.size !== 1) {
-    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
+    throw agentDiagnostics.AGENT_INSTRUCTION_SLOT_INVALID()
   }
   let index = 0
   return template.replace(pattern, match => inCode.has(index++) ? match : content)
@@ -267,12 +272,16 @@ function rethrowInstructionCompositionError(error: unknown): never {
     : agentDiagnostics.AGENT_R0447({ message, cause: error })
 }
 
+function defaultPluginsWithoutLinkify() {
+  return [frontmatter(), html(), alert(), taskList(), components(), attributes()]
+}
+
 async function parseInstructionMarkdown(content: string) {
   return await parseMarkdown(content, {
     autoClose: false,
     autoUnwrap: false,
-    linkify: false,
-    plugins: [],
+    registerDefaultPlugins: false,
+    plugins: defaultPluginsWithoutLinkify(),
   })
 }
 

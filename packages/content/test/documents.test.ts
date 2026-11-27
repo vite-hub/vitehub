@@ -16,7 +16,7 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { file as blobFile, image as blobImage } from "@vite-hub/blob/reference"
+import { file as blobFile, image as blobImage } from "@vite-hub/blob"
 import { documents, optional, singleton } from "../src/collections.ts"
 import { defineContent, file, image, seo } from "../src/index.ts"
 
@@ -38,7 +38,7 @@ async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizz
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `site-${++workspaces}`
@@ -376,7 +376,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     await expect(content.publish({ expect: [] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
     await expect(content.publish({ expect: [entry, entry] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
     await expect(content.publish({ expect: [{ ...entry, digest: "" }] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
-    await expect(content.publish({ expect: [{ ...entry, collection: "pages" }] })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.publish({ expect: [{ ...entry, collection: "pages" }] })).rejects.toMatchObject({ code: "CONTENT_COLLECTION_UNKNOWN" })
   })
 
   it("lists revisions per document, reads them, and restores one", async () => {
@@ -487,7 +487,9 @@ describe("document collections", { timeout: 30_000 }, () => {
     await posts.save("react", { data: { title: "React", date: "2026-01-03", tags: ["react"] } })
     await content.publish({ collection: "posts", ids: ["vue"] })
     await posts.save("draft-only", { data: { title: "Draft", date: "2026-01-04", tags: ["vue"] } })
-    const app = new H3().get("/posts", defineCollectionHandler(posts))
+    // A Content collection does not choose its route access. The caller must.
+    expect(() => defineCollectionHandler(posts)).toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
+    const app = new H3().get("/posts", defineCollectionHandler({ ...posts, access: "public" }))
     const response = await app.request("/posts?tags=vue")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -565,7 +567,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(await strict.raw("untagged", { ref: "draft" })).toEqual({ ...raw, revision: expect.any(String) })
     expect(await strict.raw("untagged", { revision: raw!.revision })).toEqual(raw)
     expect(await strict.raw("missing")).toBeNull()
-    await expect(strict.raw("untagged", { ref: "draft", revision: raw!.revision })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(strict.raw("untagged", { ref: "draft", revision: raw!.revision })).rejects.toMatchObject({ code: "CONTENT_READ_REF_CONFLICT" })
   })
 
   it("pins the Comark Source to the draft ref with withRef()", async () => {
@@ -576,7 +578,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     const draft = source.withRef!("draft")
     expect(await draft.keys()).toEqual(["posts/hello.md"])
     expect(await draft.getItem("posts/hello.md")).toContain("title: Hello")
-    expect(() => source.withRef!("main")).toThrow(expect.objectContaining({ code: "CONTENT_R0008" }))
+    expect(() => source.withRef!("main")).toThrow(expect.objectContaining({ code: "CONTENT_REF_INVALID" }))
   })
 
   it("exposes the field JSON Schema and gives Comark its subset", async () => {
@@ -668,12 +670,12 @@ describe("document collections", { timeout: 30_000 }, () => {
   it("rejects ids outside the collection", async () => {
     const { posts } = await setup()
     for (const id of ["", "../secret", "/abs", "a//b", "trailing/"]) {
-      await expect(posts.save(id, hello)).rejects.toMatchObject({ code: "CONTENT_R0008" })
+      await expect(posts.save(id, hello)).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_ID_INVALID" })
     }
   })
 
   it("fails clearly without retained history", async () => {
-    registerWorkspace("memory-content", { store: { provider: "memory" } })
+    registerWorkspace("memory-content", { store: { driver: "memory" } })
     const content = defineContent({ workspace: "memory-content", collections: { posts: documents({ path: "posts/*.md", fields }) } })
     cleanup.push(() => content.dispose())
     await expect(content.collection("posts").save("hello", hello)).rejects.toMatchObject({ code: "CONTENT_R0007" })
@@ -686,23 +688,23 @@ describe("document collections", { timeout: 30_000 }, () => {
     const { content: guarded } = await setup({ authorize: policy })
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })).toBe(true)
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "publish" })).toBe(false)
-    expect(await guarded.can({ user: null, collection: "posts", action: "read" })).toBe(false)
+    expect(await guarded.can({ user: null, collection: "posts", action: "read-draft" })).toBe(false)
     expect(policy).toHaveBeenCalledWith({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })
     // @ts-expect-error unknown collection
-    await expect(guarded.can({ user: null, collection: "pages", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(guarded.can({ user: null, collection: "pages", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_COLLECTION_UNKNOWN" })
   })
 
   it("passes the Auth user and the Agent Actor to authorize", async () => {
-    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read" && actor?.kind === "agent"))
+    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read-draft" && actor?.kind === "agent"))
     const { content } = await setup({ authorize: policy })
     const actor = { id: "agent:writer", kind: "agent", meta: { authUserId: "u1" } }
-    expect(await content.can({ actor, collection: "posts", action: "read" })).toBe(true)
-    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read" })
+    expect(await content.can({ actor, collection: "posts", action: "read-draft" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read-draft" })
     expect(await content.can({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })).toBe(true)
     expect(policy).toHaveBeenLastCalledWith({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })
     expect(await content.can({ actor, collection: "posts", action: "write" })).toBe(false)
-    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_CAN_INPUT_INVALID" })
+    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_CAN_INPUT_INVALID" })
   })
 
   it("keeps read-only sources next to collections and rejects bad definitions", async () => {
@@ -720,7 +722,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     cleanup.push(() => sourcesOnly.dispose())
     expect(sourcesOnly.collections()).toEqual([])
 
-    expect(() => defineContent({ collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow(expect.objectContaining({ code: "CONTENT_R0006" }))
+    expect(() => defineContent({ collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow(expect.objectContaining({ code: "CONTENT_COLLECTIONS_WORKSPACE_MISSING" }))
     expect(() => defineContent({ workspace, sources: { posts: docs }, collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow("same name")
     const overlapping = (left: ReturnType<typeof documents> | ReturnType<typeof singleton>, right: ReturnType<typeof documents> | ReturnType<typeof singleton>) => () => defineContent({ workspace, collections: { left, right }, logger: false })
     expect(overlapping(documents({ path: "posts/*.md", fields }), documents({ path: "posts/**/*.md", fields }))).toThrow("overlap")
@@ -746,6 +748,30 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { icon: { type: "image", store: "" } } } } })).toThrow("must be a Blob Store name")
     expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { icon: { type: "image", default: 1 as never } } } } })).toThrow("default must be a string")
     expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { title: { type: "string", store: "media" } as never } } } })).toThrow("store needs type 'image' or 'file'")
+  })
+
+  it("reads a ** inside a file or folder name as *, like the Workspace glob and the overlap check", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        top: documents({ path: "posts/**.md", fields }),
+        drafts: documents({ path: "posts/drafts/*.md", fields }),
+        archive: documents({ path: "archive/a**/*.md", fields }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("top").save("hello", hello)
+    await content.collection("drafts").save("idea", hello)
+    await content.collection("archive").save("a2026/old", hello)
+    const facade = useWorkspace(workspace, { mode: "write" })
+    const head = await facade.history.head({ ref: "draft" })
+    await facade.history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "archive/a.md": "---\ntitle: Root\ndate: 2026-10-14\n---\n" } } })
+    expect((await content.collection("top").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["hello"])
+    expect((await content.collection("drafts").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["idea"])
+    expect((await content.collection("archive").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a2026/old"])
+    await expect(content.collection("top").get("drafts/idea", { ref: "draft" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION" })
   })
 
   it("declares the Comark components that bodies may use", async () => {
@@ -795,7 +821,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     expectTypeOf(document).toEqualTypeOf<ContentDocument<{ title: string, date: Date, tags: string[], summary?: string | undefined }> | null>()
     expectTypeOf(posts.save).parameter(1).toHaveProperty("data").toEqualTypeOf<{ title: string, date?: unknown, tags?: string[] | undefined, summary?: string | undefined }>()
     // @ts-expect-error only defined collections can be opened
-    expect(() => content.collection("pages")).toThrow(expect.objectContaining({ code: "CONTENT_R0008" }))
+    expect(() => content.collection("pages")).toThrow(expect.objectContaining({ code: "CONTENT_COLLECTION_UNKNOWN" }))
     expectTypeOf<StandardSchemaV1.InferOutput<ReturnType<typeof optional<typeof fields.title>>>>().toEqualTypeOf<string | undefined>()
   })
 })

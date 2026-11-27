@@ -8,120 +8,126 @@ icon: i-lucide-monitor
 ---
 
 ::product-hero{tagline="Open web pages in a cloud browser from your server, and get back HTML, screenshots, or data." hosts="Cloudflare"}
-  :::code-tree
-  ```ts [server/browsers/page-html.ts]
-  import { defineBrowser } from 'vite-hub/browser'
+  :hero-figure{name="browser"}
+::
 
-  // Returns the HTML of a page after it renders
-  export default defineBrowser(async (
-    input: { url: string },
-    { browser },
-  ) => {
-    return await browser.content(input.url)
-  })
-  ```
+::code-tree
+```ts [server/browsers/page-html.ts]
+import { defineBrowser } from 'vite-hub/browser'
 
-  ```ts [server/browsers/headings.ts]
-  import { defineBrowser } from 'vite-hub/browser'
+// Returns the HTML of a page after it renders
+export default defineBrowser(async (
+  input: { url: string },
+  { browser },
+) => {
+  return await browser.content(input.url)
+})
+```
 
-  // Keep one page open for several steps
-  export default defineBrowser(async (
-    input: { url: string },
-    { browser },
-  ) => {
-    const session = await browser.open()
-    await session.page.goto(input.url)
-    await session.page.locator('main').waitFor()
-    return await session.page.locator('h1').count()
-  })
-  ```
+```ts [server/browsers/headings.ts]
+import { defineBrowser } from 'vite-hub/browser'
 
-  ```ts [server/api/page-html.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
-  import { runBrowser } from 'vite-hub/browser'
+// Keep one page open for several steps
+export default defineBrowser(async (
+  input: { url: string },
+  { browser },
+) => {
+  const session = await browser.open()
+  await session.page.goto(input.url)
+  await session.page.locator('main').waitFor()
+  return await session.page.locator('h1').count()
+})
+```
 
-  // Run the page-html file by its name
-  export default defineEventHandler(async (event) => {
-    const input = await readBody<{ url: string }>(event)
-    return await runBrowser('page-html', input)
-  })
-  ```
+```ts [server/api/page-html.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { runBrowser } from 'vite-hub/browser'
+import { toResponse } from 'vite-hub/runtime'
 
-  ```ts [server/api/screenshot.get.ts]
-  import { defineEventHandler } from 'h3'
-  import {
-    runBrowserAction,
-  } from 'vite-hub/browser/actions'
+// Run the page-html file by its name
+export default defineEventHandler(async (event) => {
+  const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
+  const [error, html] = await runBrowser('page-html', input)
+  if (error) return toResponse(error)
+  return html
+})
+```
 
-  // One call, no browser file needed
-  export default defineEventHandler(() => {
-    return runBrowserAction(
-      'screenshot',
-      'https://example.com',
-    )
-  })
-  ```
+```ts [server/api/screenshot.get.ts]
+import { defineEventHandler } from 'h3'
+import {
+  runBrowserAction,
+} from 'vite-hub/browser'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  // Adds the Cloudflare browser setting for you
+// One call, no browser file needed
+export default defineEventHandler(() => {
+  return runBrowserAction(
+    'screenshot',
+    'https://example.com',
+  )
+})
+```
 
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { preset: 'cloudflare', browser: true },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+// Adds the Cloudflare browser setting for you
 
-  // Adds the Cloudflare browser setting for you
-  export default defineConfig({
-    plugins: [
-      vitehub({ preset: 'cloudflare', browser: true }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', browser: true },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-  // Adds the Cloudflare browser setting for you
-  export default defineConfig({
-    plugins: [
-      vitehub({ preset: 'cloudflare', browser: true }),
-    ],
-  })
-  ```
-  ::::
-  :::
+// Adds the Cloudflare browser setting for you
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'cloudflare', browser: true }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+// Adds the Cloudflare browser setting for you
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'cloudflare', browser: true }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features
   :::product-feature-item{title="One file per task" icon="i-lucide-file-code-2" to="/docs/browser/server-api#definition-api"}
-  Add a file to `server/browsers`. Run it by its name with `runBrowser()`.
+  Add a file to `server/browsers` and run it by name with `runBrowser()`.
   :::
 
   :::product-feature-item{title="Several steps on one page" icon="i-lucide-mouse-pointer-click" to="/docs/browser/server-api#keep-a-page-session-open"}
-  `browser.open()` keeps a page open to follow links, click, and fill in forms. ViteHub closes it.
+  `browser.open()` keeps a page open to follow links, click, and fill forms, then closes it.
   :::
 
   :::product-feature-item{title="Quick calls without a file" icon="i-lucide-zap" to="/docs/browser/server-api#browser-actions"}
-  Get HTML, Markdown, links, a screenshot, or a PDF with one function call.
+  Get HTML, Markdown, links, a screenshot, or a PDF in one function call.
   :::
 
   :::product-feature-item{title="No browser setup in your app" icon="i-lucide-cloud-cog" to="/docs/browser/configure#configuration"}
-  `browser: true` adds the Cloudflare binding at build time. Routes import no Cloudflare code.
+  `browser: true` adds the Cloudflare binding at build time, so routes import no Cloudflare code.
   :::
 
   :::product-feature-item{title="Full control when you need it" icon="i-lucide-sliders-horizontal" to="/docs/browser/server-api#low-level-sessions"}
-  Use Playwright, or a local Chromium on a Node server that you trust.
+  Use Playwright, or run local Chromium on a trusted Node server.
   :::
 
   :::product-feature-item{title="Check the URLs you open" icon="i-lucide-shield-check" to="/docs/browser/limits-and-errors#production-checks"}

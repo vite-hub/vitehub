@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
 import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
-import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { materializeAgentModel } from "../src/internal/agent-model.ts"
@@ -219,6 +220,40 @@ describe("gateway Server Env", () => {
         cloudflareAccess: {
           clientId: { names: ["CF_ACCESS_CLIENT_ID"], required: false, secret: true },
           clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], required: false, secret: true },
+        },
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("gateway Server Env from server files", () => {
+  it("declares the presets that any server file uses, such as a Channel that asks a question", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-gateway-env-"))
+    try {
+      await mkdir(join(root, "server", "channels", "airtable"), { recursive: true })
+      await mkdir(join(root, "server", "utils"), { recursive: true })
+      await writeFile(join(root, "server", "channels", "airtable", "duplicates.ts"), [
+        `import { defineChannel } from "vite-hub/channels"`,
+        `import { defineChoices } from "vite-hub/choices"`,
+        `import { vercel } from "vite-hub/gateways"`,
+        `export const duplicates = defineChoices({ gateway: vercel(), groups: { duplicate: { label: "Duplicate", multiple: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] } } })`,
+        `export default defineChannel({})`,
+      ].join("\n"))
+      await writeFile(join(root, "server", "utils", "jev.ts"), [
+        `import { openrouter } from "@vite-hub/gateways"`,
+        `export const jev = openrouter()`,
+      ].join("\n"))
+      await writeFile(join(root, "server", "utils", "plain.ts"), `export const anthropic = () => ({})\nanthropic()\n`)
+      await writeFile(join(root, "server", "utils", "jev.test.ts"), `import { openai } from "vite-hub/gateways"\nopenai()\n`)
+
+      expect(discoverAgentGatewayEnv({ rootDir: root })).toEqual({
+        openrouter: { apiKey: { names: ["OPENROUTER_API_KEY"], required: false, secret: true } },
+        vercel: {
+          apiKey: { names: ["AI_GATEWAY_API_KEY"], required: false, secret: true },
+          oidcToken: { names: ["VERCEL_OIDC_TOKEN"], required: false, secret: true },
         },
       })
     }

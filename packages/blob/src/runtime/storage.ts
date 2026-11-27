@@ -1,57 +1,51 @@
-import { createBlobStorage } from "../storage.ts"
+import { checkBlobDriverHealth, checkBlobStorageHealth, createBlobStorage, registerBlobStorageHealthCheck } from "../storage.ts"
 import { Diagnostic } from "nostics"
-import { blobResult } from "../errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
+import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
+import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
-import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
-import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
+import { resolveRuntimeBlobSecrets, resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
+import { createDriver as createCloudflareR2NativeDriver, getCloudflareDevFallback, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
-import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
+import { blobRuntimeEnv, getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobErrorCode, BlobMultipartUpload, BlobObject, BlobOperation, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobErrorCode, BlobMultipartUpload, BlobObject, BlobOperation, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
   constructor(message: string) {
-    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message }, UnknownBlobStoreError)
+    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/blob/diagnostics/blob_r0027", why: message, fix: blobErrorDiagnostics.BLOB_R0027({ message }).fix }, UnknownBlobStoreError)
     this.name = "UnknownBlobStoreError"
   }
 }
 
 const driverModules = {
-  akamai: "akamai",
   azure: "azure",
-  box: "box",
-  "cloudflare-r2": "cloudflare",
-  "digitalocean-spaces": "digitalocean-spaces",
-  dropbox: "dropbox",
+  cloudflare: "cloudflare",
   fs: "fs",
   gcs: "gcs",
-  "google-drive": "google-drive",
-  hetzner: "hetzner",
   minio: "minio",
   "netlify-blobs": "netlify-blobs",
-  onedrive: "onedrive",
   s3: "s3",
-  storj: "storj",
-  supabase: "supabase",
-  uploadthing: "uploadthing",
-  "vercel-blob": "vercel",
+  vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
-  if (config.driver === "cloudflare-r2") {
-    // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
-    if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
+  if (config.driver === "cloudflare") {
+    const local = getCloudflareDevFallback(config)
+    if (local) return { ...await importRuntimeDriverModule(local), name: config.driver }
     const nativeDriver = createCloudflareR2NativeDriver(config)
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
       if (getOptionalBucket(config)) return nativeDriver
-      fallbackDriver ||= importRuntimeDriverModule(config)
+      // A failed load lets the next call try again.
+      fallbackDriver ||= importRuntimeDriverModule(config).catch((error: unknown) => {
+        fallbackDriver = undefined
+        throw error
+      })
       return fallbackDriver
     }
     // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.
@@ -66,6 +60,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       options: config,
       createMultipartUpload: async (pathname, options) => multipartBucket().createMultipartUpload!(pathname, options),
       resumeMultipartUpload: async (pathname, uploadId) => multipartBucket().resumeMultipartUpload!(pathname, uploadId),
+      copy: async (from, to) => (await activeDriver()).copy!(from, to),
       delete: async pathnames => (await activeDriver()).delete(pathnames),
       get: async pathname => (await activeDriver()).get(pathname),
       getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
@@ -73,14 +68,15 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       head: async pathname => (await activeDriver()).head(pathname),
       list: async options => (await activeDriver()).list(options),
       put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),
-      sign: (pathname, options) => nativeDriver.sign!(pathname, options),
+      putIf: async (pathname, body, options, condition) => (await activeDriver()).putIf!(pathname, body, options, condition),
+      sign: (pathname, options, context) => nativeDriver.sign!(pathname, options, context),
     } satisfies BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>
   }
 
   return importRuntimeDriverModule(config)
 }
 
-async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
+async function importRuntimeDriverModule<Config extends ResolvedBlobStoreConfig>(config: Config) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
@@ -89,15 +85,17 @@ async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   const modulePath = isSourceRuntime
     ? new URL(`../drivers/${moduleName}.ts`, import.meta.url).href
     : `@vite-hub/blob/drivers/${moduleName}`
-  const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+  // SAFETY: The driver name selects the module whose factory accepts this config.
+  const module = await import(modulePath) as { createDriver: (options: Config) => BlobDriverAdapter<Config> }
   return module.createDriver(config)
 }
 
-function resolveRuntimeBlobStore(store: ResolvedBlobStoreConfig): ResolvedBlobStoreConfig {
+function resolveRuntimeBlobStore(configured: ResolvedBlobStoreConfig): ResolvedBlobStoreConfig {
+  const store = resolveRuntimeBlobSecrets(configured, blobRuntimeEnv())
   if (store.driver === "minio") {
     return resolveRuntimeMinioBlobStore(store, process.env)
   }
-  if (store.driver === "vercel-blob") {
+  if (store.driver === "vercel") {
     return resolveRuntimeVercelBlobStore(store, process.env)
   }
   return store
@@ -108,11 +106,13 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, na
     ...config,
     store: resolveRuntimeBlobStore(config.store),
   }
-  const driver = await importRuntimeDriver(resolvedConfig.store)
-  return createBlobStorage(driver, name, {
+  const driver: BlobDriverAdapter<ResolvedBlobStoreConfig> = await importRuntimeDriver(resolvedConfig.store)
+  const storage = createBlobStorage(driver, name, {
     ...(config.images === undefined ? {} : { images: config.images }),
     url: pathname => servedBlobUrl(name, pathname),
   })
+  registerBlobStorageHealthCheck(storage, () => checkBlobDriverHealth(driver))
+  return storage
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
@@ -144,7 +144,7 @@ function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, nam
   if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   const stores = config.stores || { default: config.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  if (!store) throw new UnknownBlobStoreError(unknownBlobStoreMessage(name, stores))
   return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
 }
 
@@ -169,6 +169,10 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
   return result
 }
 
+export async function checkBlobStoreHealth(name: string): Promise<void> {
+  await checkBlobStorageHealth(await resolveStorage(name))
+}
+
 // Completed multipart objects get the served URL, like put().
 function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): BlobMultipartUpload {
   return {
@@ -181,8 +185,22 @@ function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): Blob
 }
 
 function createRuntimeBlobStorage(name = "default"): BlobStorage {
+  function deleteObjects(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  function deleteObjects(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
+  async function deleteObjects(target: string | string[] | BlobDeletePrefixOptions): Promise<Result<void | BlobDeletePrefixResult, BlobErrorCode>> {
+    const [error, storage] = await resolveStorageResult("delete", name)
+    if (error) return [error, undefined]
+    if (typeof target === "object" && !Array.isArray(target)) return storage.delete(target)
+    return storage.delete(target)
+  }
   const storage: BlobStorage = {
     media: createLazyBlobMedia(() => resolveStorageResult("media", name)),
+    async copy(from, to, options) {
+      const [resolutionError, storage] = await resolveStorageResult("copy", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, object] = await storage.copy(from, to, options)
+      return error ? [error, undefined] : [undefined, await withServedBlobUrl(name, object)]
+    },
     async createMultipartUpload(pathname, options) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
@@ -190,17 +208,14 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    handleUpload: createUploadHandler(() => storage, name),
     async resumeMultipartUpload(pathname, uploadId) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
-    async del(pathnames) {
-      const [error, storage] = await resolveStorageResult("del", name)
-      return error ? [error, undefined] : storage.del(pathnames)
-    },
+    delete: deleteObjects,
     async get(pathname) {
       const [error, storage] = await resolveStorageResult("get", name)
       return error ? [error, undefined] : storage.get(pathname)
@@ -229,9 +244,10 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("sign", name)
       return error ? [error, undefined] : storage.sign(pathname, options)
     },
-    async serve(event, pathname, options) {
+    async serve(request, pathname, options) {
       const [error, storage] = await resolveStorageResult("serve", name)
-      return error ? [error, undefined] : storage.serve(event, pathname, options)
+      if (error) throw error
+      return storage.serve(request, pathname, options)
     },
     store: selectRuntimeBlobStore,
   }
@@ -247,4 +263,4 @@ function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions)
   return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
-export const blob: BlobStorage = createRuntimeBlobStorage()
+export const blob: BlobStorage = /* @__PURE__ */ createRuntimeBlobStorage()

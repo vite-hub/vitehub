@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { requestLog } from "@vite-hub/internal/runtime/request-log"
 
 /** The database work of one request, as its wide event shows it under `database`. */
 export interface DatabaseRequestStats {
@@ -16,21 +17,10 @@ interface RequestStatsState {
   since: number
 }
 
-interface RequestLogger {
-  set: (fields: Record<string, unknown>) => void
-}
-
 // One store per runtime, also when the bundle holds more than one copy of this module.
 const storageKey = Symbol.for("vitehub.database.request-stats")
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const storage = (runtimeGlobal[storageKey] ||= new AsyncLocalStorage<RequestStatsState>()) as AsyncLocalStorage<RequestStatsState>
-
-/** The evlog request logger on a Nitro v3 event (`event.req.context.log`), when the app registers evlog. */
-function requestLogger(event: unknown): RequestLogger | undefined {
-  const log: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(Object(event), "req")), "context")), "log")
-  const set: unknown = log && Reflect.get(Object(log), "set")
-  return typeof set === "function" ? { set: fields => Reflect.apply(set, log, [fields]) } : undefined
-}
 
 /**
  * Nitro middleware: runs the rest of the request with its own database stats, and sets them on the request's wide event
@@ -38,7 +28,7 @@ function requestLogger(event: unknown): RequestLogger | undefined {
  * Work that continues after the response, such as `waitUntil()`, is not counted.
  */
 export function runWithDatabaseRequestStats(event: unknown, next: () => unknown): unknown {
-  const log = requestLogger(event)
+  const log = requestLog(event)
   if (!log) return next()
   const state: RequestStatsState = { stats: { calls: 0, ms: 0, maxConcurrent: 0 }, inFlight: 0, since: 0 }
   const report = () => {
@@ -163,6 +153,54 @@ export function trackPostgresClient<TClient extends object>(client: TClient): TC
         return (...args: unknown[]) => Reflect.apply(value, target, args.map(arg => typeof arg === "function"
           ? (transaction: object, ...rest: unknown[]) => Reflect.apply(arg, undefined, [trackPostgresClient(transaction), ...rest])
           : arg))
+      }
+      return value.bind(target)
+    },
+  })
+}
+
+const PGLITE_CALLS = new Set(["exec", "query", "sql"])
+
+/**
+ * A PGlite client, or one of its transactions, that counts every query for the active request. PGlite has private
+ * fields, so each method runs on the client itself.
+ */
+export function trackPgliteClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (typeof property === "string" && PGLITE_CALLS.has(property))
+        return (...args: unknown[]) => trackDatabaseCall(() => Reflect.apply(value, target, args))
+      // A transaction hands its callback a client of its own.
+      if (property === "transaction") {
+        return (...args: unknown[]) => Reflect.apply(value, target, args.map(arg => typeof arg === "function"
+          ? (transaction: object, ...rest: unknown[]) => Reflect.apply(arg, undefined, [trackPgliteClient(transaction), ...rest])
+          : arg))
+      }
+      return value.bind(target)
+    },
+  })
+}
+
+/** A node-postgres pool, or a client of it, that counts each promise query for the active request. */
+export function trackNodePostgresClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (property === "query") {
+        // A query with a callback returns no promise. Run it as it is.
+        return (...args: unknown[]) => typeof args.at(-1) === "function"
+          ? Reflect.apply(value, target, args)
+          : trackDatabaseCall(() => Reflect.apply(value, target, args) as PromiseLike<unknown>)
+      }
+      // Drizzle runs a transaction on a client that it takes from the pool.
+      if (property === "connect") {
+        return (...args: unknown[]) => {
+          const connected: unknown = Reflect.apply(value, target, args)
+          return connected instanceof Promise ? connected.then(poolClient => trackNodePostgresClient(Object(poolClient))) : connected
+        }
       }
       return value.bind(target)
     },

@@ -6,10 +6,10 @@ import { runAgentInline } from "../src/internal/agent-run.ts"
 import { createWorkflow } from "../../workflow/src/index.ts"
 import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../../workflow/src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader, type VercelRun, type VercelWorkflowRuntime } from "../../workflow/src/runtime/vercel.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
-import { defineAgent, workflow } from "../src/index.ts"
+import { defineAgent, agentWorkflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -38,11 +38,11 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, agentIdentity: { name } }
   const driver = vi.fn(() => "done")
   const identities: unknown[] = []
-  const channel = defineChannel("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+  const channel = channelAdapter("mailbox", {
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
-  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: workflow(name) }) })
+  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: agentWorkflow(name) }) })
   const runs = new Map<string, VercelRun>()
   const statuses = new Map<string, string>()
   const cancel = vi.fn(async (id: string) => { statuses.set(id, "cancelled") })
@@ -69,10 +69,10 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
     if (options.failRuntimeLoad) throw new Error("Native SDK unavailable before submission")
     return { start, getRun, listSteps: async () => [], resumeHook: async () => ({ runId: "unused" }) }
   })
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
-    [name]: async () => ({ default: { handler: native, options: { native } } }),
-    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, options: { native: recoveryNative } } }),
+    [name]: async () => ({ default: { handler: native, native } }),
+    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, native: recoveryNative } }),
   })
   setAgentWorkflowRuntimeLoaders({ state: () => import("../../workflow/src/runtime/state.ts"), workflow: () => import("../../workflow/src/index.ts") })
   const primaryStarts = () => vi.mocked(start).mock.calls.filter(([handler]) => handler === native)
@@ -81,7 +81,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
 
 it("uses provider IDs with the real native Vercel adapter and omits caller IDs for primary and recovery starts", async () => {
   const test = fixture()
-  await expect(createWorkflow(test.name).run({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  expect(await createWorkflow(test.name).start({}, { id: "logical-id" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(test.start).not.toHaveBeenCalled()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.primaryStarts()).toHaveLength(1)
@@ -134,7 +134,7 @@ it("fails before SDK submission if dispatch intent cannot be persisted", async (
 it("cancels the physical provider run and reconciles the logical journal through native recovery", async () => {
   const test = fixture()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1 })
-  await createWorkflow(test.name).cancel("wrun_1")
+  expect(await createWorkflow(test.name).cancel("wrun_1")).toMatchObject([undefined, { id: "wrun_1", status: "cancelled" }])
   expect(test.cancel).toHaveBeenCalledWith("wrun_1")
   const recoveryContext = vi.mocked(test.start).mock.calls[1]![1][0] as Parameters<typeof runAgentWorkflowDefinition>[1]
   await runAgentWorkflowDefinition(test.agent, { ...recoveryContext, id: "wrun_2", provider: "vercel" }, (definition, runtime, input) => runAgentInline(definition, runtime, input))

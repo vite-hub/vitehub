@@ -1,0 +1,95 @@
+import { fork } from "node:child_process"
+import { fileURLToPath } from "node:url"
+
+import postgres from "postgres"
+import { afterAll, describe, expect, it } from "vitest"
+
+import type { ChildProcess } from "node:child_process"
+
+const postgresUrl = process.env.VITEHUB_TEST_POSTGRES_URL
+const worker = fileURLToPath(new URL("./fixtures/postgres-process.mjs", import.meta.url))
+const minuteMs = 60_000
+const speed = 30
+const leaseTtlMs = 1500
+
+interface RunRow {
+  event: string
+  pid: number
+  scheduled_at: string
+}
+
+const children: ChildProcess[] = []
+afterAll(() => {
+  for (const child of children) child.kill("SIGKILL")
+})
+
+function start(env: Record<string, string>): Promise<ChildProcess> {
+  const child = fork(worker, { env: { ...process.env, ...env }, stdio: ["ignore", "inherit", "inherit", "ipc"] })
+  children.push(child)
+  return new Promise((resolve, reject) => {
+    child.once("message", () => resolve(child))
+    child.once("exit", code => reject(new Error(`The worker stopped with code ${code} before it was ready.`)))
+  })
+}
+
+function stop(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise((resolve) => {
+    child.once("exit", () => resolve())
+    child.kill("SIGTERM")
+  })
+}
+
+describe.skipIf(!postgresUrl)("Process Runtime on three processes with Postgres", () => {
+  it("runs each occurrence once, and runs the occurrence of a crashed process again after its lease ends", async () => {
+    const sql = postgres(postgresUrl!, { max: 1, onnotice: () => {} })
+    try {
+      await sql`drop table if exists runs`
+      await sql`drop table if exists vitehub_leases`
+      await sql`create table runs (scheduled_at text not null, pid int not null, event text not null,
+        at timestamptz not null default clock_timestamp(), lease_expires_at bigint)`
+
+      const fakeStart = Date.parse("2026-11-09T08:00:10.000Z")
+      const crashAt = new Date(Date.parse("2026-11-09T08:00:00.000Z") + 3 * minuteMs).toISOString()
+      const env = { CRASH_AT: crashAt, DATABASE_URL: postgresUrl!, FAKE_START: String(fakeStart), LEASE_TTL_MS: String(leaseTtlMs), REAL_START: String(Date.now()), SPEED: String(speed) }
+      const processes = await Promise.all([start(env), start(env), start(env)])
+
+      await new Promise(resolve => setTimeout(resolve, 20_000))
+      await Promise.all(processes.map(stop))
+
+      const rows = await sql<RunRow[]>`select scheduled_at, pid, event from runs order by at`
+      const byMinute = new Map<string, RunRow[]>()
+      for (const row of rows) byMinute.set(row.scheduled_at, [...byMinute.get(row.scheduled_at) ?? [], row])
+      const minutes = [...byMinute.keys()].sort()
+      const checked = minutes.slice(0, -1)
+
+      expect(checked.length).toBeGreaterThanOrEqual(8)
+      expect(checked[0]).toBe("2026-11-09T08:00:00.000Z")
+      checked.forEach((minute, index) => expect(minute).toBe(new Date(Date.parse(checked[0]!) + index * minuteMs).toISOString()))
+      for (const minute of checked) {
+        const events = byMinute.get(minute)!
+        if (minute === crashAt) continue
+        expect(events.map(event => event.event), minute).toEqual(["start", "done"])
+        expect(events[0]!.pid, minute).toBe(events[1]!.pid)
+      }
+
+      const crash = byMinute.get(crashAt)!
+      expect(crash.map(event => event.event)).toEqual(["start", "start", "done"])
+      const crashed = crash[0]!.pid
+      expect(crash[1]!.pid).not.toBe(crashed)
+      expect(crash[2]!.pid).toBe(crash[1]!.pid)
+      expect(processes.filter(child => child.signalCode === "SIGKILL").map(child => child.pid)).toEqual([crashed])
+
+      const [{ afterExpiry }] = await sql<{ afterExpiry: boolean }[]>`
+        select (extract(epoch from retry.at) * 1000)::bigint >= initial.lease_expires_at as "afterExpiry"
+        from runs initial cross join runs retry
+        where initial.scheduled_at = ${crashAt} and initial.event = 'start' and initial.pid = ${crashed}
+          and retry.scheduled_at = ${crashAt} and retry.event = 'start' and retry.pid = ${crash[1]!.pid}`
+      expect(afterExpiry).toBe(true)
+      expect(new Set(rows.map(row => row.pid)).size).toBeGreaterThanOrEqual(2)
+    }
+    finally {
+      await sql.end()
+    }
+  }, 60_000)
+})

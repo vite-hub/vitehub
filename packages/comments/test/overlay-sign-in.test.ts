@@ -11,7 +11,7 @@ vi.mock("@vite-hub/realtime/client", () => ({ connectRealtimeRoom: vi.fn() }))
 const denied: CommentsSession = {
   user: null,
   can: { read: false, comment: false, resolve: false },
-  signIn: { provider: "github", url: "/api/_vitehub/comments/auth/github" },
+  signIn: { provider: "github", url: "/_vitehub/comments/auth/github" },
   realtime: false,
   content: false,
 }
@@ -60,7 +60,7 @@ it("offers account switching while keeping the denied segment hidden", async () 
   const overlay = await open("", {
     ...denied,
     github: { login: "ada", repository: "vite-hub/vitehub", write: false },
-    signOut: "/api/_vitehub/comments/auth/sign-out",
+    signOut: "/_vitehub/comments/auth/sign-out",
   })
   expect(overlay.shadowRoot?.textContent).toContain("@ada cannot push to vite-hub/vitehub")
   expect(overlay.shadowRoot?.querySelector("button")?.textContent).toBe("Use another account")
@@ -74,7 +74,7 @@ it("renders GitHub sign-out in the pill segment with no separate exit", async ()
     user: { id: "ada", name: "Ada" },
     can: { read: true, comment: true, resolve: false },
     github: { login: "ada", repository: "vite-hub/vitehub", write: true },
-    signOut: "/api/_vitehub/comments/auth/sign-out",
+    signOut: "/_vitehub/comments/auth/sign-out",
   })
   const bar = document.querySelector<HTMLElement>("vitehub-tool")!
   expect(bar.hidden).toBe(false)
@@ -82,4 +82,28 @@ it("renders GitHub sign-out in the pill segment with no separate exit", async ()
   expect(bar.shadowRoot?.querySelector('[aria-label="Sign out @ada"]')).not.toBeNull()
   expect(overlay.shadowRoot?.querySelector('[aria-label="Sign out @ada"]')).toBeNull()
   expect(bar.shadowRoot?.querySelector('[aria-label="Leave comment mode"]')).toBeNull()
+})
+
+it("waits for a press of the tool's button before it asks a visitor to sign in", async () => {
+  history.replaceState(null, "", "/page")
+  vi.spyOn(api, "session").mockResolvedValue([undefined, denied])
+  const pill = document.createElement("vitehub-pill")
+  const bar = document.createElement("vitehub-tool")
+  bar.slot = "comments"
+  pill.append(bar)
+  document.body.append(pill)
+  start({
+    bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
+    signal: new AbortController().signal, open: false, exit: vi.fn(),
+    createWindow: () => { throw new Error("Unexpected retained window") },
+    createTab: () => { throw new Error("Unexpected tab") },
+    openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+  })
+  const overlay = document.querySelector("vitehub-comments")!
+  const launch = () => bar.shadowRoot?.querySelector<HTMLButtonElement>("button:not([aria-busy])")
+  await vi.waitFor(() => expect(launch()?.textContent).toBe("Comments"))
+  expect(bar.hidden).toBe(false)
+  expect(overlay.shadowRoot?.querySelector(".toast")).toBeNull()
+  launch()!.click()
+  await vi.waitFor(() => expect(overlay.shadowRoot?.querySelector("a")?.textContent).toBe("Sign in with GitHub"))
 })

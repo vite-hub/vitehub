@@ -9,6 +9,7 @@ import { z } from "zod"
 import { formatReport, runCodemod, runMigration } from "../src/index.ts"
 import { classify, resolveSpecifier } from "../src/t3-env/call-sites.ts"
 import { envPathOf, planT3Env } from "../src/t3-env/plan.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/t3-env-test/", import.meta.url))
@@ -24,7 +25,7 @@ export const env = createEnv({
   client: { NUXT_PUBLIC_APP_URL: z.string() },
 })
 `,
-    "nuxt.config.ts": 'import "./env"\nexport default defineNuxtConfig({ vitehub: { preset: "node" } })\n',
+    "nuxt.config.ts": 'import "./env"\nexport default defineNuxtConfig({ vitehub: { host: "node" } })\n',
     "package.json": JSON.stringify({ dependencies: { "@t3-oss/env-nuxt": "^0.13.0" } }),
     ...files,
   }
@@ -101,7 +102,7 @@ describe("t3-env import safety", () => {
     'const { env } = require("./env")',
   ])("keeps the env module when nuxt.config reads it through %s", async (statement) => {
     const file = "nuxt.config.ts"
-    const cwd = await app({ [file]: `${statement}\nexport default defineNuxtConfig({ app: { baseURL: env.NUXT_PUBLIC_APP_URL }, vitehub: { preset: "node" } })\n` })
+    const cwd = await app({ [file]: `${statement}\nexport default defineNuxtConfig({ app: { baseURL: env.NUXT_PUBLIC_APP_URL }, vitehub: { host: "node" } })\n` })
     const run = await runCodemod("t3-env", { cwd })
     const after = await readFile(join(cwd, file), "utf8")
     expect(after).toContain(statement)
@@ -137,7 +138,7 @@ describe("t3-env import safety", () => {
     const cwd = await app({ [file]: 'import { env } from "../../env"\nconst useServerEnv = () => "existing"\nexport const existing = useServerEnv()\nexport const databaseUrl = env.DATABASE_URL\n' })
     await runCodemod("t3-env", { cwd })
     const after = await readFile(join(cwd, file), "utf8")
-    expect(after).toContain('import { useServerEnv as viteHubServerEnv } from "#vitehub/env/server"')
+    expect(after).toContain('import { useServerEnv as viteHubServerEnv } from "vite-hub/env"')
     expect(after).toContain('const useServerEnv = () => "existing"')
     expect(after).toContain("export const databaseUrl = viteHubServerEnv().databaseUrl.unseal()")
   })
@@ -172,7 +173,7 @@ describe.each([
     const run = await runCodemod("t3-env", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after ?? "(deleted)\n").toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      await expect(withVersionPlaceholder(edit.after ?? "(deleted)\n")).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })

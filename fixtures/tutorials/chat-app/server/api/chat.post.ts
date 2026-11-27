@@ -1,7 +1,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { createError, defineEventHandler, readValidatedBody } from "h3";
+import { defineEventHandler, HTTPError, readValidatedBody } from "h3";
 import { createMessage, streamAgent } from "vite-hub/agent";
-import { getRuntimeContext } from "vite-hub/runtime/h3";
+import { getRuntimeContext } from "vite-hub/runtime";
 import { z } from "zod";
 import { textMessage } from "../../shared/chat";
 import assistant from "../agents/assistant";
@@ -22,29 +22,24 @@ export default defineEventHandler(async (event) => {
   const { id, revision, text } = await readValidatedBody(event, requestSchema.parse);
   const store = chatStore();
   const thread = store.get(owner, id);
-  if (!thread) throw createError({ statusCode: 404 });
+  if (!thread) throw new HTTPError({ status: 404 });
   if (thread.revision !== revision || activeChats.has(id)) {
-    throw createError({ statusCode: 409, statusMessage: "Chat changed. Reload its saved history." });
+    throw new HTTPError({ status: 409, message: "Chat changed. Reload its saved history." });
   }
-  if (thread.messages.length >= 40) throw createError({ statusCode: 409, statusMessage: "Start a new chat after 20 turns." });
+  if (thread.messages.length >= 40) throw new HTTPError({ status: 409, message: "Start a new chat after 20 turns." });
   if (Date.now() - windowStart > 60_000) { requests = 0; windowStart = Date.now(); }
-  if (activeChats.size >= 2 || ++requests > 20) throw createError({ statusCode: 429, statusMessage: "Wait before sending another message." });
+  if (activeChats.size >= 2 || ++requests > 20) throw new HTTPError({ status: 429, message: "Wait before sending another message." });
   const mode = process.env.CHAT_MODE || "offline";
-  if (!["offline", "model"].includes(mode)) throw createError({ statusCode: 503, statusMessage: "Invalid CHAT_MODE." });
+  if (!["offline", "model"].includes(mode)) throw new HTTPError({ status: 503, message: "Invalid CHAT_MODE." });
   if (mode === "model" && !process.env.AI_GATEWAY_API_KEY) {
-    throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
+    throw new HTTPError({ status: 503, message: "Set AI_GATEWAY_API_KEY on the server." });
   }
-
-  const response = event.node?.res;
-  if (!response) throw createError({ statusCode: 500, statusMessage: "This route requires a Node response." });
 
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
-  const controller = new AbortController();
-  const abort = () => { if (!response.writableEnded) controller.abort(); };
-  response.once("close", abort);
-  const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
+  // The request signal aborts when the client leaves before the reply ends.
+  const signal = AbortSignal.any([runtime.request.signal, AbortSignal.timeout(60_000)]);
   activeChats.add(id);
 
   const stream = createUIMessageStream({
@@ -52,14 +47,14 @@ export default defineEventHandler(async (event) => {
       try {
         const [error, output] = await streamAgent(mode === "model" ? assistant : offline, {
           messages: [...thread.messages, user].map(message => createMessage(message)),
-          abortSignal: controller.signal,
+          abortSignal: signal,
         }, { runtimeContext: runtime });
         if (error) throw error;
         writer.write({ type: "start", messageId: reply.id });
         writer.write({ type: "text-start", id: reply.id });
         let answer = "";
         for await (const part of output) {
-          controller.signal.throwIfAborted();
+          signal.throwIfAborted();
           if (part.type === "error") throw new Error("Agent failed.");
           if (part.type !== "text-delta") continue;
           answer += part.text;
@@ -67,15 +62,13 @@ export default defineEventHandler(async (event) => {
           writer.write({ type: "text-delta", id: reply.id, delta: part.text });
         }
         await runtime.flushWaitUntil();
-        controller.signal.throwIfAborted();
+        signal.throwIfAborted();
         if (!answer.trim()) throw new Error("Agent returned no text.");
         reply.parts[0]!.text = answer;
         store.save(owner, id, revision, [...thread.messages, user, reply]);
         writer.write({ type: "text-end", id: reply.id });
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
-        clearTimeout(timeout);
-        response.off("close", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }

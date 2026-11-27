@@ -8,12 +8,12 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-KV is a key-value store. You save a value under a name, called a key, and you read it back later by that key. Use it for small data such as settings, flags, or a cache.
+KV is a key-value store. You save a value under a name, called a key, and read it back later by that key. Use it for small data, such as settings, flags, or a cache.
 
-In this tutorial, you save a theme setting under the key `settings` with one API route, and you read it with a second route.
+In this tutorial, you save a theme setting under the key `settings` in one API route and read it back in a second route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. On your computer, KV saves values in the `.vitehub/data/kv` folder.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need no account and no API key. On your computer, KV saves values in the `.vitehub/data/kv` folder.
 
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
@@ -24,14 +24,14 @@ Install the KV package in the app:
 pnpm add @vite-hub/kv
 ```
 
-Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
+Add `kv: true` to your ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: true },
+  vitehub: { kv: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', kv: true }), nitro()],
+  plugins: [vitehub({ kv: true }), nitro()],
 })
 ```
 ::::
@@ -56,30 +56,28 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', kv: true })],
+  plugins: [vitehub({ kv: true })],
 })
 ```
 ::::
 :::
-
-Did you choose Nuxt in Installation? Then add `kv: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 
 ::tutorial-step{title="Write one key"}
 ## Write one key
 
-Create `server/api/settings.put.ts`. This file is the route `PUT /api/settings`. It saves the theme that you send.
+Create `server/api/settings.put.ts` for `PUT /api/settings`. It saves the theme that you send:
 
 ```ts [server/api/settings.put.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ theme?: unknown }>(event)
   const theme = body?.theme
   if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
-    throw createError({ statusCode: 400, message: 'Use system, light, or dark for theme.' })
+    throw new HTTPError({ status: 400, message: 'Use system, light, or dark for theme.' })
   }
 
   const settings = { theme }
@@ -97,17 +95,17 @@ export default defineEventHandler(async (event) => {
 ::tutorial-step{title="Read the stored value"}
 ## Read the stored value
 
-Create `server/api/settings.get.ts`. This route only reads the value.
+Create `server/api/settings.get.ts` for `GET /api/settings`. This route only reads the value:
 
 ```ts [server/api/settings.get.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get<{ theme: string }>('settings')
   if (error) throw error
   if (settings === null) {
-    throw createError({ statusCode: 404, message: 'Save a theme first.' })
+    throw new HTTPError({ status: 404, message: 'Save a theme first.' })
   }
   return { settings }
 })

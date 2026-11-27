@@ -1,9 +1,4 @@
-// The Durable Object that backs the built-in Cloudflare Sandbox runtime.
-// @cloudflare/sandbox 1.0 no longer ships a Sandbox class: the application's Durable Object starts
-// its Container through `ctx.container` and uses `Files` for file operations. This class implements
-// the `CloudflareSandboxStub` contract that `createCloudflareRuntime` calls over Durable Object RPC.
-// Its base class and `Files` are injected, so this module imports neither `cloudflare:workers` nor
-// `@cloudflare/sandbox` and tests can run it in Node.
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts";
 
 export interface CloudflareContainerExecProcess {
   readonly exitCode: Promise<number>;
@@ -26,12 +21,18 @@ export interface CloudflareContainer {
     stdin?: ReadableStream | "pipe";
     stdout?: "pipe" | "ignore";
   }): Promise<CloudflareContainerExecProcess>;
+  /** Sends HTTP requests on port 80 to `target` through `handler`. Missing on Workers runtimes without outbound interception. */
+  interceptOutboundHttp?(target: string, handler: unknown): Promise<void>;
+  /** Decrypts HTTPS requests on port 443 to `target` and sends them through `handler`. */
+  interceptOutboundHttps?(target: string, handler: unknown): Promise<void>;
   setInactivityTimeout(durationMs: number | bigint): Promise<void>;
   start(options?: { enableInternet?: boolean; labels?: Record<string, string> }): void;
 }
 
 export interface CloudflareDurableObjectState {
   readonly container?: CloudflareContainer;
+  /** The Worker's exported entrypoints. Needs compatibility date 2025-11-17 or later, or the `enable_ctx_exports` flag. */
+  readonly exports?: Readonly<Record<string, unknown>>;
   readonly id: { toString(): string; readonly name?: string };
   readonly storage: {
     get<T>(key: string): Promise<T | undefined>;
@@ -52,25 +53,26 @@ export interface CloudflareSandboxFiles {
 export interface CloudflareSandboxDurableObjectDependencies {
   DurableObject: abstract new (ctx: any, env: any) => object;
   Files: new (container: Pick<CloudflareContainer, "exec">) => CloudflareSandboxFiles;
+  /** The name of the exported `WorkerEntrypoint` that sends allowed outbound requests on unchanged. */
+  outboundEntrypoint?: string;
   SandboxFileError: { is(cause: unknown): cause is Error & { code: string } };
 }
 
 export interface CloudflareSandboxConfiguration {
   keepAlive?: boolean;
+  /** Validated by the caller. Missing means `"allow-all"`, as for Containers that started before this option existed. */
+  networkPolicy?: "allow-all" | "deny-all" | { allow: readonly string[] };
   sleepAfter?: number | string;
 }
 
 const configurationKey = "vitehub:configuration";
 const defaultSleepAfter = 10 * 60_000;
-// The Container API has no "never" timeout; use its maximum supported idle duration.
 const keepAliveTimeout = 6 * 60 * 60_000;
 const fileOptions = { cwd: "/workspace" };
-// Output kept per stream for replay to late readers. Older output is dropped beyond this.
 const maxBufferedOutput = 8 * 1024 * 1024;
-const signals: Record<string, number> = { HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
+const maxCancelledExecs = 1024;
+const signals: Record<string, number> = { ALRM: 14, HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
 
-// Keep timeout's monitored shell alive until both output pipes reach EOF, including
-// output inherited by background descendants after the command shell has exited.
 const timedExecShell = `
 exec 3> >(cat)
 stdoutPid=$!
@@ -83,10 +85,29 @@ wait "$stdoutPid" "$stderrPid"
 exit "$status"
 `;
 
+const processGroupShell = `
+{ exec 5<&0; } 2>/dev/null || exec 5</dev/null
+set -m
+/bin/bash -c "$1" <&5 5<&- &
+printf '%s' "$!" > "$2"
+exec 2>/dev/null 5<&-
+wait "$!"
+status=$?
+rm -f -- "$2"
+exit "$status"
+`;
+
+const killProcessGroupShell = `
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do test -s "$2" && break; sleep 0.1; done
+test -s "$2" || exit 0
+kill -"$1" -- "-$(cat -- "$2")" 2>/dev/null || true
+`;
+
 type OutputEvent = { data: string; type: "stderr" | "stdout" } | { exitCode: number; type: "exit" } | { data: string; type: "error" };
 
 class SandboxProcessRecord {
   readonly exited: Promise<number>;
+  finished = false;
   readonly #events: OutputEvent[] = [];
   readonly #listeners = new Set<(event: OutputEvent) => void>();
   readonly #output = { stderr: "", stdout: "" };
@@ -96,6 +117,7 @@ class SandboxProcessRecord {
   constructor(readonly process: CloudflareContainerExecProcess) {
     const pumps = (["stdout", "stderr"] as const).map(type => this.#pump(type, process[type]));
     this.exited = process.exitCode;
+    void this.exited.finally(() => { this.finished = true; }).catch(() => undefined);
     void Promise.allSettled(pumps)
       .then(async (results) => {
         for (const result of results) {
@@ -115,7 +137,6 @@ class SandboxProcessRecord {
     return { ...this.#output };
   }
 
-  /** Server-sent events: buffered output, then live output, then `exit`. Same format as @cloudflare/sandbox 0.12. */
   stream(): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     let listener: ((event: OutputEvent) => void) | undefined;
@@ -171,7 +192,9 @@ export interface CloudflareSandboxDurableObject {
   configure(configuration: CloudflareSandboxConfiguration): Promise<void>;
   deleteFile(path: string): Promise<{ success: boolean }>;
   destroy(): Promise<void>;
-  exec(command: string, options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{
+  /** Stops the `exec` command started with this `id`. The Container and other commands keep running. */
+  cancelExec(id: string): Promise<void>;
+  exec(command: string, options?: CloudflareExecOptions): Promise<{
     exitCode: number;
     stderr: string;
     stdout: string;
@@ -192,28 +215,87 @@ export interface CloudflareSandboxDurableObject {
   writeFile(path: string, contents: string, options?: { encoding?: string }): Promise<{ success: boolean }>;
 }
 
+export interface CloudflareExecOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  /** Names the command for `cancelExec`. */
+  id?: string;
+  timeout?: number;
+}
+
+export interface CloudflareSandboxOutboundDependencies {
+  WorkerEntrypoint: abstract new (ctx: any, env: any) => object;
+}
+
+/** What the Durable Object passes to each outbound intercept. */
+export interface CloudflareSandboxOutboundProps {
+  allow: readonly string[];
+}
+
+/**
+ * The Worker entrypoint that receives the intercepted HTTP and HTTPS requests of a Sandbox Container.
+ * Cloudflare picks an HTTPS intercept by TLS SNI, but the request URL comes from the Host header that the
+ * Container sends. So the entrypoint checks the URL against the allowlist again before it fetches.
+ */
+export function createCloudflareSandboxOutbound(
+  dependencies: CloudflareSandboxOutboundDependencies,
+): new (ctx: { readonly props?: Partial<CloudflareSandboxOutboundProps> }, env: unknown) => { fetch(request: Request): Promise<Response> } {
+  const { WorkerEntrypoint } = dependencies;
+  return class ViteHubCloudflareSandboxOutbound extends WorkerEntrypoint {
+    readonly #allow: readonly string[];
+
+    constructor(ctx: { readonly props?: Partial<CloudflareSandboxOutboundProps> }, env: unknown) {
+      super(ctx, env);
+      this.#allow = ctx.props?.allow ?? [];
+    }
+
+    async fetch(request: Request) {
+      const host = new URL(request.url).hostname;
+      if (!allowsHost(this.#allow, host))
+        return new Response(`[vitehub] ${host} is not in the Sandbox networkPolicy.\n`, { status: 403 });
+      return await fetch(request);
+    }
+  };
+}
+
+/** Whether an allowlist entry matches the host. `*.example.com` matches subdomains only. */
+export function allowsHost(allow: readonly string[], hostname: string) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return allow.some(entry => entry.startsWith("*.") ? host.endsWith(entry.slice(1)) && host.length > entry.length - 1 : host === entry);
+}
+
 export function createCloudflareSandboxDurableObject(
   dependencies: CloudflareSandboxDurableObjectDependencies,
 ): new (ctx: CloudflareDurableObjectState, env: unknown) => CloudflareSandboxDurableObject {
-  const { DurableObject, Files, SandboxFileError } = dependencies;
+  const { DurableObject, Files, outboundEntrypoint, SandboxFileError } = dependencies;
   const missing = (cause: unknown) => SandboxFileError.is(cause) && cause.code === "ENOENT";
 
   return class ViteHubCloudflareSandbox extends DurableObject implements CloudflareSandboxDurableObject {
     readonly #ctx: CloudflareDurableObjectState;
     readonly #processes = new Map<string, SandboxProcessRecord>();
+    readonly #execs = new Map<string, { process: CloudflareContainerExecProcess; timed: boolean }>();
+    readonly #cancelled = new Set<string>();
     #configuration: Promise<CloudflareSandboxConfiguration> | undefined;
     #files: CloudflareSandboxFiles | undefined;
+    #starting: Promise<void> | undefined;
 
     constructor(ctx: CloudflareDurableObjectState, env: unknown) {
       super(ctx, env);
       this.#ctx = ctx;
     }
 
-    /** Stores the idle policy. Applied now when the Container runs, otherwise when it starts. */
+    /**
+     * Stores the idle and network policy. The idle policy applies now when the Container runs, otherwise when it starts.
+     * The network is fixed when the Container starts, so a running Container with another network policy stops.
+     */
     async configure(configuration: CloudflareSandboxConfiguration) {
+      const running = this.#ctx.container?.running === true;
+      const previous = running ? await this.#readConfiguration() : undefined;
       this.#configuration = Promise.resolve(configuration);
       await this.#ctx.storage.put(configurationKey, configuration);
-      if (this.#ctx.container?.running) await this.#applyConfiguration();
+      if (!running) return;
+      if (networkKey(previous?.networkPolicy) !== networkKey(configuration.networkPolicy)) await this.destroy();
+      else await this.#applyIdlePolicy(configuration);
     }
 
     async destroy() {
@@ -223,19 +305,32 @@ export function createCloudflareSandboxDurableObject(
       if (container.running) await container.destroy();
     }
 
-    async exec(command: string, options: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number } = {}) {
+    async cancelExec(id: string) {
+      const exec = this.#execs.get(id);
+      if (!exec) {
+        this.#cancelled.add(id);
+        if (this.#cancelled.size > maxCancelledExecs) this.#cancelled.delete(this.#cancelled.values().next().value!);
+        return;
+      }
+      exec.process.kill(exec.timed ? signals.ALRM : signals.KILL);
+    }
+
+    async exec(command: string, options: CloudflareExecOptions = {}) {
       const container = await this.#running();
+      if (options.id && this.#cancelled.delete(options.id)) throw new DOMException("Command was cancelled before it started.", "AbortError");
       let timedOut = false;
       const timer = options.timeout ? setTimeout(() => { timedOut = true; }, options.timeout) : undefined;
       try {
         const commandLine = ["/bin/bash", "-c", command];
-        // Native exec cancellation only kills the started process. GNU timeout kills the
-        // entire group at the deadline, including descendants that ignore SIGTERM.
         const process = await container.exec(options.timeout
           ? ["timeout", "--signal=KILL", `${options.timeout / 1000}s`, "/bin/bash", "-c", timedExecShell, "--", command]
           : commandLine, execOptions(options));
+        if (options.id) {
+          this.#execs.set(options.id, { process, timed: Boolean(options.timeout) });
+          if (this.#cancelled.delete(options.id)) await this.cancelExec(options.id);
+        }
         const output = await process.output();
-        if (timedOut) throw new Error(`Command timed out after ${options.timeout}ms.`);
+        if (timedOut) throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_COMMAND_TIMED_OUT({ timeout: options.timeout ?? 0 });
         const decoder = new TextDecoder();
         return {
           exitCode: output.exitCode,
@@ -245,6 +340,7 @@ export function createCloudflareSandboxDurableObject(
         };
       } finally {
         clearTimeout(timer);
+        if (options.id) this.#execs.delete(options.id);
       }
     }
 
@@ -300,18 +396,24 @@ export function createCloudflareSandboxDurableObject(
 
     async startProcess(command: string, options: { cwd?: string; env?: Record<string, string>; stdin?: boolean } = {}) {
       const container = await this.#running();
-      const process = await container.exec(["/bin/bash", "-c", command], {
+      const id = crypto.randomUUID();
+      const groupFile = `/tmp/vitehub-process-${id}.pgid`;
+      const process = await container.exec(["/bin/bash", "-c", processGroupShell, "--", command, groupFile], {
         ...execOptions(options),
         ...(options.stdin ? { stdin: "pipe" as const } : {}),
       });
-      const id = crypto.randomUUID();
       const record = new SandboxProcessRecord(process);
       this.#processes.set(id, record);
-      // Workers RPC turns these functions into stubs, so the caller keeps talking to this process.
+      const kill = async (signal?: string) => {
+        const number = signalNumber(signal);
+        if (record.finished) return;
+        const killer = await container.exec(["/bin/bash", "-c", killProcessGroupShell, "--", String(number), groupFile], { stderr: "ignore", stdout: "ignore" });
+        await killer.exitCode;
+      };
       return {
         id,
         getLogs: async () => record.logs(),
-        kill: async (signal?: string) => record.process.kill(signalNumber(signal)),
+        kill,
         ...(options.stdin && process.stdin ? { stdin: process.stdin } : {}),
         waitForExit: async () => ({ exitCode: await record.exited }),
       };
@@ -319,27 +421,52 @@ export function createCloudflareSandboxDurableObject(
 
     async streamProcessLogs(processId: string) {
       const record = this.#processes.get(processId);
-      if (!record) throw new Error(`Process ${processId} is not running in this Sandbox.`);
+      if (!record) throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_PROCESS_NOT_FOUND({ processId });
       const stream = record.stream();
-      // Keep even an already-exited process addressable until this follow-up RPC attaches.
-      // The stream and process stubs retain the record after the lookup entry is removed.
       void record.exited.finally(() => this.#processes.delete(processId)).catch(() => undefined);
       return stream;
     }
 
     #container() {
       const container = this.#ctx.container;
-      if (!container) throw new Error("The Sandbox Durable Object has no Container. Add a containers entry for its class in wrangler.json.");
+      if (!container) throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_CONTAINER_MISSING();
       return container;
     }
 
     async #running() {
       const container = this.#container();
-      if (!container.running) {
-        container.start({ enableInternet: true });
-        await this.#applyConfiguration();
-      }
+      if (!this.#starting && !container.running)
+        this.#starting = this.#start(container).finally(() => { this.#starting = undefined; });
+      if (this.#starting) await this.#starting;
       return container;
+    }
+
+    async #start(container: CloudflareContainer) {
+      const configuration = await this.#readConfiguration();
+      const network = configuration.networkPolicy ?? "allow-all";
+      const outbound = typeof network === "object" ? this.#outboundHandler(container, network.allow) : undefined;
+      container.start({ enableInternet: network === "allow-all" });
+      try {
+        if (typeof network === "object") {
+          for (const host of network.allow) {
+            await container.interceptOutboundHttp!(host, outbound);
+            await container.interceptOutboundHttps!(host, outbound);
+          }
+        }
+        await this.#applyIdlePolicy(configuration);
+      } catch (error) {
+        if (typeof network === "object") await container.destroy().catch(() => undefined);
+        throw error;
+      }
+    }
+
+    #outboundHandler(container: CloudflareContainer, allow: readonly string[]) {
+      const entrypoint = outboundEntrypoint ? this.#ctx.exports?.[outboundEntrypoint] : undefined;
+      if (typeof entrypoint !== "function") throw new Error(`[vitehub] Cloudflare Sandbox networkPolicy { allow } needs the ${JSON.stringify(outboundEntrypoint ?? "SandboxOutbound")} entrypoint in ctx.exports. Set compatibility_date to 2025-11-17 or later, or add the enable_ctx_exports compatibility flag, and build the Worker with ViteHub.`);
+      if (!container.interceptOutboundHttp || !container.interceptOutboundHttps) throw new Error("[vitehub] This Workers runtime cannot intercept Container traffic, so Cloudflare Sandbox networkPolicy { allow } is not available. Update Wrangler.");
+      const props: CloudflareSandboxOutboundProps = { allow: [...allow] };
+      // SAFETY: a ctx.exports entry for a WorkerEntrypoint is a function that binds props and returns its Fetcher.
+      return (entrypoint as (options: { props: CloudflareSandboxOutboundProps }) => unknown)({ props });
     }
 
     async #fileOperations() {
@@ -348,14 +475,27 @@ export function createCloudflareSandboxDurableObject(
       return this.#files;
     }
 
-    async #applyConfiguration() {
-      this.#configuration ??= this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {});
-      const configuration = await this.#configuration;
+    async #readConfiguration() {
+      if (!this.#configuration) {
+        const reading: Promise<CloudflareSandboxConfiguration> = this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {}).catch((error: unknown) => {
+          if (this.#configuration === reading) this.#configuration = undefined;
+          throw error;
+        });
+        this.#configuration = reading;
+      }
+      return await this.#configuration;
+    }
+
+    async #applyIdlePolicy(configuration: CloudflareSandboxConfiguration) {
       await this.#container().setInactivityTimeout(
         configuration.keepAlive ? keepAliveTimeout : parseDuration(configuration.sleepAfter) ?? defaultSleepAfter,
       );
     }
   };
+}
+
+function networkKey(policy: CloudflareSandboxConfiguration["networkPolicy"]) {
+  return JSON.stringify(policy ?? "allow-all");
 }
 
 function execOptions(options: { cwd?: string; env?: Record<string, string | undefined> }) {
@@ -373,16 +513,21 @@ export function parseDuration(value: number | string | undefined) {
   if (value === undefined) return undefined;
   if (typeof value === "number") return value * 1000;
   const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/.exec(value.trim());
-  if (!match) throw new Error(`[vitehub] Invalid Cloudflare sleepAfter ${JSON.stringify(value)}. Use seconds or a value such as "30s", "5m" or "1h".`);
+  if (!match) throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_SLEEP_AFTER_INVALID({ value: JSON.stringify(value) });
   const units = { h: 3_600_000, m: 60_000, ms: 1, s: 1000 } as const;
   return Number(match[1]) * units[(match[2] ?? "s") as keyof typeof units];
 }
 
-function signalNumber(signal: string | undefined) {
+/** The number of a signal name such as `"SIGTERM"` or `"TERM"`, or of a number. Undefined when this Sandbox cannot send it. */
+export function cloudflareSignalNumber(signal: string | undefined): number | undefined {
   if (!signal) return signals.TERM;
   if (/^\d+$/.test(signal)) return Number(signal);
-  const number = signals[signal.toUpperCase().replace(/^SIG/, "")];
-  if (number === undefined) throw new Error(`[vitehub] Unsupported signal ${JSON.stringify(signal)}.`);
+  return signals[signal.toUpperCase().replace(/^SIG/, "")];
+}
+
+function signalNumber(signal: string | undefined) {
+  const number = cloudflareSignalNumber(signal);
+  if (number === undefined) throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Cloudflare", signal: String(signal) });
   return number;
 }
 

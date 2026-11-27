@@ -6,6 +6,7 @@
      at desktop and mobile viewport sizes. This needs native browser layout, not happy-dom. -->
 <pre id="result">Running…</pre>
 <script type="module">
+  import { forceReducedMotion } from "@vite-hub/ui/motion/core"
   import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
   import { createViteHubPageWindow } from "../src/runtime/page-tools-window.ts"
 
@@ -30,8 +31,10 @@
   let exit
   let toolWindow
   let cases = 0
-  const stop = () => {
+  // The pill folds into its hexagon before the off mark takes its place.
+  const stop = async () => {
     exit?.()
+    while (document.querySelector("vitehub-pill")) await new Promise(resolve => setTimeout(resolve, 20))
     document.querySelector("vitehub-tools-off")?.remove()
     localStorage.removeItem(offKey)
   }
@@ -59,7 +62,8 @@
       const pill = document.querySelector("vitehub-pill")
       pill.style.transition = "none"
       for (const [side, value] of Object.entries(safe)) pill.style.setProperty(`--safe-${side}`, `${value}px`)
-      for (const animation of tab.getAnimations()) animation.finish()
+      // The tab comes out from under the bar with the appear effect of the motion layer. Wait until it rests.
+      while (tab.style.translate || tab.style.clipPath || tab.style.opacity) await new Promise(requestAnimationFrame)
       const tabs = pill.shadowRoot.querySelector(".tabs")
       const controls = tab.shadowRoot.querySelector(".controls")
       for (const oversized of [false, true]) {
@@ -89,11 +93,10 @@
       const mark = pill.shadowRoot.querySelector("button.mark")
       for (const collapsed of [true, false]) {
         mark.click()
-        for (const animation of pill.getAnimations({ subtree: true })) animation.finish()
         assert((getComputedStyle(tabs).visibility === "hidden") === collapsed, `${edge} ${at}%: the tab and its scrollbars hide with the pill`)
       }
       cases++
-      stop()
+      await stop()
     }
     for (const { safe, collapsed, edge, at } of scenarios) {
       result.textContent = `Running… ${cases}/${scenarios.length}: ${edge} ${at}%, collapsed=${collapsed}`
@@ -151,45 +154,60 @@
       bounds("expanded")
       cases++
       toolWindow.destroy()
-      stop()
+      await stop()
     }
-    // The mark only translates to the hexagon, so the bar keeps its size and the resize glide never cancels the morph.
+    // The mark only translates to the hexagon, so the bar keeps its size and the resize glide never cancels the fold.
     for (const edge of ["top", "right", "bottom", "left"]) {
       localStorage.removeItem(collapsedKey)
       localStorage.setItem(dockKey, JSON.stringify({ edge, at: 50 }))
       document.cookie = "vitehub-tools=1; Path=/"
       await loadViteHubPageTools({ load: async () => ({ default(context) {
         exit = context.exit
-        context.bar.append(Object.assign(document.createElement("button"), { textContent: "Content" }))
+        context.bar.append(Object.assign(document.createElement("button"), { id: "resize-content", textContent: "Content" }))
       } }) })
       const pill = document.querySelector("vitehub-pill")
       const toolbar = pill.shadowRoot.querySelector("div")
       const mark = pill.shadowRoot.querySelector("button.mark")
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
+      const content = pill.querySelector("#resize-content")
+      content.textContent = "Content grows during a resize"
+      const resizeDeadline = performance.now() + 1000
+      while (!toolbar.style.clipPath.startsWith("inset(") && performance.now() < resizeDeadline) await new Promise(requestAnimationFrame)
+      assert(toolbar.style.clipPath.startsWith("inset("), `${edge}: the segment starts a resize`)
       const size = [toolbar.offsetWidth, toolbar.offsetHeight].join("x")
       for (const collapsed of [true, false]) {
         mark.click()
         await new Promise(requestAnimationFrame)
         await new Promise(requestAnimationFrame)
         assert([toolbar.offsetWidth, toolbar.offsetHeight].join("x") === size, `${edge} collapsed=${collapsed}: the bar keeps its size`)
-        const morph = toolbar.getAnimations().find(animation => animation.transitionProperty === "clip-path")
-        assert(morph?.playState === "running", `${edge} collapsed=${collapsed}: the clip morph runs`)
-        await morph.finished
+        // The fold is a spring of the motion layer: it draws the clip inline until it rests on the stylesheet's shape.
+        assert(toolbar.style.clipPath.startsWith("polygon("), `${edge} collapsed=${collapsed}: the fold runs`)
+        while (toolbar.style.clipPath) {
+          assert(toolbar.style.clipPath.startsWith("polygon("), `${edge}: resize does not take the clip back from the fold`)
+          await new Promise(requestAnimationFrame)
+        }
         if (collapsed) {
           const box = toolbar.getBoundingClientRect()
           const center = mark.getBoundingClientRect()
           assert(Math.abs(center.x + center.width / 2 - box.x - box.width / 2) < 1 && Math.abs(center.y + center.height / 2 - box.y - box.height / 2) < 1, `${edge}: the mark is on the hexagon`)
         }
       }
+      forceReducedMotion(true)
+      mark.click()
+      assert(pill.hasAttribute("collapsed") && !toolbar.style.clipPath && !pill.style.translate, `${edge}: reduced motion snaps the fold in the click`)
+      forceReducedMotion(undefined)
       cases++
-      stop()
+      await stop()
     }
-    result.textContent = `PASS: ${cases} dock states keep tabs reachable and windows aligned at default and oversized sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon morph keeps the bar size on every edge`
+    result.textContent = `PASS: ${cases} dock states keep tabs reachable and windows aligned at default and oversized sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon fold keeps the bar size on every edge`
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`
     throw error
   } finally {
+    forceReducedMotion(undefined)
     toolWindow?.destroy()
-    stop()
+    await stop()
     window.fetch = originalFetch
     for (const [index, key] of [dockKey, collapsedKey, offKey].entries()) {
       if (saved[index] === null) localStorage.removeItem(key)

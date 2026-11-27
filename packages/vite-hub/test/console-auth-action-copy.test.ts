@@ -13,7 +13,7 @@ const renderer = createRenderer({
 interface Copy { title: string; description: string; submit: string; pending: string }
 
 function copyOf(props: Record<string, unknown>): { copy: Copy; destructive: boolean } {
-  const app = renderer.createApp({ ...Action, render: () => null }, { base: "/manage", ...props })
+  const app = renderer.createApp({ ...Action, render: () => null }, { ...props })
   app.provide(ssrContextKey, {})
   const instance = app.mount({})
   const state = (instance.$ as unknown as { setupState: { copy: Copy; destructive: boolean } }).setupState

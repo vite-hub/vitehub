@@ -7,21 +7,22 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { JSONContent } from "@tiptap/core"
-import type { RealtimeControlMessage } from "../src/protocol.ts"
+import type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "../src/bus-protocol.ts"
+import type { RealtimeControlMessage, RealtimeRequestFrame } from "../src/protocol.ts"
+import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeFieldValue, RealtimeIssue } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
-import { decodeRealtimeControlPayload, messageAwareness, messageRealtimeControl } from "../src/protocol.ts"
-import { createRealtimeHandler, encodeSyncStep1, encodeSyncUpdate } from "../src/server.ts"
+import { decodeRealtimeControlPayload, decodeRealtimeRequestFramePayload, messageAwareness, messageRealtimeControl, messageRealtimeRequest } from "../src/protocol.ts"
+import { createRealtimeHandler } from "../src/server.ts"
+import { encodeSyncStep1, encodeSyncUpdate } from "../src/internal/server.ts"
 
 const messageSync = 0
 
-/** Lets queued promise continuations run without advancing fake timers. */
 export async function settle(rounds = 50): Promise<void> {
   for (let index = 0; index < rounds; index++) await Promise.resolve()
 }
 
-/** Plain-paragraph schema with an async codec: Markdown paragraphs separated by blank lines. */
 export function createStubEditor() {
   const calls = { fromMarkdown: 0, toMarkdown: 0 }
   const editor = defineRealtimeEditor({
@@ -54,7 +55,6 @@ interface StoredDocument {
   fields?: Record<string, RealtimeFieldValue>
 }
 
-/** In-memory document adapter with compare-and-set saves. */
 export function createMemoryAdapter(initial: Record<string, Omit<StoredDocument, "digest">> = {}, options: {
   issues?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => RealtimeIssue[]
   normalize?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => { body: string, fields?: Record<string, RealtimeFieldValue> }
@@ -101,6 +101,8 @@ type Hooks = {
 
 export interface TestClient {
   awareness: Uint8Array[]
+  notices: unknown[]
+  requests: Exclude<RealtimeRequestFrame, { kind: "notice" }>[]
   close(): void
   closed?: { code: number, reason: string }
   controls: RealtimeControlMessage[]
@@ -109,27 +111,28 @@ export interface TestClient {
   response: Response
 }
 
-/** Drives the Realtime handler through its WebSocket hooks the way y-websocket clients do. */
-export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql } = {}) {
-  const handler = createRealtimeHandler(registryOf(definition) as never)
+export function createTestServer(definition: RealtimeDefinition, options: { durable?: { carrier: Record<string, unknown> }, handler?: RealtimeHandlerOptions } = {}) {
+  const handler = createRealtimeHandler(registryOf(definition) as never, options.handler)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
 
   function request(path: string, init: RequestInit & { query?: Record<string, string> } = {}) {
-    const url = new URL(`https://example.com/api/_vitehub/realtime/docs/${path}`)
+    const url = new URL(`https://example.com/_vitehub/realtime/docs/${path}`)
     for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value)
     const value = new Request(url, init) as Request & { runtime?: unknown }
     if (options.durable) value.runtime = { cloudflare: { env: {}, context: { storage: { sql: options.durable.carrier } } } }
     return value
   }
 
-  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string> } = {}): Promise<TestClient> {
+  async function connect(path: string, init: { doc?: Y.Doc, editor?: string, epoch?: string, headers?: Record<string, string>, clientId?: boolean } = {}): Promise<TestClient> {
+    const doc = init.doc ?? new Y.Doc()
     const response = await handler.fetch(request(path, {
       headers: { upgrade: "websocket", ...init.headers },
-      query: init.epoch ? { epoch: init.epoch } : undefined,
+      query: { ...init.epoch ? { epoch: init.epoch } : {}, ...init.editor === undefined ? {} : { editor: init.editor }, ...init.clientId ? { clientId: String(doc.clientID) } : {} },
     })) as Response & { crossws?: Hooks }
-    const doc = init.doc ?? new Y.Doc()
     const client: TestClient = {
       awareness: [],
+      notices: [],
+      requests: [],
       close: () => {
         if (client.closed) return
         client.closed = { code: 1000, reason: "client closed" }
@@ -141,7 +144,6 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       peer: undefined as never,
       response,
     }
-    // crossws calls `upgrade` first; a Response refuses the socket with its status.
     const refusal = await response.crossws?.upgrade?.(new Request("https://example.com", { headers: { upgrade: "websocket" } }))
     if (!response.crossws || refusal instanceof Response) {
       client.closed = { code: refusal instanceof Response ? refusal.status : response.status, reason: "rejected" }
@@ -157,6 +159,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       if (!client.closed) hooks.message(peer, { uint8Array: () => data })
     }
     const peer = {
+      id: crypto.randomUUID(),
       close(code: number, reason: string) {
         if (client.closed) return
         client.closed = { code, reason }
@@ -184,6 +187,11 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
         }
         else if (type === messageAwareness) {
           client.awareness.push(decoding.readVarUint8Array(decoder))
+        }
+        else if (type === messageRealtimeRequest) {
+          const frame = decodeRealtimeRequestFramePayload(decoder)
+          if (frame?.kind === "notice") client.notices.push(frame.body)
+          else if (frame) client.requests.push(frame)
         }
       },
       subscribe(channel: string) {
@@ -239,13 +247,10 @@ export function paragraphs(doc: Y.Doc): string[] {
   return doc.getXmlFragment("body").toArray().map(node => (node as Y.XmlElement).toArray().map(child => (child as Y.XmlText).toString()).join(""))
 }
 
-/** A carrier with the shape and receiver brand of workerd's native SqlStorage, which Cloudflare storage requires since #2410. */
 export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   function SqlStorage() {}
   const sql = Object.create(null) as Record<string, unknown>
   const prototype = {
-    // Use a native constructor in the carrier shape. The production detector
-    // treats the constructor as part of the platform object contract.
     constructor: SqlStorage,
     exec,
     get databaseSize() {
@@ -261,24 +266,28 @@ export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) =
         if (thisArg === sql) return 1
         throw new TypeError("Illegal invocation")
       },
+      get(target, key, receiver) {
+        return key === "name" ? "get databaseSize" : Reflect.get(target, key, receiver)
+      },
     }),
   })
   return sql
 }
 
-/** Minimal Durable Object SQLite surface for the statements the Realtime room issues. */
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
-  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update?: number }> = []
-  readonly intermediateJournal: boolean
-  alterJournalAttempted = false
+  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update: number }> = []
+  readonly columns: Record<"vitehub_realtime_document_updates" | "vitehub_realtime_documents", Set<string>>
+  altered: string[] = []
   private sequence = 0
 
   constructor(options: { intermediateJournal?: boolean } = {}) {
-    this.intermediateJournal = options.intermediateJournal ?? false
+    this.columns = {
+      vitehub_realtime_documents: new Set(["room_key", "epoch", "digest", "dirty", "update_blob", "editor_version"]),
+      vitehub_realtime_document_updates: new Set(["sequence", "room_key", "update_blob", ...options.intermediateJournal ? [] : ["client_update"]]),
+    }
   }
 
-  /** The native SqlStorage carrier of this database, the `storage.sql` that a Durable Object request carries. */
   get carrier(): Record<string, unknown> {
     this.nativeCarrier ??= nativeSqlCarrier(this.exec)
     return this.nativeCarrier
@@ -289,32 +298,33 @@ export class FakeSql {
   exec = vi.fn((query: string, ...bindings: unknown[]) => {
     const rows = (value: Array<Record<string, unknown>>) => ({ toArray: () => value })
     if (query.startsWith("CREATE TABLE")) return rows([])
-    if (query.startsWith("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update")) {
-      this.alterJournalAttempted = true
-      if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
-      return rows([])
+    if (query.startsWith("SELECT name FROM pragma_table_info(?) WHERE name = ?")) {
+      const [table, column] = bindings.map(String) as [keyof FakeSql["columns"], string]
+      return rows(this.columns[table].has(column) ? [{ name: column }] : [])
     }
-    if (query.startsWith("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0")) {
-      if (this.intermediateJournal) throw new Error("no such column: client_update")
+    if (query.startsWith("SELECT name FROM sqlite_master")) return rows([])
+    const alter = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(query)
+    if (alter) {
+      const columns = this.columns[alter[1] as keyof FakeSql["columns"]]
+      if (columns.has(alter[2]!)) throw new Error(`duplicate column name: ${alter[2]}`)
+      columns.add(alter[2]!)
+      this.altered.push(`${alter[1]}.${alter[2]}`)
       return rows([])
     }
     if (query.startsWith("SELECT room_key FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [{ room_key: bindings[0] }] : [])
     }
-    if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents")) {
+    if (query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [row] : [])
-    }
-    if (query.startsWith("SELECT update_blob FROM vitehub_realtime_document_updates")) {
-      return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("SELECT update_blob, client_update FROM vitehub_realtime_document_updates")) {
       return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("INSERT OR REPLACE INTO vitehub_realtime_documents")) {
-      const [room_key, epoch, digest, dirty, update_blob] = bindings
-      this.documents.set(String(room_key), { digest, dirty, epoch, update_blob })
+      const [room_key, epoch, digest, dirty, update_blob, editor_version] = bindings
+      this.documents.set(String(room_key), { digest, dirty, editor_version, epoch, update_blob })
       return rows([])
     }
     if (query.startsWith("DELETE FROM vitehub_realtime_document_updates")) {
@@ -322,12 +332,122 @@ export class FakeSql {
       return rows([])
     }
     if (query.startsWith("INSERT INTO vitehub_realtime_document_updates")) {
-      if (this.intermediateJournal && query.includes("client_update")) {
+      if (!this.columns.vitehub_realtime_document_updates.has("client_update")) {
         throw new Error("table vitehub_realtime_document_updates has no column named client_update")
       }
-      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2] ?? 1) })
+      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2]) })
       return rows([])
     }
     throw new Error(`Unexpected SQL: ${query}`)
   })
+}
+
+export interface MemoryBus extends RealtimeBus {
+  crash(): void
+  published: RealtimeBusMessage[]
+}
+
+export function createMemoryBusNetwork() {
+  const records = new Map<string, RealtimeRoomRecord>()
+  const writes: Array<{ room: string, epoch: string, digest: string | null }> = []
+  const locks = new Map<string, Promise<void>>()
+  const members = new Map<string, (message: RealtimeBusMessage) => void>()
+
+  function bus(authority: "postgres" | "redis" = "postgres"): MemoryBus {
+    const instance = crypto.randomUUID()
+    const hooks: Array<() => Promise<void>> = []
+    const listeners = new Set<(message: RealtimeBusMessage) => void | Promise<void>>()
+    let queue = Promise.resolve()
+    let stopped = false
+    const self: MemoryBus = {
+      authority,
+      instance,
+      published: [],
+      async publish(message) {
+        if (stopped) return
+        const sent = { ...message, instance, data: Uint8Array.from(message.data) }
+        self.published.push(sent)
+        for (const [member, deliver] of members) {
+          if (member !== instance) deliver(sent)
+        }
+      },
+      async subscribe(listener) {
+        listeners.add(listener)
+        members.set(instance, (message) => {
+          queue = queue.then(async () => {
+            for (const next of listeners) await next(message)
+          })
+        })
+      },
+      async readRoom(room) {
+        const record = records.get(room)
+        return record && { ...record, state: Uint8Array.from(record.state) }
+      },
+      async writeRoom(room, record, ifEpoch) {
+        if ((records.get(room)?.epoch ?? null) !== ifEpoch) return false
+        records.set(room, { ...record, state: Uint8Array.from(record.state) })
+        writes.push({ room, epoch: record.epoch, digest: record.digest })
+        return true
+      },
+      async withRoomLock(room, task) {
+        const previous = locks.get(room) ?? Promise.resolve()
+        let release = () => {}
+        const held = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        locks.set(room, previous.then(() => held))
+        await previous
+        try {
+          return await task()
+        }
+        finally {
+          release()
+        }
+      },
+      onClose(hook) {
+        hooks.push(hook)
+      },
+      async close() {
+        for (const hook of hooks) await hook()
+        stopped = true
+        members.delete(instance)
+      },
+      crash() {
+        stopped = true
+        members.delete(instance)
+      },
+    }
+    return self
+  }
+
+  return { bus, records, writes }
+}
+
+export function createClientAwareness(client: TestClient) {
+  const awareness = new awarenessProtocol.Awareness(client.doc)
+  const hooks = (client.response as Response & { crossws: Hooks }).crossws
+  return {
+    awareness,
+    set(state: Record<string, unknown> | null) {
+      awareness.setLocalState(state)
+      const encoder = encoding.createEncoder()
+      encoding.writeVarUint(encoder, messageAwareness)
+      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, [client.doc.clientID]))
+      hooks.message(client.peer, { uint8Array: () => encoding.toUint8Array(encoder) })
+    },
+  }
+}
+
+export function presence(client: TestClient): Map<number, Record<string, unknown>> {
+  const awareness = new awarenessProtocol.Awareness(new Y.Doc())
+  awareness.setLocalState(null)
+  try {
+    for (const update of client.awareness) awarenessProtocol.applyAwarenessUpdate(awareness, update, "test")
+    // SAFETY: test clients only send plain object states.
+    return new Map(awareness.getStates() as Map<number, Record<string, unknown>>)
+  }
+  finally {
+    awareness.destroy()
+    awareness.doc.destroy()
+  }
 }

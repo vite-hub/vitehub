@@ -3,7 +3,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { expect, it, vi } from "vitest"
 
 import { installConsoleAgentDefinitions, installConsoleInvocations } from "../src/console/server.ts"
-import agentInvocationsRoute from "../src/console/runtime/server/agent-invocations.post.ts"
+import agentInvocationsRoute from "../src/agent/console/agent-invocations.post.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 
@@ -25,7 +25,7 @@ it.each(["object", "loader"] as const)("invokes an Agent with Console capabiliti
   const result = await allowed(agentInvocationsRoute)(consoleEvent({
     body: { prompt: "Use the configured capabilities." },
     context: { params: { agent: "support" } },
-    url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+    url: "http://localhost/_vitehub/console/agents/support/invocations",
   }))
   await vi.waitFor(async () => {
     await expect(invocations.get(result.id)).resolves.toMatchObject({ status: "completed" })

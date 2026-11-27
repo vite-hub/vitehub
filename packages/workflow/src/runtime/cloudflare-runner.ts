@@ -1,11 +1,16 @@
 import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { hasRunFailedListeners } from "@vite-hub/runtime/internal/run-failed"
 
-import { runSerializedWorkflowHandler } from "./execute.ts"
+import { createWorkflowError } from "../errors.ts"
+
+import { fromCloudflareStartParams } from "./delay.ts"
+import { resolveWorkflowStepOptions, runSerializedWorkflowHandler } from "./execute.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError } from "../errors.ts"
 
 export interface CloudflareWorkflowEvent {
   id?: string
@@ -13,69 +18,41 @@ export interface CloudflareWorkflowEvent {
   payload?: unknown
 }
 
+/** The `step` of a Cloudflare Workflow: the ViteHub step runner names, and `waitForEvent()`. */
+export interface CloudflareWorkflowStep extends Omit<WorkflowProviderStep, "waitForSignal"> {
+  waitForEvent?: (name: string, options: { timeout?: string, type: string }) => Promise<{ payload?: unknown }>
+}
+
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
-  createNonRetryableError?: (error: Error & { isRetryable: false }) => Error
+  createNonRetryableError?: (error: Error) => Error
   env: CloudflareWorkerEnv
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep
+  step?: CloudflareWorkflowStep
 }
 
-function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  if (!hasRuntimeType(error, "object") || error === null) return false
-  try {
-    const candidate = error as object
-    const retryable = Reflect.get(candidate, "isRetryable")
-    if (retryable !== false) return false
-    const nativeIsError: unknown = Reflect.get(Error, "isError")
-    if (hasRuntimeType(nativeIsError, "function")) {
-      return (nativeIsError as (value: unknown) => unknown)(candidate) === true
-    }
-
-
-    const clone = Reflect.get(globalThis, "structuredClone")
-    if (!hasRuntimeType(clone, "function")) return false
-    try {
-      return (clone as (value: unknown) => unknown)(candidate) instanceof Error
-    }
-    catch {
-      // Error objects can carry configurable, non-cloneable application fields.
-      // Hide those fields for the brand check, then restore the object exactly.
-      const descriptors = new Map<PropertyKey, PropertyDescriptor>()
-      try {
-        for (const key of Reflect.ownKeys(candidate)) {
-          const descriptor = Reflect.getOwnPropertyDescriptor(candidate, key)
-          if (!descriptor?.configurable || !("value" in descriptor)) continue
-          descriptors.set(key, descriptor)
-          Reflect.defineProperty(candidate, key, { ...descriptor, value: undefined })
-        }
-        try {
-          return (clone as (value: unknown) => unknown)(candidate) instanceof Error
-        }
-        catch {
-          return false
-        }
-      }
-      finally {
-        for (const [key, descriptor] of descriptors) Reflect.defineProperty(candidate, key, descriptor)
-      }
-    }
-  }
-  catch {
-    return false
-  }
+export function cloudflareSignalEventType(signal: string): string {
+  return `vitehub-${signal}`
 }
+
+const cloudflareSignalTimeout = "365 days"
+
+const cloudflareNonRetryableErrors = new WeakSet<object>()
+
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
 ): unknown {
-  return createNonRetryableError && isNonRetryableError(error) ? createNonRetryableError(error) : error
+  if (!createNonRetryableError || !isNonRetryableError(error) || cloudflareNonRetryableErrors.has(error)) return error
+  const translated = createNonRetryableError(error)
+  cloudflareNonRetryableErrors.add(translated)
+  return translated
 }
 
 function wrapCloudflareWorkflowStep(
-  step: WorkflowProviderStep | undefined,
+  step: CloudflareWorkflowStep | undefined,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
   env: CloudflareWorkerEnv,
   runtimeEvent: () => unknown,
@@ -83,7 +60,7 @@ function wrapCloudflareWorkflowStep(
   if (!step?.do) return step
   return {
     async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
-      return await step.do!(name, options, async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
+      return await step.do!(name, resolveWorkflowStepOptions(name, options), async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
         try {
           return await run()
         }
@@ -92,7 +69,11 @@ function wrapCloudflareWorkflowStep(
         }
       })))
     },
-    ...(step.sleep ? { sleep: step.sleep.bind(step) } : {}),
+    ...(step.sleep ? { sleep: async (name: string, milliseconds: number) => await step.sleep!(name, milliseconds) } : {}),
+    ...(step.sleepUntil ? { sleepUntil: async (name: string, date: Date) => await step.sleepUntil!(name, date) } : {}),
+    ...(step.waitForEvent
+      ? { waitForSignal: async (name: string) => (await step.waitForEvent!(name, { timeout: cloudflareSignalTimeout, type: cloudflareSignalEventType(name) })).payload }
+      : {}),
   }
 }
 
@@ -109,16 +90,37 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       throw workflowErrorDiagnostics.WORKFLOW_R0015({ message: `Missing workflow definition: ${name}` })
     }
 
+    const { payload, startAt } = fromCloudflareStartParams(event?.payload)
+    if (startAt !== undefined) {
+      if (!step?.sleepUntil) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "cloudflare" } })
+      await step.sleepUntil("vitehub-delay", new Date(startAt))
+    }
+
+    const id = event?.instanceId || event?.id
     try {
       return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runSerializedWorkflowHandler({
-        id: event?.instanceId || event?.id,
+        id,
         name,
-        payload: event?.payload,
+        payload,
         provider: "cloudflare",
         step: providerStep,
       }, definition))
     }
     catch (error) {
+      if (id && hasRunFailedListeners() && !definition.internalAgentWorkflow && !definition.internalAgentInvocationRecovery) {
+        try {
+          if (providerStep?.do) {
+            await providerStep.do("vitehub-notify-terminal-failure", { retries: { limit: 0 } }, async () => {
+              await emitWorkflowFailed(name, id, error, definition)
+              return null
+            })
+          }
+          else await emitWorkflowFailed(name, id, error, definition)
+        }
+        catch (notificationError) {
+          console.error("[vitehub] Could not checkpoint the Workflow failure notification.", notificationError)
+        }
+      }
       throw translateNonRetryableError(error, createNonRetryableError)
     }
   })

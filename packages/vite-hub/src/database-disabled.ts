@@ -8,9 +8,10 @@ import type { Plugin } from "vite"
 
 const databasePluginName = "@vite-hub/database/vite"
 const enableDatabase = "Set `database: true` in vitehub() to enable Database."
+const disabledWorkspaceDatabaseId = "\0vite-hub/workspace-database-disabled"
 
 interface DisabledDatabaseState {
-  /** Another integration, such as a direct hubDb() or the Database Nuxt module, provides Database. */
+  /** Another integration, such as a direct hubDatabase() or the Database Nuxt module, provides Database. */
   databasePlugin?: DatabasePlugin
   databaseOption?: unknown
   explicitlyDisabled: boolean
@@ -30,9 +31,10 @@ interface DatabasePlugin {
  * resolves to an empty registry, so a build succeeds and the first query fails at runtime.
  * `runtimeImports` maps each import that Vite can resolve to its public specifier.
  */
-export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, string>, explicitlyDisabled = false): Plugin & { vitehub: { cli: () => ViteHubCliContributor | undefined } } {
+export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, string>, explicitlyDisabled = false, workspaceStoreEntry?: string): Plugin & { vitehub: { cli: () => ViteHubCliContributor | undefined } } {
   let serverDirs: string[] | undefined
   let state: DisabledDatabaseState | undefined
+  const runtimeImportIds = new RegExp(`^(?:${[...runtimeImports.keys()].map(id => id.replace(/[$()*+.?[\\\]^{|}]/g, "\\$&")).join("|")})$`)
 
   return {
     name: "vite-hub/database-disabled",
@@ -52,12 +54,22 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
         serverDirs,
       }
     },
-    resolveId(source, importer) {
-      const specifier = runtimeImports.get(source)
-      if (!specifier || !state || hasDatabasePlugin(state)) return
-      throw viteHubErrorDiagnostics.VITE_HUB_B0013({
-        message: `[vitehub] Database is disabled but ${importer ? JSON.stringify(importer) : "the application"} imports ${JSON.stringify(specifier)}. ${enableDatabase}`,
-      })
+    resolveId: {
+      filter: { id: runtimeImportIds },
+      handler(source, importer) {
+        const specifier = runtimeImports.get(source)
+        if (!specifier || !state || hasDatabasePlugin(state)) return
+        if (importer && importer === workspaceStoreEntry && source === "@vite-hub/database/runtime/registry") return disabledWorkspaceDatabaseId
+        throw viteHubErrorDiagnostics.VITE_HUB_B0013({
+          message: `[vitehub] Database is disabled but ${importer ? JSON.stringify(importer) : "the application"} imports ${JSON.stringify(specifier)}. ${enableDatabase}`,
+        })
+      },
+    },
+    load: {
+      filter: { id: /^\0vite-hub\/workspace-database-disabled$/ },
+      handler() {
+        return `export function useDatabase() { throw Object.assign(new Error(${JSON.stringify(`[vitehub] Database is disabled. ${enableDatabase}`)}), { code: "VITE_HUB_B0013" }) }`
+      },
     },
     vitehub: {
       cli: () => {
@@ -74,7 +86,7 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
               { description: "Unavailable while Database is disabled.", name: "generate", run },
               { description: "Unavailable while Database is disabled.", name: "migrate", run },
             ],
-            name: "db",
+            name: "database",
           }],
         }
       },

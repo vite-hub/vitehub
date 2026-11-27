@@ -1,12 +1,9 @@
 import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
-/** A Connection name as one shell argument. Names may contain spaces, so quote any name that is not a plain word. */
 const arg = (connection: string): string => /^[\w.:@/-]+$/.test(connection) ? connection : `'${connection.replaceAll("'", "'\\''")}'`
 
-// Write the route and command prefixes literally, so the docs page of each code shows them.
 const connect = (connection: string): string => `Run \`vitehub connections connect ${arg(connection)}\`.`
 
-/** The definition of an instance such as `t3:alice` is `t3`. */
 const definitionOf = (connection: string): string => {
   const separator = connection.lastIndexOf(":")
   return separator > 0 ? connection.slice(0, separator) : connection
@@ -14,7 +11,6 @@ const definitionOf = (connection: string): string => {
 
 const docs = "https://vitehub.dev/docs/connections/diagnostics"
 
-// Keep published codes stable. Each code has a heading on the docs page.
 const codes = {
   CONNECTIONS_CHATGPT_TRANSFER: {
     why: "The ChatGPT credential file is invalid, or the destination already has another active grant.",
@@ -40,10 +36,10 @@ const codes = {
     why: "The ChatGPT grant does not include permission to use the plan.",
     fix: "Run `vitehub connections connect <name>` and allow ChatGPT plan usage. ViteHub does not switch to an API key.",
   },
-  // Runtime errors. Connection client calls return them as `[error, undefined]`.
+  // Runtime errors.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
-    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to approve request ${approval} on its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}&tab=approvals), or to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
+    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
   },
   CONNECTIONS_DENIED: {
     why: ({ action, actor, connection, immediate }: { action: string, actor: string, connection: string, immediate?: boolean }): string => immediate
@@ -68,23 +64,19 @@ const codes = {
       return `Connection "${connection}" must be connected again. ${connect(connection)}`
     },
     fix: ({ apiKey, connection, problem }: { apiKey?: boolean, connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => {
-      if (problem === "mutation") return `Check at the provider if the last token change of Connection "${connection}" completed. Then remove the mutation lease of "${connection}" from the Connections store, for example its row in \`vitehub_connection_refresh_leases\`. Then open its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect.`
-      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Replace key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
-      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
+      if (problem === "mutation") return `Check at the provider if the last token change of Connection "${connection}" completed. Then remove the mutation lease of "${connection}" from the Connections store, for example its row in \`vitehub_connection_refresh_leases\`. Then run \`vitehub connections connect ${arg(connection)}\`.`
+      if (apiKey) return `Run \`vitehub connections set-key ${arg(connection)}\` to replace the key.`
+      return `Run \`vitehub connections connect ${arg(connection)}\`, and follow the setup notes of the Connection, if it has them.`
     },
   },
   CONNECTIONS_NOT_CONNECTED: {
-    why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
-      if (login === "connect") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no connect flow.`
-      if (login === "credentials") return `Connection "${connection}" has no login credentials.`
-      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\` or in the Console.`
+    why: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
+      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\`.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
-    fix: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
-      if (login === "connect") return `Do not connect Connection "${connection}". Call it, and it signs in by itself once its \`credentials\` resolve.`
-      if (login === "credentials") return `Make the \`credentials\` of the \`oauthLogin()\` provider of Connection "${connection}" resolve, for example set the Env keys that it reads.`
-      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Set key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
-      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
+    fix: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
+      if (apiKey) return `Run \`vitehub connections set-key ${arg(connection)}\`.`
+      return `Run \`vitehub connections connect ${arg(connection)}\`, and follow the setup notes of the Connection, if it has them.`
     },
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
@@ -92,22 +84,24 @@ const codes = {
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, connection, message, problem, provider, status }: { action?: string, connection?: string, message?: string, problem?: "invalid-json" | "login" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "discovery" | "invalid-json" | "no-token" | "redirect" | "registration" | "token-request" | "verify", provider?: string, status?: number }): string => {
+      if (problem === "discovery") return `ViteHub found no ${message} for Connection "${provider}". Check its \`mcp\` URL, or set \`authorizationEndpoint\`, \`tokenEndpoint\`, and \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${provider}" did not register a client${status === undefined ? "" : ` (${status})`}.`
       if (problem === "invalid-json") return "Provider returned invalid JSON."
-      if (problem === "login") return `The login of Connection "${connection}" failed${message ? `: ${message}` : ""}.`
+      if (problem === "redirect") return `The provider answered with a redirect${status ? ` (${status})` : ""}. ViteHub does not follow redirects of token, revocation, and model requests.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
       return `Provider rejected ${action} with ${status}${message ? `: ${message}` : "."}`
     },
-    fix: "Check the provider status and the account permissions, then try again.",
+    fix: "Check the provider status and the account permissions, and use provider endpoint URLs that do not redirect. Then try again.",
   },
   CONNECTIONS_UNAVAILABLE: {
     why: ({ connection }: { connection: string }): string => `Connection "${connection}" has a token mutation in progress. Try again.`,
     fix: "Try the call again after a short wait. Another request refreshes the token now.",
   },
 
-  // Approval errors. `approve()` returns them through the management routes.
+  // Approval errors.
   CONNECTIONS_EXECUTION_UNKNOWN: {
     why: ({ approval }: { approval: string }): string => `The provider may have completed this write. Check the provider before requesting another approval. Approval: ${approval}.`,
     fix: "Check the provider for the result before you send the call again.",
@@ -123,9 +117,10 @@ const codes = {
     fix: "Check the key in the provider dashboard, then set it again.",
   },
 
-  // Config errors. ViteHub throws them, because the code or the deployment must change.
+  // Config errors.
   CONNECTIONS_INVALID_ACTOR: {
-    why: ({ problem }: { problem: "access" | "agent" | "id" }): string => {
+    why: ({ problem }: { problem: "access" | "agent" | "id" | "missing" }): string => {
+      if (problem === "missing") return "This Connections runtime method records who made the decision, so it requires `actor`. It has no default."
       if (problem === "access") return "Connection `access` must be the Env access context of an Agent, without `actor`."
       if (problem === "agent") return "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent."
       return "Connection actor IDs must contain 1 to 512 characters and no control characters."
@@ -148,12 +143,12 @@ const codes = {
       if (problem === "request-bucket") return `Connections that share request bucket "${bucket}" use different rate intervals.`
       if (problem === "client-id") return `Provider "${provider}" has no client id.`
       if (problem === "instance") return `The Connection Definition of instance "${connection}" is invalid.`
-      if (problem === "registration") return `The authorization server of Connection "${connection}" does not register clients. Set the provider \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${connection}" does not offer client registration. Set the provider \`clientId\`.`
       if (problem === "revocation") return `Provider "${provider}" does not support token revocation.`
       if (problem === "verify-result") return `The verify check of provider "${provider}" must return a boolean or { account }.`
       return "The Connection Definition is invalid."
     },
-    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
+    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`, or an `mcp` endpoint whose authorization server registers clients; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
   },
   CONNECTIONS_INVALID_NAME: {
     why: ({ file, name, problem }: { file?: string, name?: string, problem: "length" | "use-connection" | "whitespace" }): string => {
@@ -168,10 +163,9 @@ const codes = {
       : "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
-    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" | "oauth-login" }): string => {
+    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" }): string => {
       if (problem === "chatgpt") return "chatgpt() requires a non-empty appName and appVersion without control characters."
       if (problem === "fallback-key") return `The fallback key of Connection "${connection}" must contain 1 to 8192 visible ASCII characters.`
-      if (problem === "oauth-login") return "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path."
       if (origin) return `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
       return "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path."
     },
@@ -188,11 +182,12 @@ const codes = {
     fix: "Reconnect the Connection. If the error stays, check that one app version writes the Connections tables.",
   },
   CONNECTIONS_NOT_CONFIGURED: {
-    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" }): string => {
+    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" | "rotation" }): string => {
       if (missing === "chatgpt-runtime") return "This Connections runtime does not support ChatGPT plan usage or credential transfer."
       if (missing === "bridge-revision") return "Connection revocation requires the Env Bridge to provide the leased token revision."
-      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY with 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
+      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY, or VITEHUB_CONNECTIONS_KEYS as a comma list with the current key first. Each key is 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
       if (missing === "database") return "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store."
+      if (missing === "rotation") return "The Connection store cannot re-encrypt stored tokens. Use createDatabaseConnectionStore() or add rotate() to the store."
       if (missing === "leases") return "The Connection store must provide atomic token mutation leases."
       return "The Connection secret store must return token revisions."
     },
@@ -209,20 +204,20 @@ const codes = {
     fix: "Call a method of the API catalog of the provider, or select the API in the Connection Definition.",
   },
 
-  // Management route errors. The routes return them as `{ error: { code, message, fix, docs } }`.
+  // Management route errors.
   CONNECTIONS_AUTH_REQUIRED: {
     why: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => {
       if (problem === "actor-policy") return "createConnectionsHandler() requires an actor policy."
       if (problem === "management-actor") return "Connections management in a production build requires an actor module."
-      return "Connections management requires Auth outside local development. Configure an actor module or Console Auth."
+      return "Connections management requires an actor module outside local development."
     },
     fix: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => problem === "management-actor"
-      ? "Set `hubConnections({ management: { actor: './server/connections-auth.ts' } })`. With `vite-hub`, the Console sets the actor when it shows Connections."
-      : "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
+      ? "Set `connections: { management: { actor: './server/connections-auth.ts' } }`. The actor module decides who may manage Connections."
+      : "Pass an actor function to createConnectionsHandler(), or set an actor module.",
   },
   CONNECTIONS_AUTHORIZATION_EXPIRED: {
     why: "The authorization link expired or was already used. Each link works one time, for 10 minutes.",
-    fix: "Run `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in within 10 minutes.",
+    fix: "Run `vitehub connections connect <name>` again, and finish the sign-in within 10 minutes.",
   },
   CONNECTIONS_AUTHORIZATION_CANCELLED: {
     why: "The provider did not grant access.",
@@ -239,10 +234,9 @@ const codes = {
     fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
   },
   CONNECTIONS_INVALID_REQUEST: {
-    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "body" | "instances" | "login-key" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
+    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "body" | "instances" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
       if (problem === "api-key-format") return "An API key must contain 1 to 8192 visible ASCII characters."
       if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
-      if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
       if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${arg(connection ?? "")}\`.`
       if (problem === "redirect-uri") return "The redirect URI must use HTTPS or a loopback address."
@@ -274,7 +268,7 @@ const codes = {
       if (problem === "revocation") return "The Connection token changed during revocation."
       return "The Connection token changed during authorization."
     },
-    fix: "Read the Connection status in the Console, then connect, set the key, or revoke again.",
+    fix: "Read the Connection status with `vitehub connections list`, then connect, set the key, or revoke again.",
   },
   CONNECTIONS_ROUTE_NOT_FOUND: {
     why: "Not found.",
@@ -283,6 +277,31 @@ const codes = {
   CONNECTIONS_STATE_MISMATCH: {
     why: "The callback has no `state` cookie of this browser, or the cookie does not match.",
     fix: "Start the connection again in this browser. Each authorization link works one time, for 10 minutes.",
+  },
+  // CLI errors.
+  CONNECTIONS_CLI_ARGUMENTS_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections --help` for the commands and their options, and pass the value that the message names.",
+  },
+  CONNECTIONS_CLI_CALLBACK_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections connect <name>` again, and finish the sign-in in the browser before the link expires.",
+  },
+  CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--file` a ChatGPT credential file that `vitehub connections export` wrote, of at most 60 KiB, that only your user can read (`chmod 600`).",
+  },
+  CONNECTIONS_CLI_REQUEST_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Follow the fix of the server error that the message shows, then run the command again.",
+  },
+  CONNECTIONS_CLI_SERVER_UNREACHABLE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Start the development server with `vite dev`, or pass `--url <origin>` of an app that uses Connections. A retry helps when the server was restarting.",
+  },
+  CONNECTIONS_CLI_TRANSPORT_INSECURE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--url` an HTTPS origin or a loopback host, and send credential files from Linux or macOS, where the file can be owner-only.",
   },
 }
 

@@ -48,7 +48,6 @@ function chunk(fileName: string, modules: Record<string, number>, options: { ent
   }
 }
 
-/** The Cloudflare D1 app before #3573: the Agent route imports the Database runtime, which imports libSQL statically. */
 function workerBuild(options: { lazyLibsql?: boolean, host?: string, rules?: BundleStartupRule[] } = {}): BundleEnvironmentReport {
   const lazy = options.lazyLibsql
   const report = collectEnvironmentReport({
@@ -94,7 +93,7 @@ describe("startup rules", () => {
       severity: "warning",
       side: "server",
       bytes: 1300,
-      docs: "https://vitehub.dev/docs/development/diagnostics/bundle_startup_unused",
+      docs: "https://vitehub.dev/docs/bundle/diagnostics/bundle_startup_unused",
     })
     expect(finding!.why).toBe("`@libsql/client` (900 B), `@libsql/hrana-client` (400 B) load at server startup. This Worker uses D1 for every Database.")
     expect(finding!.fix).toBe("Update `vite-hub`. Run `vitehub bundle why @libsql/client` for the import chain.")

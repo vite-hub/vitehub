@@ -115,7 +115,7 @@ process.stdin.on("end", () => {
       SANDBOX_TOKEN: process.env.SANDBOX_TOKEN,
       DRIVER_VALUE: process.env.DRIVER_VALUE,
       HOST_ONLY: process.env.VITEHUB_SANDBOX_TEST_HOST_ONLY,
-      RUNTIME_TOKEN: process.env.T3_MCP_BEARER_TOKEN,
+      RUNTIME_TOKEN: process.env.VITEHUB_MCP_BEARER_TOKEN,
     },
     home,
     input,
@@ -155,7 +155,6 @@ function providerRuntime(threadId: string, onStartSession: (input: { cwd: string
 function invocationContext(threadId: string, input: SandboxTestInput) {
   const values = new Map<string, unknown>()
   return {
-    actor: { id: "actor" },
     context: {
       entries: () => values.entries(),
       get: (key: string) => values.get(key),
@@ -272,7 +271,7 @@ describe("Agent Sandbox environment", () => {
   it("forwards Driver and provider runtime values but keeps host values on the host", () => {
     expect(providerSandboxEnvironment({
       explicit: ["DRIVER_VALUE", "PATH_OVERRIDE"],
-      host: { HOST_SECRET: "host", PATH: "/host/bin", T3_MCP_BEARER_TOKEN: "stale-host-token" },
+      host: { HOST_SECRET: "host", PATH: "/host/bin", VITEHUB_MCP_BEARER_TOKEN: "stale-host-token" },
       prepared: { DRIVER_VALUE: "driver", PATH: "/host/bin", PATH_OVERRIDE: "/driver/bin" },
       received: {
         "BAD-NAME": "value",
@@ -281,10 +280,10 @@ describe("Agent Sandbox environment", () => {
         HOST_SECRET: "host",
         PATH: "/host/bin",
         PATH_OVERRIDE: "/driver/bin",
-        T3_MCP_BEARER_TOKEN: "runtime",
+        VITEHUB_MCP_BEARER_TOKEN: "runtime",
         XDG_CONFIG_HOME: "/host/config",
       },
-    })).toEqual({ DRIVER_VALUE: "driver", PATH_OVERRIDE: "/driver/bin", T3_MCP_BEARER_TOKEN: "runtime" })
+    })).toEqual({ DRIVER_VALUE: "driver", PATH_OVERRIDE: "/driver/bin", VITEHUB_MCP_BEARER_TOKEN: "runtime" })
   })
 
   it("reports boxed provider inspection as unsupported", async () => {
@@ -326,14 +325,17 @@ describe("Agent Sandbox relay", () => {
     expect(runtime.startSession).not.toHaveBeenCalled()
     expect(openedSandboxSession.current).toBeUndefined()
   })
-  it("materializes nested pull request Skills in Sandbox Home", async () => {
+  it("materializes nested pull request Skills in the provider skill root of Sandbox Home", async () => {
     const threadId = "thread-nested-pull-request-provider-root"
     let root = ""
     providerRuntime(threadId, async ({ cwd }) => {
       expect(cwd).toBe(join(root, "portal"))
-      const result = await openedSandboxSession.current!.exec("sh", ["-c", 'cat "$HOME/.codex/skills/review/SKILL.md"'])
+      const result = await openedSandboxSession.current!.exec("sh", ["-c", 'cat "$HOME/.agents/skills/review/SKILL.md"'])
       expect(result.stdout).toBe("review skill")
       expect(result.ok).toBe(true)
+      // Codex reads `$HOME/.agents/skills`. No other skill root and no checkout file gets a copy.
+      const copies = await openedSandboxSession.current!.exec("sh", ["-c", 'ls -d "$HOME/.codex/skills" "$HOME/.claude/skills" .agents .codex .claude portal/.agents portal/.codex portal/.claude 2>/dev/null; true'])
+      expect(copies.stdout).toBe("")
       const options = createProviderRuntime.mock.lastCall?.[0]
       const launched = await runLauncher(String(options?.settings?.binaryPath), ["-e", "process.stdout.write(process.cwd())"], {
         cwd,
@@ -681,7 +683,7 @@ describe("Agent Sandbox provider execution", () => {
         expect(launcher).not.toBe(process.execPath)
         const launched = await runLauncher(launcher, ["-e", probeScript, join(cwd, "notes.txt")], {
           cwd,
-          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: "runtime-token" },
+          env: { ...options?.environment, VITEHUB_MCP_BEARER_TOKEN: "runtime-token" },
           stdin: `{"path":"${cwd}/notes.txt"}\n`,
         })
         results.push({ launched, localRoot: cwd })

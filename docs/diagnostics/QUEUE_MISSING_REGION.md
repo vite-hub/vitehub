@@ -9,21 +9,21 @@ A Vercel Queue client throws `QUEUE_MISSING_REGION` when it starts. The installe
 
 When the installed `@vercel/queue` exports a `QueueClient` class, ViteHub must pass it a region. ViteHub looks for the region in this order:
 
-1. `queue.region` in the Vite config, or `region` in `createQueueClient()`.
+1. `queue.region` in `vitehub()`, `region` in `hubQueue()`, or `region` in `createQueueClient()`.
 2. The `QUEUE_REGION` environment variable.
 3. The `VERCEL_REGION` environment variable.
 4. The current Vercel request: the `ce-vqsregion` header, or the region prefix of the `x-vercel-id` header.
 
 If all four are empty, the client throws. This occurs when the Vercel provider runs outside of a Vercel request and without these variables. Examples are a script, a test, or the Vercel build output that you run on your own machine.
 
-`runQueue()` and `getQueue()` in `vite dev` use the local provider, so they do not throw this error. A direct Vercel client from `createQueueClient()` can still throw it there. A client that you pass as `client` to `createQueueClient()` does not need a region.
+`sendQueue()` and `useQueue()` in `vite dev` use the local provider, so they do not throw this error. A direct Vercel client from `createQueueClient()` can still throw it there. A client that you pass as `client` to `createQueueClient()` does not need a region.
 
 ## Fix it
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [vitehub({ preset: 'vercel', queue: true })],
-+  queue: { region: 'iad1' },
+-  plugins: [vitehub({ host: 'vercel', queue: true })],
++  plugins: [vitehub({ host: 'vercel', queue: { driver: 'vercel', region: 'iad1' } })],
  })
 ```
 
@@ -31,17 +31,17 @@ If all four are empty, the client throws. This occurs when the Vercel provider r
 
 ```diff [server/send-report.ts]
  await createQueueClient({
-   provider: 'vercel',
+   driver: 'vercel',
    topic: 'topic--77656c636f6d65',
 +  region: 'iad1',
  })
 ```
 
-A direct client from `createQueueClient()` does not read `queue.region` from the Vite config. Pass `region`, or set `QUEUE_REGION`.
+A direct client from `createQueueClient()` does not read `queue.region` from `vitehub()`. Pass `region`, or set `QUEUE_REGION`.
 
 ## Check the fix
 
-Build again, deploy, and call the route that runs `runQueue()`. The client starts, and the result has no `QUEUE_MISSING_REGION` error. For a script, run it with `QUEUE_REGION` set and check that `createQueueClient()` resolves.
+Build again, deploy, and call the route that runs `sendQueue()`. The client starts, and the result has no `QUEUE_MISSING_REGION` error. For a script, run it with `QUEUE_REGION` set and check that `createQueueClient()` resolves.
 
 ## Related
 

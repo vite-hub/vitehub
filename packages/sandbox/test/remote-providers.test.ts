@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxCreateOptions, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -29,6 +33,29 @@ describe("remote Sandbox providers", () => {
     await session.close();
     await session.close();
     expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs Vercel commands without a login shell, so a profile keeps the PATH", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-vercel-profile-"));
+    try {
+      await writeFile(join(home, ".profile"), "export PATH=/from/profile\n");
+      const instance = vercelInstance();
+      instance.runCommand = async (options) => {
+        if (!options.args?.some(arg => arg.includes("printenv"))) return vercelCommand("");
+        const stdout = await new Promise<string>((resolve, reject) => execFile(options.cmd, options.args ?? [], { env: { ...options.env, HOME: home } }, (error, out) => error ? reject(error) : resolve(out)));
+        return vercelCommand(stdout);
+      };
+      const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+      try {
+        await expect(session.exec("printenv", ["PATH"], { env: { PATH: process.env.PATH! } })).resolves.toMatchObject({ stdout: `${process.env.PATH}\n` });
+      }
+      finally {
+        await session.close();
+      }
+    }
+    finally {
+      await rm(home, { force: true, recursive: true });
+    }
   });
 
   it("streams Vercel process output before exit and forwards stdin only when requested", async () => {
@@ -89,7 +116,6 @@ describe("remote Sandbox providers", () => {
     const { child, session } = await spawnVercelCommand({
       ...vercelCommand(""),
       async *logs() {
-        // Eight MiB of UTF-8 output must not remain queued in the unread channel.
         for (let index = 0; index < 128; index++) {
           yield { data: "é".repeat(32 * 1024), stream: unread };
         }
@@ -219,6 +245,60 @@ describe("remote Sandbox providers", () => {
     }
   });
 
+  it.each([
+    ["ignores", new DOMException("Log transport aborted", "AbortError"), undefined],
+    ["reports", new Error("log transport close failed"), "log transport close failed"],
+  ] as const)("%s a Vercel log iterator close failure when both channels are cancelled", async (_label, failure, message) => {
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs(options?: { signal?: AbortSignal }) {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<{ data: string; stream: "stdout" }>>((_resolve, reject) => {
+              options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+            }),
+            return: () => Promise.reject(failure),
+          }),
+        };
+      },
+    });
+    try {
+      await child.stdout.cancel();
+      if (message) await expect(child.stderr.cancel()).rejects.toThrow(message);
+      else await expect(child.stderr.cancel()).resolves.toBeUndefined();
+    } finally {
+      await session.close();
+    }
+  });
+
+  it.each([false, true])("reports Vercel log close failures without masking read failures (read failed: %s)", async (readFailed) => {
+    const readError = new Error("log transport read failed");
+    const closeError = new Error("log transport close failed");
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs() {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            async next() {
+              if (readFailed) throw readError;
+              return { done: true as const, value: undefined };
+            },
+            return: () => Promise.reject(closeError),
+          }),
+        };
+      },
+    });
+    try {
+      await Promise.all([child.stdout, child.stderr].map((stream) => readFailed
+        ? expect(stream.getReader().read()).rejects.toMatchObject({
+            name: "AggregateError", errors: [readError, closeError],
+          })
+        : expect(stream.getReader().read()).rejects.toBe(closeError)));
+    } finally {
+      await session.close();
+    }
+  });
+
   it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
     const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
     const stub = cloudflareStub(async command => ({
@@ -277,7 +357,12 @@ describe("remote Sandbox providers", () => {
   });
 
   it("bounds remote requirement checks with their configured timeout", async () => {
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    let finish!: () => void;
+    const stub = cloudflareStub(async () => {
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
+    });
+    stub.cancelExec = async () => finish();
     const sandbox = await resolveSandbox({
       requires: [{ command: "node", timeout: 20 }],
       runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
@@ -372,7 +457,6 @@ describe("remote Sandbox providers", () => {
         let index = 0;
         return new ReadableStream<Uint8Array>({
           pull(controller) {
-            // Eight MiB of UTF-8 output must not remain queued in the unread channel.
             if (index < 128) controller.enqueue(event({ data: "é".repeat(32 * 1024), type: unread }));
             else if (index === 128) controller.enqueue(event({ data: "still live\n", type: consumed }));
             else {
@@ -606,26 +690,32 @@ describe("remote Sandbox providers", () => {
     await session.close();
   });
 
-  it("rejects Cloudflare cancellation without waiting for cleanup", async () => {
-    let finishCleanup!: () => void;
-    const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
-    stub.destroy = async () => await cleanup;
+  it("cancels only the aborted Cloudflare command, not the Sandbox", async () => {
+    const execIds: Array<string | undefined> = [];
+    let finish!: () => void;
+    const stub = cloudflareStub(async (_command, options) => {
+      execIds.push(options?.id);
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
+    });
+    const destroy = vi.fn(async () => {});
+    stub.destroy = destroy;
+    stub.cancelExec = vi.fn(async () => finish());
     const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await sandbox.open();
     const controller = new AbortController();
 
     const result = session.exec("probe", [], { signal: controller.signal });
+    await vi.waitFor(() => expect(execIds).toHaveLength(1));
     controller.abort(new Error("cancel exec"));
 
     await expect(result).rejects.toThrow("cancel exec");
-    const closed = vi.fn();
-    const closing = session.close().then(closed);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(closed).not.toHaveBeenCalled();
-    finishCleanup();
-    await closing;
-    expect(closed).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(stub.cancelExec).toHaveBeenCalledWith(execIds[0]));
+    expect(execIds[0]).toEqual(expect.any(String));
+    expect(destroy).not.toHaveBeenCalled();
+    await expect(session.files.exists("/workspace")).resolves.toBe(false);
+    await session.close();
+    expect(destroy).toHaveBeenCalledOnce();
   });
 
   it("rejects Cloudflare file reads when cancellation aborts an in-flight request", async () => {
@@ -649,6 +739,34 @@ describe("remote Sandbox providers", () => {
     await expect(result).rejects.toBe(reason);
     await expect(session.files.read("/workspace/output")).resolves.toEqual(new TextEncoder().encode("still open"));
     expect(destroy).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it("kills a Vercel process when its spawn signal aborts and forwards kill signals", async () => {
+    const signals: unknown[] = [];
+    let exit!: (code: number) => void;
+    const command = vercelCommand("");
+    command.wait = async () => await new Promise(resolve => exit = code => resolve({ exitCode: code }));
+    command.kill = async (signal) => {
+      signals.push(signal);
+      exit(137);
+    };
+    const instance = vercelInstance();
+    instance.runCommand = async options => options.args?.[1] === "provider" ? command : vercelCommand("");
+    const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+    const controller = new AbortController();
+    const reason = new Error("cancel spawn");
+
+    const child = await session.spawn!("provider", [], { signal: controller.signal });
+    controller.abort(reason);
+    await expect(child.wait()).rejects.toBe(reason);
+    expect(signals).toEqual(["SIGKILL"]);
+
+    const other = await session.spawn!("provider");
+    await other.kill("int");
+    await other.kill("9");
+    await expect(other.kill("USR1")).rejects.toMatchObject({ code: "SANDBOX_R0165" });
+    expect(signals).toEqual(["SIGKILL", "SIGINT", 9]);
     await session.close();
   });
 
@@ -726,6 +844,20 @@ describe("remote Sandbox providers", () => {
       network,
       processes: "arbitrary",
     });
+  });
+
+  it.each([
+    [{}, "node24"],
+    [{ runtime: "node22" }, "node22"],
+    [{ source: { type: "git", url: "https://github.com/vite-hub/vitehub.git" } }, "node24"],
+    [{ source: { snapshotId: "snap_123", type: "snapshot" } }, undefined],
+  ] as const)("sends the Vercel runtime only when the source has none for %j", async (options, runtime) => {
+    const create = vi.fn(async (_options: VercelSandboxCreateOptions) => vercelInstance());
+    const sandbox = await resolveSandbox({ runtime: createVercelRuntime({ ...options, create }) }, {});
+    await (await sandbox.open()).close();
+
+    if (runtime === undefined) expect(create.mock.calls[0]![0]).not.toHaveProperty("runtime");
+    else expect(create.mock.calls[0]![0]).toMatchObject({ runtime });
   });
 
   it("does not infer unrestricted network access from an inherited wildcard", async () => {
@@ -847,6 +979,7 @@ function namespace(stub: CloudflareSandboxStub) {
 
 function cloudflareStub(exec: CloudflareSandboxStub["exec"]): CloudflareSandboxStub {
   return {
+    async cancelExec() {},
     async destroy() {},
     async exec(command, options) {
       if (command.startsWith("rm -rf -- "))

@@ -52,7 +52,8 @@ describe("bundleSandboxTaskDefinition", () => {
     expect(bundle.entry).toBe("definition.js")
     expect(bundle.execution).toBe("definition")
     expect(bundle.modules[bundle.entry]).toContain('from "node:path"')
-    expect(bundle.modules[bundle.entry]).toContain("answer = 42")
+    expect(bundle.modules[bundle.entry]).not.toContain("./helper")
+    expect(bundle.modules[bundle.entry]).toContain("42")
   })
 
   it("keeps the project for a runtime-resolved Definition import", async () => {
@@ -985,6 +986,7 @@ describe("resolveSandboxTaskProject", () => {
     [{ timeout: 1.5 }, "positive integer"],
     [{ timeout: 2_147_483_648 }, "positive integer"],
     [{ env: { MODE: "test" } }, "unsupported keys: env"],
+    [{ transfer: { maxSidecars: 0 } }, "whole number"],
   ])("rejects invalid package Sandbox metadata", async (sandboxTaskOptions, message) => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

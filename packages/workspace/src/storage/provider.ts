@@ -1,10 +1,11 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
-import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
+import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"
+import { assertNoGitHubRepositoryKey } from "../providers/github/shared.ts"
 import { createGitHubWorkspaceStore } from "../providers/github/store.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
@@ -17,6 +18,7 @@ import type {
   GitHubWorkspaceOption,
   GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
+  ResolvedWorkspaceModuleOptions,
   WorkspaceDefinition,
   WorkspaceStore,
   WorkspaceStoreOptions,
@@ -80,7 +82,7 @@ export function resolveCloudflareArtifactsStore(
     {
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts" as const,
+      driver: "cloudflare" as const,
     },
   )
 }
@@ -94,7 +96,7 @@ export function resolveVercelBlobWorkspaceStore(
   return {
     access: config.access ?? "private",
     ...(prefix === undefined ? {} : { prefix }),
-    provider: "vercel-blob",
+    driver: "vercel",
     token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
@@ -104,6 +106,7 @@ export function resolveGitHubWorkspaceStore(
   env: Record<string, string | undefined> = process.env,
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
+  assertNoGitHubRepositoryKey(config)
   const branch = gitHubWorkspaceOption(config.branch)
     ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
   // An empty root is the repository root.
@@ -112,10 +115,9 @@ export function resolveGitHubWorkspaceStore(
   return {
     branch: branch ?? (input.runtime ? undefined : "main"),
     ...(config.database === undefined ? {} : { database: config.database }),
-    provider: "github",
+    driver: "github",
     ...(config.refs ? { refs: { ...config.refs } } : {}),
-    repository: gitHubWorkspaceOption(config.repository)
-      ?? gitHubWorkspaceOption(config.repo)
+    repo: gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),
     root: root ?? (input.runtime ? undefined : ".vitehub/workspaces/<workspace>"),
     token: input.runtime
@@ -131,50 +133,75 @@ export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined
   return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
+const workspaceStoreDrivers = new Set<unknown>(["cloudflare", "github", "local", "memory", "vercel"])
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedWorkspaceStoreDrivers = new Map([["cloudflare-artifacts", "cloudflare"], ["vercel-blob", "vercel"]])
+
 export function normalizeWorkspaceStoreOptions(
   store: WorkspaceStoreOptions | undefined,
   input: WorkspaceResolutionInput = {},
 ): ResolvedWorkspaceStoreOptions | undefined {
   if (isWorkspaceStore(store)) return
 
-  if (input.dev && !store) return { provider: "local" as const }
+  if (input.dev && !store) return { driver: "local" as const }
 
   const env = input.env || process.env
   const hosting = input.hosting || ""
 
-  if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
-  if (store?.provider === "github") return resolveGitHubWorkspaceStore(store, env, input)
-  if (store?.provider === "memory") return store
-  if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
-  if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
-  if (store && "provider" in store) throw workspaceError(`[vitehub] Unsupported workspace store provider: ${String(store.provider)}.`)
+  // A `root` once made a Store without `driver` a local Store, so the former `provider` key would pick it silently.
+  if (store && Object.hasOwn(store, "provider") && store.driver === undefined) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (store as { provider?: unknown }).provider
+    const driver = renamedWorkspaceStoreDrivers.get(String(provider)) ?? provider
+    throw workspaceErrorDiagnostics.WORKSPACE_RENAMED_STORE_PROVIDER_KEY({ driver: JSON.stringify(driver) ?? String(driver), provider: JSON.stringify(provider) ?? String(provider) })
+  }
+  if (store?.driver !== undefined && !workspaceStoreDrivers.has(store.driver)) {
+    throw workspaceErrorDiagnostics.WORKSPACE_UNKNOWN_STORE_DRIVER({ driver: JSON.stringify(store.driver), renamed: renamedWorkspaceStoreDrivers.get(String(store.driver)) })
+  }
+  if (store?.driver === "cloudflare") return resolveCloudflareArtifactsStore(store, env)
+  if (store?.driver === "github") return resolveGitHubWorkspaceStore(store, env, input)
+  if (store?.driver === "memory") return store
+  if (store?.driver === "vercel") return resolveVercelBlobWorkspaceStore(store, env)
+  if (store?.driver === "local" || store?.root) return defu(store, { driver: "local" as const }) as ResolvedWorkspaceStoreOptions
+  if (store && "driver" in store) throw workspaceError(`[vitehub] Unsupported workspace store driver: ${String(store.driver)}.`)
 
-  if (hosting.includes("cloudflare")) return { provider: "memory" as const }
+  if (hosting.includes("cloudflare")) return { driver: "memory" as const }
   if (hasVercelWorkspaceBlobEnv(env)) return resolveVercelBlobWorkspaceStore({}, env)
-  if (hosting.includes("vercel")) return { provider: "memory" as const }
+  if (hosting.includes("vercel")) return { driver: "memory" as const }
 
-  return { provider: "local" as const }
+  return { driver: "local" as const }
+}
+
+/** Resolve the effective store once for the runtime and its durability report. */
+export function resolveWorkspaceDefinitionStore(
+  definition: WorkspaceDefinition,
+  runtimeConfig: false | ResolvedWorkspaceModuleOptions = getWorkspaceRuntimeConfig(),
+  input: WorkspaceResolutionInput = {},
+): WorkspaceStoreOptions | undefined {
+  if (isWorkspaceStore(definition.store)) return definition.store
+  const rootDir = definition.rootDir || process.cwd()
+  const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
+  return normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
+    env: typeof process !== "undefined" ? process.env : {},
+    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOST : undefined,
+    rootDir,
+    runtime: true,
+    ...input,
+  })
 }
 
 export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition): WorkspaceStore {
-  if (isWorkspaceStore(definition.store)) return definition.store
-
-  const rootDir = definition.rootDir || process.cwd()
   const runtimeConfig = getWorkspaceRuntimeConfig()
-  const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
-  const store = normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
-    env: typeof process !== "undefined" ? process.env : {},
-    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING : undefined,
-    rootDir,
-    runtime: true,
-  })
+  const store = resolveWorkspaceDefinitionStore(definition, runtimeConfig)
+  if (isWorkspaceStore(store)) return store
+  const rootDir = definition.rootDir || process.cwd()
 
-  if (store?.provider === "memory") return createMemoryWorkspaceStore()
-  if (store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob") {
-    const loader = getWorkspaceHostedStoreLoader()
-    if (!loader && store.provider === "github") return createGitHubWorkspaceStore(store, definition.name)
-    if (!loader) throw workspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
-    return loader(store, definition.name)
+  if (store?.driver === "memory") return createMemoryWorkspaceStore()
+  if (store?.driver === "cloudflare" || store?.driver === "github" || store?.driver === "vercel") {
+    const hostedStore = getWorkspaceHostedStoreLoader()?.(store, definition.name)
+    if (hostedStore) return hostedStore
+    if (store.driver === "github") return createGitHubWorkspaceStore(store, definition.name)
+    throw workspaceError(`[vitehub] Hosted workspace store "${store.driver}" is not available in this runtime.`)
   }
 
   const root = store?.root

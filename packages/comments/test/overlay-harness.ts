@@ -21,7 +21,7 @@ export interface SentRequest {
  */
 export async function serveComments(options: DefineCommentsOptions = {}, handler: Partial<Omit<CommentsHandlerOptions, "comments">> = {}) {
   const comments = await createComments(options)
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, ...handler }))
+  const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, ...handler }))
   const requests: SentRequest[] = []
   const fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(String(input), location.href)
@@ -79,6 +79,23 @@ export async function startOverlay(tools: ReturnType<typeof pageTools>) {
 /** The toolbar button of the pill segment with this title. */
 export function tool(bar: HTMLElement, title: string): HTMLButtonElement | null {
   return bar.shadowRoot?.querySelector<HTMLButtonElement>(`button[title^="${title}"]`) ?? null
+}
+
+/** The **Comments** button of the segment, which says the open count. */
+export function commentsButton(bar: HTMLElement): HTMLButtonElement | null {
+  return bar.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label^="Comments"]') ?? null
+}
+
+/**
+ * Opens the list of the page's threads as a person does: **Comments**, then **All comments**. A person who may only read
+ * has one button for it.
+ */
+export async function openList(bar: HTMLElement) {
+  const show = tool(bar, "Show comments")
+  if (show) return show.click()
+  if (!tool(bar, "All comments on this page")) tool(bar, "Comment on the page (C)")!.click()
+  await vi.waitFor(() => expect(tool(bar, "All comments on this page")).not.toBeNull())
+  tool(bar, "All comments on this page")!.click()
 }
 
 /** Types into a composer textarea the way a person does: the value, the caret, then `input`. Vue renders before the next key. */

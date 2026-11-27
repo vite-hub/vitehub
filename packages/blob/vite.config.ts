@@ -3,32 +3,26 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 import { filesSdkDriverPeers } from "./src/internal/files-sdk-peers.ts";
 
 const bundledFilesSdkDrivers = new Set([
-  "akamai",
   "azure",
-  "box",
-  "digitalocean-spaces",
-  "dropbox",
   "fs",
   "gcs",
-  "google-drive",
-  "hetzner",
   "minio",
-  "onedrive",
   "s3",
-  "storj",
-  "supabase",
-  "uploadthing",
 ]);
+
+// Generated code imports these modules by path. They are not public API.
+const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./runtime/signed", "./runtime/storage", "./storage"]);
 
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
 // `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
 // with it all of jose, which a bundle cannot drop from CommonJS. Bundle the one module that `@vercel/blob` calls.
+// Remove when @vercel/oidc loads jose lazily (https://github.com/vercel/vercel/issues/17770).
 const vercelOidcTokenReader = fileURLToPath(new URL(
   "get-vercel-oidc-token-with-refresh.js",
   pathToFileURL(createRequire(import.meta.resolve("@vercel/blob")).resolve("@vercel/oidc")),
@@ -36,6 +30,7 @@ const vercelOidcTokenReader = fileURLToPath(new URL(
 
 export default defineConfig({
   pack: {
+    ...packDefaults,
     alias: {
       "@vercel/oidc": vercelOidcTokenReader,
       "async-retry": fileURLToPath(new URL("./src/internal/vercel-retry.ts", import.meta.url)),
@@ -43,10 +38,9 @@ export default defineConfig({
       throttleit: fileURLToPath(new URL("./src/internal/vercel-throttle.ts", import.meta.url)),
       undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
     },
-    tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "vue", "esbuild", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,
@@ -68,36 +62,28 @@ export default defineConfig({
       "src/cli.ts",
       "src/client.ts",
       "src/config.ts",
-      "src/content-type.ts",
+      "src/durability.ts",
       "src/errors.ts",
-      "src/ensure.ts",
       "src/storage.ts",
-      "src/drivers/akamai.ts",
       "src/drivers/azure.ts",
-      "src/drivers/box.ts",
       "src/drivers/cloudflare.ts",
       "src/drivers/cloudflare-native.ts",
-      "src/drivers/digitalocean-spaces.ts",
-      "src/drivers/dropbox.ts",
       "src/drivers/fs.ts",
       "src/drivers/gcs.ts",
-      "src/drivers/google-drive.ts",
-      "src/drivers/hetzner.ts",
       "src/drivers/minio.ts",
       "src/drivers/netlify-blobs.ts",
-      "src/drivers/onedrive.ts",
       "src/drivers/s3.ts",
-      "src/drivers/storj.ts",
-      "src/drivers/supabase.ts",
-      "src/drivers/uploadthing.ts",
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
+      "src/internal/vercel-blob.ts",
       "src/media.ts",
+      "src/nuxt-image.ts",
       "src/operations.ts",
-      "src/reference.ts",
       "src/vite.ts",
+      "src/runtime/signed.ts",
       "src/runtime/state.ts",
+      "src/runtime/storage.ts",
       "src/served.ts",
       "src/virtual.ts",
       "src/vue.ts",
@@ -106,7 +92,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
           Object.entries(exports)
-            .filter(([key]) => key !== "./drivers/vercel-bundled" && key !== "./storage")
+            .filter(([key]) => !privateEntries.has(key))
             .map(([key, value]) => {
               const driver = key.match(/^\.\/drivers\/(.+)$/)?.[1];
               if (!driver || !bundledFilesSdkDrivers.has(driver) || typeof value !== "string") {
@@ -124,10 +110,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 });

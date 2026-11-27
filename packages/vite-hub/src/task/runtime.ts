@@ -1,6 +1,8 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { runTask } from "nitro/task"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { taskRegistryKey } from "./registry.ts"
 
 /** Shape of the `tasks` export of Nitro's `#nitro/virtual/tasks` module. */
@@ -26,11 +28,9 @@ export interface TaskRunResult {
   result?: unknown
 }
 
-/** A failure with the fields that every surface reports. */
-class TaskOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
+/** The HTTP status that every surface reports for a task failure. */
+function withStatus<T extends Error>(error: T, status: number): T & { status: number } {
+  return Object.assign(error, { status })
 }
 
 const registryKey: unique symbol = Symbol.for(taskRegistryKey)
@@ -39,13 +39,9 @@ const scope = globalThis as typeof globalThis & { [registryKey]?: NitroTaskRegis
 function registry(): NitroTaskRegistry {
   const tasks = scope[registryKey]
   if (!tasks) {
-    throw new TaskOperationError("Nitro tasks are not enabled in this runtime.", 503, "TASK_RUNTIME_UNAVAILABLE", "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.")
+    throw withStatus(viteHubErrorDiagnostics.TASK_RUNTIME_UNAVAILABLE(), 503)
   }
   return tasks
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 export async function listTasks(): Promise<TaskListResult> {
@@ -67,7 +63,7 @@ export async function listTasks(): Promise<TaskListResult> {
 /** Runs one task with Nitro's `runTask()`, so it uses the same bindings, runtime config, and plugins as a request. */
 export async function runNamedTask(name: string, payload: Record<string, unknown> = {}): Promise<TaskRunResult> {
   if (!Object.hasOwn(registry(), name)) {
-    throw new TaskOperationError(`Task "${name}" does not exist.`, 404, "TASK_NOT_FOUND", "Run `vitehub task list` to see the registered tasks.")
+    throw withStatus(viteHubErrorDiagnostics.TASK_NOT_FOUND({ name: redactInspectionText(name) }), 404)
   }
   const startedAt = performance.now()
   try {
@@ -79,10 +75,10 @@ export async function runNamedTask(name: string, payload: Record<string, unknown
   catch (error) {
     // The server log keeps the stack. The caller gets the message.
     console.error(`[vitehub] Task "${name}" failed.`, error)
-    const message = error instanceof Error ? error.message : String(error)
+    const detail = redactInspectionText(error instanceof Error ? error.message : String(error))
     const status = isRecord(error) && typeof error.status === "number" ? error.status : undefined
     throw status === 501
-      ? new TaskOperationError(message, 501, "TASK_NOT_IMPLEMENTED", "Export a default `defineTask()` with a `run()` method from the task file.")
-      : new TaskOperationError(`Task "${name}" failed: ${message}`, 500, "TASK_FAILED", "Read the server log for the stack.")
+      ? withStatus(viteHubErrorDiagnostics.TASK_NOT_IMPLEMENTED({ detail }), 501)
+      : withStatus(viteHubErrorDiagnostics.TASK_FAILED({ detail, name: redactInspectionText(name) }), 500)
   }
 }

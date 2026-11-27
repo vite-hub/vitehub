@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "./object.ts"
+
 /**
  * The small internal seam between ViteHub packages and Nitro configuration.
  *
@@ -11,9 +13,30 @@ export interface NitroServerHandler {
   /** Import the handler on its first request instead of when the server starts. */
   lazy?: boolean
   method?: string | string[]
+  /**
+   * The Nitro route meta. Nitro gives it to the request event as `event.context.matchedRoute.meta`. A route that checks
+   * its own access uses `ownAccessRouteMeta`. The type is `object` because Nitro's `NitroRouteMeta` has no index
+   * signature.
+   */
+  meta?: object
   middleware?: boolean
   route?: string
 }
+
+/**
+ * The route meta of a ViteHub handler that Auth access routes leave alone, such as the Console RPC. The handler takes
+ * only its own signed requests and signed Site access tokens, so app access rules do not apply to it.
+ */
+export const ownAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
+
+/**
+ * The route meta of a generated handler that checks access on every request, even when the app adds no rule: a required
+ * `authorize` policy, an explicit `access` rule, a required access token, or a signature. Auth access routes still apply
+ * to it, so an app rule stays in force. `checksOwnAccess(event)` of `vite-hub/auth` reads it, so app middleware can skip
+ * the route. A route that can run without a check, such as a browser error sink, an optional `authorize`, or a webhook
+ * with `secret: false`, must not use it.
+ */
+export const ownAccessRouteMeta: Readonly<{ vitehubOwnAccess: true }> = Object.freeze({ vitehubOwnAccess: true })
 
 export interface NitroServerKit {
   readonly config: Record<string, unknown>
@@ -23,10 +46,6 @@ export interface NitroServerKit {
 
 function cloneArray(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : []
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function sameHandler(left: Record<string, unknown>, right: NitroServerHandler): boolean {
@@ -60,4 +79,15 @@ export function createNitroServerKit(value: unknown = {}): NitroServerKit {
       else plugins.push(plugin)
     },
   }
+}
+
+/** Add one module id to a Nitro or Rollup `external` option, in each form that option takes. */
+export function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
 }

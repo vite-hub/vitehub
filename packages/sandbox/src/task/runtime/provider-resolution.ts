@@ -1,16 +1,20 @@
 import { getActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import { createProviderDetector, isCloudflare, isVercel } from '../internal/shared/provider-detection'
 import { sandboxTaskError } from '../sandbox-task/errors'
+import { assertSandboxTaskTransferOptions } from '../transfer-options'
 
 import type {
   SandboxTaskDefinitionOptions,
-  SandboxTaskDefinitionProviderOptions,
+  SandboxTaskDefinitionDriverOptions,
 } from '../module-types'
-import type { SandboxTaskProvider } from '../module-types'
+import type { SandboxTaskDriver } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
-const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const allowedDefinitionKeys = new Set(['timeout', 'env', 'transfer'])
 const maxTimeout = 2_147_483_647
+
+/** The timeout of a Sandbox Task run that sets no `timeout`, on every provider. */
+export const DEFAULT_SANDBOX_TASK_TIMEOUT_MS = 300_000
 const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
   { provider: 'cloudflare', when: isCloudflare },
   { provider: 'vercel', when: isVercel },
@@ -46,7 +50,7 @@ function canResolvePackageSync(specifier: string) {
   }
 }
 
-export function isSandboxAvailable(provider?: SandboxTaskProvider): boolean {
+export function isSandboxAvailable(provider?: SandboxTaskDriver): boolean {
   if (provider === 'cloudflare')
     return canResolvePackageSync('@cloudflare/sandbox')
   if (provider === 'vercel')
@@ -74,9 +78,9 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   return `${prefix}${slug}${suffix}`
 }
 
-export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderOptions) {
-  if (provider?.provider)
-    return provider.provider
+export function resolveRuntimeProvider(options?: SandboxTaskDefinitionDriverOptions) {
+  if (options?.driver)
+    return options.driver
 
   const envProvider = typeof process !== 'undefined' ? process.env?.SANDBOX_PROVIDER : undefined
   if (envProvider === 'cloudflare' || envProvider === 'vercel')
@@ -89,7 +93,7 @@ export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderO
   if (detected.type === 'cloudflare' || detected.type === 'vercel')
     return detected.type
 
-  throw sandboxTaskError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
+  throw sandboxTaskError('Sandbox provider could not be inferred. Configure `sandboxTask.driver` as `cloudflare` or `vercel`.', {
     code: 'SANDBOX_TASK_PROVIDER_REQUIRED',
   })
 }
@@ -101,19 +105,19 @@ export function unsupportedHostedSandboxTaskProviderError(provider: unknown): Er
 export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout, env, and transfer. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0070({ message: `[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than ${maxTimeout}.` })
   }
+  assertSandboxTaskTransferOptions(local.transfer)
 }
 
 export async function resolveTaskSandbox(
-  provider: SandboxTaskProvider,
-  providerOptions: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider },
+  provider: SandboxTaskDriver,
+  providerOptions: SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver },
   local: SandboxTaskDefinitionOptions,
 ) {
-  // The Sandbox Task plugin aliases this package import to the generated loader; without the plugin it resolves to the generic loader.
   const providerLoader = await import('#vitehub-sandbox-task-provider-loader')
   const runtimeProvider = await providerLoader.loadSandboxTaskRuntimeProvider(provider)
   return await runtimeProvider.resolveTaskSandbox({
@@ -123,12 +127,11 @@ export async function resolveTaskSandbox(
 }
 
 export function withSandboxTaskProvider(
-  provider: SandboxTaskProvider,
-  options?: SandboxTaskDefinitionProviderOptions,
+  provider: SandboxTaskDriver,
+  options?: SandboxTaskDefinitionDriverOptions,
 ) {
   return {
     ...options,
-    provider,
-  } as SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
+    driver: provider,
+  } as SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver }
 }
-

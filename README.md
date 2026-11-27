@@ -19,8 +19,8 @@
   <a href="https://vitehub.dev/docs">Docs</a>
 </p>
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://npmx.dev/package/vite-hub)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://npmx.dev/package/vite-hub)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub)](https://npmx.dev/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month)](https://npmx.dev/package/vite-hub)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -31,47 +31,55 @@ Use each primitive alone, or use them together in one app.
 <!-- primitives:start -->
 <table>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/agents"><img src=".github/assets/primitives/agent.svg" alt="" height="40"><br><b>Agent</b></a><br>Portable automation</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/kv"><img src=".github/assets/primitives/kv.svg" alt="" height="40"><br><b>KV</b></a><br>State and cache</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/database"><img src=".github/assets/primitives/database.svg" alt="" height="40"><br><b>Database</b></a><br>Relational data</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/agents"><img src=".github/assets/primitives/agent.svg" alt="" height="24"><br><b>Agent</b></a><br>Portable automation</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/kv"><img src=".github/assets/primitives/kv.svg" alt="" height="24"><br><b>KV</b></a><br>State and cache</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/database"><img src=".github/assets/primitives/database.svg" alt="" height="24"><br><b>Database</b></a><br>Relational data</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/blob"><img src=".github/assets/primitives/blob.svg" alt="" height="24"><br><b>Blob</b></a><br>Files and uploads</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/blob"><img src=".github/assets/primitives/blob.svg" alt="" height="40"><br><b>Blob</b></a><br>Files and uploads</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/queue"><img src=".github/assets/primitives/queue.svg" alt="" height="40"><br><b>Queue</b></a><br>Background jobs</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/workflows"><img src=".github/assets/primitives/workflow.svg" alt="" height="40"><br><b>Workflow</b></a><br>Durable orchestration</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/queue"><img src=".github/assets/primitives/queue.svg" alt="" height="24"><br><b>Queue</b></a><br>Background jobs</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/workflows"><img src=".github/assets/primitives/workflow.svg" alt="" height="24"><br><b>Workflow</b></a><br>Durable orchestration</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/auth"><img src=".github/assets/primitives/auth.svg" alt="" height="24"><br><b>Auth</b></a><br>Users and sessions</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/schedule"><img src=".github/assets/primitives/schedule.svg" alt="" height="24"><br><b>Schedule</b></a><br>Recurring work</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/auth"><img src=".github/assets/primitives/auth.svg" alt="" height="40"><br><b>Auth</b></a><br>Users and sessions</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/schedule"><img src=".github/assets/primitives/schedule.svg" alt="" height="40"><br><b>Schedule</b></a><br>Recurring work</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/workspace"><img src=".github/assets/primitives/workspace.svg" alt="" height="40"><br><b>Workspace</b></a><br>Persistent file trees</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/workspace"><img src=".github/assets/primitives/workspace.svg" alt="" height="24"><br><b>Workspace</b></a><br>Persistent file trees</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/sandbox"><img src=".github/assets/primitives/sandbox.svg" alt="" height="24"><br><b>Sandbox</b></a><br>Isolated execution</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/env"><img src=".github/assets/primitives/env.svg" alt="" height="24"><br><b>Env</b></a><br>Typed configuration</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/logs"><img src=".github/assets/primitives/logs.svg" alt="" height="24"><br><b>Logs</b></a><br>Structured logs</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/sandbox"><img src=".github/assets/primitives/sandbox.svg" alt="" height="40"><br><b>Sandbox</b></a><br>Isolated execution</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/env"><img src=".github/assets/primitives/env.svg" alt="" height="40"><br><b>Env</b></a><br>Typed configuration</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/logs"><img src=".github/assets/primitives/logs.svg" alt="" height="40"><br><b>Logs</b></a><br>Structured logs</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="24"><br><b>Content</b></a><br>Parse and search</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="24"><br><b>Source</b></a><br>Read-only content</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="24"><br><b>Connections</b></a><br>Connected accounts</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="40"><br><b>Content</b></a><br>Parse and search</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="40"><br><b>Source</b></a><br>Read-only content</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="40"><br><b>Connections</b></a><br>Connected accounts</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/choices"><img src=".github/assets/primitives/choices.svg" alt="" height="24"><br><b>Choices</b></a><br>Text to choices</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="24"><br><b>Realtime</b></a><br>Live collaboration</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="24"><br><b>Browser</b></a><br>Browser operations</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="24"><br><b>Shell</b></a><br>Command execution</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/agents/ai-gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="40"><br><b>AI Gateways</b></a><br>Model request routing</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="40"><br><b>Realtime</b></a><br>Live collaboration</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="40"><br><b>Browser</b></a><br>Browser operations</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/channels"><img src=".github/assets/primitives/channels.svg" alt="" height="24"><br><b>Channels</b></a><br>Message delivery</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/email"><img src=".github/assets/primitives/email.svg" alt="" height="24"><br><b>Email</b></a><br>Transactional email</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/forms"><img src=".github/assets/primitives/forms.svg" alt="" height="24"><br><b>Forms</b></a><br>Visitor messages</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/rate-limit"><img src=".github/assets/primitives/rate-limit.svg" alt="" height="24"><br><b>Rate Limit</b></a><br>Request budgets</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="40"><br><b>Shell</b></a><br>Command execution</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/channels"><img src=".github/assets/primitives/channels.svg" alt="" height="40"><br><b>Channels</b></a><br>Message delivery</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/email"><img src=".github/assets/primitives/email.svg" alt="" height="40"><br><b>Email</b></a><br>Transactional email</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/cms"><img src=".github/assets/primitives/cms.svg" alt="" height="24"><br><b>CMS</b></a><br>Editable documents</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/i18n"><img src=".github/assets/primitives/i18n.svg" alt="" height="24"><br><b>i18n</b></a><br>App translation</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="24"><br><b>Comments</b></a><br>Live page feedback</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="24"><br><b>UI</b></a><br>Agent interfaces</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/rate-limit"><img src=".github/assets/primitives/rate-limit.svg" alt="" height="40"><br><b>Rate Limit</b></a><br>Request budgets</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/cms"><img src=".github/assets/primitives/cms.svg" alt="" height="40"><br><b>CMS</b></a><br>Editable documents</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="40"><br><b>Comments</b></a><br>Live page feedback</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/sync"><img src=".github/assets/primitives/sync.svg" alt="" height="24"><br><b>Sync</b></a><br>Local table sync</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/device"><img src=".github/assets/primitives/device.svg" alt="" height="24"><br><b>Device</b></a><br>Stored browser reads</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/forge"><img src=".github/assets/primitives/forge.svg" alt="" height="24"><br><b>Forge</b></a><br>Git forge identity</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/webhooks"><img src=".github/assets/primitives/webhooks.svg" alt="" height="24"><br><b>Webhooks</b></a><br>Signed event delivery</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="40"><br><b>UI</b></a><br>Agent interfaces</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/mcp"><img src=".github/assets/primitives/mcp.svg" alt="" height="24"><br><b>MCP server</b></a><br>App MCP server</td>
   </tr>
 </table>
 <!-- primitives:end -->
@@ -92,24 +100,22 @@ export default defineEventHandler(async () => {
 
 This route does not change between hosts. The host selects the provider:
 
-| Host       | KV                   | Blob                  | Database          |
-| ---------- | -------------------- | --------------------- | ----------------- |
-| Cloudflare | Workers KV           | R2                    | D1                |
-| Vercel     | Upstash Redis        | Vercel Blob           | libSQL or D1 HTTP |
-| Netlify    | Upstash Redis        | Netlify Blobs         | libSQL            |
-| Deno       | Deno KV              | S3-compatible         | libSQL            |
-| Node       | `fs-lite` or Upstash | `fs` or S3-compatible | SQLite or libSQL  |
+| Host       | KV                                                                          | Blob                  | Database                    |
+| ---------- | --------------------------------------------------------------------------- | --------------------- | --------------------------- |
+| Cloudflare | Workers KV                                                                  | R2                    | D1                          |
+| Vercel     | Upstash Redis                                                               | Vercel Blob           | libSQL or D1 HTTP           |
+| Netlify    | Upstash Redis                                                               | Netlify Blobs         | libSQL                      |
+| Deno       | Deno KV                                                                     | S3-compatible         | libSQL                      |
+| Node       | Postgres table, `fs-lite`, Upstash, or Redis with `kv: { driver: 'redis' }` | `fs` or S3-compatible | SQLite, libSQL, or Postgres |
 
 Support is different for each primitive. Read the [support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before you select a host.
 
 ## Get started
 
 ```bash
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/kv nitro h3
 pnpm add -D vite
 ```
-
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script. Then run `pnpm add -D vite` before you continue.
 
 ```ts
 // vite.config.ts
@@ -117,7 +123,7 @@ import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", kv: true })],
+  plugins: [vitehub({ host: "node", kv: true })],
 });
 ```
 
@@ -129,7 +135,7 @@ If a coding agent writes your app, install the ViteHub skill:
 npx skills add https://vitehub.dev --skill vitehub
 ```
 
-Requirements: Node.js 22.22 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+Requirements: Node.js 24.15 or newer, and Vite 8 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
 
 ## Agents
 

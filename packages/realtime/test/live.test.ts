@@ -1,22 +1,27 @@
+import { DatabaseSync } from "node:sqlite"
+import type { SQLInputValue } from "node:sqlite"
+
 import { H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeAuthorizeContext, RealtimeDefinitionAccess, RealtimeDocumentDefinition, RealtimeRequestContext, RealtimeUser } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
-import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument } from "../src/server.ts"
-import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
+import { defineRealtime } from "../src/definition.ts"
+import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
+import { realtimeRoomKey, resolveRealtimeDefinition } from "../src/internal/server.ts"
+import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, nativeSqlCarrier, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
   resolveWorkspaceStoreTarget: vi.fn(),
   useWorkspaceFiles: vi.fn(),
 }))
 
-vi.mock("@vite-hub/auth/server", () => ({
+vi.mock("@vite-hub/auth/internal/server", () => ({
   assertAuthOrigin: vi.fn(async () => {
     throw new Error("The ViteHub Auth session must not be used when identify() is defined.")
   }),
@@ -39,13 +44,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Clients may send one document update per 50 ms. */
 async function pace(): Promise<void> {
   await vi.advanceTimersByTimeAsync(60)
 }
 
-function liveDefinition(adapter: RealtimeDefinition["document"], extra: Partial<RealtimeDefinition> = {}): RealtimeDefinition {
-  return { document: adapter, editor: createStubEditor().editor, ...extra }
+type LiveFields = Partial<Pick<RealtimeDocumentDefinition, "editor" | "history" | "persistence">>
+
+function liveDefinition(adapter: RealtimeDocumentDefinition["document"], extra: LiveFields = {}, access: RealtimeDefinitionAccess = { access: "public" }): RealtimeDocumentDefinition {
+  return { document: adapter, editor: createStubEditor().editor, ...extra, ...access }
 }
 
 describe("custom document adapters", () => {
@@ -147,7 +153,6 @@ describe("custom document adapters", () => {
       expect(client.doc.getMap("fields").toJSON()).toEqual({ slug: "hello", title: "" })
       expect(readRealtimeStatus(client.doc).issues).toEqual([{ field: "title", message: "Title is required", path: [] }])
     }
-    // The merge is a server write: it does not schedule another save.
     await vi.advanceTimersByTimeAsync(20_000)
     expect(memory.adapter.save).toHaveBeenCalledOnce()
     first.close()
@@ -181,7 +186,7 @@ describe("custom document adapters", () => {
     expect(calls).toEqual({ fromMarkdown: 1, toMarkdown: 1 })
 
     const memory = createMemoryAdapter({ page: { body } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     await pace()
@@ -194,10 +199,6 @@ describe("custom document adapters", () => {
   })
 })
 
-/**
- * Stub codec that loses a construct: blocks starting with `::` (an undeclared component) are
- * dropped. It also writes `- ` for a `* ` list marker and drops the final newline.
- */
 function createLossyEditor() {
   const { calls, editor: base } = createStubEditor()
   const blocks = (markdown: string) => markdown.replace(/\n+$/, "").split("\n\n")
@@ -222,7 +223,7 @@ describe("editor codec guard", () => {
     const { editor, verify } = createLossyEditor()
     const body = "Intro\n\n::callout\nKeep me\n::\n\nOutro\n"
     const memory = createMemoryAdapter({ page: { body, fields: { title: "Notes" } } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
 
@@ -256,7 +257,7 @@ describe("editor codec guard", () => {
   it("opens writable again after the stored document is fixed", async () => {
     const { editor } = createLossyEditor()
     const memory = createMemoryAdapter({ page: { body: "Intro\n\n::callout" } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ access: "read", reason: "document" })
@@ -274,13 +275,12 @@ describe("editor codec guard", () => {
   it("writes nothing when the room only holds the codec's form of the stored document", async () => {
     const { editor } = createLossyEditor()
     const memory = createMemoryAdapter({ page: { body: "* item\n\nText\n", fields: { title: "List" } } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ access: "write" })
     expect(paragraphs(client.doc)).toEqual(["- item", "Text"])
 
-    // An edit that is undone leaves the canonical form: no save, no rewrite of `* item`.
     await pace()
     appendParagraph(client.doc, "Typo")
     await pace()
@@ -291,7 +291,6 @@ describe("editor codec guard", () => {
     expect(memory.adapter.save).not.toHaveBeenCalled()
     expect(readRealtimeStatus(client.doc)).toMatchObject({ digest: "v1", error: null })
 
-    // A real edit saves the codec's form and keeps the final newline.
     appendParagraph(client.doc, "More")
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
@@ -307,7 +306,6 @@ describe("editor codec guard", () => {
     const client = await server.connect("page")
     await settle()
     await pace()
-    // The stub codec splits paragraphs on blank lines, so this paragraph reads back as two.
     appendParagraph(client.doc, "one\n\ntwo")
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
@@ -318,6 +316,157 @@ describe("editor codec guard", () => {
       error: null,
       issues: [{ message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again." }],
     })
+    client.close()
+  })
+})
+
+describe("editor versions", () => {
+  function versioned(version: string) {
+    return { ...createStubEditor().editor, version }
+  }
+
+  it("seeds a persisted room fresh when the editor version changed, even with the same digest", async () => {
+    const sql = new FakeSql()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const first = createTestServer(liveDefinition(memory.adapter, { editor: versioned("1") }), { durable: sql })
+    const client = await first.connect("page", { editor: "1" })
+    await settle()
+    const epoch = client.controls[0]!.epoch
+    client.close()
+    await settle()
+    const key = realtimeRoomKey("docs", "page")
+    expect(sql.documents.get(key)).toMatchObject({ digest: "v1", epoch })
+
+    const same = await createTestServer(liveDefinition(memory.adapter, { editor: versioned("1") }), { durable: sql }).connect("page", { editor: "1", epoch })
+    expect(same.controls[0]).toEqual({ type: "session", access: "write", epoch })
+    same.close()
+    await settle()
+
+    const upgraded = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }), { durable: sql })
+    const stale = await upgraded.connect("page", { editor: "2", epoch })
+    expect(stale.controls).toEqual([{ type: "reset", epoch: expect.not.stringMatching(epoch), reason: "stale" }])
+    const fresh = await upgraded.connect("page", { editor: "2" })
+    await settle()
+    expect(fresh.controls[0]).toEqual({ type: "session", access: "write", epoch: stale.controls[0]!.epoch })
+    expect(paragraphs(fresh.doc)).toEqual(["Start"])
+    expect(sql.documents.get(key)).toMatchObject({ digest: "v1", editor_version: "2", epoch: stale.controls[0]!.epoch })
+    fresh.close()
+  })
+
+  it.each([false, true])("makes another editor version read-only with awareness client ID %s", async (clientId) => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }))
+    const current = await server.connect("page", { editor: "2", clientId })
+    const old = await server.connect("page", { editor: "1", clientId })
+    const unversioned = await server.connect("page")
+    await settle()
+
+    expect(current.controls[0]).toMatchObject({ type: "session", access: "write" })
+    for (const client of [old, unversioned]) {
+      expect(client.controls[0]).toEqual({ type: "session", access: "read", epoch: current.controls[0]!.epoch, reason: "version" })
+      expect(paragraphs(client.doc)).toEqual(["Start"])
+    }
+
+    await pace()
+    old.doc.getXmlFragment("body").delete(0, 1)
+    appendParagraph(unversioned.doc, "Vandalism")
+    await vi.advanceTimersByTimeAsync(30_000)
+    await settle()
+    expect(paragraphs(current.doc)).toEqual(["Start"])
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(old.closed).toBeUndefined()
+    appendParagraph(current.doc, "Live")
+    expect(paragraphs(old.doc)).toEqual(["Live"])
+    current.close()
+    old.close()
+    unversioned.close()
+  })
+})
+
+describe("saves that do not fit the schema", () => {
+  it.each([
+    "[`defineContent`](/docs/content)",
+    "**`bold code`**",
+    "*`italic code`*",
+    "~~`deleted code`~~",
+    "---\n---",
+    "---\ntitle: Page\n---",
+  ])("saves field edits to codec-produced Markdown: %s", async (body) => {
+    const memory = createMemoryAdapter({ page: { body } })
+    const server = createTestServer({ access: "public", document: memory.adapter, persistence: false })
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body, fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(memory.store.get("page")).toMatchObject({ body, fields: { title: "Updated" } })
+    client.close()
+  })
+
+  it("saves a custom editor's top node and checks its codec read-back", async () => {
+    const base = createStubEditor().editor
+    const editor = defineRealtimeEditor({
+      ...base,
+      extensions: () => base.extensions().map(extension => extension.name === "doc" ? extension.extend({ name: "page" }) : extension),
+      fromMarkdown: async markdown => ({ ...await base.fromMarkdown(markdown), type: "page" }),
+      toMarkdown: vi.fn(base.toMarkdown),
+    })
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter, { editor, persistence: false }))
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body: "Start", fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(editor.toMarkdown).toHaveBeenLastCalledWith({
+      type: "page",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Start" }] }],
+    })
+    client.close()
+  })
+
+  function appendElement(doc: Y.Doc, element: Y.XmlElement): void {
+    doc.getXmlFragment("body").push([element])
+  }
+
+  it.each([
+    ["a node type the schema does not know", () => {
+      const callout = new Y.XmlElement("callout")
+      callout.insert(0, [new Y.XmlText("Keep me")])
+      return callout
+    }],
+    ["content the schema does not allow", () => {
+      const outer = new Y.XmlElement("paragraph")
+      const inner = new Y.XmlElement("paragraph")
+      inner.insert(0, [new Y.XmlText("Nested")])
+      outer.insert(0, [inner])
+      return outer
+    }],
+  ])("refuses to save %s and keeps the room dirty", async (_, element) => {
+    const memory = createMemoryAdapter({ page: { body: "Start\n" } })
+    const server = createTestServer({ access: "public", document: memory.adapter })
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    appendElement(client.doc, element())
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(memory.store.get("page")).toMatchObject({ body: "Start\n", digest: "v1" })
+    expect(readRealtimeStatus(client.doc).error).toBe("The room document does not fit the editor schema, so Realtime did not save it. Undo the last change or reload.")
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(422)
+    await expect(save.json()).resolves.toMatchObject({ data: { code: "REALTIME_INVALID_DOCUMENT" } })
+    expect(memory.adapter.save).not.toHaveBeenCalled()
     client.close()
   })
 })
@@ -363,10 +512,8 @@ describe("re-seeding", () => {
     }
     const secondEpoch = ana.controls.at(-1)!.epoch
     expect(secondEpoch).not.toBe(firstEpoch)
-    // Ana still holds her unsaved paragraph locally; the reset event hands it to the UI.
     expect(paragraphs(ana.doc)).toEqual(["Original", "Unsaved by Ana"])
 
-    // A client that ignores the reset and reconnects with its old seed is refused, not merged.
     const stale = await server.connect("page", { doc: ana.doc, epoch: firstEpoch })
     expect(stale.controls).toEqual([{ type: "reset", epoch: secondEpoch, reason: "stale" }])
     expect(stale.closed?.code).toBe(4409)
@@ -421,7 +568,6 @@ describe("re-seeding", () => {
     await settle()
     expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: "weather" })
 
-    // A schema change reads the same file, with the same digest, as an image reference.
     memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" } } })
     const refreshed = await server.post("page", "refresh")
     await expect(refreshed.json()).resolves.toEqual({ digest: "v1", reseeded: false })
@@ -430,7 +576,6 @@ describe("re-seeding", () => {
     expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" } })
     expect(memory.adapter.save).not.toHaveBeenCalled()
 
-    // The refreshed fields are the clean baseline: changing a field and changing it back saves nothing.
     await pace()
     client.doc.getMap("fields").set("hero", "edited")
     await pace()
@@ -439,7 +584,6 @@ describe("re-seeding", () => {
     await settle()
     expect(memory.adapter.save).not.toHaveBeenCalled()
 
-    // A field that starts to load as null is added too.
     memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" }, icon: null } })
     await server.post("page", "refresh")
     await settle()
@@ -464,17 +608,19 @@ describe("re-seeding", () => {
 })
 
 describe("identity and authorization", () => {
-  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDefinition> = {}) {
-    return liveDefinition(memory.adapter, {
-      authorize: ({ documentId, mode, user }) => {
+  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: {
+    authorize?: true | ((context: RealtimeAuthorizeContext) => boolean)
+    identify?: (context: RealtimeRequestContext) => RealtimeUser | null
+  } = {}) {
+    return liveDefinition(memory.adapter, {}, {
+      authorize: extra.authorize ?? (({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"
-        if (mode === "write") return user?.id !== "viewer"
-      },
-      identify: ({ request }) => {
+        return mode === "read" || user?.id !== "viewer"
+      }),
+      identify: extra.identify ?? (({ request }) => {
         const id = request.headers.get("x-user")
         return id ? { id, image: `https://example.com/${id}.png`, name: id.toUpperCase() } : null
-      },
-      ...extra,
+      }),
     })
   }
 
@@ -482,7 +628,10 @@ describe("identity and authorization", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const events: unknown[] = []
     const server = createTestServer(secured(memory, {
-      authorize: ({ event }) => { events.push(event) },
+      authorize: ({ event }) => {
+        events.push(event)
+        return true
+      },
       identify: ({ event, request }) => {
         events.push(event)
         expect(event["~standard"].req).toBe(request)
@@ -530,6 +679,7 @@ describe("identity and authorization", () => {
     const server = createTestServer(secured(memory))
 
     expect((await server.connect("secret", { headers: { "x-user": "ben" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.connect("secret")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("secret", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
     expect((await server.connect("page", { headers: { origin: "https://evil.example", "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
 
@@ -550,9 +700,21 @@ describe("identity and authorization", () => {
     expect(paragraphs(editor.doc)).toEqual(["Start"])
   })
 
-  it("requires an identity when auth is true", async () => {
+  it("denies when authorize() returns undefined", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const authorize = vi.fn(({ mode }: RealtimeAuthorizeContext): boolean | undefined => (mode === "write" ? true : undefined))
+    // SAFETY: A JavaScript definition can return undefined, which the type does not allow.
+    const server = createTestServer(secured(memory, { authorize: authorize as (context: RealtimeAuthorizeContext) => boolean }))
+
+    expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.post("page", "refresh", { headers: { "x-user": "ana" } })).status).toBe(403)
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ mode: "read" }))
+    expect(memory.adapter.load).not.toHaveBeenCalled()
+  })
+
+  it("requires an identity when authorize is true", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     expect((await server.connect("page")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
@@ -560,11 +722,10 @@ describe("identity and authorization", () => {
 
   it("refuses a rejected upgrade instead of opening a socket without hooks", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     const { response } = await server.connect("page")
     const hooks = (response as Response & { crossws?: { open?: unknown, upgrade?: (request: Request) => unknown } }).crossws
-    // crossws upgrades a response without hooks into a silent socket; only an upgrade hook can refuse it.
     expect(response.status).toBe(401)
     expect(hooks?.open).toBeUndefined()
     const refusal = await hooks?.upgrade?.(new Request("https://example.com"))
@@ -574,6 +735,16 @@ describe("identity and authorization", () => {
 })
 
 describe("history checkpoints", () => {
+  it("rejects history.checkpoint on an adapter without checkpoint() when the definition loads", () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const definition = liveDefinition(memory.adapter, { history: { checkpoint: true } })
+    const unsupported = expect.objectContaining({ code: "REALTIME_CHECKPOINT_UNSUPPORTED", fix: expect.stringContaining("checkpoint(") })
+    expect(() => defineRealtime(definition)).toThrow(unsupported)
+    expect(() => resolveRealtimeDefinition(definition)).toThrow(unsupported)
+    expect(() => defineRealtime(liveDefinition(memory.adapter))).not.toThrow()
+    expect(() => defineRealtime(liveDefinition({ ...memory.adapter, checkpoint: vi.fn() }, { history: { checkpoint: true } }))).not.toThrow()
+  })
+
   it("saves and records history through the adapter in one room operation", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const snapshot = { createdAt: "2026-10-14T00:00:00.000Z", entries: { page: { digest: "v2", type: "file" as const } }, id: "snapshot-1" }
@@ -636,7 +807,7 @@ describe("history checkpoints", () => {
         rebase,
       },
     })
-    const server = createTestServer({ document: { workspace: "docs" }, editor: createStubEditor().editor, history: { checkpoint: true } })
+    const server = createTestServer({ access: "public", document: { workspace: "docs" }, editor: createStubEditor().editor, history: { checkpoint: true } })
     const client = await server.connect("page.md")
     await settle()
     await pace()
@@ -666,7 +837,6 @@ describe("room authorities", () => {
     await settle()
     expect(memory.adapter.save).toHaveBeenCalledOnce()
 
-    // A clean, released room reopens from its live state without another load.
     const again = await server.connect("page")
     await settle()
     expect(paragraphs(again.doc)).toEqual(["Start", "Edit"])
@@ -681,14 +851,13 @@ describe("room authorities", () => {
     const first = createTestServer(definition, { durable: sql })
     const client = await first.connect("page")
     await settle()
-    expect(sql.alterJournalAttempted).toBe(true)
+    expect(sql.altered).toEqual([])
     const epoch = client.controls[0]!.epoch
     await pace()
     appendParagraph(client.doc, "Edit")
     client.close()
     await settle()
 
-    // The leave save failed: the Durable Object kept the unsaved Yjs state and marked it dirty.
     const key = realtimeRoomKey("docs", "page")
     expect(sql.documents.get(key)).toMatchObject({ digest: "v1", dirty: 1, epoch })
 
@@ -733,7 +902,6 @@ describe("room authorities", () => {
     const persisted = persistedBytes()
     expect(sql.documents.get(realtimeRoomKey("docs", "dirty"))).toMatchObject({ dirty: 1 })
 
-    // A schema change reads both stored files, with the same digests, as image references.
     for (const id of ["clean", "dirty"]) memory.store.set(id, { ...memory.store.get(id)!, fields: { hero: { pathname: "art/weather.webp" } } })
     const restarted = createTestServer(definition, { durable: sql })
     const reopened = await restarted.connect("clean")
@@ -747,7 +915,7 @@ describe("room authorities", () => {
     unsaved.close()
   })
 
-  it("accepts the intermediate Durable Object journal schema without client_update", async () => {
+  it("adds client_update to an intermediate Durable Object journal once", async () => {
     const sql = new FakeSql({ intermediateJournal: true })
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const server = createTestServer(liveDefinition(memory.adapter), { durable: sql })
@@ -756,9 +924,56 @@ describe("room authorities", () => {
     appendParagraph(client.doc, "Edit")
     await settle()
 
-    expect(sql.alterJournalAttempted).toBe(true)
+    expect(sql.altered).toEqual(["vitehub_realtime_document_updates.client_update"])
     expect(sql.updates).toHaveLength(1)
     expect(sql.updates[0]).toMatchObject({ client_update: 1 })
+    client.close()
+    await settle()
+
+    const again = await createTestServer(liveDefinition(memory.adapter), { durable: sql }).connect("page")
+    await settle()
+    expect(sql.altered).toEqual(["vitehub_realtime_document_updates.client_update"])
+    again.close()
+  })
+
+  it("copies a pre-adapter Durable Object room into the current journal and adds the missing columns", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    memory.adapter.save.mockRejectedValueOnce(new Error("Database unavailable"))
+    const definition = liveDefinition(memory.adapter)
+    const fake = new FakeSql()
+    const first = createTestServer(definition, { durable: fake })
+    const client = await first.connect("page")
+    await settle()
+    await pace()
+    appendParagraph(client.doc, "Edit")
+    client.close()
+    await settle()
+    const key = realtimeRoomKey("docs", "page")
+    const blob = (value: unknown) => new Uint8Array(value as ArrayBuffer)
+
+    const database = new DatabaseSync(":memory:")
+    database.exec(`
+      CREATE TABLE vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL);
+    `)
+    database.prepare("INSERT INTO vitehub_realtime_rooms VALUES (?, ?, ?)").run(key, "v1", blob(fake.documents.get(key)!.update_blob))
+    for (const update of fake.updates) database.prepare("INSERT INTO vitehub_realtime_updates (room_key, update_blob) VALUES (?, ?)").run(key, blob(update.update_blob))
+    const carrier = nativeSqlCarrier((query, ...bindings) => {
+      const rows = database.prepare(query).all(...bindings.map(value => (value instanceof ArrayBuffer ? new Uint8Array(value) : value) as SQLInputValue))
+      return { toArray: () => rows }
+    })
+
+    const migrated = await createTestServer(definition, { durable: { carrier } }).connect("page")
+    await settle()
+    expect(paragraphs(migrated.doc)).toEqual(["Start", "Edit"])
+    expect(database.prepare("SELECT digest FROM vitehub_realtime_documents WHERE room_key = ?").all(key)).toEqual([{ digest: "v1" }])
+    expect(database.prepare("SELECT name FROM pragma_table_info('vitehub_realtime_documents') WHERE name = 'editor_version'").all()).toHaveLength(1)
+    expect(database.prepare("SELECT name FROM pragma_table_info('vitehub_realtime_document_updates') WHERE name = 'client_update'").all()).toHaveLength(1)
+    migrated.close()
+    await settle()
+    database.close()
   })
 
   it("forwards saves and checkpoints to the Durable Object instance that holds the rooms", async () => {
@@ -766,14 +981,13 @@ describe("room authorities", () => {
     const idFromName = vi.fn((name: string) => ({ name }))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
     for (const search of ["?document=save", "?history=checkpoint"]) {
-      const request = new Request(`https://example.com/api/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
+      const request = new Request(`https://example.com/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
       Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName } } } } })
 
       const response = await handler.fetch(request)
 
       await expect(response.text()).resolves.toBe("forwarded")
     }
-    // Nitro's cloudflare-durable entry sends every WebSocket upgrade to the instance named "server".
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 
@@ -800,7 +1014,7 @@ describe("adapter seams for live documents", () => {
     const notes = createStubEditor()
     const posts = createStubEditor()
     const pick = vi.fn(({ documentId }: { documentId: string }) => documentId.startsWith("notes/") ? notes.editor : posts.editor)
-    const server = createTestServer({ document: memory.adapter, editor: pick })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor: pick })
     const first = await server.connect("notes/a")
     const second = await server.connect("posts/b")
     await settle()
@@ -819,7 +1033,7 @@ describe("adapter seams for live documents", () => {
     const hold = vi.fn(async () => {})
     const release = vi.fn(async () => {})
     const adapter = Object.assign(memory.adapter, { hold, release })
-    const server = createTestServer(liveDefinition(adapter, {
+    const server = createTestServer(liveDefinition(adapter, {}, {
       identify: ({ request }) => {
         const id = request.headers.get("x-user")
         return id ? { id, name: id.toUpperCase() } : null
@@ -833,7 +1047,6 @@ describe("adapter seams for live documents", () => {
     const viewer = await server.connect("page", { headers: { "x-user": "viewer" } })
     const ben = await server.connect("page", { headers: { "x-user": "ben" } })
     await settle()
-    // A read-only client does not hold the room.
     expect(hold).toHaveBeenLastCalledWith(expect.anything(), { users: [{ id: "ana", name: "ANA" }, { id: "ben", name: "BEN" }] })
     await vi.advanceTimersByTimeAsync(60_000)
     await settle()
@@ -847,7 +1060,6 @@ describe("adapter seams for live documents", () => {
     expect(release).not.toHaveBeenCalled()
     ben.close()
     await settle()
-    // The last writer leaving saves the room first, then releases it.
     expect(memory.store.get("page")!.body).toBe("Start\n\nBen")
     expect(release).toHaveBeenCalledOnce()
     expect(memory.adapter.save.mock.invocationCallOrder[0]!).toBeLessThan(release.mock.invocationCallOrder[0]!)
@@ -873,7 +1085,7 @@ describe("adapter seams for live documents", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const hold = vi.fn(async () => {})
     const editor = { ...createStubEditor().editor, verify: () => ({ writable: false }) }
-    const server = createTestServer({ document: Object.assign(memory.adapter, { hold }), editor })
+    const server = createTestServer({ access: "public", document: Object.assign(memory.adapter, { hold }), editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ type: "session", access: "read", reason: "document" })
@@ -882,7 +1094,6 @@ describe("adapter seams for live documents", () => {
   })
 
   it("refreshes an open clean room from the server and leaves a dirty one to its next save", async () => {
-    // Rooms of earlier tests stay registered in this process.
     Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const server = createTestServer(liveDefinition(memory.adapter))
@@ -905,7 +1116,6 @@ describe("adapter seams for live documents", () => {
     expect(fresh.closed).toBeUndefined()
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
-    // The save conflicts with the outside write, which wins and re-seeds the room.
     expect(fresh.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
     expect(memory.store.get("page")!.body).toBe("Agent again")
   })
@@ -917,12 +1127,12 @@ describe("adapter seams for live documents", () => {
     expect(idFromName).toHaveBeenCalledWith("server")
     const sent = fetch.mock.calls[0]![0]
     expect(sent.method).toBe("POST")
-    expect(new URL(sent.url).pathname).toBe("/api/_vitehub/realtime/content/posts/2026/hello")
+    expect(new URL(sent.url).pathname).toBe("/_vitehub/realtime/content/posts/2026/hello")
     expect(sent.headers.get("x-vitehub-realtime-refresh")).toBe("1")
 
     const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch: forward }), idFromName } } } } })
     await handler.fetch(request)
     expect(forward.mock.calls[0]![0].headers.has("x-vitehub-realtime-refresh")).toBe(false)
@@ -931,11 +1141,10 @@ describe("adapter seams for live documents", () => {
   it("finds the Durable Object binding of the running Worker", async () => {
     const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
     const scope = globalThis as { __env__?: Record<string, unknown> }
-    // Nitro's Cloudflare entry stores the request's bindings here.
     scope.__env__ = { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } }
     try {
       await expect(refreshRealtimeDocument("content", "posts/hello")).resolves.toBe(true)
-      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/api/_vitehub/realtime/content/posts/hello")
+      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/_vitehub/realtime/content/posts/hello")
     }
     finally {
       delete scope.__env__
@@ -943,8 +1152,6 @@ describe("adapter seams for live documents", () => {
   })
 
   it("leaves a room it can see to the Durable Object that owns it", async () => {
-    // Workerd may run the Durable Object in the Worker's isolate: its rooms are visible here, but their sockets belong
-    // to the Durable Object's requests, so a reset from this request would never reach them.
     Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const server = createTestServer(liveDefinition(memory.adapter))
@@ -961,7 +1168,6 @@ describe("adapter seams for live documents", () => {
 
   it("accepts workerd's binding, whose methods are on its class, and rejects methods from an arbitrary prototype", async () => {
     const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
-    // Workerd's binding: no own methods, a branded class prototype, and no global DurableObjectNamespace.
     class DurableObjectNamespace {
       get(_id: unknown) { return { fetch } }
       idFromName(name: string) { return { name } }
@@ -970,7 +1176,6 @@ describe("adapter seams for live documents", () => {
     await expect(refreshRealtimeDocument("docs", "page", { durableObjects: new DurableObjectNamespace() })).resolves.toBe(true)
     expect(fetch).toHaveBeenCalledOnce()
 
-    // Client requests reach the Durable Object through the same binding.
     const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
     class ForwardingNamespace {
       get(_id: unknown) { return { fetch: forward } }
@@ -978,11 +1183,11 @@ describe("adapter seams for live documents", () => {
       get [Symbol.toStringTag]() { return "DurableObjectNamespace" }
     }
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: new ForwardingNamespace() } } } })
     expect(await (await handler.fetch(request)).text()).toBe("forwarded")
 
-    const inherited = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const inherited = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(inherited, { runtime: { cloudflare: { env: { $DurableObject: Object.create({ get: () => ({ fetch: forward }), idFromName: (name: string) => ({ name }) }) } } } })
     await handler.fetch(inherited)
     expect(forward).toHaveBeenCalledOnce()
@@ -991,9 +1196,9 @@ describe("adapter seams for live documents", () => {
   it("refreshes inside the Durable Object without identity, only for a room it has open", async () => {
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const sql = new FakeSql()
-    const server = createTestServer(liveDefinition(memory.adapter, { auth: true, identify: () => null }), { durable: sql })
+    const server = createTestServer(liveDefinition(memory.adapter, {}, { authorize: true, identify: () => null }), { durable: sql })
     const internal = (path: string) => {
-      const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+      const request = new Request(`https://vitehub.internal/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
       Object.assign(request, { runtime: { cloudflare: { env: {}, context: { storage: { sql: sql.carrier } } } } })
       return server.handler.fetch(request)
     }

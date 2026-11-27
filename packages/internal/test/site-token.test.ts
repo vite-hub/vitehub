@@ -1,0 +1,178 @@
+import { describe, expect, it } from "vitest"
+
+import { createConsoleKeyPair, readConsolePublicKeys } from "../src/console-signature.ts"
+import { createSiteIntent, createSiteState, isSiteIntent, isSitePath, readSiteTokenTarget, siteActionOperation, siteStateHash, siteTokenUrl, siteVisitUrl, signSiteToken, verifySiteToken } from "../src/site-token.ts"
+
+import type { SiteTokenClaims, SiteTokenTarget } from "../src/site-token.ts"
+
+const now = 1_794_400_000_000
+const origin = "https://app.example.com"
+const name = "CONSOLE_3F9A12BC"
+
+async function link() {
+  const pair = await createConsoleKeyPair()
+  const keys = readConsolePublicKeys({ [`VITEHUB_CONSOLE_KEY_${name}`]: pair.publicKey })
+  if (!(keys instanceof Map)) throw new Error(keys.message)
+  return { key: { name, privateKey: pair.privateKey }, keys }
+}
+
+async function visit(claims: Partial<Omit<SiteTokenClaims, "iat" | "exp">> = {}) {
+  const { key, keys } = await link()
+  const state = createSiteState()
+  const token = await signSiteToken({
+    key,
+    claims: { aud: origin, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), ...claims },
+    now,
+  })
+  return { key, keys, state, token }
+}
+
+describe("Site access tokens", () => {
+  it("signs in the Console and verifies in the app with the public key of the link", async () => {
+    const { keys, state, token } = await visit({ aud: `${origin}/portal` })
+    const callback = new URL(siteTokenUrl(`${origin}/portal/`, token))
+    expect(callback.pathname).toBe("/portal/_vitehub/site")
+    const result = await verifySiteToken({ token: callback.searchParams.get("token")!, keys, origin: `${origin}/portal`, state, now: now + 30_000 })
+    expect(result).toEqual({
+      ok: true,
+      key: name,
+      destination: `${origin}/portal/docs`,
+      claims: { aud: `${origin}/portal`, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), iat: now / 1_000, exp: now / 1_000 + 60 },
+    })
+  })
+
+  it("refuses a token for another origin", async () => {
+    const { keys, state, token } = await visit()
+    expect(await verifySiteToken({ token, keys, origin: "https://evil.example.com/portal", state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_AUDIENCE" })
+  })
+
+  it("refuses a token for another app on the same origin, and accepts the app URL with a trailing slash", async () => {
+    const { keys, state, token } = await visit({ aud: `${origin}/portal` })
+    for (const app of [origin, `${origin}/`, `${origin}/other`, `${origin}/portal/admin`]) {
+      expect(await verifySiteToken({ token, keys, origin: app, state, now }), app).toMatchObject({ ok: false, code: "SITE_TOKEN_AUDIENCE" })
+    }
+    expect(await verifySiteToken({ token, keys, origin: `${origin}/portal/`, state, now })).toMatchObject({ ok: true })
+    const root = await visit({ aud: `${origin}/` })
+    expect(await verifySiteToken({ token: root.token, keys: root.keys, origin, state: root.state, now })).toMatchObject({ ok: true })
+  })
+
+  it("refuses an expired token", async () => {
+    const { keys, state, token } = await visit()
+    expect(await verifySiteToken({ token, keys, origin, state, now: now + 60_000 })).toMatchObject({ ok: false, code: "SITE_TOKEN_EXPIRED" })
+    expect(await verifySiteToken({ token, keys, origin, state, now: now - 120_000 })).toMatchObject({ ok: false, code: "SITE_TOKEN_EXPIRED" })
+  })
+
+  it("keeps a token for `lifetime` seconds after it was signed, for a session cookie", async () => {
+    const { keys, state, token } = await visit()
+    const hours = 12 * 60 * 60
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + 60_000 })).toMatchObject({ ok: true })
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + hours * 1_000 - 1_000 })).toMatchObject({ ok: true })
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + hours * 1_000 })).toMatchObject({ ok: false, code: "SITE_TOKEN_EXPIRED" })
+  })
+
+  it("refuses a token for the state of another browser", async () => {
+    const { keys, token } = await visit()
+    expect(await verifySiteToken({ token, keys, origin, state: createSiteState(), now })).toMatchObject({ ok: false, code: "SITE_TOKEN_STATE" })
+    expect(await verifySiteToken({ token, keys, origin, state: "", now })).toMatchObject({ ok: false, code: "SITE_TOKEN_STATE" })
+  })
+
+  it("refuses a token of another key", async () => {
+    const { state, token } = await visit()
+    const other = await link()
+    expect(await verifySiteToken({ token, keys: other.keys, origin, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_SIGNATURE" })
+    expect(await verifySiteToken({ token, keys: new Map([["CI", other.keys.get(name)!]]), origin, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_KEY_UNKNOWN" })
+  })
+
+  it("refuses a kind that the route does not accept", async () => {
+    const { keys, state, token } = await visit({ kind: "impersonate" })
+    expect(await verifySiteToken({ token, keys, origin, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_KIND" })
+    expect(await verifySiteToken({ token, keys, origin, state, now, kinds: ["impersonate"] })).toMatchObject({ ok: true, claims: { kind: "impersonate" } })
+  })
+
+  it("refuses changed and malformed tokens", async () => {
+    const { keys, state, token } = await visit()
+    const [version, key, payload, signature] = token.split(".")
+    const claims: unknown = JSON.parse(Buffer.from(payload!, "base64url").toString())
+    const raised = Buffer.from(JSON.stringify({ ...Object(claims), roles: ["console", "comments-delete"] })).toString("base64url")
+    expect(await verifySiteToken({ token: [version, key, raised, signature].join("."), keys, origin, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_SIGNATURE" })
+    const unknownKind = Buffer.from(JSON.stringify({ ...Object(claims), kind: "admin" })).toString("base64url")
+    for (const value of ["", "vst1", `vst2.${key}.${payload}.${signature}`, [version, key, unknownKind, signature].join("."), `${token}.x`, "x".repeat(9_000)]) {
+      expect(await verifySiteToken({ token: value, keys, origin, state, now }), value.slice(0, 20)).toMatchObject({ ok: false, code: "SITE_TOKEN_MALFORMED" })
+    }
+  })
+
+  it("hashes the state, so only the hash leaves the app", async () => {
+    const state = createSiteState()
+    expect(state).toMatch(/^[\w-]{43}$/)
+    expect(await siteStateHash(state)).toMatch(/^[\w-]{43}$/)
+    expect(await siteStateHash(state)).not.toBe(state)
+    const visitUrl = new URL(siteVisitUrl({ console: "https://console.vitehub.dev/", app: `${origin}/portal`, state: await siteStateHash(state), path: "/docs" }))
+    expect(`${visitUrl.origin}${visitUrl.pathname}`).toBe("https://console.vitehub.dev/visit")
+    expect(Object.fromEntries(visitUrl.searchParams)).toEqual({ app: `${origin}/portal`, state: await siteStateHash(state), return: "/docs" })
+    expect([isSitePath("/docs?a=1"), isSitePath("//evil.example"), isSitePath("https://evil.example"), isSitePath("/\\evil")]).toEqual([true, false, false, false])
+  })
+
+  it("refuses control characters in a path, and a token path outside the app URL", async () => {
+    expect(["/\t/evil.example", "/\n/evil.example", "/docs\u007f"].map(isSitePath)).toEqual([false, false, false])
+    const { keys, state, token } = await visit({ aud: `${origin}/portal`, path: "/../admin" })
+    expect(await verifySiteToken({ token, keys, origin: `${origin}/portal`, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
+    const root = await visit({ aud: origin, path: "/../admin" })
+    expect(await verifySiteToken({ token: root.token, keys: root.keys, origin, state: root.state, now })).toMatchObject({ ok: true, destination: `${origin}/admin` })
+    const inside = await visit({ aud: `${origin}/portal`, path: "/docs?tab=1" })
+    expect(await verifySiteToken({ token: inside.token, keys: inside.keys, origin: `${origin}/portal/`, state: inside.state, now })).toMatchObject({ ok: true, destination: `${origin}/portal/docs?tab=1` })
+    const control = await visit({ path: "/\t/evil.example" })
+    expect(await verifySiteToken({ token: control.token, keys: control.keys, origin, state: control.state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
+  })
+
+  it("verifies a token for an app URL with a long base path", async () => {
+    const app = `${origin}/${"a".repeat(600)}`
+    const { keys, state, token } = await visit({ aud: app })
+    expect(await verifySiteToken({ token, keys, origin: app, state, now })).toMatchObject({ ok: true, destination: `${app}/docs` })
+  })
+
+  it("refuses to sign a token that the app would refuse for its length", async () => {
+    await expect(visit({ path: `/${"\u8a9e".repeat(2_047)}` })).rejects.toThrow(/8192/)
+  })
+})
+
+describe("impersonate and preview tokens", () => {
+  it("carry the target of their action, and a token with a malformed target is malformed", async () => {
+    const target = { action: "start", userId: "user-2" }
+    const { keys, state, token } = await visit({ kind: "impersonate", target })
+    expect(await verifySiteToken({ token, keys, origin, state, now, kinds: ["impersonate"] })).toMatchObject({ ok: true, claims: { kind: "impersonate", target } })
+    for (const bad of [{ action: 1 }, { "": "x" }, { action: "x".repeat(513) }, Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`f${index}`, "x"]))]) {
+      const malformed = await visit({ kind: "impersonate", target: bad as unknown as SiteTokenTarget })
+      expect(await verifySiteToken({ token: malformed.token, keys: malformed.keys, origin, state: malformed.state, now, kinds: ["impersonate"] }), JSON.stringify(bad).slice(0, 40)).toMatchObject({ ok: false, code: "SITE_TOKEN_MALFORMED" })
+    }
+  })
+
+  it("name the app operation that checks the action, only for the exact target of the kind", () => {
+    expect(siteActionOperation("impersonate", { action: "start", userId: "u1" })).toEqual({ operation: "auth.impersonate", input: { userId: "u1" } })
+    expect(siteActionOperation("impersonate", { action: "stop" })).toEqual({ operation: "auth.stop-impersonating", input: {} })
+    expect(siteActionOperation("preview", { collection: "posts", id: "hello", section: "content" })).toEqual({ operation: "documents.preview", input: { collection: "posts", id: "hello", section: "content" } })
+    for (const [kind, target] of [
+      ["impersonate", { action: "start" }],
+      ["impersonate", { action: "stop", userId: "u1" }],
+      ["impersonate", { action: "start", userId: "u1", extra: "x" }],
+      ["preview", { collection: "posts", id: "hello" }],
+      ["preview", { action: "stop" }],
+      ["site", { action: "stop" }],
+    ] as const) expect(siteActionOperation(kind, target), `${kind} ${JSON.stringify(target)}`).toBeUndefined()
+  })
+
+  it("read an untrusted target", () => {
+    expect(readSiteTokenTarget({ action: "start", userId: "u1" })).toEqual({ action: "start", userId: "u1" })
+    for (const value of [undefined, null, "x", [], { action: "" }, { action: 1 }, { "1action": "x" }, { action: "x".repeat(513) }]) expect(readSiteTokenTarget(value), JSON.stringify(value)).toBeUndefined()
+  })
+
+  it("start the Console visit with an intent id", () => {
+    const intent = createSiteIntent()
+    expect(isSiteIntent(intent)).toBe(true)
+    expect(createSiteIntent()).not.toBe(intent)
+    for (const value of ["", "short", `${intent}x`, `${intent.slice(1)}/`]) expect(isSiteIntent(value), value).toBe(false)
+    const url = new URL(siteVisitUrl({ console: "https://console.test/", app: origin, state: "s", path: "/", project: "p1", intent }))
+    expect(`${url.origin}${url.pathname}`).toBe("https://console.test/visit")
+    expect(Object.fromEntries(url.searchParams)).toEqual({ app: origin, state: "s", return: "/", project: "p1", intent })
+    expect(new URL(siteVisitUrl({ console: "https://console.test", app: origin, state: "s", path: "/" })).searchParams.has("intent")).toBe(false)
+  })
+})

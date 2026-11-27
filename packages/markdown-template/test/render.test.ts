@@ -390,6 +390,15 @@ recap))`,
     }
   })
 
+  it.each([
+    '::if{condition="data.trial"}\nTrial\n::',
+    '::if{value="data.plan" eq="pro"}\nPro\n::',
+    '::if{:condition="data.paid"}\nPaid\n::else-if{condition="data.trial"}\nTrial\n::\n::',
+  ])("rejects an unbound condition or value prop: %s", async (template) => {
+    await expect(renderMarkdownTemplate(template, { data: { trial: false, paid: false, plan: "free" } }))
+      .rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0024", message: expect.stringContaining('Write :') })
+  })
+
   it("renders nested branch chains and the content following them", async () => {
     const template = `::if{:condition="data.enabled"}
 Before
@@ -440,9 +449,17 @@ Unavailable
     })).toBe("<policy>Use Acme.</policy>")
   })
 
+  it.each([
+    'A <span title="&amp;copy; &amp;#169;">note</span>.',
+    '<div title="&amp;copy; &amp;#169;">\nNote\n</div>',
+    '<img src="https://example.com/?a=1&amp;b=2">',
+  ])("preserves literal entity text in HTML attributes: %s", async (template) => {
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+  })
+
   it("rejects unsafe URLs in authored HTML tags", async () => {
     await expect(renderMarkdownTemplate("[status](<http://[::1]/>)"))
-      .resolves.toBe("[status](http://%5B::1%5D/)")
+      .resolves.toBe("[status](http://[::1]/)")
     await expect(renderMarkdownTemplate('<a href="https://example.com/a b">Open</a>'))
       .resolves.toContain("https://example.com/a%20b")
     await expect(renderMarkdownTemplate('<a href="https://example.com/?a=1&amp;b=2">Open</a>'))
@@ -453,7 +470,6 @@ Unavailable
       .resolves.toContain("https://example.com/?x=1&copy=2")
     await expect(renderMarkdownTemplate('<policy note="x=1&copy=2">Use it.</policy>'))
       .resolves.toBe('<policy note="x=1&amp;copy=2">Use it.</policy>')
-    // Attribute entities are decoded once, so a double-encoded reference stays a reference.
     await expect(renderMarkdownTemplate('<a href="https://example.com/?q=&amp;lt;">Open</a>'))
       .rejects.toThrow("must resolve to a safe destination")
     await expect(renderMarkdownTemplate('<a href="javascript:alert(1)">Open</a>'))
@@ -789,6 +805,11 @@ Unavailable
     await expect(renderMarkdownTemplate(":insert")).rejects.toThrow('Use :insert{:markdown="data.summary"}')
   })
 
+  it.each(["\n", "\r\n", "\r"])("rejects an unclosed if block with %j line endings", async (ending) => {
+    const template = ['::if{:condition="data.enabled"}', "Yes"].join(ending)
+    await expect(renderMarkdownTemplate(template)).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0029" })
+  })
+
   it("rejects unsafe expressions and malformed branch chains", async () => {
     await expect(renderMarkdownTemplate("::if{:value=\"data.name\" eq=\"call()\"}\nYes\n::", {
       data: { name: "call()" },
@@ -799,8 +820,6 @@ Unavailable
       data: { private: { enabled: true } },
       validateConditionPath: path => path.startsWith("public."),
     })).rejects.toThrow("Unsafe Markdown template condition")
-    await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes"))
-      .rejects.toThrow("missing a closing")
     await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else{condition=\"admin\"}\nNo\n::\n::"))
       .rejects.toThrow("else block does not accept a condition")
     await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else\nNo\n::else-if{:condition=\"data.admin\"}\nAdmin\n::\n::\n::"))

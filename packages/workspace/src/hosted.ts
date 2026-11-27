@@ -19,8 +19,8 @@ import type {
 
 export type HostedWorkspaceRuntimeStoreOptions =
   | Partial<CloudflareArtifactsWorkspaceStoreOptions>
-  | (Partial<GitHubWorkspaceStoreOptions> & { provider: "github" })
-  | (Partial<VercelBlobWorkspaceStoreOptions> & { provider: "vercel-blob" })
+  | (Partial<GitHubWorkspaceStoreOptions> & { driver: "github" })
+  | (Partial<VercelBlobWorkspaceStoreOptions> & { driver: "vercel" })
 
 export interface HostedWorkspaceRuntimeOptions {
   assets?: boolean | string[]
@@ -29,23 +29,32 @@ export interface HostedWorkspaceRuntimeOptions {
   store?: HostedWorkspaceRuntimeStoreOptions
 }
 
-export function installHostedWorkspaceRuntime(): void {
+export function installHostedGitHubWorkspaceStore(): void {
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
-    if (storeOptions.provider === "cloudflare-artifacts") {
-      return createCloudflareArtifactsWorkspaceStore(storeOptions, workspaceName)
-    }
-    if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
-    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw workspaceError("[vitehub] Hosted workspace runtime cannot load unsupported hosted store.")
+    if (storeOptions.driver === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
   })
+}
+
+export function installHostedCloudflareArtifactsWorkspaceStore(): void {
+  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
+  setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
+    if (storeOptions.driver === "cloudflare") return createCloudflareArtifactsWorkspaceStore(storeOptions, workspaceName)
+    return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
+  })
+}
+
+export function installHostedWorkspaceRuntime(): void {
+  installHostedGitHubWorkspaceStore()
+  installHostedCloudflareArtifactsWorkspaceStore()
 }
 
 export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeOptions = {}): ResolvedWorkspaceModuleOptions {
   const root = resolve(process.cwd(), options.root || ".vitehub/workspaces")
-  const store = options.store?.provider === "github"
+  const store = options.store?.driver === "github"
     ? resolveGitHubWorkspaceStore(options.store, options.env || {}, { runtime: true })
-    : options.store?.provider === "vercel-blob"
+    : options.store?.driver === "vercel"
       ? undefined
       : resolveCloudflareArtifactsStore(options.store, options.env)
   if (!store) {
@@ -57,7 +66,8 @@ export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeO
     store,
   }
 
-  installHostedWorkspaceRuntime()
+  if (store.driver === "github") installHostedGitHubWorkspaceStore()
+  else installHostedCloudflareArtifactsWorkspaceStore()
   setWorkspaceRuntimeConfig(config)
   return config
 }

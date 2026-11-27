@@ -1,0 +1,20 @@
+define-forms: moved 2 Schedule(s) to `defineSchedule({ cron, handler })`, 2 Sandbox Task(s) from `run` to `handler`, 2 Database file(s) to `server/databases/<name>/`
+Dry run: no files were written.
+
+Files to change (9):
+  server/api/notes.get.ts
+  server/databases/analytics/config.ts (deleted)
+  server/databases/analytics/index.ts (new)
+  server/databases/primary/config.ts (deleted)
+  server/databases/primary/index.ts (new)
+  server/sandbox-tasks/report.ts
+  server/schedules/digest.ts
+  server/schedules/nightly.ts
+  src/release-notes.sandbox-task.ts
+
+Manual follow-ups (1):
+  1. server/schedules/digest.ts:5 The options of this Schedule are not an object literal, so the codemod spread them. The build reads `manual` and `timeZone` only from literal properties: write them in the object.
+
+Next steps:
+  - Run your typecheck and build.
+  - Commit the moved Database files with `git add -A`, so Git records them as renames.

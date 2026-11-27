@@ -14,17 +14,17 @@ A Trigger turns a product event, such as a new chat message or an opened ticket,
 When no Capability prepares the event, call `runAgent()` from a route.
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.pipe(v.string(), v.nonEmpty()) })))
   const runtime = getRuntimeContext(event)
   try {
-    const [error, result] = await runAgent(support, { prompt: body.prompt }, { runtimeContext: runtime })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
     if (error) throw error
     return { text: result.text }
   }
@@ -60,17 +60,20 @@ export default defineAgent({
 Call the Trigger from a server route:
 
 ```ts [server/api/support-chat.post.ts] fragment
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
-  const { text, threadId } = await readBody<{
-    text: string
+  const user = await requireAuthenticatedUser(event)
+  const body = await readBody<{
+    text?: string
     threadId?: string
   }>(event)
-  const user = await requireAuthenticatedUser(event)
+  if (typeof body?.text !== 'string' || !body.text) throw new HTTPError({ status: 400, message: 'Message text is required.' })
+  const { text, threadId } = body
   const runId = crypto.randomUUID()
   const messages = await loadAuthorizedSupportThreadMessages({
     actorId: user.id,
@@ -101,35 +104,38 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for who owns the lifetime.
+This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup) for who owns the lifetime.
 
-`run` holds origin and trace metadata, not chat context.
+`run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
 > [!WARNING]
-> Authenticate the caller before you put Actor identity, session selection, or trusted metadata into the Trigger input.
+> Authenticate the caller before you put Invoker identity, session selection, or trusted metadata into the Trigger input.
 
 A route that calls a Trigger directly must, in order: authenticate the caller, reject threads the caller does not own, then load the thread's messages in order, add the new one, and pass them all. `triggerHistory` limits that input; it does not load missing messages from `threadId` or a session ID.
 
 ## Add an application-owned Trigger
 
-A Channel connects an Agent to an outside service, such as a ticketing system. When your application defines its own Channel Kind and prepares its events, use `defineChannel()`.
+Put a trigger in the `on` map of a Channel when your own system sends events. The Agent that lists the Channel runs the input that the trigger returns.
 
-```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+```ts [server/channels/ticketing.ts]
+import { defineChannelTrigger } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 import * as v from 'valibot'
 
 const ticketOpened = v.object({
-  ticketId: v.string(),
-  summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  payload: v.object({
+    ticketId: v.string(),
+    summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  }),
 })
 
-const ticketing = defineChannel('ticketing', {
-  messages: false,
-  triggers: {
-    'ticket.opened': defineChannelTrigger({
+export default defineChannel({
+  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: 'TICKETING_WEBHOOK_SECRET' }),
+  on: {
+    webhook: defineChannelTrigger({
       input: ticketOpened,
-      invoke(context, event) {
+      invoke(context, { payload: event }) {
         return {
           input: {
             prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
@@ -144,14 +150,18 @@ const ticketing = defineChannel('ticketing', {
     }),
   },
 })
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  channels: { ticketing },
+  channels: ['ticketing'],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-`defineChannelTrigger()` infers the `event` type from any [Standard Schema](https://standardschema.dev/) implementation. Webhook authentication runs first, then validation and schema transforms, then `invoke()`. Invalid webhook input gets a generic `400 invalid_payload` response without schema details.
+The trigger gets the verified webhook as `{ payload, body, request }`, where `payload` is the parsed JSON body. `defineChannelTrigger()` infers the `event` type from any [Standard Schema](https://standardschema.dev/) implementation. Webhook authentication runs first, then validation and schema transforms, then `invoke()`. Invalid webhook input gets a generic `400 invalid_payload` response without schema details.
 
 The Trigger translates the validated event and adds trusted context. Keep model selection, tools, and execution behavior in the Agent Definition (what `defineAgent()` returns).
 
@@ -159,19 +169,21 @@ When the Channel declares message methods, also return `message`: JSON that iden
 
 ### Ignore a webhook
 
-Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts.
+Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts. The `completed` or `rejected` event of the Channel delivery record keeps the `reason`.
 
 ```ts fragment
-import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, ignored } from 'vite-hub/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
-  invoke(context, event) {
+  invoke(context, { payload: event }) {
     if (event.summary.startsWith('[bot]')) return ignored('bot_ticket')
     return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
   },
 })
 ```
+
+The GitHub Channel uses the same answer for code that runs on pull request comments and reviews. See [Run code on pull request comments and reviews](/docs/agents/channels#run-code-on-pull-request-comments-and-reviews).
 
 Two other helpers answer `{ accepted: false, ok: false, reason }` and start no Invocation.
 
@@ -182,11 +194,11 @@ Two other helpers answer `{ accepted: false, ok: false, reason }` and start no I
 | `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
 
 ```ts fragment
-import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
-  async invoke(context, event) {
+  async invoke(context, { payload: event }) {
     if (!event.ticketId) return rejected('missing_ticket')
     if (!await ticketing.isReady()) return retryLater('ticketing_unavailable')
     return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
@@ -199,9 +211,18 @@ defineChannelTrigger({
 `webhook.serialize: key` queues a delivery until no other delivery with the same key runs.
 
 ```ts fragment
+const ticketChanged = v.object({
+  payload: v.object({
+    ticketId: v.string(),
+    summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+    changeId: v.string(),
+    fromAgent: v.optional(v.boolean()),
+  }),
+})
+
 defineChannelTrigger({
-  input: ticketOpened,
-  invoke: (context, event) => ({
+  input: ticketChanged,
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },
   }),
@@ -217,7 +238,7 @@ defineChannelTrigger({
 ```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { serialize: event.ticketId },
   }),
@@ -233,7 +254,7 @@ Some providers send several notifications for one change. `webhook.debounce: { k
 ```ts fragment
 defineChannelTrigger({
   input: recordChanged,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Check record ${event.recordId} for duplicates.` },
     webhook: {
       concurrencyLimit: 1,
@@ -253,7 +274,7 @@ An accepted delivery gets a JSON receipt such as `{ "accepted": true, "ok": true
 ```ts fragment
 defineChannelTrigger({
   input: recordChanged,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Check record ${event.recordId} for duplicates.` },
     webhook: { concurrencyLimit: 1, deliveryId: event.changeId, response: new Response(null, { status: 200 }) },
   }),
@@ -267,7 +288,7 @@ It is sent after admission for an accepted, queued, steered, or duplicate delive
 Keep `invoke` fast: it only accepts a delivery and returns JSON input. Put slow or side-effect work in `prepare`. Name units of work in `tasks`, and select one from `invoke` with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
 
 ```ts fragment
-import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, ignored } from 'vite-hub/channels'
 import triage from '../agents/triage'
 
 defineChannelTrigger({
@@ -285,7 +306,7 @@ defineChannelTrigger({
       run: (context, { input }) => mirrorToChat(input.data),
     },
   },
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     task: event.fromAgent ? 'mirror' : 'triage',
     input: { data: { ticketId: event.ticketId }, prompt: `Triage ticket ${event.ticketId}.` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },
@@ -306,6 +327,8 @@ With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` 
 `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
 ### Run a task later from server code
+
+`enqueueChannelTask()` skips the trigger's `invoke`. To run `invoke` too, with its delivery ID, `serialize`, `debounce`, and Channel State, use [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code) from `vite-hub/channels`, for example to reconcile a webhook that a provider lost.
 
 `enqueueChannelTask()` runs a declared task at `notBefore` or after `delayMs` through the Channel's webhook queue. `prepare`, `failed`, retries, restart replay, and the delivery record work as for a queued webhook delivery. `input` is what `invoke` would return for the task.
 
@@ -338,7 +361,7 @@ The queue or the Agent State store failed while it queued or cancelled the task.
 
 #### CHANNEL_TASK_REJECTED
 
-The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
+The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem. `error.cause` is the Agent error, such as `AGENT_CHANNEL_TASK_UNDECLARED`, and its `fix` says what to change.
 
 ### Report a failed webhook delivery
 
@@ -351,7 +374,7 @@ When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the A
 ```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { concurrencyLimit: 1, deliveryId: event.ticketId },
   }),
@@ -374,7 +397,7 @@ defineChannelTrigger({
       failed: event => commentOnTicket(event.run?.runId, 'Triage failed. Edit the ticket to retry.'),
     },
   },
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     task: 'triage',
     input: { prompt: `Triage ticket ${event.ticketId}.` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },

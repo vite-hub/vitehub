@@ -27,9 +27,8 @@ describe("env declarations", () => {
         for (const type of [undefined, "DeclaredType"]) {
           const result = await resolveDeclarations({
             value: env({
-              default: scenario.fallback,
+              ...(scenario.fallback === undefined ? { optional: true as const } : { default: scenario.fallback }),
               mode: "build",
-              optional: true,
               schema: z.coerce.number(),
               secret,
               source: env.source(scenario.names, { canonical: false }),
@@ -147,6 +146,15 @@ describe("env declarations", () => {
     expect(defined.values).toEqual({ "nested.token": "conventional", "api-key": { token: "conventional" } })
   })
 
+  it("reads an empty build variable as missing, so the conventional name wins", async () => {
+    const input = {
+      context: createSourceContext({ env: { VITEHUB_PUBLIC_NAME: "", PUBLIC_NAME: "Acme" }, mode: "build", rootDir: process.cwd() }),
+      timing: "test",
+    }
+    const result = await resolveEnvEntries({ name: env({ mode: "build" }) }, { ...input, exposure: "build public", section: "env.public" })
+    expect(result.entries[0]?.value).toBe("Acme")
+  })
+
   it("ignores inherited values when resolving environment sources", async () => {
     const inheritedEnv = Object.create({ INHERITED_TOKEN: "ambient-secret" }) as Record<string, string | undefined>
     const result = await resolveEnvEntries({
@@ -250,7 +258,8 @@ describe("env declarations", () => {
   it("reports the declaration diagnostic when any option read throws", () => {
     for (const property of ["optional", "required", "schema", "default", "source", "mode", "secret", "type"]) {
       const options = new Proxy({}, {
-        ownKeys: () => [],
+        ownKeys: () => [property],
+        getOwnPropertyDescriptor: () => ({ configurable: true, enumerable: true }),
         get: (_, key) => {
           if (key === property) throw new Error("boom")
           return undefined
@@ -288,11 +297,29 @@ describe("env declarations", () => {
     expect(() => createRuntimeRegistry({ appName: proxy as never })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
-  it("rejects conflicting optional and required options", () => {
-    expect(() => env({
-      optional: true,
-      required: true,
-    })).toThrow("cannot use both optional and required")
+  it("accepts only optional: true for a value that can be missing", () => {
+    expect(env()).toMatchObject({ required: true })
+    expect(env({ optional: true })).toMatchObject({ required: false })
+    expect(env({ default: "eu" })).toMatchObject({ default: "eu", required: true })
+    expect(() => env({ required: true } as never)).toThrow("does not accept required")
+    expect(() => env({ optional: true, required: true } as never)).toThrow("does not accept required")
+    expect(() => env.boolean({ default: false, optional: true } as never)).toThrow("cannot use both optional and default")
+  })
+
+  it("rejects options that env() does not know", () => {
+    expect(() => env({ secret: true, description: "API token" } as never)).toThrow("env() does not accept description.")
+    expect(() => env.number({ min: 1 } as never)).toThrow("env() does not accept min.")
+  })
+
+  it("keeps non-enumerable declaration options", () => {
+    const source = env.source("ENV_TOKEN")
+    const options = Object.defineProperties({}, {
+      default: { value: "fallback" },
+      secret: { value: true },
+      source: { value: source },
+    })
+    expect(env(options)).toMatchObject({ default: "fallback", secret: true, source })
+    expect(() => env(Object.defineProperty({}, "required", { value: true }))).toThrow("does not accept required")
   })
 
   it("reads the canonical name before the inferred path name", () => {
@@ -325,7 +352,7 @@ describe("env declarations", () => {
       canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
       name: "VITEHUB_TELEGRAM_BOT_TOKEN",
     })
-    expect(resolveEnvSource(env({ source: env.gitSha() }), "env.release")).not.toHaveProperty("canonical")
+    expect(resolveEnvSource(env({ source: env.gitCommit() }), "env.release")).not.toHaveProperty("canonical")
     expect(resolveEnvSource(env({ source: env.source("TOKEN", { canonical: false }) }), "env.token")).toHaveProperty("canonical", false)
   })
 
@@ -375,15 +402,6 @@ describe("env declarations", () => {
       label: "git:commit",
       short: true,
     })
-    expect(env.gitRef()).toMatchObject({
-      kind: "git-ref",
-      label: "git:ref",
-    })
-    expect(env.gitSha({ short: true })).toMatchObject({
-      kind: "git-sha",
-      label: "git:sha",
-      short: true,
-    })
     expect(env.gitTag()).toMatchObject({
       kind: "git-tag",
       label: "git:tag",
@@ -402,19 +420,20 @@ describe("env declarations", () => {
   it("resolves git metadata from build env before git", async () => {
     const explicit = createSourceContext({
       env: {
+        GITHUB_HEAD_REF: "feature",
         GITHUB_REF_NAME: "v1.2.3",
         GITHUB_REF_TYPE: "tag",
         GITHUB_SHA: "github-sha",
-        GIT_REF_NAME: "main",
+        GIT_BRANCH: "main",
         GIT_SHA: "abcdef1234567890",
         GIT_TAG: "v9.9.9",
       },
       mode: "build",
       rootDir: "/missing-git-root",
     })
-    expect(await explicit.git.sha()).toBe("abcdef1234567890")
-    expect(await explicit.git.sha({ short: true })).toBe("abcdef1")
-    expect(await explicit.git.ref()).toBe("main")
+    expect(await explicit.git.commit()).toBe("abcdef1234567890")
+    expect(await explicit.git.commit({ short: true })).toBe("abcdef1")
+    expect(await explicit.git.branch()).toBe("main")
     expect(await explicit.git.tag()).toBe("v9.9.9")
 
     const github = createSourceContext({
@@ -426,9 +445,23 @@ describe("env declarations", () => {
       mode: "build",
       rootDir: "/missing-git-root",
     })
-    expect(await github.git.sha()).toBe("github-sha")
-    expect(await github.git.ref()).toBe("v1.2.3")
+    expect(await github.git.commit()).toBe("github-sha")
     expect(await github.git.tag()).toBe("v1.2.3")
+    await expect(github.git.branch()).rejects.toThrow()
+
+    const githubBranch = createSourceContext({
+      env: { GITHUB_REF_NAME: "main", GITHUB_REF_TYPE: "branch" },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await githubBranch.git.branch()).toBe("main")
+
+    const githubPullRequest = createSourceContext({
+      env: { GITHUB_HEAD_REF: "feature", GITHUB_REF_NAME: "12/merge", GITHUB_REF_TYPE: "branch" },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await githubPullRequest.git.branch()).toBe("feature")
 
     const inheritedGithubRefType = Object.create({ GITHUB_REF_TYPE: "tag" }) as Record<string, string | undefined>
     inheritedGithubRefType.GITHUB_REF_NAME = "inherited-tag"
@@ -679,7 +712,7 @@ describe("env declarations", () => {
     })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
-  it("does not execute inherited schema methods", () => {
+  it("does not execute inherited parse methods", () => {
     let calls = 0
     const inherited = {
       safeParse: () => {
@@ -689,12 +722,6 @@ describe("env declarations", () => {
       parse: () => {
         calls++
         return "inherited"
-      },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
       },
     }
 
@@ -730,10 +757,6 @@ describe("env declarations", () => {
     }
   })
 
-  it("does not accept an inherited Zod identity", () => {
-    expect(parseSchema(Object.create(z.string().min(3)), "x", "env.test")).toBe("x")
-  })
-
   it("does not execute inherited validators with forged Zod traits", () => {
     let calls = 0
     const validators = {
@@ -745,16 +768,10 @@ describe("env declarations", () => {
         calls++
         return "inherited"
       },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
-      },
     }
     const metadata = [{ traits: new Set(["ZodType"]) }, z.string()._zod]
     for (const _zod of metadata) {
-      for (const method of ["safeParse", "parse", "~standard"] as const) {
+      for (const method of ["safeParse", "parse"] as const) {
         const schema = Object.assign(Object.create({ [method]: validators[method] }), { _zod })
         expect(parseSchema(schema, "input", "env.test")).toBe("input")
       }

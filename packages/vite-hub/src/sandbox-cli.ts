@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts";
 import { assertFeaturePackages } from "./internal/optional-owners.ts";
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli";
@@ -35,23 +36,23 @@ function required(
 ): string {
   const value = option(values, name, env, ...fallbacks);
   if (!value)
-    throw new TypeError(
-      `[vitehub] --${name}${fallbacks.length ? ` or ${fallbacks.join(" or ")}` : ""} is required.`,
-    );
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_CLI_OPTION_MISSING({
+      option: `--${name}${fallbacks.length ? ` or ${fallbacks.join(" or ")}` : ""}`,
+    });
   return value;
 }
 
 function port(values: Values, env: NodeJS.ProcessEnv): number {
   const value = Number(option(values, "port", env, "CRABBOX_STATIC_PORT", "SSH_PORT") ?? 2222);
   if (!Number.isInteger(value) || value < 1 || value > 65535)
-    throw new TypeError("[vitehub] --port must be between 1 and 65535.");
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_CLI_PORT_INVALID();
   return value;
 }
 
 function drainTimeout(values: Values, env: NodeJS.ProcessEnv): number {
   const value = option(values, "drain-timeout", env, "VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS") ?? "0";
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > maxTimeoutMs)
-    throw new TypeError("[vitehub] --drain-timeout must be a non-negative number of milliseconds.");
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID();
   return Number(value);
 }
 
@@ -151,10 +152,10 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   const { env } = context;
   const driver = option(values, "driver", env) ?? "codex";
   if (driver !== "codex" && driver !== "claude-code")
-    throw new TypeError("[vitehub] --driver must be codex or claude-code.");
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_CLI_DRIVER_INVALID();
   const timeout = Number(option(values, "timeout", env) ?? 25_000);
   if (!Number.isInteger(timeout) || timeout < 1)
-    throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_CLI_TIMEOUT_INVALID();
   assertFeaturePackages(["agent", "gateways", "sandboxTask"]);
   const [{ claudeCodeDriver, codexDriver, defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
@@ -172,6 +173,8 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
     // Keep application filesystem paths and PATH out of the runner environment.
     // Gateway variables are required provider environment, which the runner forwards.
     forwardEnvironment: ["CODEX_AUTH_JSON"],
+    // The check reports the runner as it is now, so a refused connection fails at once.
+    connectRetryMs: 0,
     host: option(values, "host", env, "CRABBOX_STATIC_HOST") ?? "127.0.0.1",
     identityFile: required(values, "identity-file", env, "CRABBOX_SSH_KEY"),
     port: port(values, env),

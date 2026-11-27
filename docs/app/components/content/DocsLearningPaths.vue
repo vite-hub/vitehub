@@ -37,11 +37,6 @@
   text-underline-offset: 0.2em;
 }
 
-.vh-learning-paths :deep(a:focus-visible) {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 4px;
-}
-
 @media (min-width: 40rem) {
   .vh-learning-paths :deep(ul) {
     grid-template-columns: repeat(2, minmax(0, 1fr));

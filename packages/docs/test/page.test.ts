@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { coversDocsPages, docsPageOf } from "../src/page.ts"
+import { docsMount, docsPageOf, replacesDocsPage } from "../src/page.ts"
+
+import type { DocsManifest } from "../src/types.ts"
 
 describe("docsPageOf", () => {
   const at = { id: "annotate", path: "/docs/annotate", file: "docs/annotate.md" }
@@ -23,28 +25,45 @@ describe("docsPageOf", () => {
   })
 })
 
-const pages = ["/", "/docs", "/docs/kv", "/docs/kv/get-started"]
+function manifestOf(base: string, paths: string[]): DocsManifest {
+  const page = (path: string) => docsPageOf({ title: path }, { id: path, path, file: `${path}.md` })
+  return { base, root: null, sections: [], pages: paths.map(page) }
+}
 
-describe("coversDocsPages", () => {
-  it("lets a root catch-all replace the docs page", () => {
-    expect(coversDocsPages([{ path: "/" }, { path: "/:slug(.*)*" }], pages)).toBe(true)
-    expect(coversDocsPages([{ path: "/:pathMatch(.*)*" }], pages)).toBe(true)
+describe("docsMount", () => {
+  it("is the base when every page sits below it", () => {
+    expect(docsMount(manifestOf("/docs", ["/docs", "/docs/kv"]))).toBe("/docs")
+    expect(docsMount(manifestOf("/docs", []))).toBe("/docs")
   })
 
-  it("keeps the docs page beside a catch-all in a folder", () => {
-    expect(coversDocsPages([{ path: "/blog/:slug(.*)*" }], pages)).toBe(false)
-    expect(coversDocsPages([{ path: "/docs-old/:slug(.*)*" }], ["/docs/kv"])).toBe(false)
-    expect(coversDocsPages([{ path: "/about" }], pages)).toBe(false)
+  it("is the site root when a page sits outside the base", () => {
+    expect(docsMount(manifestOf("/docs", ["/", "/docs/kv"]))).toBe("/")
+    expect(docsMount(manifestOf("/docs", ["/about"]))).toBe("/")
+    expect(docsMount(manifestOf("/", ["/guide"]))).toBe("/")
+  })
+})
+
+describe("replacesDocsPage", () => {
+  it("lets a root catch-all replace docs at the site root", () => {
+    expect(replacesDocsPage([{ path: "/" }, { path: "/:slug(.*)*" }], "/")).toBe(true)
+    expect(replacesDocsPage([{ path: "/:pathMatch(.*)*" }], "/")).toBe(true)
   })
 
-  it("lets a catch-all under the base replace the docs page only when no page is outside it", () => {
-    expect(coversDocsPages([{ path: "/docs/:slug(.*)*" }], ["/docs", "/docs/kv"])).toBe(true)
-    expect(coversDocsPages([{ path: "/docs/:slug(.*)*" }], pages)).toBe(false)
+  it("keeps the docs page at /docs beside the app's root catch-all", () => {
+    expect(replacesDocsPage([{ path: "/:slug(.*)*" }], "/docs")).toBe(false)
+    expect(replacesDocsPage([{ path: "/docs/:slug(.*)*" }], "/docs")).toBe(true)
+  })
+
+  it("keeps the docs page beside a catch-all at another prefix", () => {
+    expect(replacesDocsPage([{ path: "/blog/:slug(.*)*" }], "/")).toBe(false)
+    expect(replacesDocsPage([{ path: "/docs-old/:slug(.*)*" }], "/docs")).toBe(false)
+    expect(replacesDocsPage([{ path: "/docs/:slug(.*)*" }], "/")).toBe(false)
+    expect(replacesDocsPage([{ path: "/about" }], "/")).toBe(false)
   })
 
   it("reads nested catch-all pages with their parent path", () => {
-    expect(coversDocsPages([{ path: "/", children: [{ path: ":slug(.*)*" }] }], pages)).toBe(true)
-    expect(coversDocsPages([{ path: "/docs", children: [{ path: ":slug(.*)*" }] }], ["/docs/kv"])).toBe(true)
-    expect(coversDocsPages([{ path: "/blog", children: [{ path: ":slug(.*)*" }] }], ["/docs/kv"])).toBe(false)
+    expect(replacesDocsPage([{ path: "/", children: [{ path: ":slug(.*)*" }] }], "/")).toBe(true)
+    expect(replacesDocsPage([{ path: "/docs", children: [{ path: ":slug(.*)*" }] }], "/docs")).toBe(true)
+    expect(replacesDocsPage([{ path: "/blog", children: [{ path: ":slug(.*)*" }] }], "/docs")).toBe(false)
   })
 })

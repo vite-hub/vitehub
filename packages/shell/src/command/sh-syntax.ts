@@ -2,9 +2,10 @@
 /// <reference path="./wasm-module.d.ts" />
 import type { File, ShOptions } from "sh-syntax"
 
-type ShellParser = (text: string, options?: ShOptions) => Promise<File>
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
-// The package compiles without the DOM lib, so declare the WebAssembly API that this module uses.
+export type ShellParser = (text: string, options?: ShOptions) => Promise<File>
+
 declare const WebAssembly: {
   Module: abstract new (...args: never[]) => object
   compile(bytes: Uint8Array): Promise<object>
@@ -14,33 +15,38 @@ declare const WebAssembly: {
 let parser: Promise<ShellParser> | undefined
 
 export async function parseShell(text: string, options?: ShOptions): Promise<File> {
-  parser ??= loadParser()
-  return (await parser)(text, options)
+  return (await shellParser())(text, options)
+}
+
+export function shellParser(): Promise<ShellParser> {
+  parser ??= loadParser().catch((error: unknown) => {
+    parser = undefined
+    throw error
+  })
+  return parser
 }
 
 async function loadParser(): Promise<ShellParser> {
   const shSyntax: Partial<typeof import("sh-syntax")> & Pick<typeof import("sh-syntax"), "getProcessor"> = await import("sh-syntax")
-  const wasm = await bundledWasmModule()
+  const { importError, module: wasm } = await bundledWasmModule()
   if (!wasm) {
-    // Without a bundler, sh-syntax reads main.wasm next to its own files.
-    if (!shSyntax.parse) throw new Error("[vitehub] sh-syntax cannot load its WebAssembly parser on this host.")
+    if (!shSyntax.parse || !shSyntax.init) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE({ cause: importError })
+    await shSyntax.init()
     return shSyntax.parse
   }
-  // A bundled sh-syntax can't find main.wasm on disk, and Workers can't compile WebAssembly from bytes.
-  // Nitro bundles this import as a compiled module, and esbuild as bytes.
-  const processor = shSyntax.getProcessor(imports => WebAssembly.instantiate(wasm, imports))
+  const processor = shSyntax.getProcessor((imports: Record<string, unknown>) => WebAssembly.instantiate(wasm, imports))
+  await processor.init()
   return (text, options) => processor(text, options)
 }
 
-async function bundledWasmModule(): Promise<object | undefined> {
+async function bundledWasmModule(): Promise<{ importError?: unknown, module?: object }> {
+  let wasm: unknown
   try {
-    const wasm = await (await import("sh-syntax/main.wasm?module")).default
-    // esbuild bundles the file as bytes. Vite's dev server serves it as an asset URL, which is neither.
-    if (wasm instanceof Uint8Array) return await WebAssembly.compile(wasm)
-    return wasm instanceof WebAssembly.Module ? wasm : undefined
+    wasm = await (await import("sh-syntax/main.wasm?module")).default
   }
-  catch {
-    // Node.js without a bundler can't import a `?module` URL.
-    return undefined
+  catch (importError) {
+    return { importError }
   }
+  if (wasm instanceof Uint8Array) return { module: await WebAssembly.compile(wasm) }
+  return { module: wasm instanceof WebAssembly.Module ? wasm : undefined }
 }

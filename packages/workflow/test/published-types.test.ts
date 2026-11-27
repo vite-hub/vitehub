@@ -25,7 +25,6 @@ it("publishes Workflow error types for the shared ViteHubError contract", async 
       await cp(join(sourceRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     }
 
-    // Runtime's public diagnostic and Standard Context types refer to its production dependencies.
     for (const dependency of ["nostics", "standard-context"]) {
       await cp(join(runtimeRoot, "node_modules", dependency), join(root, "node_modules", dependency), { dereference: true, recursive: true })
     }
@@ -50,10 +49,4 @@ it("keeps Effect internals out of published Workflow artifacts", async () => {
   expect(manifest.devDependencies?.effect).toBeUndefined()
   expect(manifest.optionalDependencies?.effect).toBeUndefined()
   expect(manifest.peerDependencies?.effect).toBeUndefined()
-})
-
-it("does not publish Workflow-specific error constructors", async () => {
-  const workflow = await import("../dist/index.js")
-  expect(workflow).not.toHaveProperty("WorkflowError")
-  expect(workflow).not.toHaveProperty("ApplicationWorkflowError")
 })

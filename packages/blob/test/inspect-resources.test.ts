@@ -6,10 +6,10 @@ describe("Blob resource inspection", () => {
   it("lists R2 buckets by name and the Vercel Blob store without its token", () => {
     const options = {
       stores: {
-        default: { binding: "BLOB", bucketName: "uploads", driver: "cloudflare-r2" },
-        eu: { binding: "EU_BLOB", bucketName: "eu-uploads", driver: "cloudflare-r2", jurisdiction: "eu" },
+        default: { binding: "BLOB", bucketName: "uploads", driver: "cloudflare" },
+        eu: { binding: "EU_BLOB", bucketName: "eu-uploads", driver: "cloudflare", jurisdiction: "eu" },
         local: { driver: "fs" },
-        media: { driver: "vercel-blob" },
+        media: { driver: "vercel" },
       },
     } as const
 
@@ -23,7 +23,7 @@ describe("Blob resource inspection", () => {
   })
 
   it("reports the Vercel Blob store id from BLOB_STORE_ID, the token only by name, or a note that names both", () => {
-    const options = { driver: "vercel-blob" } as const
+    const options = { driver: "vercel" } as const
 
     expect(inspectBlobResources(options, { env: { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_secret", BLOB_STORE_ID: "store_abc" } })).toEqual([
       { definition: "default", env: "BLOB_STORE_ID", host: "vercel", id: "store_abc", kind: "vercel-blob-store", owner: "blob", source: "env" },
@@ -42,12 +42,12 @@ describe("Blob resource inspection", () => {
   it("lists the R2 bucket when only the resolved host selects Cloudflare", () => {
     const options = { bucketName: "uploads" }
 
-    expect(inspectBlobResources(options, { env: {} })).toEqual([])
+    expect(() => inspectBlobResources(options, { env: {} })).toThrow(expect.objectContaining({ code: "BLOB_UNKNOWN_STORE_OPTION" }))
     expect(inspectBlobResources(options, { env: {}, hosting: "cloudflare" })).toMatchObject([{ kind: "cloudflare-r2-bucket", name: "uploads", source: "name" }])
   })
 
   it("trims the Vercel Blob store id and ignores a whitespace-only id", () => {
-    const options = { driver: "vercel-blob" } as const
+    const options = { driver: "vercel" } as const
     expect(inspectBlobResources(options, { env: { BLOB_STORE_ID: " store_abc \t" } })).toEqual([
       { definition: "default", env: "BLOB_STORE_ID", host: "vercel", id: "store_abc", kind: "vercel-blob-store", owner: "blob", source: "env" },
     ])
@@ -59,7 +59,7 @@ describe("Blob resource inspection", () => {
   })
 
   it("reports missing credentials when Vercel Blob environment values contain only whitespace", () => {
-    const [resource] = inspectBlobResources({ driver: "vercel-blob" }, { env: { BLOB_READ_WRITE_TOKEN: " \t\n ", BLOB_STORE_ID: " \t\n " } })
+    const [resource] = inspectBlobResources({ driver: "vercel" }, { env: { BLOB_READ_WRITE_TOKEN: " \t\n ", BLOB_STORE_ID: " \t\n " } })
     expect(resource).not.toHaveProperty("source")
     expect(resource).not.toHaveProperty("id")
     expect(resource?.note).toContain("BLOB_STORE_ID")
@@ -69,14 +69,14 @@ describe("Blob resource inspection", () => {
   it.each([
     {},
     { BLOB_READ_WRITE_TOKEN: "env-secret", BLOB_STORE_ID: "env-store" },
-  ])("reports an explicit Vercel Blob token ahead of environment credentials: %j", (env) => {
-    const store = { driver: "vercel-blob", token: "configured-secret" } as const
+  ])("reports the env variable of a configured Vercel Blob token ahead of environment credentials: %j", (defaultEnv) => {
+    const store = { driver: "vercel", token: "configured-secret" } as const
+    const env = { ...defaultEnv, MEDIA_BLOB_TOKEN: "configured-secret" }
     for (const options of [store, { stores: { default: store, media: store } }]) {
       const resources = inspectBlobResources(options, { env })
       expect(resources).toHaveLength("stores" in options ? 2 : 1)
       for (const resource of resources) {
-        expect(resource).toMatchObject({ host: "vercel", kind: "vercel-blob-store", source: "config" })
-        expect(resource).not.toHaveProperty("env")
+        expect(resource).toMatchObject({ env: "MEDIA_BLOB_TOKEN", host: "vercel", kind: "vercel-blob-store", source: "env" })
         expect(resource).not.toHaveProperty("id")
       }
       expect(JSON.stringify(resources)).not.toContain("configured-secret")
@@ -86,7 +86,7 @@ describe("Blob resource inspection", () => {
 
   it.each([undefined, "store_abc"])("reports the environment source when a configured token is masked, with store id %s", (storeId) => {
     const token = "env-secret"
-    const resources = inspectBlobResources({ driver: "vercel-blob", token }, { env: { BLOB_READ_WRITE_TOKEN: token, BLOB_STORE_ID: storeId } })
+    const resources = inspectBlobResources({ driver: "vercel", token }, { env: { BLOB_READ_WRITE_TOKEN: token, BLOB_STORE_ID: storeId } })
     expect(resources).toEqual([
       { definition: "default", env: "BLOB_READ_WRITE_TOKEN", host: "vercel", kind: "vercel-blob-store", owner: "blob", source: "env" },
     ])

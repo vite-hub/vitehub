@@ -6,7 +6,7 @@
       { "label": "imports KV from ViteHub", "files": "^server/.*\\.ts$", "pattern": "from ['\"](?:vite-hub/kv|@vite-hub/kv)['\"]" },
       { "label": "reads the [error, value] tuple from kv.get", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*,\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.get" },
       { "label": "checks the kv.set error slot", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.set" },
-      { "label": "registers KV in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "hubKv\\(|vitehub\\(\\s*\\{[^}]*\\bkv\\b" }
+      { "label": "registers KV in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "hubKV\\(|vitehub\\(\\s*\\{[^}]*\\bkv\\b" }
     ]
   },
   {
@@ -29,6 +29,51 @@
       { "label": "cron is 0 3 * * *", "files": "^server/schedules/.*\\.ts$", "pattern": "cron:\\s*['\"]0 3 \\* \\* \\*['\"]" },
       { "label": "allows manual runs", "files": "^server/schedules/.*\\.ts$", "pattern": "manual:\\s*true" },
       { "label": "logs scheduledAt, not the wall clock", "files": "^server/schedules/.*\\.ts$", "pattern": "scheduledAt" }
+    ]
+  },
+  {
+    "id": "existing-app-proxy-sign-in",
+    "prompt": "We now self-host this app behind oauth2-proxy with GitHub login. oauth2-proxy runs with `--pass-access-token`, so it forwards the GitHub token of each person. Sign people in to the app from what oauth2-proxy forwards, so they do not log in twice.",
+    "files": {
+      "package.json": "{\n  \"name\": \"ledger\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@vite-hub/auth\": \"latest\",\n    \"better-auth\": \"^1.7.15\",\n    \"vite-hub\": \"latest\"\n  },\n  \"devDependencies\": {\n    \"vite\": \"^8.0.0\"\n  }\n}\n",
+      "vite.config.ts": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node' })],\n})\n",
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\n\nexport default defineAuth({\n  appName: 'Ledger',\n  emailAndPassword: { enabled: true },\n})\n",
+      "server/api/invoices.get.ts": "import { defineEventHandler } from 'h3'\n\nexport default defineEventHandler(() => [{ id: 1, customer: 'Acme', total: 4200 }])\n"
+    },
+    "checks": [
+      { "label": "imports forwardAuth from ViteHub", "files": "^server/auth\\.ts$", "pattern": "from ['\"]vite-hub/auth/forward['\"]" },
+      { "label": "adds forwardAuth to the plugins of the Auth Definition", "files": "^server/auth\\.ts$", "pattern": "defineAuth\\(\\s*\\{[\\s\\S]*\\bplugins\\s*:\\s*\\[[^\\]]*?\\bforwardAuth\\(" },
+      { "label": "verifies the token with GitHub", "files": "^server/auth\\.ts$", "pattern": "\\bverify\\s*[:(][\\s\\S]*api\\.github\\.com/user" },
+      { "label": "does not read the proxy headers in its own code", "files": "^server/(?!auth\\.ts$).*\\.ts$", "pattern": "x-auth-request", "expect": false }
+    ]
+  },
+  {
+    "id": "existing-app-sqlite-backup",
+    "prompt": "This app runs on our own Node server with a local SQLite file, and the server applies pending migrations when it starts. Back up the SQLite file before those migrations run, and keep the 5 newest copies.",
+    "files": {
+      "package.json": "{\n  \"name\": \"ledger\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@vite-hub/database\": \"latest\",\n    \"drizzle-orm\": \"1.0.0-rc.6\",\n    \"vite-hub\": \"latest\"\n  },\n  \"devDependencies\": {\n    \"drizzle-kit\": \"1.0.0-rc.6\",\n    \"vite\": \"^8.0.0\"\n  }\n}\n",
+      "vite.config.ts": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', database: { migrateOnStart: true } })],\n})\n",
+      "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nimport { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'\n\nexport default defineDatabase({\n  schema: {\n    invoices: sqliteTable('invoices', {\n      id: integer('id').primaryKey({ autoIncrement: true }),\n      customer: text('customer').notNull(),\n      total: integer('total').notNull(),\n    }),\n  },\n})\n"
+    },
+    "checks": [
+      { "label": "turns on backup in migrateOnStart", "files": "^vite\\.config\\.ts$", "pattern": "migrateOnStart\\s*:\\s*\\{[^}]*?\\bbackup\\s*:\\s*(?:true\\b|\\{)" },
+      { "label": "keeps 5 copies in the backup option", "files": "^vite\\.config\\.ts$", "pattern": "migrateOnStart\\s*:\\s*\\{[^}]*?\\bbackup\\s*:\\s*\\{[^}]*?\\bkeep\\s*:\\s*5\\b" },
+      { "label": "does not copy the file in its own code", "files": "^(?:server|scripts)/", "pattern": "VACUUM INTO|copyFile|\\.backup\\(", "expect": false }
+    ]
+  },
+  {
+    "id": "existing-app-generate-migration",
+    "prompt": "Add an `audit_events` table with an auto-increment `id`, an `action` text column, and a `created_at` timestamp. Then add a `db:generate` script to package.json that writes the migration for the new table.",
+    "files": {
+      "package.json": "{\n  \"name\": \"ledger\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"dev\": \"vite dev\"\n  },\n  \"dependencies\": {\n    \"@vite-hub/database\": \"latest\",\n    \"drizzle-orm\": \"1.0.0-rc.6\",\n    \"vite-hub\": \"latest\"\n  },\n  \"devDependencies\": {\n    \"drizzle-kit\": \"1.0.0-rc.6\",\n    \"vite\": \"^8.0.0\"\n  }\n}\n",
+      "vite.config.ts": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ database: true })],\n})\n",
+      "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nimport { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'\n\nexport default defineDatabase({\n  schema: {\n    invoices: sqliteTable('invoices', {\n      id: integer('id').primaryKey({ autoIncrement: true }),\n      customer: text('customer').notNull(),\n      total: integer('total').notNull(),\n    }),\n  },\n})\n"
+    },
+    "checks": [
+      { "label": "registers the table in the Database Definition schema", "files": "^server/databases/default\\.ts$", "pattern": "schema\\s*:\\s*\\{[\\s\\S]*?\\b\\w+\\s*:\\s*sqliteTable\\(\\s*['\"]audit_events['\"]|const\\s+(\\w+)\\s*=\\s*sqliteTable\\(\\s*['\"]audit_events['\"][\\s\\S]*schema\\s*:\\s*\\{[\\s\\S]*?\\b\\1\\b" },
+      { "label": "db:generate runs vitehub database generate", "files": "^package\\.json$", "json": ["scripts", "db:generate"], "pattern": "^(?:(?:pnpm|npm|yarn)(?: exec| run)? |npx )?vitehub database generate(?:\\s|$)" },
+      { "label": "writes no Drizzle Kit config", "files": "^drizzle\\.config\\.\\w+$", "pattern": "[\\s\\S]", "expect": false },
+      { "label": "does not call drizzle-kit directly", "files": "^package\\.json$", "pattern": "drizzle-kit (?:generate|migrate|push)", "expect": false }
     ]
   }
 ]

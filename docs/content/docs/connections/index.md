@@ -8,8 +8,7 @@ icon: i-lucide-plug
 ---
 
 ::product-hero{tagline="Connect a Google account or an API key once, then call its API from your server without handling tokens." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-screenshot{src="/images/console-connections-light.webp" dark="/images/console-connections-dark.webp" alt="The Connections page of the ViteHub Console lists four Connections with their type, status, and account." width="1608" height="840"}
-  :::
+  :hero-figure{name="connections"}
 ::
 
 ::product-features
@@ -30,7 +29,7 @@ icon: i-lucide-plug
   :::
 
   :::product-feature-item{title="API keys work too" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}
-  Add a key while the app runs, not in code. The same rules apply.
+  Add an API key while the app runs, not in code. The same rules apply.
   :::
 
   :::product-feature-item{title="A record of each change" icon="i-lucide-history" to="/docs/connections/server-api#activity"}

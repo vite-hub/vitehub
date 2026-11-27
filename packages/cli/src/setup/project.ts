@@ -1,11 +1,15 @@
 import { existsSync, realpathSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { homedir } from "node:os"
 import { delimiter, sep } from "node:path"
 import process from "node:process"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
+import { parse as parseRc } from "rc9"
+import { minVersion, Range, subset, validRange } from "semver"
+import { parseDocument } from "yaml"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -28,16 +32,40 @@ export interface SetupProject {
   configSource?: string
   /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
   declared: (name: string, dev: boolean) => boolean
+  /** The `nuxt` range from the manifest or its pnpm catalog. */
+  nuxt?: string
   /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
   serverDirs?: readonly string[]
   /** True when `name` is resolvable from the project or present in an ancestor's node_modules. */
   installed: (name: string) => boolean
 }
 
+/**
+ * The Nuxt releases that a `nuxt` range allows, as a semver range. A Nuxt 5 nightly counts as its release, so
+ * `npm:nuxt-nightly@5.0.0-2611071848-2d8337c` is `5.0.0`. The `5x` channel tag of `nuxt-nightly` is `5.x`.
+ * `undefined` for another tag or a range without a version.
+ */
+export function nuxtReleases(nuxt: unknown): string | undefined {
+  if (typeof nuxt !== "string") return undefined
+  const range = validRange(nuxt.replace(/^npm:nuxt-nightly@(\d+)x$/u, "$1.x").replace(/^npm:nuxt(?:-nightly)?@/u, ""))
+  if (!range || !minVersion(range)) return undefined
+  return new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
+    typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
+      ? `${operator}5.${semver.minor}.${semver.patch}`
+      : value).join(" ")).join(" || ")
+}
+
+/** True when a `nuxt` range allows only Nuxt 5, so `vitehub init --nuxt-nightly` creates the same app. */
+export function declaresNuxt5(nuxt: unknown): boolean {
+  const releases = nuxtReleases(nuxt)
+  return !!releases && subset(releases, ">=5.0.0 <6.0.0")
+}
+
 const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cts", "nuxt.config.cjs"]
 const viteConfigFiles = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"]
 
-const lockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [
+/** The lockfiles and workspace files that name a package manager, in the order that detection reads them. */
+export const setupLockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [
   ["pnpm-lock.yaml", "pnpm"],
   ["pnpm-workspace.yaml", "pnpm"],
   ["bun.lock", "bun"],
@@ -59,6 +87,22 @@ function parentFolders(root: string): string[] {
   return folders
 }
 
+export function pnpmWorkspaceFile(root: string): string | undefined {
+  return parentFolders(root).map(folder => join(folder, "pnpm-workspace.yaml")).find(existsSync)
+}
+
+async function resolveNuxtSpecifier(root: string, specifier: unknown): Promise<string | undefined> {
+  if (typeof specifier !== "string") return undefined
+  if (!specifier.startsWith("catalog:")) return specifier
+  const file = pnpmWorkspaceFile(root)
+  if (!file) return undefined
+  const workspace = parseDocument(await readFile(file, "utf8"))
+  if (workspace.errors.length) return undefined
+  const catalog = specifier.slice("catalog:".length)
+  const entry: unknown = workspace.getIn(catalog && catalog !== "default" ? ["catalogs", catalog, "nuxt"] : ["catalog", "nuxt"])
+  return typeof entry === "string" ? entry : undefined
+}
+
 async function readManifest(root: string): Promise<PackageManifest | undefined> {
   const file = join(root, "package.json")
   if (!existsSync(file)) return
@@ -76,30 +120,60 @@ export function detectPackageManager(root: string, manifest: PackageManifest | u
   const declared = packageManagerName(manifest?.packageManager)
   if (declared) return { packageManager: declared, packageManagerSource: "manifest" }
   for (const folder of parentFolders(root)) {
-    const found = lockfiles.find(([file]) => existsSync(join(folder, file)))
+    const found = setupLockfiles.find(([file]) => existsSync(join(folder, file)))
     if (found) return { packageManager: found[1], packageManagerSource: "lockfile" }
   }
   const agent = packageManagerName(env.npm_config_user_agent)
   return agent ? { packageManager: agent, packageManagerSource: "user-agent" } : { packageManager: "npm", packageManagerSource: "default" }
 }
 
-function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
+const nuxtLayerKeys = ["extends", "_extends", "theme", "_layers"]
+
+function nuxtDirectoryOverride(value: unknown): boolean {
+  return value !== null && typeof value === "object"
+    && ["rootDir", "serverDir", ...nuxtLayerKeys].some(key => Object.hasOwn(value, key))
+}
+
+async function nuxtRcAllowsStaticDiscovery(folder: string): Promise<boolean> {
+  const file = join(folder, ".nuxtrc")
+  try {
+    if (!(await stat(file)).isFile()) return false
+    return !nuxtDirectoryOverride(parseRc(await readFile(file, "utf8")))
+  }
+  catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT"
+  }
+}
+
+async function nuxtServerDirs(root: string, config: LocateResult | undefined, env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
   const nuxt = config?.ok ? config.site.nuxt : undefined
   if (!nuxt || nuxt.spread) return
-  // Resolving extended and automatically registered layers requires loading their configs.
-  const extended = nuxt.keys.extends
-  if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return
-  if (nuxt.keys._layers || nuxt.keys.srcDir || existsSync(join(root, "layers"))) return
+  for (const key of nuxtLayerKeys) {
+    const layer = nuxt.keys[key]
+    if (layer && !(layer.kind === "literal" && Array.isArray(layer.value) && layer.value.length === 0)) return
+  }
+  for (const [key, override] of Object.entries(nuxt.keys)) {
+    if (!key.startsWith("$") || key === "$meta") continue
+    if (override.kind === "expression") return
+    if (key === "$env") {
+      if (override.value !== null && typeof override.value === "object" && Object.values(override.value).some(nuxtDirectoryOverride)) return
+    }
+    else if (nuxtDirectoryOverride(override.value)) return
+  }
+  if (existsSync(join(root, "layers"))) return
   const rootDir = nuxt.keys.rootDir
   const serverDir = nuxt.keys.serverDir
   if (rootDir && (rootDir.kind !== "literal" || typeof rootDir.value !== "string")) return
   if (serverDir && (serverDir.kind !== "literal" || typeof serverDir.value !== "string")) return
   const appRoot = rootDir?.kind === "literal" && typeof rootDir.value === "string" ? resolve(root, rootDir.value) : root
   if (existsSync(join(appRoot, "layers"))) return
+  const home = homedir()
+  for (const folder of new Set([...parentFolders(root), home, env.XDG_CONFIG_HOME || join(home, ".config")])) {
+    if (!await nuxtRcAllowsStaticDiscovery(folder)) return
+  }
   return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
 }
 
-/** The real folders of `name` in NODE_PATH, which Node's resolver reads after every node_modules folder. */
 function globalPackageDirs(name: string): string[] {
   return (process.env.NODE_PATH ?? "").split(delimiter).filter(Boolean).flatMap((dir) => {
     try {
@@ -127,10 +201,10 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   const configFile = framework === "nuxt" ? nuxtConfig : viteConfig
   const configSource = configFile ? await readFile(join(root, configFile), "utf8") : undefined
   let config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
-  // Nuxt automatically registers local layers, which can install ViteHub themselves.
   if (framework === "nuxt" && (!config || (!config.ok && config.reason === "no-vitehub")) && existsSync(join(root, "layers"))) config = { ok: false, reason: "dynamic-options" }
   const folders = parentFolders(root)
   const require = createRequire(join(root, "package.json"))
+  const nuxt = await resolveNuxtSpecifier(root, dependencies.nuxt)
   return {
     config,
     ...(configFile ? { configFile, configSource } : {}),
@@ -138,9 +212,6 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: (name) => {
       if (folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))) return true
-      // Yarn PnP and other active loader hooks can resolve packages without node_modules.
-      // Resolve metadata or an entry point without evaluating either one. `require.resolve` also reads NODE_PATH,
-      // and `pnpm exec` points it at the workspace's hoisted packages: a package found only there is not installed.
       const globalCopies = globalPackageDirs(name)
       for (const specifier of [`${name}/package.json`, name]) {
         try {
@@ -152,7 +223,8 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
       return false
     },
     ...detectPackageManager(root, manifest, env),
+    ...(nuxt === undefined ? {} : { nuxt }),
     root,
-    serverDirs: framework === "nuxt" ? nuxtServerDirs(root, config) : [join(root, "server")],
+    serverDirs: framework === "nuxt" ? await nuxtServerDirs(root, config, env) : [join(root, "server")],
   }
 }

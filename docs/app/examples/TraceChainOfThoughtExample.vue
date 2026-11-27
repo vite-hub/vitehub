@@ -11,7 +11,7 @@
           <TraceCollapsible>
             <TraceCollapsibleTrigger>
               <TraceLine>
-                <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
                 <TraceTitle>Searched for the checkout build log</TraceTitle>
               </TraceLine>
             </TraceCollapsibleTrigger>
@@ -26,15 +26,15 @@
           </TraceCollapsible>
           <a href="#chain-of-thought">
             <TraceLine>
-              <TraceIcon><UIcon name="i-ph-file-text-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-file-text" /></TraceIcon>
               <TraceTitle>Read the last twelve deploys</TraceTitle>
-              <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
             </TraceLine>
           </a>
           <TraceCollapsible>
             <TraceCollapsibleTrigger>
               <TraceLine status="running">
-                <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
                 <TraceTitle>Searching for the cache key</TraceTitle>
               </TraceLine>
             </TraceCollapsibleTrigger>

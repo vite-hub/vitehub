@@ -1,24 +1,23 @@
 <script setup lang="ts">
-import { MarkdownDocument } from "@comark/vue"
-import comarkUi from "comark-ui/vue"
+import { MarkdownDocument } from "@comark/vue/components/MarkdownDocument"
 import { camelize, capitalize, defineAsyncComponent } from "vue"
+import blocks from "#docs/blocks"
 import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
 
 import type { Component } from "vue"
+import type { ElementNode, Node as ComarkNode } from "comark"
 import type { DocsDocument } from "@vite-hub/docs"
 
 // The server parsed the page, so the client only renders nodes. Explicit maps and app content components override
-// comark-ui's blocks. Content components still load on first use.
+// comark-ui's blocks. Blocks and content components load on first use, so a page downloads only the blocks it renders.
+// The map has every comark-ui block, not only those of the plugins this package parses with: a site that adds chips or
+// another comark-ui plugin to its parser gets its nodes drawn.
 const props = defineProps<{
   document: DocsDocument
   /** Components by tag, such as `{ pre: DocsCodePre }`. */
   components?: Record<string, Component>
 }>()
-
-// Every block's component, not only those of the plugins this package parses with: a site that adds chips or another
-// comark-ui plugin to its parser gets its nodes drawn, and a component no node names costs nothing.
-const { components: blocks } = comarkUi()
 
 // `::note`, `::tip`, and the other callout components draw comark-ui's GitHub callout, the same as a `> [!NOTE]` quote.
 const callout = (type: string, title?: string): Component => defineComponent({
@@ -35,19 +34,35 @@ const callouts: Record<string, Component> = {
 }
 
 const contentBlocks = Object.fromEntries(Object.entries(contentComponents).flatMap(([tag, load]) => load ? [[tag, defineAsyncComponent(async () => (await load()).default)]] : []))
-const resolved = computed(() => {
-  const components: Record<string, Component> = {}
-  for (const map of [blocks, callouts, contentBlocks, customComponents, props.components ?? {}]) {
-    // Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
-    for (const [tag, component] of Object.entries(map)) components[capitalize(camelize(tag))] = component
-  }
-  return components
-})
+const componentKey = (tag: string) => capitalize(camelize(tag))
+// Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
+const byKey = (maps: Record<string, Component>[]) => Object.fromEntries(maps.flatMap(map => Object.entries(map).map(([tag, component]) => [componentKey(tag), component])))
+const overrides = computed(() => byKey([contentBlocks, customComponents, props.components ?? {}]))
+const resolved = computed(() => ({ ...byKey([blocks, callouts]), ...overrides.value }))
+
+// HTML is the fallback. An app component still receives the original tag, props, and source children. comark-ui's own
+// component doesn't: the parser drew the block as HTML because that component can't, as with a chart's marks.
+const unbrokenCodeLength = 24
+const isShortText = (children: ComarkNode[]) => children.length === 1 && typeof children[0] === "string" && children[0].length <= unbrokenCodeLength
+
+function renderNodes(nodes: ComarkNode[], inPre = false): ComarkNode[] {
+  return nodes.map((node): ComarkNode => {
+    if (typeof node === "string" || node[0] === null) return node
+    const [tag, attributes, ...children] = node
+    const { block, blockProps } = attributes
+    if (tag === "comark-html" && typeof block === "string" && overrides.value[componentKey(block)]) {
+      return [block, (blockProps ?? {}) as ElementNode[1], ...renderNodes(children, inPre)]
+    }
+    if (tag === "code" && !inPre && isShortText(children)) return [tag, { ...attributes, "data-nowrap": "" }, ...children]
+    return [tag, attributes, ...renderNodes(children, inPre || tag === "pre")]
+  })
+}
+const nodes = computed(() => renderNodes(props.document.nodes))
 </script>
 
 <template>
   <MarkdownDocument
-    :value="{ nodes: document.nodes, frontmatter: {}, meta: {} }"
+    :value="{ nodes, frontmatter: {}, meta: {} }"
     :components="resolved"
   />
 </template>

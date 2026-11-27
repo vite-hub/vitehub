@@ -78,6 +78,7 @@ describe("forgeGitCredentials", () => {
     [{ forge: "gitlab", repository: "group/sub/app", token: "t" }, { url: "https://gitlab.com/group/sub/app.git", username: "oauth2", password: "t" }],
     [{ forge: "gitlab", baseUrl: "https://git.example.com/gitlab/", repository: "group/app.git", token: "t" }, { url: "https://git.example.com/gitlab/group/app.git", username: "oauth2", password: "t" }],
     [{ forge: "forgejo", baseUrl: "https://forgejo.example.com", repository: "acme/app", token: "t" }, { url: "https://forgejo.example.com/acme/app.git", username: "oauth2", password: "t" }],
+    [{ forge: "gitea", repository: "acme/app", token: "t" }, { url: "https://gitea.com/acme/app.git", username: "oauth2", password: "t" }],
   ] as const)("builds the remote for %o", (input, expected) => {
     expect(forgeGitCredentials(input)).toEqual(expected)
   })
@@ -104,7 +105,6 @@ interface RecordedCall {
   path: string
 }
 
-/** A GitHub fake that answers `routes` by `METHOD path` and records each call. */
 function githubRoutes(routes: Record<string, (call: RecordedCall) => Response>) {
   const calls: RecordedCall[] = []
   const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -193,9 +193,10 @@ describe("forgeBlob", () => {
 
 describe("forgeCommitFiles", () => {
   function commitRoutes(update: () => Response) {
+    let blobs = 0
     return githubRoutes({
       [`GET /repos/acme/app/git/commits/${parentSha}`]: () => Response.json({ sha: parentSha, tree: { sha: "base-tree" } }),
-      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: "new-blob" }, { status: 201 }),
+      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: `blob-${++blobs}` }, { status: 201 }),
       "POST /repos/acme/app/git/trees": () => Response.json({ sha: "new-tree" }, { status: 201 }),
       "POST /repos/acme/app/git/commits": () => Response.json({ sha: "new-commit" }, { status: 201 }),
       "PATCH /repos/acme/app/git/refs/heads/main": update,
@@ -203,7 +204,34 @@ describe("forgeCommitFiles", () => {
     })
   }
 
-  it("writes Git file modes through the Git database and moves the branch without force", async () => {
+  it.each(["regular", "executable", "empty"])("preserves the token committer with an author (%s)", async (kind) => {
+    const bot = { name: "App Bot", email: "bot@example.com" }
+    const author = { name: "Ada", email: "ada@example.com" }
+    const fake = githubRoutes({
+      [`GET /repos/acme/app/git/commits/${parentSha}`]: () => Response.json({ tree: { sha: "base-tree" } }),
+      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: "blob" }),
+      "POST /repos/acme/app/git/trees": () => Response.json({ sha: "tree" }),
+      "POST /repos/acme/app/git/commits": (call) => {
+        const body = call.body as { author?: typeof author, committer?: typeof bot }
+        return Response.json({
+          sha: body.author ? "authored-commit" : "default-commit",
+          author: body.author ?? bot,
+          committer: body.committer ?? body.author ?? bot,
+        })
+      },
+      "PATCH /repos/acme/app/git/refs/heads/main": () => Response.json({}),
+    })
+    const provider = await forgeProvider({ forge: "github", token: "installation-token", fetch: fake.fetch })
+    await forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main", expectedHead: parentSha, message: "edit", author,
+      changes: kind === "empty" ? [] : [{ path: "a", content: "a", ...(kind === "executable" ? { mode: "100755" as const } : {}) }],
+    })
+    const writes = fake.calls.filter(call => call.method === "POST" && call.path.endsWith("/git/commits"))
+    expect(writes.at(-1)?.body).toMatchObject({ author, committer: bot, parents: [parentSha], tree: "tree" })
+    expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "authored-commit" })
+  })
+
+  it("uploads identical bytes once and preserves each path and mode in the tree", async () => {
     const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))
     const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
 
@@ -211,20 +239,31 @@ describe("forgeCommitFiles", () => {
       branch: "main",
       changes: [
         { content: "target.md", mode: "120000", path: "link.md" },
-        { content: "plain", path: "plain.md" },
+        { content: Uint8Array.of(0, 255), path: "data.bin" },
         { content: null, path: "old.md" },
+        { content: Buffer.from("target.md"), mode: "100755", path: "run" },
+        { content: Uint8Array.of(0, 254), path: "other.bin" },
+        { content: Uint8Array.of(0, 255), path: "copy.bin" },
       ],
       expectedHead: parentSha,
       message: "write files",
     })
 
     expect(sha).toBe("new-commit")
+    expect(fake.calls.filter(call => call.path.endsWith("/git/blobs")).map(call => call.body)).toEqual([
+      { content: Buffer.from("target.md").toString("base64"), encoding: "base64" },
+      { content: "AP8=", encoding: "base64" },
+      { content: "AP4=", encoding: "base64" },
+    ])
     expect(fake.calls.find(call => call.method === "POST" && call.path.endsWith("/git/trees"))?.body).toEqual({
       base_tree: "base-tree",
       tree: [
-        { mode: "120000", path: "link.md", sha: "new-blob", type: "blob" },
-        { mode: "100644", path: "plain.md", sha: "new-blob", type: "blob" },
+        { mode: "120000", path: "link.md", sha: "blob-1", type: "blob" },
+        { mode: "100644", path: "data.bin", sha: "blob-2", type: "blob" },
         { mode: "100644", path: "old.md", sha: null, type: "blob" },
+        { mode: "100755", path: "run", sha: "blob-1", type: "blob" },
+        { mode: "100644", path: "other.bin", sha: "blob-3", type: "blob" },
+        { mode: "100644", path: "copy.bin", sha: "blob-2", type: "blob" },
       ],
     })
     expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "new-commit" })

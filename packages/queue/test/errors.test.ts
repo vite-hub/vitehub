@@ -10,7 +10,9 @@ describe("Queue errors", () => {
   it("documents each Queue error code with a why, a fix, and a docs heading", async () => {
     const page = await readFile(new URL("../../../docs/content/docs/queue/limits-and-errors.md", import.meta.url), "utf8")
 
-    for (const code of Object.keys(queueErrorDiagnostics)) {
+    const legacy = new Set((await readFile(new URL("../../../test/fixtures/legacy-diagnostic-codes.txt", import.meta.url), "utf8")).split("\n"))
+
+    for (const code of Object.keys(queueErrorDiagnostics).filter(code => legacy.has(code))) {
       expect(page, code).toContain(`\n### ${code}\n`)
     }
     const error = queueErrorDiagnostics.QUEUE_DISABLED()

@@ -3,16 +3,16 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vite-hub/blob"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
-import { deferQueue, runQueue } from "@vite-hub/queue"
+import { deferQueue, sendQueue } from "@vite-hub/queue"
 import { requireRateLimit } from "@vite-hub/rate-limit"
 import { runSandboxTask } from "@vite-hub/sandbox/task"
 import { useWorkspace } from "@vite-hub/workspace"
 import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
-import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
+import { deferWorkflow, getWorkflowRun, startWorkflow } from "@vite-hub/workflow"
+import { getQueueMarkerKey, getQueueMarkerValue, queueMarkerStages, resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
 const app = new H3()
 const analytics = useDatabase("analytics")
@@ -32,7 +32,9 @@ const blobPutBody = v.optional(v.object({
   value: v.optional(v.string()),
 }), {})
 const markerBody = v.object({
+  error: v.optional(v.string()),
   marker: v.string(),
+  stage: v.optional(v.picklist(queueMarkerStages), "done"),
 })
 const noteBody = v.object({
   title: v.string(),
@@ -64,11 +66,11 @@ function resolveWorkflowId(body: { id?: string, marker?: string } | undefined, m
 }
 
 function resolveKVProvider(event: unknown) {
-  return getCloudflareEnv(event) ? "cloudflare-kv-binding" : "upstash"
+  return getCloudflareEnv(event) ? "cloudflare" : "upstash"
 }
 
 function resolveWorkspaceProvider(_event: unknown) {
-  return getWorkspaceRuntimeConfig()?.store.provider ?? "memory"
+  return getWorkspaceRuntimeConfig()?.store.driver ?? "memory"
 }
 
 function resolveSandboxTaskHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
@@ -147,7 +149,7 @@ app.put("/api/blob", async (event) => {
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  const [error] = await blob.del(body.pathname)
+  const [error] = await blob.delete(body.pathname)
   if (error) throw error
   return { ok: true }
 })
@@ -184,9 +186,7 @@ app.get("/api/blob/serve", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  const [error, stream] = await blob.serve(event, pathname)
-  if (error) throw error
-  return stream
+  return blob.serve(event.req, pathname)
 })
 
 app.get("/api/database", async () => {
@@ -228,7 +228,7 @@ app.post("/api/queues/welcome", async (event) => {
   const marker = resolveMarker(body, event)
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
 
-  const [error, result] = await runQueue(queueName, {
+  const [error, result] = await sendQueue(queueName, {
     email: body?.email || "ava@example.com",
     callbackUrl,
     marker,
@@ -278,21 +278,30 @@ app.get("/api/tests/probe", (event) => {
 
 app.get("/api/tests/queue", async (event) => {
   const marker = getQuery(event).marker
-  const key = typeof marker === "string" && marker.length > 0
-    ? `queue-e2e:${marker}`
-    : ""
+  if (typeof marker !== "string" || marker.length === 0) {
+    return { error: null, ok: true, received: false, seen: false, writeError: null }
+  }
 
-  const [error, seen] = key ? await kv.has(key) : [undefined, false] as const
-  if (error) throw error
+  const [seenError, seen] = await kv.has(getQueueMarkerKey(marker, "done"))
+  if (seenError) throw seenError
+  const [receivedError, received] = await kv.has(getQueueMarkerKey(marker, "received"))
+  if (receivedError) throw receivedError
+  const [failureError, failure] = await kv.get(getQueueMarkerKey(marker, "failed"))
+  if (failureError) throw failureError
+  const [writeFailureError, writeFailure] = await kv.get(getQueueMarkerKey(marker, "marker-write"))
+  if (writeFailureError) throw writeFailureError
   return {
+    error: typeof failure === "string" ? failure : null,
     ok: true,
+    received,
     seen,
+    writeError: typeof writeFailure === "string" ? writeFailure : null,
   }
 })
 
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  const [error] = await kv.set(`queue-e2e:${body.marker}`, true)
+  const [error] = await kv.set(getQueueMarkerKey(body.marker, body.stage), getQueueMarkerValue(body.stage, body.error))
   if (error) throw error
   return { ok: true }
 })
@@ -368,11 +377,11 @@ app.get("/api/workspace/read-fresh", async (event) => {
 })
 
 app.post("/api/sandbox-tasks/release-notes", async (event) => {
-  const response = await runSandboxTask("release-notes", await readBody(event))
-  if (!response.ok)
-    return response
+  const [error, result] = await runSandboxTask("release-notes", await readBody(event))
+  if (error)
+    throw error
 
-  return { result: await response.json() }
+  return { result }
 })
 
 app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))
@@ -381,25 +390,25 @@ app.post("/api/workflows/welcome", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
 
-  return {
-    ok: true,
-    result: await runWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
-  }
+  const [error, run] = await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) })
+  if (error) throw error
+  return { ok: true, result: run }
 })
 
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
-
-  return {
-    ok: true,
-    result: await deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
-  }
+  const id = resolveWorkflowId(body, marker) || crypto.randomUUID()
+  deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id })
+  return { ok: true, result: { id } }
 })
 
 app.get("/api/workflows/welcome/:id", async (event) => {
   const id = event.context.params?.id
-  return id ? await getWorkflowRun(workflowName, id) : { status: "unknown" }
+  if (!id) return { status: "unknown" }
+  const [error, run] = await getWorkflowRun(workflowName, id)
+  if (error) throw error
+  return run
 })
 
 export default app

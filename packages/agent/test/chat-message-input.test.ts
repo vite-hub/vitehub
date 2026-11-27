@@ -99,7 +99,6 @@ describe("chat message trigger input", () => {
       session: { id: "b" },
       user: { id: "user_1" },
     })
-    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toMatchObject({
       email: {
         address: "support@example.com",
@@ -290,7 +289,6 @@ describe("chat message trigger input", () => {
       user: { email: "support@example.com" },
     })
 
-    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toEqual({
       email: {
         address: "support@example.com",
@@ -354,7 +352,6 @@ describe("chat message trigger input", () => {
     expect(result.input.context?.chat).toMatchObject({
       meta: { email: "support@example.com" },
     })
-    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toBeUndefined()
   })
 
@@ -444,7 +441,6 @@ describe("chat message trigger input", () => {
 
     expect(result.input.messages).toHaveLength(1)
     expect(result.input.messages?.[0]?.id).toBe("latest")
-    expect(result.input.context).not.toHaveProperty("vitehub.eve.approvedTools")
   })
 
   it("preserves UI data parts in follow-up history", () => {

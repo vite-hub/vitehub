@@ -46,6 +46,10 @@ export interface AgentInvocationConfiguration {
     provider?: string;
   };
   instructions?: readonly string[];
+  /** MCP servers that the harness connected for this run. */
+  mcpServers?: readonly { name: string; status?: string }[];
+  /** Skills that the harness offered the Agent, such as the bundled Skills of a coding agent CLI. */
+  skills?: readonly { description?: string; name: string; source?: string }[];
   truncated?: boolean;
   runtime?: {
     name?: string;
@@ -54,6 +58,10 @@ export interface AgentInvocationConfiguration {
   workspace?: {
     mode?: string;
     name?: string;
+    /** The history ref that holds this run's files. */
+    ref?: string;
+    /** The Workspace history revision of this run's files. The session Workspace opens it. */
+    revision?: string;
     sources?: readonly (string | { id: string; repository?: string })[];
   };
 }
@@ -84,6 +92,6 @@ export interface AgentInvocationView {
     cachedInputTokens?: number;
     cacheWriteTokens?: number;
     reasoningTokens?: number;
-    cost?: { display?: string; estimated?: boolean; source?: string };
+    cost?: { display?: string; estimated?: boolean; source?: string; usd?: string };
   };
 }

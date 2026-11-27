@@ -2,12 +2,12 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { findProperty, keyName, parseProgram, walk } from "@vite-hub/internal/ast"
+import { findProperty, keyName, parseProgram } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
-import { CodemodError } from "../types.ts"
+import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 
-import type { ArrayExpression, Expression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
+import type { ArrayExpression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
 
 /** A value that a codemod can read from source without running it. */
 export type LiteralValue = boolean | number | string
@@ -23,9 +23,19 @@ export interface NuxtConfigFile {
   root: ObjectExpression
 }
 
+/** The file name of the project's nuxt.config, or `undefined` when it has none. */
+export function findNuxtConfigName(cwd: string): string | undefined {
+  return configNames.find(name => existsSync(join(cwd, name)))
+}
+
 export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
-  const fileName = configNames.find(name => existsSync(join(cwd, name)))
-  if (!fileName) throw new CodemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
+  const fileName = findNuxtConfigName(cwd)
+  if (!fileName) throw codemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
+  return readConfigFile(cwd, fileName, "defineNuxtConfig")
+}
+
+/** Reads a config file whose default export is an object literal, or a call such as `helper({ ... })` on one. */
+export async function readConfigFile(cwd: string, fileName: string, helper: string): Promise<NuxtConfigFile> {
   const path = join(cwd, fileName)
   const code = await readFile(path, "utf8")
   let program: File
@@ -33,16 +43,16 @@ export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
     program = parseProgram(code)
   }
   catch (error) {
-    throw new CodemodError(`Cannot parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`)
+    throw codemodError(`Cannot parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`)
   }
   const root = findConfigObject(program)
-  if (!root) throw new CodemodError(`${fileName} must export an object literal, for example \`export default defineNuxtConfig({ ... })\`.`)
+  if (!root) throw codemodError(`${fileName} must export an object literal, for example \`export default ${helper}({ ... })\`.`)
   return { path, fileName, code, program, root }
 }
 
 export function unwrapExpression(node: Node): Node {
   let current = node
-  while (current.type === "TSAsExpression" || current.type === "TSSatisfiesExpression" || current.type === "ParenthesizedExpression" || current.type === "TSNonNullExpression") {
+  while (current.type === "TSAsExpression" || current.type === "TSSatisfiesExpression" || current.type === "ParenthesizedExpression" || current.type === "TSNonNullExpression" || current.type === "TSTypeAssertion") {
     current = current.expression
   }
   return current
@@ -124,25 +134,42 @@ export function defaultExport(module: unknown): unknown {
   return typeof module === "object" && module !== null && "default" in module ? module.default : module
 }
 
+const previousHelpers = new WeakMap<object, PropertyDescriptor>()
+
 /** Runs nuxt.config with a `defineNuxtConfig` stub and returns the exported object. */
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
-  const hadPrevious = Reflect.has(globalThis, "defineNuxtConfig")
-  const previous: unknown = Reflect.get(globalThis, "defineNuxtConfig")
-  Reflect.set(globalThis, "defineNuxtConfig", (config: unknown) => config)
+  return loadConfigFile(path, "defineNuxtConfig")
+}
+
+/** Runs a config file with a stub for the global `key` helper, such as `defineNitroConfig`, and returns the exported object. */
+export async function loadConfigFile(path: string, key: string): Promise<Record<string, unknown>> {
+  const current: unknown = Reflect.get(globalThis, key)
+  const helper = typeof current === "function" && "count" in current && typeof current.count === "number"
+    ? current as { count: number }
+    : Object.assign((config: unknown) => config, { count: 0 })
+  if (helper !== current) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    if (previous) previousHelpers.set(helper, previous)
+    Reflect.set(globalThis, key, helper)
+  }
+  helper.count++
   try {
     const jiti = createJiti(path, { moduleCache: false, fsCache: false, interopDefault: false })
     const loaded = defaultExport(await jiti.import(path))
     const value: unknown = typeof loaded === "function" ? await Reflect.apply(loaded, undefined, []) : loaded
-    if (typeof value !== "object" || value === null) throw new CodemodError(`${path} did not export a config object.`)
+    if (typeof value !== "object" || value === null) throw codemodError(`${path} did not export a config object.`)
     return Object.fromEntries(Object.entries(value))
   }
   catch (error) {
-    if (error instanceof CodemodError) throw error
-    throw new CodemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
+    if (isCodemodError(error)) throw error
+    throw codemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
-    if (hadPrevious) Reflect.set(globalThis, "defineNuxtConfig", previous)
-    else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
+    if (--helper.count === 0 && Reflect.get(globalThis, key) === helper) {
+      const previous = previousHelpers.get(helper)
+      if (previous) Object.defineProperty(globalThis, key, previous)
+      else Reflect.deleteProperty(globalThis, key)
+    }
   }
 }
 
@@ -151,17 +178,4 @@ export function nitroPreset(config: NuxtConfigFile): { value?: string, property?
   const property = nitro ? findProperty(nitro, "preset") : undefined
   const value = property ? literalValue(property.value) : undefined
   return { value: typeof value === "string" ? value : undefined, property }
-}
-
-/** Every identifier name in the source range of `node`. */
-export function identifiersIn(node: Node): Set<string> {
-  const names = new Set<string>()
-  walk(node, (child) => {
-    if (child.type === "Identifier") names.add(child.name)
-  })
-  return names
-}
-
-export function isExpression(node: Node): node is Expression {
-  return node.type !== "SpreadElement" && node.type !== "ArgumentPlaceholder" && node.type !== "JSXNamespacedName"
 }

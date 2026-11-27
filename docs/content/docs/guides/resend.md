@@ -26,7 +26,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	preset: 'vercel',
+  	host: 'vercel',
   	email: {
   		driver: 'resend',
   		options: {
@@ -47,7 +47,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'vercel',
+		host: 'vercel',
 		email: {
 			driver: 'resend',
 			options: {
@@ -67,7 +67,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'vercel',
+		host: 'vercel',
 		email: {
 			driver: 'resend',
 			options: {
@@ -81,8 +81,9 @@ export default defineConfig({
 ::
 
 Set `RESEND_API_KEY` in the server environment. Keep `driver: 'resend'` when
-you move to `node`, `netlify`, or another host. On Cloudflare, `email: true`
-picks Cloudflare Email instead.
+you move to `node`, `netlify`, `cloudflare`, or another host. The same config
+works on every host. On Cloudflare, `email: true` picks Cloudflare Email
+instead.
 
 ## Send a deployment check
 

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createKVCloudflareProvisionStep } from "../src/provision.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
-import type { CloudflareKVStoreConfig, KVModuleOptions } from "../src/types.ts"
+import type { CloudflareKVStoreConfig, KVOptions } from "../src/types.ts"
 
 const credentials = { CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "token" }
 
@@ -28,7 +28,7 @@ function createContext(handler: (url: URL, init?: RequestInit) => Response, env:
 }
 
 function namedStore(namespaceName: string, options: { binding?: string, namespaceId?: string } = {}): CloudflareKVStoreConfig {
-  return { driver: "cloudflare-kv-binding", namespaceName, ...options }
+  return { driver: "cloudflare", namespaceName, ...options }
 }
 
 describe("KV Cloudflare provision step", () => {
@@ -59,7 +59,7 @@ describe("KV Cloudflare provision step", () => {
         cache: namedStore("shared", { binding: "CACHE" }),
         pinned: namedStore("pinned", { binding: "PINNED", namespaceId: "configured-id" }),
         sessions: namedStore("shared", { binding: "SESSIONS" }),
-        default: { binding: "UNNAMED", driver: "cloudflare-kv-binding" },
+        default: { binding: "UNNAMED", driver: "cloudflare" },
       },
     })).plan(context)
 
@@ -111,7 +111,6 @@ describe("KV Cloudflare provision step", () => {
   it("reads the id back when another run created the namespace first", async () => {
     let listCalls = 0
     const { context } = createContext((_url, init) => {
-      // Cloudflare answers a duplicate title with 400 and code 10014 (cloudflare/workers-sdk#14284).
       if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ code: 10014, message: "a namespace with this account ID and title already exists" }] }, 400)
       listCalls++
       return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-race", title: "app-cache" }] })
@@ -129,7 +128,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 403 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 403 })
   })
 
   it("reads the id back after a 409 conflict", async () => {
@@ -148,7 +147,6 @@ describe("KV Cloudflare provision step", () => {
   it("fails an invalid create without reusing a namespace that appeared since the plan", async () => {
     let listCalls = 0
     const { context, requests } = createContext((_url, init) => {
-      // A 400 without the duplicate-title code is a rejected input, not "already exists".
       if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ message: "invalid title" }] }, 400)
       listCalls++
       return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-other", title: "app-cache" }] })
@@ -156,7 +154,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", code: "INTERNAL_R0013", status: 400 })
     expect(requests.map(request => request.method)).toEqual(["GET", "POST"])
   })
 
@@ -167,7 +165,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 400 })
   })
 
   it("describes the KV Store ids it records without network access", () => {
@@ -207,10 +205,10 @@ describe("KV Cloudflare provision step", () => {
     for (const options of [
       undefined,
       false,
-      { driver: "cloudflare-kv-binding" },
+      { driver: "cloudflare" },
       namedStore("app-cache", { namespaceId: "configured-id" }),
       { driver: "upstash", token: "t", url: "https://example.upstash.io" },
-    ] satisfies Array<KVModuleOptions | undefined>) {
+    ] satisfies Array<KVOptions | undefined>) {
       await expect(createKVCloudflareProvisionStep(() => options).plan(context)).resolves.toEqual([])
     }
     expect(handler).not.toHaveBeenCalled()

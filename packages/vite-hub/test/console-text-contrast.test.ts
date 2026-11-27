@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
-const styles = readFileSync(new URL("../src/console/runtime/client/styles.css", import.meta.url), "utf8")
+// The Console reads its tokens from the shared ViteHub theme.
+const styles = readFileSync(new URL("../../ui/theme.css", import.meta.url), "utf8")
 
 function block(selector: string): string {
   const start = styles.indexOf(`${selector} {`)
@@ -9,10 +10,12 @@ function block(selector: string): string {
   return styles.slice(start, styles.indexOf("}", start))
 }
 
+// A token that reads a shadcn/ui name, such as `--ui-bg: var(--background)`, takes its value from the same block.
 function token(css: string, name: string): string {
-  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(css)?.[1]
+  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(css)?.[1]?.trim()
   expect(value, name).toBeDefined()
-  return value!.trim()
+  const read = /^var\(--([\w-]+)\)$/.exec(value!)?.[1]
+  return read ? token(css, read) : value!
 }
 
 // Linear sRGB channels from the oklch() and hex forms that the Console theme uses.
@@ -50,7 +53,7 @@ function contrast(foreground: string, background: string): number {
 
 describe("Console text contrast", () => {
   const themes = {
-    "dark": block(".dark"),
+    "dark": block(":root.dark"),
     "light": block(":root"),
     "system dark": block(":root:not(.light):not(.dark)"),
   }

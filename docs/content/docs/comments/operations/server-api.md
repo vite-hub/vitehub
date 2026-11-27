@@ -13,12 +13,12 @@ All operations belong to the Console section `comments`. Run them from the Conso
 | Operation | Kind | Input | Result |
 | --- | --- | --- | --- |
 | `comments.list` | read | `{ subject?, subjectKind?, page?, status?, mine?, mentions?, revision?, limit?, before? }` | `CommentThread[]`, newest first. |
-| `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null` when it is missing or you may not read it. |
-| `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision? }` | The new thread. |
-| `comments.reply` | write | `{ threadId, body, mentions?, attachments? }` | The thread. |
+| `comments.get` | read | `{ threadId }` or `{ scope, n }` | The thread, or `null` when it is missing or you may not read it. |
+| `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision?, requestId? }` | The new thread. A retry by the same author with the same `requestId` and subject returns the first thread. Another author or subject with that key gets `409` `COMMENTS_R0022`. |
+| `comments.reply` | write | `{ threadId, body, mentions?, attachments?, requestId? }` | The thread. A retry by the same author with the same `requestId` in the thread returns it with the first message. Another author with that key gets `409` `COMMENTS_R0022`. |
 | `comments.edit` | write | `{ threadId, messageId, body, mentions? }` | The thread. Author only. |
 | `comments.delete` | destructive | `{ threadId, messageId? }` | The thread, or `null` when it is gone. |
-| `comments.resolve` | write | `{ threadId }` | The thread. |
+| `comments.resolve` | write | `{ threadId, reply? }`, or `{ threads: [{ threadId, reply? }] }` for up to 50 threads | The thread, or the threads in the order you sent them. See [Resolve what you handled](#resolve-what-you-handled). |
 | `comments.reopen` | write | `{ threadId }` | The thread. |
 | `comments.users` | read | `{ query, limit?, threadId?, subject? }` | Up to 10 `{ id, name, image }` to mention. A `query` under 2 characters gives `[]`. Needs the `write` right. |
 | `comments.upload` | write | `{ name, type, data, subject? }`, `data` in Base64 | `{ key, name, type, size }`. Not an MCP tool. |
@@ -28,6 +28,23 @@ All operations belong to the Console section `comments`. Run them from the Conso
 See [Attach files](/docs/comments/configure#attach-files). The overlay API serves the same actions over [HTTP routes](/docs/comments/server-api#http-routes).
 
 A `page` subject id is an app path: one leading `/`, no second `/` or `\`, no whitespace, `?`, or `#`, and at most 500 characters.
+
+### Resolve what you handled
+
+An open thread stays on its page in the overlay, and a resolved one leaves it. So when you or an agent makes the change that a thread asks for, resolve the thread with a `reply` that says what changed, such as the commit or a link:
+
+```json [comments.resolve input]
+{
+  "threads": [
+    { "threadId": "thread_123", "reply": "Fixed the price in 4f9c2e1." },
+    { "threadId": "thread_124", "reply": "Moved the button, see #512." }
+  ]
+}
+```
+
+One call resolves all the threads, so an MCP client asks you to approve it once. List each thread only once. The operation checks input and permissions before it changes any thread. If a write fails after changes begin, the error identifies the completed threads and the thread where resolution stopped. Retrying a completed resolution with the same reply and no new activity adds no second message. A reply needs the `write` right as well as `resolve`. The thread records `resolvedBy`, and also records `resolvedActor` when the caller supplies an Actor. The Console MCP does not supply one.
+
+The Console MCP limits the entire JSON request to 2 MiB. If long replies make a batch exceed that limit, split the `threads` array across smaller calls.
 
 ### Paging
 
@@ -46,9 +63,12 @@ import { createRpcTransport } from 'vite-hub/comments/rpc'
 const client = createCommentsClient({ transport: createRpcTransport({ base: '/portal' }) })
 ```
 
-`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc/__call` with the session cookie. It needs Console access to the Comments section. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
+`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. `files` in `create` and `reply` go to `comments.upload` first, and their keys to `attachments`. It has no `subscribe`, so the client refreshes on window focus. A failure throws a diagnostic with `code`, `message`, `fix`, and `status`.
 
-For guests, share link readers, and others without Console access, use [`createRestTransport()`](/docs/comments/server-api#rest-transport) from `vite-hub/comments/client`. It calls the same actions and policy through the Comments API, and adds `upload` and `attachmentUrl(key)`.
+> [!WARNING]
+> `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/console/signed-requests) on `/_vitehub/rpc`.
+
+Your pages use [`createRestTransport()`](/docs/comments/server-api#rest-transport) from `vite-hub/comments/client`. It calls the same actions and policy through the Comments API, for signed-in users, guests, and share link readers, and adds `upload` and `attachmentUrl(key)`.
 
 Without `limit`, the client loads every page. A multi-page refresh replaces the cache only after two scans match, so a thread updated mid-scan shows its current contents. After three scans that do not match, refresh fails with `COMMENTS_R0015` and keeps the old cache. With `limit`, the client makes one request.
 
@@ -66,7 +86,7 @@ pnpm vitehub comments resolve --thread-id thread_123
 | --- | --- |
 | `vite-hub/comments` | `defineComments()`, `defineCommentSubject()`, and the types. |
 | `vite-hub/comments/client` | Anchors and the client. |
-| `vite-hub/comments/rpc` | `createRpcTransport()`. |
+| `vite-hub/comments/rpc` | `createRpcTransport()`, for development only. |
 | `vite-hub/comments/database` | `commentsSchema` for SQLite, libSQL, and D1, and `migrateComments()`. |
 | `vite-hub/comments/database/postgres` | `commentsPostgresSchema`. |
 | `vite-hub/comments/server` | `installComments()` and `createCommentsStore()`, for apps that wire the runtime by hand. |

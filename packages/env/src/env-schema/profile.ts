@@ -7,6 +7,7 @@ import {
   parseEnvSpecDotEnvFile,
 } from "@env-spec/parser";
 import { isEnvSchemaValue } from "../core/json-value.ts";
+import { envErrorDiagnostics } from "../error-diagnostics.ts";
 
 export const ENV_SCHEMA_PROFILE = "env-spec-v1";
 
@@ -38,9 +39,9 @@ interface Context {
 }
 
 function fail(context: Context, reason: string): never {
-  throw new Error(
-    `${context.file}:${context.line}${context.key ? ` (${context.key})` : ""}: ${reason}`,
-  );
+  throw envErrorDiagnostics.ENV_B0006({
+    message: `${context.file}:${context.line}${context.key ? ` (${context.key})` : ""}: ${reason}`,
+  });
 }
 
 function locationLine(location: unknown, end = false): number {

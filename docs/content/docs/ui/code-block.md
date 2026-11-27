@@ -3,7 +3,7 @@ title: Code Block
 description: "Show code, terminal output, logs, and diffs with a header, line numbers, and a copy button."
 navigation.order: 15
 navigation.group: Parts
-icon: i-ph-code-light
+icon: i-lucide-code
 ---
 
 `CodeBlock` shows code, terminal output, logs, and diffs. It has a header with a title and actions, optional line numbers and wrapping, and line variants for diffs and highlights. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Code Block](https://ui.shadcn.com/docs/components/code-block).
@@ -15,13 +15,13 @@ Syntax highlighting with [Shiki](https://shiki.style) is optional and lives in a
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/code-block`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { CodeBlock, CodeBlockContent, useHighlightedCode } from "@vite-hub/ui";
+import { CodeBlock, CodeBlockContent, useHighlightedCode } from "vite-hub/ui";
 ```
 
-`@vite-hub/ui/code-block` also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
+`vite-hub/ui` also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
 
 ## Usage
 
@@ -35,7 +35,7 @@ import {
   CodeBlockHeader,
   CodeBlockLine,
   CodeBlockTitle,
-} from "@vite-hub/ui";
+} from "vite-hub/ui";
 ```
 
 ```vue
@@ -122,7 +122,7 @@ const output = "pnpm test";
       variant="ghost"
       size="xs"
       square
-      icon="i-ph-text-align-left-light"
+      icon="i-lucide-text-align-start"
       aria-label="Wrap lines"
       :aria-pressed="wrap"
       @click="wrap = !wrap"
@@ -251,7 +251,7 @@ Put a `CodeBlock` between paragraphs in a [Message](/docs/ui/message).
 
 ```vue
 <script setup lang="ts">
-import { useHighlightedCode } from "@vite-hub/ui";
+import { useHighlightedCode } from "vite-hub/ui";
 
 const lines = useHighlightedCode(code, "json");
 </script>

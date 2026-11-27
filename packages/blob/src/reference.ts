@@ -1,6 +1,7 @@
 // Blob reference schemas: Standard Schema validators for a stored pointer to one Blob object.
 import { isPlainObject } from "@vite-hub/internal/object"
 
+import { blobBrowserDiagnostics } from "./browser-diagnostics.ts"
 import { blobSizeToBytes } from "./internal/size.ts"
 
 import type { BlobObject, BlobSize, BlobStoreName } from "./types.ts"
@@ -97,7 +98,7 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
   const patterns = list.map(pattern => pattern.trim().toLowerCase())
   for (const pattern of patterns) {
     if (!mimePattern.test(pattern)) {
-      throw new TypeError(`[vitehub] ${kind}() accept entry "${pattern}" is not a MIME type or pattern such as "image/png" or "image/*".`)
+      throw blobBrowserDiagnostics.BLOB_REFERENCE_OPTION_INVALID({ kind, option: "accept", value: pattern })
     }
   }
   return patterns.length && !patterns.includes("*/*") ? patterns : undefined
@@ -154,7 +155,7 @@ function pathnameIssue(pathname: string): string | undefined {
 
 function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefined, direction: "input" | "output", options: BlobReferenceJsonSchemaOptions): Record<string, unknown> {
   if (!jsonSchemaTargets.has(options.target)) {
-    throw new Error(`[vitehub] Blob reference schemas emit draft-07, draft-2020-12, or openapi-3.0 JSON Schema, not "${options.target}".`)
+    throw blobBrowserDiagnostics.BLOB_REFERENCE_SCHEMA_TARGET_UNSUPPORTED({ target: options.target })
   }
   const description = "Size in bytes recorded at upload."
   const size = maxBytes === undefined
@@ -175,11 +176,11 @@ function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefin
 
 function createReferenceSchema(kind: BlobReferenceKind, options: BlobReferenceOptions = {}): BlobReferenceSchema {
   const store = options.store ?? "default"
-  if (!isString(store) || !store) throw new TypeError(`[vitehub] ${kind}() store must be a non-empty Blob Store name.`)
+  if (!isString(store) || !store) throw blobBrowserDiagnostics.BLOB_REFERENCE_OPTION_INVALID({ kind, option: "store", value: String(store) })
   const accept = resolveAccept(kind, options.accept)
   const maxBytes = options.maxSize === undefined ? undefined : blobSizeToBytes(options.maxSize)
   if (options.maxSize !== undefined && maxBytes === undefined) {
-    throw new TypeError(`[vitehub] ${kind}() maxSize "${options.maxSize}" is not a size such as "512KB" or "8MB".`)
+    throw blobBrowserDiagnostics.BLOB_REFERENCE_OPTION_INVALID({ kind, option: "maxSize", value: String(options.maxSize) })
   }
   const hint: BlobReferenceHint = { kind, store }
   if (accept) hint.accept = accept

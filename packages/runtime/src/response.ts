@@ -1,3 +1,7 @@
+import { isNativeError, isRuntimeDiagnostic } from "./diagnostics.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { getViteHubErrorShape } from "./errors.ts"
+
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
   readonly body: {
@@ -14,15 +18,24 @@ export interface SerializedResponse {
   readonly type?: "error" | "opaque" | "opaqueredirect"
 }
 
-import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 
 interface BlobMethods {
   readonly body: () => ReadableStream
   readonly type: string
 }
 
-const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
-const blobStreamMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "stream")?.value
+function prototypeGetter(constructor: { prototype: object }, key: string): (() => unknown) | undefined {
+  return Object.getOwnPropertyDescriptor(constructor.prototype, key)?.get
+}
+
+function prototypeMethod(constructor: { prototype: object }, key: string): CallableFunction | undefined {
+  const value: unknown = Object.getOwnPropertyDescriptor(constructor.prototype, key)?.value
+  return typeof value === "function" ? value : undefined
+}
+
+const blobTypeGetter = /* @__PURE__ */ prototypeGetter(Blob, "type")
+const blobStreamMethod = /* @__PURE__ */ prototypeMethod(Blob, "stream")
 
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -64,8 +77,6 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
     if (typeof blobTypeGetter !== "function" || typeof blobStreamMethod !== "function") return undefined
-    // The intrinsic accessor establishes the Blob internal-slot brand before
-    // consulting the value's realm-specific stream method.
     const type = String(Reflect.apply(blobTypeGetter, value, []))
     const body = () => streamBody(() => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream)
     return { type, body }
@@ -76,7 +87,7 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
 }
 
 
-const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const arrayBufferByteLengthGetter = /* @__PURE__ */ prototypeGetter(ArrayBuffer, "byteLength")
 
 function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   if (!isRuntimeObject(value)) return false
@@ -90,11 +101,20 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
-/** Normalize a primitive value into the native Web Response contract. */
+const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
+
+/**
+ * Normalize a primitive value into the native Web Response contract.
+ * An error answers with `{ code, why, fix }` and never with its `stack`, `cause`, or `data`:
+ * - A ResultError or other Nostics diagnostic answers its `status`, or 500, so a route can `return toResponse(error)`.
+ * - A `ViteHubError` answers 500 with its `code` and its message as `why`.
+ * - Any other `Error` answers 500 with `RUNTIME_HIDDEN_ERROR`, because its message can hold server details.
+ */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
+  if (isNativeError(value)) return errorResponse(value)
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
+  if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
@@ -102,19 +122,42 @@ export function toResponse(value: unknown): Response {
   if (blobMethods) {
     return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
-  return new Response(JSON.stringify(value), {
-    headers: { "content-type": "application/json; charset=utf-8" },
+  return new Response(JSON.stringify(value), { headers: jsonHeaders })
+}
+
+function errorResponse(error: Error): Response {
+  let body: { code: string, why: string, fix: string | undefined } | undefined
+  let status: unknown
+  if (isRuntimeDiagnostic(error)) {
+    try {
+      body = { code: error.code, why: error.why, fix: error.fix }
+      status = Reflect.get(error, "status")
+    }
+    catch {
+      body = undefined
+    }
+  }
+  else {
+    const shape = getViteHubErrorShape(error)
+    if (shape) body = { code: shape.code, why: shape.message, fix: undefined }
+  }
+  if (!body || typeof body.code !== "string" || typeof body.why !== "string" || (body.fix !== undefined && typeof body.fix !== "string")) {
+    const hidden = runtimeErrorDiagnostics.RUNTIME_HIDDEN_ERROR()
+    body = { code: hidden.code, why: hidden.why, fix: hidden.fix }
+    status = 500
+  }
+  return new Response(JSON.stringify(body), {
+    headers: jsonHeaders,
+    status: typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500,
   })
 }
 
 /** Recognize Responses created by another realm from their standard tag and surface. */
-function isResponse(value: unknown): value is Response {
+export function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (!isRuntimeObject(value)) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // Calling a native prototype operation performs the internal-slot brand check;
-    // a configurable tag and a handful of methods are not sufficient to spoof it.
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
     if (!headers) return false
     Array.from(Headers.prototype.entries.call(headers))
@@ -146,7 +189,7 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
-  if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
+  if (!isSerializedResponse(value)) throw runtimeErrorDiagnostics.RUNTIME_SERIALIZED_RESPONSE_INVALID()
   if (value.type !== undefined) return createStatusZeroResponse(value.type, value.url)
   const bytes = base64ToBytes(value.body.data)
   const body = value.body.isNull === true || ([204, 205, 304].includes(value.status) && bytes.length === 0) ? null : bytes
@@ -164,10 +207,10 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (!isRuntimeObject(record.body)) return false
   // SAFETY: isRuntimeObject establishes an object record for property inspection.
   const body = record.body as Record<string, unknown>
-  if (!hasRuntimeType(body.data, "string") || body.encoding !== "base64" || !hasRuntimeType(body.mediaType, "string")) return false
-  if (body.isNull !== undefined && !hasRuntimeType(body.isNull, "boolean")) return false
+  if (typeof body.data !== "string" || body.encoding !== "base64" || typeof body.mediaType !== "string") return false
+  if (body.isNull !== undefined && typeof body.isNull !== "boolean") return false
   if (body.isNull === true && body.data !== "") return false
-  if (record.url !== undefined && !hasRuntimeType(record.url, "string")) return false
+  if (record.url !== undefined && typeof record.url !== "string") return false
   if (record.type !== undefined && record.type !== "error" && record.type !== "opaque" && record.type !== "opaqueredirect") return false
   if (record.type !== undefined) {
     if (record.type !== "opaqueredirect" && record.url !== undefined) return false
@@ -175,16 +218,12 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
   if (record.url !== undefined) return false
-  if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
-  if (!hasRuntimeType(record.statusText, "string") || !isSerializedHeaderEntries(record.headers)) return false
-  // Responses with these status codes cannot carry a body. Reject malformed
-  // records before deserialization would pass bytes to the native constructor.
-  // atob ignores ASCII whitespace, so whitespace-only legacy data has no bytes.
+  if (typeof record.status !== "number" || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
+  if (typeof record.statusText !== "string" || !isSerializedHeaderEntries(record.headers)) return false
   if ([204, 205, 304].includes(record.status) && (/[^\t\n\f\r ]/.test(body.data) || body.isNull === false)) return false
   const headers = record.headers
   if (!isBase64(body.data)) return false
   try {
-    // Keep validation aligned with the native constructor used by deserialization.
     new Response(null, {
       headers: headers.map(([name, headerValue]): [string, string] => [name, headerValue]),
       status: record.status,
@@ -198,7 +237,7 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
 }
 
 function isSerializedHeaderEntry(value: unknown): value is readonly [string, string] {
-  return Array.isArray(value) && value.length === 2 && hasRuntimeType(value[0], "string") && hasRuntimeType(value[1], "string")
+  return Array.isArray(value) && value.length === 2 && typeof value[0] === "string" && typeof value[1] === "string"
 }
 
 function isSerializedHeaderEntries(value: unknown): value is readonly (readonly [string, string])[] {
@@ -211,7 +250,6 @@ function isSerializedHeaderEntries(value: unknown): value is readonly (readonly 
 
 function isBase64(value: string): boolean {
   const compact = value.replace(/[\t\n\f\r ]/g, "")
-  // Match atob's optional padding without a repeated group that overflows on large bodies.
   const unpadded = compact.length % 4 === 0 ? compact.replace(/={1,2}$/, "") : compact
   return unpadded.length % 4 !== 1 && !/[^A-Za-z0-9+/]/.test(unpadded)
 }
@@ -226,7 +264,6 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
-  // deserializeResponse validates the record before reaching this permissive decoder.
   if (typeof Buffer !== "undefined") return Buffer.from(value, "base64")
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
@@ -234,8 +271,6 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
-// The Web API cannot construct opaque responses. Use the native status-zero,
-// null-body response and preserve the durable type and visible URL on it and its clones.
 function createStatusZeroResponse(type: NonNullable<SerializedResponse["type"]>, url = ""): Response {
   const response = Response.error()
   if (type !== "error") {

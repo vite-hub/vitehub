@@ -49,6 +49,13 @@ describe("ViteHub UI Nuxt module", () => {
         ),
       ).toBe(true);
 
+      // Nitro's server build cannot bundle the raw `onig.wasm` that Shiki's `unwasm` condition gives `shiki/wasm`.
+      expect(nuxt.options.vite.resolve?.alias).toEqual(
+        expect.arrayContaining([
+          { find: "shiki/wasm", replacement: expect.stringMatching(/\/@shikijs\/engine-oniguruma\/dist\/wasm-inlined\.mjs$/) },
+        ]),
+      );
+
       const components: Array<{ export?: string; filePath?: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(
@@ -60,7 +67,7 @@ describe("ViteHub UI Nuxt module", () => {
       );
 
       const icons = new Set(["app:existing"]);
-      // @nuxt/icon, which Nuxt UI installs, types its hooks on @nuxt/schema 4.6, not on the schema of this Nuxt 4.5 instance.
+      // @nuxt/icon, which Nuxt UI installs, types its hooks on @nuxt/schema 4.6, not on the schema of this Nuxt 5 instance.
       const callIconHook = nuxt.callHook as (name: "icon:clientBundleIcons", icons: Set<string>) => Promise<void>;
       await callIconHook("icon:clientBundleIcons", icons);
       expect([...icons]).toEqual(expect.arrayContaining(["app:existing", ...viteHubUIIcons]));

@@ -4,9 +4,6 @@ import { getWorkflowDevRecorder, setWorkflowDevRecorder, workflowDevRunLimit } f
 
 import type { WorkflowDevRecorder, WorkflowDevRunRecord, WorkflowDevStepRecord } from "./dev-recorder.ts"
 
-// The run history of `vite dev`. Inline runs keep no history: the runtime forgets a finished run after five minutes and
-// never records its steps. Only the dev Nitro plugin imports this module, so a build does not include it.
-
 function createWorkflowDevRecorder(): WorkflowDevRecorder {
   const runs = new Map<string, WorkflowDevRunRecord>()
   const activeRun = new AsyncLocalStorage<WorkflowDevRunRecord>()
@@ -16,6 +13,7 @@ function createWorkflowDevRecorder(): WorkflowDevRecorder {
       runs.clear()
       return count
     },
+    get: (workflow, id) => runs.get(JSON.stringify([workflow, id])),
     list: () => [...runs.values()].reverse(),
     start(workflow, id, provider) {
       const key = JSON.stringify([workflow, id])
@@ -44,7 +42,6 @@ function createWorkflowDevRecorder(): WorkflowDevRecorder {
     },
     async step(name, run) {
       const record = activeRun.getStore()
-      // The root step wraps the whole handler. The run already records it.
       if (!record || name === record.workflow) return await run()
       const step: WorkflowDevStepRecord = { name, startedAt: new Date(), status: "running" }
       record.steps.push(step)

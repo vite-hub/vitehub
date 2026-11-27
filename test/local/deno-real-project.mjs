@@ -126,7 +126,7 @@ async function writeFixtureFiles(overrides) {
     "export default defineConfig({",
     "  agent: {",
     "    runtime: \"deno\",",
-    "    providers: { state: { provider: \"memory\" } },",
+    "    providers: { state: { driver: \"memory\" } },",
     "  },",
     "  build: { outDir: \"dist/client\" },",
     "  fmt: {},",
@@ -189,7 +189,7 @@ async function assertGeneratedOutput() {
     "import { createAgentChatRouteHandler, createAgentWebhookRouteHandler } from '@vite-hub/agent/server'",
     "await import('../schedule/deno-cron.mjs').catch",
     "const chatRoutePattern = new RegExp",
-    "/api/_vitehub/agents/(?<agent>[^/]+)/chat",
+    "/_vitehub/agents/(?<agent>[^/]+)/chat",
   ]) {
     assert(source.includes(expected), `Deno server output missing ${expected}`)
   }
@@ -206,7 +206,7 @@ async function assertGeneratedOutput() {
 }
 
 async function postChat() {
-  const response = await fetch(`http://127.0.0.1:${port}/api/_vitehub/agents/support/chat`, {
+  const response = await fetch(`http://127.0.0.1:${port}/_vitehub/agents/support/chat`, {
     body: JSON.stringify({
       id: "real-project-thread",
       messages: [{

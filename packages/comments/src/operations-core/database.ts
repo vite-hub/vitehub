@@ -1,62 +1,93 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core"
+
+/** Options of `commentsSqliteTables()`. */
+export interface CommentsSqliteTablesOptions {
+  /** The start of each table and index name, such as `vitehub_comment`. */
+  prefix: string
+  /**
+   * The column that `scope` of threads and counters references, such as the id of a project. Deleting that row
+   * deletes its threads and counters. Without it, `scope` is free text.
+   */
+  scope?: () => AnySQLiteColumn
+}
+
+/**
+ * The thread, message, and counter tables of Comments under other names, for an app that keeps more than one set
+ * in one Database. Pass them to `installComments({ tables, tenant })`. Messages have no foreign key to their thread,
+ * because a thread is stored after its first message: delete the messages of a deleted thread with a trigger.
+ */
+export function commentsSqliteTables(options: CommentsSqliteTablesOptions) {
+  const { prefix, scope } = options
+  const scopeColumn = () => scope ? text("scope").notNull().references(scope, { onDelete: "cascade" }) : text("scope").notNull()
+  const commentThreads = sqliteTable(`${prefix}_threads`, {
+    id: text("id").primaryKey(),
+    scope: scopeColumn(),
+    n: integer("n").notNull(),
+    subjectKind: text("subject_kind").notNull(),
+    subjectId: text("subject_id").notNull(),
+    anchor: text("anchor").notNull(),
+    status: text("status", { enum: ["open", "resolved"] }).notNull(),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: integer("resolved_at"),
+    authorId: text("author_id").notNull(),
+    authorName: text("author_name"),
+    authorImage: text("author_image"),
+    actor: text("actor"),
+    /** JSON of the fields that app code keeps on the thread. */
+    metadata: text("metadata"),
+    /** JSON of the page, element, components, browser, and build that the overlay read. */
+    context: text("context"),
+    /** The version of the subject that the thread was started on. */
+    revision: integer("revision"),
+    /** The retry key of `comments.create`. Unique inside `scope`. */
+    requestId: text("request_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  }, table => [
+    uniqueIndex(`${prefix}_threads_scope_n`).on(table.scope, table.n),
+    uniqueIndex(`${prefix}_threads_scope_request`).on(table.scope, table.requestId),
+    index(`${prefix}_threads_subject`).on(table.subjectKind, table.subjectId),
+    index(`${prefix}_threads_status`).on(table.status, table.updatedAt),
+  ])
+  const commentMessages = sqliteTable(`${prefix}_messages`, {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id").notNull(),
+    body: text("body").notNull(),
+    authorId: text("author_id").notNull(),
+    authorName: text("author_name"),
+    authorImage: text("author_image"),
+    actor: text("actor"),
+    mentions: text("mentions").notNull(),
+    attachments: text("attachments").notNull(),
+    createdAt: integer("created_at").notNull(),
+    editedAt: integer("edited_at"),
+  }, table => [
+    index(`${prefix}_messages_thread`).on(table.threadId, table.createdAt),
+  ])
+  const commentCounters = sqliteTable(`${prefix}_counters`, {
+    scope: (scope ? scopeColumn() : text("scope")).primaryKey(),
+    next: integer("next").notNull(),
+  })
+  return { commentThreads, commentMessages, commentCounters }
+}
+
+const defaultTables = commentsSqliteTables({ prefix: "vitehub_comment" })
 
 /**
  * Threads of comments. `n` is unique inside `scope`, which is what `?comment=<n>` names. `anchor`, `actor`,
  * `resolvedBy`, `metadata`, and `context` hold JSON. Times are milliseconds since the epoch.
  */
-export const commentThreads = sqliteTable("vitehub_comment_threads", {
-  id: text("id").primaryKey(),
-  scope: text("scope").notNull(),
-  n: integer("n").notNull(),
-  subjectKind: text("subject_kind").notNull(),
-  subjectId: text("subject_id").notNull(),
-  anchor: text("anchor").notNull(),
-  status: text("status", { enum: ["open", "resolved"] }).notNull(),
-  resolvedBy: text("resolved_by"),
-  resolvedAt: integer("resolved_at"),
-  authorId: text("author_id").notNull(),
-  authorName: text("author_name"),
-  authorImage: text("author_image"),
-  actor: text("actor"),
-  /** JSON of the fields that app code keeps on the thread. */
-  metadata: text("metadata"),
-  /** JSON of the page, element, components, browser, and build that the overlay read. */
-  context: text("context"),
-  /** The version of the subject that the thread was started on. */
-  revision: integer("revision"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-}, table => [
-  uniqueIndex("vitehub_comment_threads_scope_n").on(table.scope, table.n),
-  index("vitehub_comment_threads_subject").on(table.subjectKind, table.subjectId),
-  index("vitehub_comment_threads_status").on(table.status, table.updatedAt),
-])
+export const commentThreads = defaultTables.commentThreads
 
 /** One Markdown message. The first message of a thread is the comment. `mentions` and `attachments` hold JSON lists. */
-export const commentMessages = sqliteTable("vitehub_comment_messages", {
-  id: text("id").primaryKey(),
-  threadId: text("thread_id").notNull(),
-  body: text("body").notNull(),
-  authorId: text("author_id").notNull(),
-  authorName: text("author_name"),
-  authorImage: text("author_image"),
-  actor: text("actor"),
-  mentions: text("mentions").notNull(),
-  attachments: text("attachments").notNull(),
-  createdAt: integer("created_at").notNull(),
-  editedAt: integer("edited_at"),
-}, table => [
-  index("vitehub_comment_messages_thread").on(table.threadId, table.createdAt),
-])
+export const commentMessages = defaultTables.commentMessages
 
 /**
  * The next thread number of each scope. A number is handed out once, so a deleted thread never gives its number to a
  * new one, and a link such as `?comment=3` keeps naming the same thread.
  */
-export const commentCounters = sqliteTable("vitehub_comment_counters", {
-  scope: text("scope").primaryKey(),
-  next: integer("next").notNull(),
-})
+export const commentCounters = defaultTables.commentCounters
 
 /**
  * The pull request comment of each message, when `defineComments({ forge })` posts threads. `id` is a message id,

@@ -1,5 +1,4 @@
-import { createSource } from "@vite-hub/source"
-import { file } from "@vite-hub/source/file"
+import { useSource, file } from "@vite-hub/source"
 import { describe, expect, it } from "vitest"
 
 import { createWorkspace } from "../src/core/workspace.ts"
@@ -10,7 +9,7 @@ describe("standalone Source definitions", () => {
     const guide = file({ workspacePath: "intro.md", content: "# Introduction\n" })
     const workspace = createWorkspace({
       ...defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           guide: { source: guide, mount: "docs", materialize: "lazy" },
         },
@@ -18,7 +17,7 @@ describe("standalone Source definitions", () => {
       name: "direct-source",
     })
 
-    await expect(createSource(guide).read("intro.md")).resolves.toBe("# Introduction\n")
+    await expect(useSource(guide).read("intro.md")).resolves.toBe("# Introduction\n")
     await expect(workspace.readFile("docs/intro.md")).resolves.toBe("# Introduction\n")
     await expect(workspace.writeFile("docs/intro.md", "changed")).rejects.toThrow("read-only")
     await expect(workspace.rm("docs/intro.md")).rejects.toThrow("read-only")

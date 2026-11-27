@@ -8,7 +8,7 @@ import type { TaskListResult, TaskRunResult } from "./runtime.ts"
 // the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime.ts")
 
-function defineTaskOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<NonNullable<OperationDefinition<Input, Output>["cli"]>, "namespace"> }): OperationDefinition<Input, Output> {
+function defineTaskOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<Exclude<OperationDefinition<Input, Output>["cli"], false | undefined>, "namespace"> }): OperationDefinition<Input, Output> {
   // Tasks have no Console page. `tasks` is the section id that `console.authorize` grants, and `vitehub task` the CLI name.
   return defineOperation({ ...definition, cli: { ...definition.cli, namespace: "task" }, section: "tasks", user: false })
 }
@@ -22,7 +22,7 @@ const list = defineTaskOperation<Record<string, never>, TaskListResult>({
 })
 
 const run = defineTaskOperation<{ name: string, payload?: Record<string, unknown> }, TaskRunResult>({
-  cli: { positional: ["name"] },
+  cli: { positional: ["name", "payload"] },
   description: "Run one Nitro task, such as a seed or a backfill, with the bindings of the app. `payload` is a JSON object.",
   input: v.strictObject({
     name: v.pipe(v.string(), v.minLength(1)),

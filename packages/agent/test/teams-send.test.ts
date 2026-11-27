@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 interface TeamsThread { conversationId: string, serviceUrl: string }
@@ -11,7 +12,7 @@ const kvModule = vi.hoisted(() => ({
       store.set(key, value)
       return [null, undefined]
     },
-    del: async (key: string) => {
+    delete: async (key: string) => {
       store.delete(key)
       return [null, undefined]
     },
@@ -66,6 +67,32 @@ describe("teams() send", () => {
     expect(adapter.postMessage).toHaveBeenLastCalledWith(encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" }), { markdown: "Hi" })
   })
 
+  // Since chat 4.45, the Teams adapter sends `{ adaptiveCard, fallbackText }` as a raw Adaptive Card.
+  it("passes a raw Adaptive Card to the adapter as is", async () => {
+    const { adapter, connector } = await setup()
+    const message = { adaptiveCard: { type: "AdaptiveCard", version: "1.5", body: [{ type: "Badge", text: "Draft" }] }, fallbackText: "Draft" }
+    await connector.send(message, { recipient: channel })
+    expect(adapter.postMessage).toHaveBeenLastCalledWith(channel, message)
+  })
+
+  it("passes a card to the adapter as is for posts, edits, and thread roots", async () => {
+    const { adapter, connector } = await setup()
+    const card = { card: { type: "card" as const, title: "Build 7", children: [] }, fallbackText: "Build 7 failed" }
+    const done = { card: { type: "card" as const, title: "Build 7", children: [] }, fallbackText: "Build 7 passed" }
+
+    await connector.send(card, { recipient: "user:29:abc" })
+    const first = await connector.send(card, { recipient: channel, thread: { key: "build:7", root: card }, idempotencyKey: "status" })
+    await connector.send(done, { recipient: channel, thread: { key: "build:7" }, idempotencyKey: "status", update: true })
+
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=101", serviceUrl: "https://smba.example" })
+    expect(adapter.postMessage.mock.calls).toEqual([
+      [encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" }), card],
+      [rootThread, card],
+    ])
+    expect(adapter.postChannelMessage).toHaveBeenCalledWith(channel, card)
+    expect(adapter.editMessage.mock.calls).toEqual([[rootThread, first.id, done]])
+  })
+
   it("returns the stored receipt for a repeated idempotency key", async () => {
     const { adapter, connector } = await setup()
     const results = await Promise.all([
@@ -74,6 +101,48 @@ describe("teams() send", () => {
     ])
     expect(results).toEqual([{ id: "100" }, { id: "100" }])
     expect(adapter.postMessage).toHaveBeenCalledOnce()
+  })
+
+  // Teams accepts a message whose image URL it cannot load and returns no ID. A retry must not post it again.
+  it("stores a message posted without an ID, so a repeated key posts nothing", async () => {
+    const { adapter, connector } = await setup()
+    adapter.postMessage.mockImplementation(async (threadId: string) => ({ id: "", raw: {}, threadId }))
+    const thread = { key: "ticket:2", root: "Ticket 2" }
+    await expect(connector.send("Two images", { recipient: channel, thread, idempotencyKey: "m1" })).resolves.toEqual({})
+    await expect(connector.send("Two images", { recipient: channel, thread, idempotencyKey: "m1" })).resolves.toEqual({})
+    await expect(connector.send("Hi", { recipient: "user:29:abc", idempotencyKey: "dm" })).resolves.toEqual({})
+    await expect(connector.send("Hi", { recipient: "user:29:abc", idempotencyKey: "dm" })).resolves.toEqual({})
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    await expect(connector.send("Edited", { recipient: channel, thread, idempotencyKey: "m1", update: true }))
+      .rejects.toMatchObject({ code: "AGENT_CHANNEL_MESSAGE_ID_MISSING" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("does not repost a legacy empty-ID receipt after upgrade", async () => {
+    const { adapter, connector } = await setup()
+    const options = { recipient: channel, idempotencyKey: "legacy" }
+    const hash = createHash("sha256").update(`${channel}\0${options.idempotencyKey}`).digest("hex")
+    store.set(`teams:messages:${hash}`, { id: "" })
+
+    await expect(connector.send("Already posted", options)).resolves.toEqual({})
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { kind: "a channel", thread: undefined },
+    { kind: "a thread", thread: { key: "ticket:2", root: "Ticket 2" } },
+  ])("reports that an ID-less post in $kind cannot be replaced", async ({ thread }) => {
+    const { adapter, connector } = await setup()
+    adapter.postMessage.mockImplementationOnce(async (threadId: string) => ({ id: "", raw: {}, threadId }))
+    const drafting = { recipient: channel, thread, idempotencyKey: "drafting" }
+    const done = { recipient: channel, thread, idempotencyKey: "done", replace: "drafting" }
+
+    await expect(connector.send("Drafting", drafting)).resolves.toEqual({})
+    await expect(connector.send("Done", done)).rejects.toMatchObject({ code: "AGENT_CHANNEL_MESSAGE_ID_MISSING" })
+    await expect(connector.send("Done", done)).rejects.toMatchObject({ code: "AGENT_CHANNEL_MESSAGE_ID_MISSING" })
+    await expect(connector.send("Drafting", drafting)).resolves.toEqual({})
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
   })
 
   it("creates one root per thread key and replies under it", async () => {
@@ -198,8 +267,8 @@ describe("teams() send", () => {
 
   it("rejects replace with the idempotency key of the same send or without one", async () => {
     const { adapter, connector } = await setup()
-    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toThrow(TypeError)
-    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toThrow(TypeError)
+    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
+    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
     expect(adapter.postMessage).not.toHaveBeenCalled()
   })
 

@@ -2,13 +2,16 @@ import { rm } from "node:fs/promises"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
+
 import {
   createMemoryAgentInvocationStore,
   failInterruptedAgentInvocations,
   readAgentInvocationWorkload,
   summarizeAgentInvocationWorkload,
 } from "../src/server.ts"
-import { createGitHubHost } from "../src/server/github.ts"
+
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 
 const temporaryDirectories = new Set<string>()
 
@@ -17,34 +20,6 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   await Promise.all([...temporaryDirectories].map(path => rm(path, { force: true, recursive: true })))
   temporaryDirectories.clear()
-})
-
-describe("GitHub host", () => {
-  it("does not resolve credentials for a pre-aborted operation", async () => {
-    const credentials = vi.fn(() => Promise.reject(new Error("resolver should not run")))
-    const host = createGitHubHost({ credentials })
-    const controller = new AbortController()
-    controller.abort(new Error("already cancelled"))
-    await expect(host.access({ signal: controller.signal })).rejects.toThrow("already cancelled")
-    expect(credentials).not.toHaveBeenCalled()
-  })
-
-  it("creates a Forge provider and reports response rate limits", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "content-type": "application/json", "x-ratelimit-limit": "5000", "x-ratelimit-remaining": "4998", "x-ratelimit-reset": "2000000000", "x-ratelimit-resource": "core" },
-    }))
-    const host = createGitHubHost({ credentials: () => ({ token: "private-token" }), fetch })
-    const provider = await host.forge({ repository: "acme/app" })
-    await expect(provider.request("GET", "/rate")).resolves.toMatchObject({ data: { ok: true } })
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/rate"), expect.anything())
-    expect(host.rateLimit()).toMatchObject({ resource: "core", limit: 5000, remaining: 4998, resetAt: 2_000_000_000_000 })
-  })
-
-  it("keeps child-shell GitHub credentials in the environment", async () => {
-    const host = createGitHubHost({ credentials: () => ({ token: "private-token" }) })
-    await expect(host.environment()).resolves.toMatchObject({ GH_TOKEN: "private-token", GITHUB_TOKEN: "private-token", GH_HOST: "github.com" })
-  })
 })
 
 describe("Agent Invocation host recovery", () => {
@@ -62,15 +37,25 @@ describe("Agent Invocation host recovery", () => {
     create("new-running", "running", "2026-08-30T12:00:00.000Z")
     create("completed", "completed", "2026-08-30T09:00:00.000Z")
 
-    await expect(failInterruptedAgentInvocations(store, {
-      before: Date.parse("2026-08-30T11:00:00.000Z"),
-      recover: () => true,
-    })).resolves.toBe(1)
+    const failures: RunFailedEvent[] = []
+    const stop = onRunFailed((event) => {
+      failures.push(event)
+    })
+    try {
+      await expect(failInterruptedAgentInvocations(store, {
+        before: Date.parse("2026-08-30T11:00:00.000Z"),
+        recover: () => true,
+      })).resolves.toBe(1)
+    }
+    finally {
+      stop()
+    }
     await expect(Promise.resolve(store.get("old-pending"))).resolves.toMatchObject({
       error: { message: "The host stopped before this Agent Invocation finished." },
       status: "failed",
     })
     await expect(Promise.resolve(store.get("new-running"))).resolves.toMatchObject({ status: "running" })
+    expect(failures).toEqual([{ event: "invocation.failed", agent: null, invocationId: "old-pending", error: { message: "The host stopped before this Agent Invocation finished." }, failedAt: expect.any(String) }])
   })
 
   it("scopes shared-store recovery to the owning process host", async () => {
@@ -86,6 +71,35 @@ describe("Agent Invocation host recovery", () => {
     })).resolves.toBe(1)
     await expect(Promise.resolve(store.get("worker"))).resolves.toMatchObject({ status: "failed" })
     await expect(Promise.resolve(store.get("other"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("does not fail or emit again from a stale recovery scan", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    let reportScanned!: () => void
+    const scanned = new Promise<void>((resolve) => { reportScanned = resolve })
+    let resume!: (recover: boolean) => void
+    const recoveryDecision = new Promise<boolean>((resolve) => { resume = resolve })
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    const stale = failInterruptedAgentInvocations(store, {
+      recover: () => {
+        reportScanned()
+        return recoveryDecision
+      },
+    })
+    try {
+      await scanned
+      await expect(failInterruptedAgentInvocations(store, { recover: () => true })).resolves.toBe(1)
+      resume(true)
+      await expect(stale).resolves.toBe(0)
+      expect(listener).toHaveBeenCalledOnce()
+    }
+    finally {
+      resume(false)
+      stop()
+    }
   })
 
   it("recovers every page without taking work claimed by another host", async () => {
@@ -217,6 +231,24 @@ describe("Agent Invocation host recovery", () => {
     await expect(Promise.resolve(store.get("provider-owned"))).resolves.toMatchObject({ status: "running" })
   })
 
+  it("preserves Workflow work when the recovery scan does not see its ownership", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    await store.create({ createdAt, executionMode: "workflow", id: "provider-owned", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    const page = await store.list({ status: ["running"] })
+    vi.spyOn(store, "list").mockResolvedValue({
+      ...page,
+      invocations: page.invocations.map(invocation => ({ ...invocation, executionMode: undefined })),
+    })
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover: invocation => invocation.executionMode !== "workflow",
+    })).resolves.toBe(0)
+    expect(await store.getSummary("provider-owned")).toMatchObject({ status: "running" })
+    expect(await store.getClaimToken("provider-owned")).toBeUndefined()
+  })
+
   it("rejects repeated recovery cursors before processing the repeated page", async () => {
     const store = createMemoryAgentInvocationStore()
     const createdAt = "2026-08-30T10:00:00.000Z"
@@ -237,7 +269,7 @@ describe("Agent Invocation host recovery", () => {
       recover,
     })).rejects.toThrow("Agent Invocation listing returned a repeated pagination cursor")
     expect(list).toHaveBeenCalledTimes(2)
-    expect(recover).toHaveBeenCalledOnce()
+    expect(recover).toHaveBeenCalledTimes(2)
     await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
   })
 
@@ -266,7 +298,7 @@ describe("Agent Invocation host recovery", () => {
     await vi.advanceTimersByTimeAsync(1)
 
     await rejection
-    expect(recover).toHaveBeenCalledTimes(2)
+    expect(recover).toHaveBeenCalledTimes(3)
     expect(update).toHaveBeenCalledOnce()
     await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
   })

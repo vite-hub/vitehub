@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/docs",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "A documentation site on ViteHub primitives: typed Markdown pages, navigation, tutorials, search, agent resources, Console editing, and a docs assistant.",
   "keywords": [
     "content",
@@ -50,67 +50,92 @@
       "import": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./runnable": {
+      "types": "./dist/runnable.d.ts",
+      "import": "./dist/runnable.js",
+      "default": "./dist/runnable.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./primitive-rail": {
+      "types": "./dist/primitive-rail.d.ts",
+      "import": "./dist/primitive-rail.js",
+      "default": "./dist/primitive-rail.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/docs#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/docs#build && vp test"
+    "test": "vp run --cache -t @vite-hub/docs#build && vp test"
   },
   "dependencies": {
-    "@comark/vue": "0.8.1",
-    "@nuxt/kit": "4.6.2",
-    "@nuxtjs/mcp-toolkit": "^0.24.3",
+    "@nuxt/fonts": "^1.2.0",
+    "@nuxt/kit": "4.6.4",
     "@takumi-rs/core": "catalog:nuxt",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
-    "comark": "catalog:markdown-ui",
-    "comark-ui": "catalog:markdown-ui",
+    "comark-content": "catalog:markdown-ui",
+    "comark-zoom": "catalog:markdown-ui",
     "defu": "catalog:unjs",
-    "nuxt-agent-discovery": "^0.8.1",
+    "nostics": "catalog:runtime",
+    "nuxt-agent-discovery": "^0.8.2",
     "nuxt-link-checker": "^6.0.1",
-    "nuxt-llms": "^0.2.0",
     "nuxt-og-image": "^7.0.7",
     "nuxt-schema-org": "catalog:nuxt",
     "nuxt-site-config": "^5.0.3",
+    "postcss": "^8.5.33",
     "rou3": "^1.0.0",
-    "shiki": "^4.5.0",
+    "shiki": "^4.6.0",
     "ultrahtml": "^1.7.0",
     "yaml": "catalog:tooling",
     "zod": "catalog:runtime"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
+    "@comark/vue": "0.9.2",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "@vue/test-utils": "2.6.0",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
-    "nitropack": "catalog:unjs",
+    "happy-dom": "21.0.4",
+    "linkedom": "^0.18.15",
+    "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "workerd": "1.20260730.1"
   },
   "peerDependencies": {
+    "@comark/html": "^0.8.1 || ^0.9.0",
+    "@comark/vue": "^0.8.1 || ^0.9.0",
     "@nuxt/ui": "^4.11.0",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
-    "nuxt": "catalog:nuxt-compat",
+    "comark": "^0.8.1 || ^0.9.0",
+    "comark-ui": "^0.12.0",
+    "nuxt": "^4.7.0 || >=5.0.0-0",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
@@ -122,6 +147,6 @@
     }
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }

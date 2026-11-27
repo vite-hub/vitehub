@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDeliveryOwnershipVerifier } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
+import type { AgentRuntimeContext } from "../src/types.ts"
 
 describe("Agent Channel delivery source identity", () => {
   it("scopes top-level activity IDs to providers that define them", () => {
@@ -22,6 +23,29 @@ describe("Agent Channel delivery source identity", () => {
   it("fingerprints equivalent provider payloads independently of key order", async () => {
     await expect(agentChannelDeliveryPayloadFingerprint({ event: { id: 7, type: "message" }, team: "one" }))
       .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
+  })
+
+  it("fingerprints a payload the same on every host locale and keeps English fingerprints", async () => {
+    const slack = { event: { channel: "C1", text: "hi", ts: "1.2", type: "message", user: "U1" }, team_id: "T1", type: "event_callback" }
+    const teams = { channelData: { tenant: { id: "t" } }, channelId: "msteams", id: "1", localTimestamp: "2026-11-23T11:00:00.000+01:00", locale: "en-US", serviceUrl: "https://smba.trafficmanager.net/emea/", text: "hi", textFormat: "plain", type: "message" }
+    const fingerprintIn = async (locale: string, payload: unknown) => {
+      const collator = new Intl.Collator(locale)
+      const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+        return collator.compare(this, that)
+      })
+      try {
+        return await agentChannelDeliveryPayloadFingerprint(payload)
+      }
+      finally {
+        localeCompare.mockRestore()
+      }
+    }
+    expect(await fingerprintIn("en", slack)).toBe("e7c0c61d03ca4194d549dd17dc989b45b5f183f2547ce69264f697c11d35259c")
+    expect(await fingerprintIn("en", teams)).toBe("a1f14ea58e09a8b403f7738ff409c890c95d17723cf19182be1594d550c15da0")
+    for (const locale of ["cs", "lt", "et"]) {
+      expect(await fingerprintIn(locale, slack)).toBe(await fingerprintIn("en", slack))
+      expect(await fingerprintIn(locale, teams)).toBe(await fingerprintIn("en", teams))
+    }
   })
 
   it("extracts Telegram message identity separately from provider event identity", () => {
@@ -72,7 +96,10 @@ function stateAdapter(): StateAdapter {
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
     get: async (key: string) => values.get(key) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])],
-    delete: async (key: string) => void values.delete(key),
+    delete: async (key: string) => {
+      values.delete(key)
+      lists.delete(key)
+    },
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
     setIfNotExists: async (key: string, value: unknown) => {
@@ -392,6 +419,7 @@ describe("Agent Channel delivery journal", () => {
     }
 
     await first.event({ type: "accepted" })
+    await state.delete("deliveries:index:trim")
     const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10000" })
     const ids = await state.getList<string>("deliveries:index")
 
@@ -402,6 +430,139 @@ describe("Agent Channel delivery journal", () => {
     expect(ids?.at(-1)).toBe(newest.delivery.id)
     info.mockRestore()
   }, 10_000)
+
+  it("deletes the records of a delivery that leaves the index", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support" }
+    const first = await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })
+    await first.event({ type: "completed" })
+    let second: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    for (let index = 1; index < 10_000; index++) {
+      const delivery = await openAgentChannelDelivery(state, { ...input, sourceId: `delivery-${index}` })
+      if (index === 1) second = delivery
+    }
+    await state.delete("deliveries:index:trim")
+    await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-10000" })
+
+    expect(await state.getList("deliveries:index")).not.toContain(first.delivery.id)
+    expect(await state.get(`deliveries:${first.delivery.id}`)).toBeNull()
+    expect(await state.getList(`deliveries:${first.delivery.id}:events`)).toEqual([])
+    expect(await resumeAgentChannelDelivery(state, first.delivery.id)).toBeUndefined()
+    expect(await state.get(`deliveries:${second!.delivery.id}`)).toMatchObject({ id: second!.delivery.id })
+    // The source is free again, so a new admission of the same event is not a duplicate.
+    expect((await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })).duplicate).toBe(false)
+    info.mockRestore()
+  }, 20_000)
+
+  it("preserves a delivery re-admitted during overflow cleanup", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "concurrent-oldest" }
+    const oldest = await openAgentChannelDelivery(state, input)
+    for (let index = 1; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const getList = state.getList.bind(state)
+    let retry: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    state.getList = async <T>(key: string) => {
+      const snapshot = await getList<T>(key)
+      if (key === "deliveries:index" && !snapshot.includes(oldest.delivery.id as T) && !retry) {
+        // Return the overflow admission's stale snapshot after a concurrent retry has finished.
+        state.getList = getList
+        retry = await openAgentChannelDelivery(state, input)
+      }
+      return snapshot
+    }
+
+    await state.delete("deliveries:index:trim")
+
+    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow" })
+
+    expect(retry?.duplicate).toBe(true)
+    expect(await state.getList("deliveries:index")).toContain(oldest.delivery.id)
+    expect(await resumeAgentChannelDelivery(state, oldest.delivery.id)).toBeDefined()
+    expect(await state.getList(`deliveries:${oldest.delivery.id}:events`)).toEqual([
+      expect.objectContaining({ type: "received" }),
+      expect.objectContaining({ type: "duplicate" }),
+    ])
+    expect((await openAgentChannelDelivery(state, input)).delivery.id).toBe(oldest.delivery.id)
+    info.mockRestore()
+  })
+
+  it("keeps a re-admitted delivery when the trim's lock on it expired", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "expired-oldest" }
+    const oldest = await openAgentChannelDelivery(state, input)
+    for (let index = 1; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const lockKey = `deliveries:${oldest.delivery.id}:journal-lock`
+    const acquireLock = state.acquireLock.bind(state)
+    const getList = state.getList.bind(state)
+    let trimHoldsOldest = false
+    let retried = false
+    let retry: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    state.acquireLock = async (threadId, ttlMs) => {
+      const lock = await acquireLock(threadId, ttlMs)
+      if (threadId === lockKey && lock) trimHoldsOldest = true
+      return lock
+    }
+    state.getList = async <T>(key: string) => {
+      const snapshot = await getList<T>(key)
+      if (key === "deliveries:index" && trimHoldsOldest && !retried) {
+        retried = true
+        // The trim's lock expires after its recheck, and a retry re-admits the delivery before the trim deletes it.
+        await state.releaseLock({ expiresAt: 0, threadId: lockKey, token: lockKey })
+        retry = await openAgentChannelDelivery(state, input)
+      }
+      return snapshot
+    }
+    await state.delete("deliveries:index:trim")
+
+    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow" })
+
+    expect(retry?.duplicate).toBe(true)
+    expect(await getList("deliveries:index")).toContain(oldest.delivery.id)
+    expect(await resumeAgentChannelDelivery(state, oldest.delivery.id)).toBeDefined()
+    expect(await getList(`deliveries:${oldest.delivery.id}:events`)).toEqual([
+      expect.objectContaining({ type: "received" }),
+      expect.objectContaining({ type: "duplicate" }),
+    ])
+    info.mockRestore()
+  })
+
+  it("reads the full inspection index once per trim, not on every admission", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    for (let index = 0; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const getList = vi.spyOn(state, "getList")
+    for (let index = 0; index < 100; index++) {
+      await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: `delivery-${index}` })
+    }
+
+    // One trim, reading the index before and after its append and once more to recheck its candidates under their locks.
+    expect(getList.mock.calls.filter(([key]) => key === "deliveries:index")).toHaveLength(3)
+    info.mockRestore()
+  })
+
+  it("trims the index after overlapping admissions", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support" }
+    for (let index = 0; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    await Promise.all(Array.from({ length: 50 }, (_, index) => openAgentChannelDelivery(state, { ...input, sourceId: `overlap-${index}` })))
+    await state.delete("deliveries:index:trim")
+    await openAgentChannelDelivery(state, { ...input, sourceId: "after-overlap" })
+
+    expect(await state.getList("deliveries:index")).toHaveLength(10_000)
+    info.mockRestore()
+  })
 
   it("de-duplicates concurrent admission references during inspection", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
@@ -429,6 +590,7 @@ describe("Agent Channel delivery journal", () => {
     }
 
     await openAgentChannelDelivery(state, input)
+    await state.delete("deliveries:index:trim")
     await openAgentChannelDelivery(state, { ...input, sourceId: "overflow-10000" })
 
     await expect(readAgentChannelDeliveries(state, 10_000)).resolves.toEqual(
@@ -648,11 +810,28 @@ describe("Agent Channel delivery journal", () => {
       scope: "channel:support:custom",
       sourceId: "provider-event-9",
     })
-    await bindAgentChannelDeliveryPayload(state, delivery, "custom", fingerprint!)
+    await bindAgentChannelDeliveryPayload(state, delivery, "custom", [fingerprint!])
 
-    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", (await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!)
+    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", [(await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!])
 
     expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
+  })
+})
+
+describe("Agent Channel delivery ownership verifier", () => {
+  it("ignores a verifier installed under a global symbol", () => {
+    const runtime = { [Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")]: vi.fn() }
+
+    // SAFETY: This fixture forges only the verifier property of a runtime context.
+    expect(agentChannelDeliveryOwnershipVerifier(runtime as never)).toBeUndefined()
+  })
+
+  it("keeps the installed verifier when the runtime context is copied", () => {
+    const verify = vi.fn(async () => {})
+    const runtimeContext: AgentRuntimeContext = { memo: (_key, create) => create(), runtime: "unknown", waitUntil: vi.fn() }
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(runtimeContext, verify)
+
+    expect(agentChannelDeliveryOwnershipVerifier({ ...runtime })).toBe(verify)
   })
 })

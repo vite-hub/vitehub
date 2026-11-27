@@ -16,6 +16,7 @@ host.
 | Check | What it proves | What it does not prove |
 | --- | --- | --- |
 | `runAgent()` test | Input validation, interception, custom `run` logic, and results. | Model quality, provider credentials, or host routes. |
+| `emulateModels()` test | The model Driver sends real HTTP requests, calls tools, and reads tool results, with no AI key. | Model quality or the answers of a real provider. |
 | Agent Eval | A repeatable answer, tool choice, refusal, or usage limit. | Workflow recovery, provider startup on the deployed host, or deployment wiring. |
 | `agent dev` smoke test | Discovery, the route, host runtime, and one real Invocation. | Behavior across many prompts. |
 | Provider status | The provider executable and authentication path (local credentials or a gateway) are ready. | A successful Agent turn or tool result. |
@@ -76,6 +77,98 @@ Pass a test Runtime Context with the parts the Agent uses. Fake network and
 storage at your app's boundary. Do not fake the Capability lifecycle when you
 test Capability setup or cleanup.
 
+## Run the model Driver without an AI key
+
+`emulateModels()` starts the [AI emulator](https://emulate.dev/docs/ai) in the
+test process. The emulator answers model requests from rules that you write,
+not from a model. Your Agent sends real OpenAI or Anthropic HTTP requests, so
+the test covers the Driver, the gateway, and the tool loop.
+
+Install the emulator packages and the OpenAI provider used by this example:
+
+```bash pm
+pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0 @ai-sdk/openai@^4
+```
+
+The Agent keeps its model. `emulateModels()` sets `VITEHUB_MODELS=emulate`, so
+ViteHub sends the requests of a model ID or a `languageModel()` model to the
+emulator, and reads no AI key. Read
+[Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+```ts [server/agents/weather.ts]
+import { jsonSchema, tool } from 'ai'
+import { defineAgent, defineCapability } from 'vite-hub/agent'
+
+export default defineAgent({
+  runtime: false,
+  driver: { model: 'openai/gpt-5.1' },
+  capabilities: [defineCapability({
+    id: 'weather',
+    tools: () => ({
+      getWeather: tool({
+        description: 'Get the weather of a city.',
+        inputSchema: jsonSchema<{ city: string }>({ type: 'object', properties: { city: { type: 'string' } }, required: ['city'], additionalProperties: false }),
+        execute: async ({ city }) => ({ city, celsius: 20 }),
+      }),
+    }),
+  })],
+})
+```
+
+Write one rule for the tool call and one rule for the turn after the tool
+result:
+
+```ts [server/agents/weather.test.ts]
+import { expect, it } from 'vitest'
+import { runAgent } from 'vite-hub/agent'
+import { emulateModels } from '@vite-hub/agent/test/emulate-models'
+import weather from './weather'
+
+it('calls the weather tool and answers from its result', async () => {
+  await using ai = await emulateModels({
+    rules: [
+      {
+        id: 'weather-call',
+        match: { textContains: 'weather', hasToolResult: false },
+        reply: [{ type: 'tool_call', name: 'getWeather', arguments: { city: 'Paris' } }],
+      },
+      {
+        id: 'weather-answer',
+        match: { hasToolResult: true },
+        reply: [{ type: 'text', text: 'It is 20 C in Paris.' }],
+      },
+    ],
+  })
+
+  const [error, result] = await runAgent(weather, { prompt: 'What is the weather in Paris?' })
+
+  expect(error).toBeUndefined()
+  expect(result?.text).toBe('It is 20 C in Paris.')
+  const calls = await ai.calls()
+  expect(calls.map(call => call.matched?.id)).toEqual(['weather-call', 'weather-answer'])
+})
+```
+
+- `await using` closes the emulator at the end of the test. It also restores
+  `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS`.
+- Strict mode is on. A request that no rule matches fails, and
+  `error.cause` contains the missing rule as YAML. Copy it into `rules`.
+- `ai.calls()` lists each request and the rule that answered it.
+  `ai.rules()` shows the rules and the `times` budget that each rule has left.
+- `ai.setRules(rules)` replaces the rules. `ai.reset()` restores the first
+  rules and clears the calls.
+- Each scope gets a free loopback port. Routing uses the test worker's
+  environment, so `emulateModels()` rejects overlapping scopes in one worker.
+
+Pick the right tool for the question:
+
+- Use `MockLanguageModelV3` from `ai/test` for logic in your own code. It runs
+  in memory and is faster.
+- Use `emulateModels()` for the HTTP request, the gateway, and the tool loop of
+  the model Driver.
+- Use an [Eval](/docs/agents/evals) for model quality. An Eval on the emulator
+  scores your rules, not a model.
+
 ## Score model behavior with an Eval
 
 An Eval runs a real Agent Definition inline. Keep credentials and the model in
@@ -131,6 +224,10 @@ pnpm vitehub agent dev --agent support --prompt 'Summarize the support policy.'
 This checks discovery, the dev route, input preparation, Capability setup,
 the Driver, and streamed output together.
 
+To run this smoke test with no AI key, set `agent.models.emulate`. `vite dev`
+then starts the AI emulator, and model Driver Agents answer from your rules.
+See [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
 `--timeout <milliseconds>` sets the stream inactivity timeout, for a long tool
 or provider turn that needs more time between events. It is not a deadline for
 the whole Invocation. With `--cli` or a direct Workspace command, `--timeout`
@@ -139,12 +236,12 @@ is a wall-clock command deadline instead.
 Before you debug model output, inspect the resolved Definition as JSON:
 
 ```bash
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get support --json
 ```
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and
-metadata. `agent info` does not run the Driver. The
-[CLI reference](/docs/development/cli#inspect-an-agent-definition) lists the
+metadata. `agent get` does not run the Driver. The
+[CLI reference](/docs/cli/agents#inspect-an-agent-definition) lists the
 route and authentication needs for a dev server.
 
 For a Capability CLI, add `--cli`:
@@ -159,20 +256,21 @@ so keep an Eval for tool choice.
 ## Check provider readiness
 
 Provider-backed Agents need a provider executable and an authentication path:
-local credentials, or a `gateway` that replaces them. `vitehub agent info` does
-not call the provider. To run the readiness probe, call the authenticated
-Console status endpoint for the Agent:
+local credentials, or a `gateway` that replaces them. `vitehub agent get` does
+not call the provider. To run the readiness probe, call the `status.get`
+operation of the Console endpoint for the Agent:
 
 ```bash
-curl -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
-  'http://localhost:5173/_vitehub/api/status?agent=support'
+curl -X POST \
+  -H 'Content-Type: application/json' -H 'x-vitehub-console: 1' \
+  --data '{"m":"status.get","a":[{"agent":"support"}],"t":"q","i":"1"}' \
+  'http://localhost:5173/_vitehub/rpc'
 ```
 
-`VITEHUB_CONSOLE_COOKIE` is the cookie from a signed-in Console session
-(`vitehub_console.session_token`, with a `__Secure-` prefix over HTTPS). If the
-host uses a separate bearer policy, send its header instead:
-`curl -H "Authorization: $VITEHUB_CONSOLE_AUTHORIZATION" ...`. These are shell
-variables. `VITEHUB_CONSOLE_TOKEN` is not a ViteHub setting.
+The dev server takes this call without a signature when the app has no
+`console` option or sets `console: { auth: false }`. A deployed app takes only
+[signed requests](/docs/console/signed-requests): use a
+`vitehub` command with `--url` and `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` there.
 
 This calls `agent.status()`. `ready` means the probe found enough executable,
 authentication, and quota evidence. It runs no Agent turn. See
@@ -186,7 +284,7 @@ evidence. That does not prove a turn will fail.
 
 Fix the first layer that fails:
 
-1. `agent info` fails: fix discovery or Definition configuration.
+1. `agent get` fails: fix discovery or Definition configuration.
 2. `agent dev` cannot start: check the host route, authentication path,
    requirements, and Capability requirements.
 3. The Invocation starts but behaves wrong: add or update an Eval.

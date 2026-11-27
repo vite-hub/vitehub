@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 
-import { bundleReportDir, readEnvironmentReportFolder } from "./files.ts"
+import { bundleReportDir, readBundleReportRoot, readEnvironmentReportFolder } from "./files.ts"
 import { createBundleReport } from "./report.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { BundleComparison, BundleGroup, BundleGroupChange, BundleGroupSize, BundleReport, BundleSide, BundleSideComparison, BundleTotals } from "./types.ts"
 
@@ -51,10 +52,6 @@ export function compareBundleReports(before: BundleReport, after: BundleReport):
   return { schemaVersion: 1, builds: { before: before.build, after: after.build }, ...(client ? { client } : {}), ...(server ? { server } : {}) }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function isSize(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
@@ -81,13 +78,18 @@ function isBundleReport(value: unknown): value is BundleReport {
 
 /**
  * Reads a report to compare with. `path` is the output of `vitehub bundle --json`, a copy of `.vitehub/bundle/`, or a
- * project root that has `.vitehub/bundle/`. Returns `undefined` when `path` holds no report.
+ * project root that has `.vitehub/bundle/` or a `.vitehub/bundle-root.json` that points to it. Returns `undefined` when
+ * `path` holds no report.
  */
 export function readSavedBundleReport(path: string): BundleReport | undefined {
   if (!existsSync(path)) return undefined
   if (statSync(path).isDirectory()) {
-    const folder = existsSync(join(path, bundleReportDir)) ? join(path, bundleReportDir) : path
-    return createBundleReport(readEnvironmentReportFolder(folder))
+    const reportRoot = readBundleReportRoot(path)
+    for (const folder of [...reportRoot ? [join(reportRoot, bundleReportDir)] : [], join(path, bundleReportDir), path]) {
+      const report = createBundleReport(readEnvironmentReportFolder(folder))
+      if (report) return report
+    }
+    return undefined
   }
   try {
     const value: unknown = JSON.parse(readFileSync(path, "utf8"))

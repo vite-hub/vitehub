@@ -1,8 +1,21 @@
 import { defineConfig } from "vite-plus";
 
-import { rootTestTasks } from "./test/tasks.ts";
+const outputConfig = "--config test/output/vitest.config.ts";
+
+function providerOutputTask(provider: "cloudflare" | "vercel") {
+  return {
+    cache: false,
+    command: `vp run playground:vite:build:local --provider ${provider} && vp test ${outputConfig} test/output/${provider}.test.ts`,
+  } as const;
+}
 
 export default defineConfig({
+  lint: {
+    jsPlugins: ["./scripts/lint/comments.mjs"],
+    rules: {
+      "vitehub/no-comments": "error",
+    },
+  },
   run: {
     tasks: {
       "blob:e2e": {
@@ -14,9 +27,14 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
-      // Builds packages in dependency order and caches each package build by
-      // the files it reads. An outer --no-cache does not reach this nested run,
-      // so release and preview publishing run the filter with --no-cache.
+      "console:weight": {
+        cache: false,
+        command: "node scripts/console-weight/run.mjs",
+      },
+      "consumers:check": {
+        cache: false,
+        command: "node scripts/consumer-check.mjs",
+      },
       build: {
         cache: false,
         command: 'vp run --cache --filter "./packages/*" build',
@@ -31,25 +49,14 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
-      // Keeps only the rules that catch unsound type evidence. It checks the
-      // lines changed since VITE_DOCTOR_SINCE, so it needs no baseline.
       "doctor:typescript": {
         cache: false,
         command:
-          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --rules typescript/boundaries/no-unvalidated-deserialization,typescript/evidence/no-caller-chosen-result-type,typescript/evidence/no-chained-type-assertions,typescript/evidence/no-widen-then-assert --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
+          'node node_modules/vite-doctor/dist/cli.mjs . --since "${VITE_DOCTOR_SINCE:-origin/main}" --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,
         command: "vp run --filter vitehub-docs build",
-      },
-      "docs:dev": {
-        cache: false,
-        command: "vp run --filter vitehub-docs dev",
-      },
-      "examples:verify": {
-        cache: false,
-        command: "node test/package-examples.mjs",
-        dependsOn: ["build"],
       },
       "e2e:local": {
         cache: false,
@@ -70,6 +77,11 @@ export default defineConfig({
         command: "node test/local/deno-real-project.mjs --live",
         dependsOn: ["build"],
       },
+      "e2e:multi-instance": {
+        cache: false,
+        command: "node test/multi-instance/run.mjs",
+        dependsOn: ["build"],
+      },
       "knip:catalog": {
         cache: false,
         command:
@@ -82,16 +94,12 @@ export default defineConfig({
       },
       lint: {
         cache: false,
-        command: "vp exec oxlint . --ignore-path .gitignore",
+        command: "vp lint . --ignore-path .gitignore",
       },
       "playground:vite:build": {
         cache: false,
         command: "cd playground/vite && vp build",
         dependsOn: ["build"],
-      },
-      "playground:vite:build:cloudflare": {
-        cache: false,
-        command: "vp run playground:vite:build --mode chat",
       },
       "playground:vite:build:local": {
         cache: false,
@@ -100,8 +108,8 @@ export default defineConfig({
       },
       "playground:vite:provision": {
         cache: false,
-        command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
-        dependsOn: ["@vite-hub/cli#build"],
+        command: "cd playground/vite && node ../../packages/vite-hub/dist/bin.js provision run",
+        dependsOn: ["vite-hub#build"],
       },
       preflight: {
         cache: false,
@@ -127,7 +135,31 @@ export default defineConfig({
         command: "node packages/schedule/test/e2e-live.mjs",
         dependsOn: ["@vite-hub/schedule#build"],
       },
-      ...rootTestTasks,
+      "package:metadata": {
+        cache: false,
+        command: "node test/package-metadata.mjs",
+        dependsOn: ["build"],
+      },
+      test: {
+        cache: false,
+        command: "node test/run-package-task.mjs test",
+      },
+      "test:contracts": {
+        cache: false,
+        command: "vp test --config vitest.config.ts",
+        dependsOn: ["build"],
+      },
+      "test:consumer": {
+        cache: false,
+        command: "vp test --config test/consumer/vitest.config.ts",
+        dependsOn: ["build"],
+      },
+      "test:output:cloudflare": providerOutputTask("cloudflare"),
+      "test:output:vercel": providerOutputTask("vercel"),
+      "test:services": {
+        cache: false,
+        command: "node test/service-tests.mjs",
+      },
       typecheck: {
         cache: false,
         command: "node test/typecheck.mjs",
@@ -135,7 +167,12 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run package:metadata && vp run test && vp run test:consumer",
+          "vp run verify:source && vp run test:contracts && vp run test:consumer",
+      },
+      "verify:source": {
+        cache: false,
+        command:
+          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run package:metadata && vp run test",
       },
       "workflow:e2e": {
         cache: false,

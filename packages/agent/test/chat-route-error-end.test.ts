@@ -44,9 +44,9 @@ describe("Agent chat route errors", () => {
     )
     const body = JSON.stringify({ id: "chat-1", messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
-    // H3 1 never ends a Node response whose body stream errors, so a body that errors after the frame hangs the request.
+    // The body ends with [DONE] after the error frame, so the client reads a complete stream.
     const text = await response.text()
     expect(text).toContain('"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).","type":"error"')
     expect(text.endsWith("data: [DONE]\n\n")).toBe(true)
@@ -60,7 +60,7 @@ describe("Agent chat route errors", () => {
       defineAgent({ capabilities: [defineChatCapability()], driver: { model } }) as never,
     )
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
     expect(await response.text()).toContain('"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."')
   })
 
@@ -73,7 +73,7 @@ describe("Agent chat route errors", () => {
     )
     const body = JSON.stringify({ id: "chat-1", messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
@@ -89,7 +89,7 @@ describe("Agent chat route errors", () => {
       defineAgent({ capabilities: [defineChatCapability()], driver: { run: () => failingSseResponse() } }) as never,
     )
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
     const text = await response.text()
     expect(text).toContain('"type":"tool-output-available"')
@@ -104,7 +104,7 @@ describe("Agent chat route errors", () => {
     ["createAgentUIMessageStreamResponse", () => createAgentUIMessageStreamResponse({ stream: failingParts() })],
     ["toAgentUiMessageStreamResponse", () => toAgentUiMessageStreamResponse({ stream: failingParts() })],
   ])("%s ends the response with an error frame when its stream fails", async (_name, encode) => {
-    // H3 1 never ends a Node response whose body fails, so the encoder must end the body itself.
+    // The encoder ends the body itself, so the client reads the error and a complete stream.
     const text = await encode().text()
     expect(text.split("\n\n").filter(Boolean)).toEqual([
       `data: ${JSON.stringify({ output: { message: "Not found.", type: "error" }, toolCallId: "call-1", type: "tool-output-available" })}`,

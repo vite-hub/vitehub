@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  checkResponseResults,
   definitionDefaultExport,
   definitionLocation,
   knownDefinitionNames,
@@ -17,26 +16,26 @@ import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
-const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue(async () => {})\n'
-const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async () => {})\n'
+const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue({ handler: async () => {} })\n'
+const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow({ handler: async () => {} })\n'
 
 describe("vitehub/known-definition-names", () => {
   const definitions = {
     "server/queues/welcome-email.ts": queue,
     "server/workflows/onboard.ts": workflow,
-    "server/databases/analytics/config.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
+    "server/databases/analytics/index.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
   }
 
   it("reports names that match no discovered Definition", async () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "server/api/send.post.ts": [
-        'import { runQueue, deferQueue } from "vite-hub/queue"',
-        'import { runWorkflow } from "@vite-hub/workflow"',
+        'import { sendQueue, deferQueue } from "vite-hub/queue"',
+        'import { startWorkflow } from "@vite-hub/workflow"',
         "export default async () => {",
-        '  await runQueue("welcom-email", {})',
+        '  await sendQueue("welcom-email", {})',
         '  deferQueue("digest", {})',
-        '  await runWorkflow("onbaord", {})',
+        '  await startWorkflow("onbaord", {})',
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0013", "VHUB0013", "VHUB0013"])
@@ -46,13 +45,13 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "server/api/send.post.ts": [
-        'import { runQueue } from "vite-hub/queue"',
-        'import { runWorkflow } from "vite-hub/workflow"',
+        'import { sendQueue } from "vite-hub/queue"',
+        'import { startWorkflow } from "vite-hub/workflow"',
         'import { useChannel } from "vite-hub/channels/server"',
         "export default async (name: string) => {",
-        '  await runQueue("welcome-email", {})',
-        "  await runQueue(name, {})",
-        '  await runWorkflow("onboard", {})',
+        '  await sendQueue("welcome-email", {})',
+        "  await sendQueue(name, {})",
+        '  await startWorkflow("onboard", {})',
         '  await useChannel("alerts").send("hi", {})',
         "}",
       ].join("\n"),
@@ -63,9 +62,9 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "scripts/smoke.ts": [
-        'import { defineAgent, workflow } from "vite-hub/agent"',
+        'import { agentWorkflow, defineAgent } from "vite-hub/agent"',
         'import { getWorkflowRun } from "vite-hub/workflow"',
-        'export const agent = defineAgent({ runtime: workflow("inline-agent") })',
+        'export const agent = defineAgent({ runtime: agentWorkflow("inline-agent") })',
         'export const run = await getWorkflowRun("inline-agent", "run-1")',
       ].join("\n"),
     })).toEqual([])
@@ -119,9 +118,9 @@ describe("vitehub/queue-payload-options", () => {
   it("reports enqueue options inside the payload", async () => {
     expect(await codes(queuePayloadOptions, {
       "server/api/a.ts": [
-        'import { runQueue, dynamicQueue } from "vite-hub/queue"',
+        'import { sendQueue, dynamicQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await runQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { payload: { email }, delay: "1m" })',
         '  dynamicQueue.defer("welcome-email", { payload: { email }, idempotencyKey: email })',
         "}",
       ].join("\n"),
@@ -131,11 +130,11 @@ describe("vitehub/queue-payload-options", () => {
   it("accepts options as the third argument and a payload field named payload", async () => {
     expect(await codes(queuePayloadOptions, {
       "server/api/a.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await runQueue("welcome-email", { email }, { delaySeconds: 60 })',
-        '  await runQueue("audit", { payload: { email }, region: "eu" })',
-        '  await runQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
+        '  await sendQueue("welcome-email", { email }, { delay: "1m" })',
+        '  await sendQueue("audit", { payload: { email }, region: "eu" })',
+        '  await sendQueue("audit", { payload: { email } }, { delay: "1s" })',
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -146,9 +145,9 @@ describe("vitehub/no-module-scope-dispatch", () => {
   it("reports dispatch calls at module scope", async () => {
     expect(await codes(noModuleScopeDispatch, {
       "server/plugins/warmup.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         'import { deferWorkflow } from "vite-hub/workflow"',
-        'await runQueue("warmup", {})',
+        'await sendQueue("warmup", {})',
         'deferWorkflow("sync", {})',
       ].join("\n"),
     })).toEqual(["VHUB0017", "VHUB0017"])
@@ -156,68 +155,57 @@ describe("vitehub/no-module-scope-dispatch", () => {
 
   it("accepts dispatch calls in handlers and test files", async () => {
     expect(await codes(noModuleScopeDispatch, {
-      "server/api/a.ts": 'import { runQueue } from "vite-hub/queue"\nexport default defineEventHandler(async () => { await runQueue("warmup", {}) })\n',
-      "server/queues/a.test.ts": 'import { runQueue } from "vite-hub/queue"\nawait runQueue("warmup", {})\n',
+      "server/api/a.ts": 'import { sendQueue } from "vite-hub/queue"\nexport default defineEventHandler(async () => { await sendQueue("warmup", {}) })\n',
+      "server/queues/a.test.ts": 'import { sendQueue } from "vite-hub/queue"\nawait sendQueue("warmup", {})\n',
     })).toEqual([])
   })
 })
 
 describe("vitehub/no-destructure-non-tuples", () => {
-  it("reports tuple destructuring of values and Responses", async () => {
+  it("reports tuple destructuring of values", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { runWorkflow } from "vite-hub/workflow"',
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        'import { deferWorkflow } from "vite-hub/workflow"',
+        'import { useQueue } from "vite-hub/queue"',
         "export async function run() {",
-        '  const [error, run] = await runWorkflow("onboard", {})',
-        '  const [failure, output] = await runSandboxTask("resize", {})',
-        "  return { error, run, failure, output }",
+        '  const [error, queue] = await useQueue("welcome-email")',
+        '  const [deferred] = await deferWorkflow("onboard", {})',
+        "  return { error, queue }",
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
-  it("accepts direct results and the tuple form of runAgent", async () => {
+  it("accepts the tuple form of the calls that returned their value before", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { runWorkflow } from "vite-hub/workflow"',
-        'import { runAgent } from "vite-hub/agent"',
-        "export async function run(agent, options) {",
-        '  const run = await runWorkflow("onboard", {})',
-        '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
-        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
-        '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, result, unknown, value }",
+        'import { listAuthEvents } from "vite-hub/auth/server"',
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { typesafe } from "vite-hub/gateways"',
+        "export async function run() {",
+        "  const [eventsError, events] = await listAuthEvents({})",
+        '  const [browserError, page] = await runBrowser("page-html", {})',
+        '  const [contentError, html] = await runBrowserContent("https://example.com")',
+        '  const [askError, answers] = await typesafe().ask("text", {})',
+        "  return { eventsError, events, browserError, page, contentError, html, askError, answers }",
         "}",
       ].join("\n"),
     })).toEqual([])
   })
-})
 
-describe("vitehub/check-response-results", () => {
-  it("reports data read from a Response", async () => {
-    expect(await codes(checkResponseResults, {
+  it("accepts the tuple form of startWorkflow, runSandboxTask, and runAgent", async () => {
+    expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
+        'import { startWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        'import { runBrowser } from "vite-hub/browser"',
-        "export async function run() {",
-        '  const { width } = await runSandboxTask("resize", {})',
-        '  const page = await runBrowser("screenshot", {})',
-        '  return { width, title: page.title, size: (await runSandboxTask("resize", {})).size }',
-        "}",
-      ].join("\n"),
-    })).toEqual(["VHUB0019", "VHUB0019", "VHUB0019"])
-  })
-
-  it("accepts Response members", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        "export async function run() {",
-        '  const response = await runSandboxTask("resize", {})',
-        "  if (!response.ok) throw new Error(await response.text())",
-        "  const { width } = await response.json()",
-        "  return { width, status: response.status }",
+        'import { runAgent } from "vite-hub/agent"',
+        "export async function run(agent, options) {",
+        '  const [startError, run] = await startWorkflow("onboard", {})',
+        '  const [taskError, output] = await runSandboxTask("resize", {})',
+        '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
+        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
+        '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
+        "  return { startError, run, taskError, output, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -233,12 +221,12 @@ describe("vitehub/workflow-step-names", () => {
   it("reports unknown steps and colliding step files", async () => {
     expect(await projectCodes(workflowStepNames, {
       ...steps,
-      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcomeEmail(user) })\n',
+      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow({ handler: async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcomeEmail(user) } })\n',
     })).toEqual(["VHUB0020"])
     expect(await projectCodes(workflowStepNames, {
       ...steps,
       "server/workflows/onboard/03.create-user.ts": "export default async function () {}\n",
-      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async ({ payload, steps }) => steps.createUser(payload))\n',
+      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow({ handler: async ({ payload, steps }) => steps.createUser(payload) })\n',
     })).toEqual(["VHUB0020"])
   })
 
@@ -247,7 +235,7 @@ describe("vitehub/workflow-step-names", () => {
       ...steps,
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) })",
+        "export default defineWorkflow({ handler: async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) } })",
         'export async function stepCount(id) { const run = await getWorkflowRun("onboard", id); return run.steps.length }',
       ].join("\n"),
     })).toEqual([])
@@ -265,9 +253,9 @@ describe("vitehub/valid-schedule-cron", () => {
   it("accepts portable cron expressions", async () => {
     expect(await codes(validScheduleCron, {
       "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "*/15 0-23 * 1,6 *", handler: async () => {} })\n',
-      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * 1-5", async () => {})\n',
+      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * 1-5", handler: async () => {} })\n',
       // The process runtime accepts names and both day fields. Provider builds report them with `SCHEDULE_R0003`.
-      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * MON", async () => {})\n',
+      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * MON", handler: async () => {} })\n',
       "server/schedules/e.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 0 1 * 1", handler: async () => {} })\n',
     })).toEqual([])
   })
@@ -282,14 +270,14 @@ describe("vitehub/manual-schedule-run", () => {
   it("reports a manual run of a Schedule without manual: true", async () => {
     expect(await projectCodes(manualScheduleRun, {
       ...schedules,
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(() => runSchedule("report"))\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(() => runSchedule("report"))\n',
     })).toEqual(["VHUB0022"])
   })
 
   it("accepts a manual run of a manual Schedule", async () => {
     expect(await projectCodes(manualScheduleRun, {
       ...schedules,
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(() => runSchedule("backfill"))\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(() => runSchedule("backfill"))\n',
     })).toEqual([])
   })
 })
@@ -299,31 +287,30 @@ describe("vitehub/valid-channel", () => {
     expect(await codes(validChannel, {
       "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
       "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
-      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
     })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
   it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
     expect(await codes(validChannel, {
-      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
-      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { stripe } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { teams } from "vite-hub/channels/adapters"\nimport { defineChannelTrigger } from "vite-hub/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
       "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })
 })
 
 describe("second review regressions", () => {
-  it("accepts locally registered Workflows and Schedules run from an explicit registry", async () => {
+  it("accepts locally registered Workflows", async () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/workflows/onboard.ts": workflow,
-      "server/schedules/digest.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * *", manual: true, handler: async () => {} })\n',
       "server/api/inline.post.ts": [
-        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
-        'import { runSchedule } from "vite-hub/schedule/runtime"',
+        'import { createWorkflow, startWorkflow } from "vite-hub/workflow"',
+        'import { runSchedule } from "vite-hub/schedule"',
         'createWorkflow("inline", async () => {})',
         "export default defineEventHandler(async () => {",
-        '  await runWorkflow("inline", {})',
-        '  await runSchedule("custom", { registry })',
+        '  await startWorkflow("inline", {})',
+        '  await runSchedule("custom")',
         "})",
       ].join("\n"),
     })).toEqual([])
@@ -341,7 +328,7 @@ describe("second review regressions", () => {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps }) => steps.createUser(payload))",
+        'export default defineWorkflow({ handler: async ({ payload, steps }) => steps.createUser(payload) })',
         'export async function stepNames(id) { const { steps } = await getWorkflowRun("onboard", id); return steps?.map(step => step.name) }',
       ].join("\n"),
     })).toEqual([])
@@ -353,11 +340,11 @@ describe("second review regressions", () => {
     })).toEqual(["VHUB0021"])
   })
 
-  it("names the Schedule Run status for runSchedule()", async () => {
+  it("accepts the tuple form of runSchedule()", async () => {
     const result = await codes(noDestructureNonTuples, {
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
     })
-    expect(result).toEqual(["VHUB0018"])
+    expect(result).toEqual([])
   })
 })
 
@@ -383,9 +370,9 @@ describe("third review regressions", () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/workflows/onboard.ts": workflow,
       "server/api/inline.post.ts": [
-        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
+        'import { createWorkflow, startWorkflow } from "vite-hub/workflow"',
         'createWorkflow({ name: "inline", handler: async () => {} })',
-        'export default defineEventHandler(async () => { await runWorkflow("inline", {}) })',
+        'export default defineEventHandler(async () => { await startWorkflow("inline", {}) })',
       ].join("\n"),
     })).toEqual([])
   })
@@ -396,11 +383,11 @@ describe("TypeScript parameter properties", () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/queues/welcome.ts": queue,
       "server/utils/mailer.ts": [
-        'import { runQueue } from "vite-hub/queue"',
+        'import { sendQueue } from "vite-hub/queue"',
         "export class Mailer {",
-        '  constructor(private runQueue: (name: string) => void) { runQueue("local") }',
+        '  constructor(private sendQueue: (name: string) => void) { sendQueue("local") }',
         "}",
-        'export const send = () => runQueue("welcome", {})',
+        'export const send = () => sendQueue("welcome", {})',
       ].join("\n"),
     })).toEqual([])
   })
@@ -414,7 +401,7 @@ describe("folder Workflow handler steps", () => {
         'import { defineWorkflow } from "vite-hub/workflow"',
         "export function stepNames(run) { return run.steps?.map(step => step.name) }",
         "export function count(steps) { return steps.length }",
-        "export default defineWorkflow(async (ctx) => { await ctx.steps.createUser(ctx.payload); return ctx.steps.sendWelcome() })",
+        "export default defineWorkflow({ handler: async ({ payload, ...ctx }) => { await ctx.steps.createUser(payload); return ctx.steps.sendWelcome() } })",
       ].join("\n"),
     })).toEqual(["VHUB0020"])
   })
@@ -426,14 +413,14 @@ describe("Workflow payload data named steps", () => {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps: run }) => { payload.steps.map(x => x); return run.createUser(payload) })",
+        "export default defineWorkflow({ handler: async ({ payload, steps: run }) => { payload.steps.map(x => x); return run.createUser(payload) } })",
       ].join("\n"),
     })).toEqual([])
     expect(await projectCodes(workflowStepNames, {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps: run }) => run.sendWelcome(payload))",
+        "export default defineWorkflow({ handler: async ({ payload, steps: run }) => run.sendWelcome(payload) })",
       ].join("\n"),
     })).toEqual(["VHUB0020"])
   })
@@ -444,9 +431,8 @@ describe("named Workflow handlers", () => {
     for (const handler of ["async function onboard(ctx) { await ctx.steps.unknown() }", "const onboard = async ({ steps }) => steps.unknown()"]) {
       expect(await projectCodes(workflowStepNames, {
         "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
-        "server/workflows/onboard/index.ts": ['import { defineWorkflow } from "vite-hub/workflow"', handler, "export default defineWorkflow(onboard)"].join("\n"),
+        "server/workflows/onboard/index.ts": ['import { defineWorkflow } from "vite-hub/workflow"', handler, "export default defineWorkflow({ handler: onboard })"].join("\n"),
       })).toEqual(["VHUB0020"])
     }
   })
 })
-

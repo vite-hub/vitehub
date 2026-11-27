@@ -1,0 +1,399 @@
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { access, chmod, lstat, mkdir, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { invariant } from "@vite-hub/internal/invariant";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { validateGitHubInstallInputs } from "./install-inputs.ts";
+import { createGitHubInstallSnapshot, publishGitHubInstallSnapshot } from "./install-snapshot.ts";
+import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
+import * as v from "valibot";
+import { parse, parseAllDocuments } from "yaml";
+
+const exec = promisify(execFile);
+const manifest = v.object({ packageManager: v.optional(v.string()) });
+const systemError = v.object({ errno: v.pipe(v.number(), v.integer(), v.maxValue(-1)) });
+const exists = async (path: string) => await access(path).then(() => true, () => false);
+const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** What kind of failure a frozen install had. */
+export type GitHubWorkspaceInstallFailureKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
+
+/** `PRESETS_GITHUB_INSTALL_FAILED`: a frozen install failed. `retryable` says whether a later attempt can pass. */
+export type GitHubWorkspaceInstallError = Error & { readonly kind: GitHubWorkspaceInstallFailureKind; readonly retryable: boolean };
+
+export function githubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallFailureKind = "command"): GitHubWorkspaceInstallError {
+  return Object.assign(presetsErrorDiagnostics.PRESETS_GITHUB_INSTALL_FAILED({ cause, detail: cause instanceof Error ? cause.message : String(cause) }), { kind, retryable });
+}
+
+/** Whether `error` is a failed frozen install. */
+export function isGitHubWorkspaceInstallError(error: unknown): error is GitHubWorkspaceInstallError {
+  return error instanceof Error && Reflect.get(error, "code") === "PRESETS_GITHUB_INSTALL_FAILED";
+}
+
+/** Trusted host hook for dependency caching; commands and inputs have already been validated. */
+export interface GitHubInstallRunner {
+  (input: { cwd: string; command: string[]; env: NodeJS.ProcessEnv; fingerprint: string }): Promise<Record<string, unknown> | void>;
+}
+
+/**
+ * A frozen install rejected the lockfile itself. It stays rejected until the pull request changes it,
+ * so a timer retry only repeats the checkout and the install.
+ */
+export function isGitHubLockfileDefect(error: unknown): boolean {
+  const parts: unknown[] = [];
+  const seen = new Set<unknown>();
+  const collect = (value: unknown): void => {
+    if (value === null || value === undefined || seen.has(value)) return;
+    if (typeof value === "object" || typeof value === "function") seen.add(value);
+    parts.push(value instanceof Error ? value.message : isRecord(value) && typeof value.message === "string" ? value.message : String(value));
+    if (value instanceof Error) collect(value.cause);
+    if (isRecord(value)) {
+      collect(value.cause);
+      collect(value.stderr);
+    }
+  };
+  collect(error);
+  const text = parts.join("\n");
+  return /ERR_PNPM_(?:BROKEN_LOCKFILE|OUTDATED_LOCKFILE|LOCKFILE_\w+|MISSING_TARBALL_INTEGRITY)|Map keys must be unique/.test(text);
+}
+
+/** Host capacity for frozen installs. Each install can use several GiB of host memory. */
+export interface GitHubInstallSlots {
+  /** Waits for a free slot and returns its release function. */
+  acquire(signal?: AbortSignal): Promise<() => void>;
+}
+
+export interface GitHubInstallSlotOptions {
+  /** Installs that run at the same time. Defaults to 1. */
+  concurrency?: number;
+  /** How long a waiting install may queue before it fails as retryable. Defaults to two minutes. */
+  queueTimeoutMs?: number;
+}
+
+/**
+ * Creates first-in, first-out install capacity. Installs share one package store, which handles
+ * concurrent installs. A cancelled waiter leaves the queue without holding up later installs.
+ */
+export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 * 60_000 }: GitHubInstallSlotOptions = {}): GitHubInstallSlots {
+  invariant(Number.isSafeInteger(concurrency) && concurrency >= 1, "the Babysitter checks install.concurrency, so the install concurrency is a positive integer");
+  invariant(Number.isFinite(queueTimeoutMs) && queueTimeoutMs > 0, "the Babysitter passes a fixed install queue timeout, which is positive");
+  let running = 0;
+  const waiters: Array<() => void> = [];
+  const release = () => {
+    running--;
+    waiters.shift()?.();
+  };
+  const waited = queueTimeoutMs % 60_000 === 0 ? `${queueTimeoutMs / 60_000} minute${queueTimeoutMs === 60_000 ? "" : "s"}` : `${Math.round(queueTimeoutMs / 1000)} seconds`;
+  return {
+    acquire(signal) {
+      signal?.throwIfAborted();
+      if (running < concurrency) {
+        running++;
+        return Promise.resolve(release);
+      }
+      return new Promise((resolve, reject) => {
+        const waiter = () => {
+          cleanup();
+          running++;
+          resolve(release);
+        };
+        const fail = (error: unknown) => {
+          cleanup();
+          const index = waiters.indexOf(waiter);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(error);
+        };
+        const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
+        const timeout = setTimeout(() => fail(githubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
+        const cleanup = () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener("abort", abort);
+        };
+        waiters.push(waiter);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    },
+  };
+}
+
+const defaultInstallSlots = createGitHubInstallSlots();
+
+export interface GitHubInstallOptions {
+  /** Install capacity shared with other installs. Defaults to one install at a time, queued for two minutes. */
+  slots?: GitHubInstallSlots;
+}
+
+/** Repository scripts, pnpmfile hooks and package-manager self-management never run on the host. */
+const pnpmProtectedFlags = ["--ignore-scripts", "--ignore-pnpmfile", "--config.manage-package-manager-versions=false"];
+
+/** Host environment for package managers: no host credentials and no repository-selected Corepack behavior. */
+async function packageManagerEnvironment(target: string): Promise<NodeJS.ProcessEnv> {
+  const home = join(target, ".git", "vitehub-install-home");
+  await mkdir(home, { recursive: true });
+  // Corepack caches CommonJS managers below HOME. The checkout's ESM package
+  // scope must not reinterpret their .js executables as ES modules.
+  await writeFile(join(home, "package.json"), JSON.stringify({ type: "commonjs" }));
+  return { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR, YARN_ENABLE_SCRIPTS: "false", YARN_IGNORE_PATH: "1", COREPACK_ENV_FILE: "0", COREPACK_NPM_REGISTRY: "https://registry.npmjs.org", COREPACK_ENABLE_PROJECT_SPEC: "0", COREPACK_DEFAULT_TO_LATEST: "0", COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
+}
+
+/** Corepack must not execute a PR-supplied URL, devEngines override or yarnPath. Select an official version. */
+async function packageManagerVersion(source: string): Promise<(name: string, fallback: string) => string> {
+  const { packageManager } = v.parse(manifest, await exists(join(source, "package.json")) ? JSON.parse(await readFile(join(source, "package.json"), "utf8")) : {});
+  return (name, fallback) => {
+    if (!packageManager) return fallback;
+    const match = packageManager.match(/^(pnpm|npm|yarn)@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f\d]+)?$/);
+    if (!match || match[1] !== name) throw presetsErrorDiagnostics.PRESETS_PACKAGE_MANAGER_UNSUPPORTED();
+    return match[2]!;
+  };
+}
+
+/**
+ * Regenerate `pnpm-lock.yaml` from the checkout's current manifests and lockfile and return it.
+ * pnpm runs on a private snapshot with validated inputs, the pinned official version and no
+ * repository code. `--lockfile-only` downloads no tarballs, so the frozen install still checks the result.
+ */
+export async function regenerateGitHubPnpmLockfile(target: string, signal?: AbortSignal, options: GitHubInstallOptions = {}): Promise<string> {
+  signal?.throwIfAborted();
+  const release = await (options.slots ?? defaultInstallSlots).acquire(signal);
+  let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
+  try {
+    const env = await packageManagerEnvironment(target);
+    snapshot = await createGitHubInstallSnapshot(target);
+    const source = snapshot.directory;
+    await validateGitHubInstallInputs(source);
+    const version = await packageManagerVersion(source);
+    await exec("corepack", [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--lockfile-only", ...pnpmProtectedFlags], { cwd: source, env, signal, timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    return await readFile(join(source, "pnpm-lock.yaml"), "utf8");
+  } finally {
+    try { await snapshot?.close(); }
+    finally { release(); }
+  }
+}
+
+/** Install frozen dependencies before entering the provider's network sandbox. */
+export async function installGitHubPullRequestWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner, options: GitHubInstallOptions = {}): Promise<void> {
+  signal?.throwIfAborted();
+  if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return;
+  signal?.throwIfAborted();
+  const release = await (options.slots ?? defaultInstallSlots).acquire(signal);
+  try {
+    signal?.throwIfAborted();
+    await installWorkspace(target, signal, run);
+  } finally {
+    release();
+  }
+}
+
+async function installWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner): Promise<void> {
+  if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return;
+  signal?.throwIfAborted();
+  const env = await packageManagerEnvironment(target);
+  const record = join(target, ".git", "vitehub-install.json");
+  let runMetadata: Record<string, unknown> | void = undefined;
+  let command: string | undefined;
+  let args: string[] = [];
+  let yarnConfig: string | undefined;
+  let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
+  let retryable = false;
+  let kind: GitHubWorkspaceInstallFailureKind = "input";
+  const cleanup = async () => {
+    try {
+      try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
+      finally { await snapshot?.close(); }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw githubWorkspaceInstallError(error);
+    }
+  };
+  try {
+    snapshot = await createGitHubInstallSnapshot(target);
+    const source = snapshot.directory;
+    const inputs: Record<string, string> = {};
+    const fingerprint = await validateGitHubInstallInputs(source, undefined, inputs);
+    const version = await packageManagerVersion(source);
+    if (await exists(join(source, "pnpm-lock.yaml"))) {
+      // The frozen graph is already resolved and repository hooks stay off, so the
+      // private snapshot drops the checksum of the hook that does not run.
+      const lockfile = join(source, "pnpm-lock.yaml");
+      const documents = parseAllDocuments(await readFile(lockfile, "utf8"));
+      if (documents.map(document => document.delete("pnpmfileChecksum")).some(Boolean)) await writeFile(lockfile, documents.map(String).join(""));
+      command = "corepack";
+      args = [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--frozen-lockfile", ...pnpmProtectedFlags];
+    }
+    else if (await exists(join(source, "package-lock.json")) || await exists(join(source, "npm-shrinkwrap.json"))) {
+      const npmVersion = version("npm", "11.6.3");
+      if (Number(npmVersion.split(".")[0]) < 7) throw presetsErrorDiagnostics.PRESETS_NPM_VERSION_UNSUPPORTED();
+      command = "corepack";
+      args = [`npm@${npmVersion}`, "ci", "--ignore-scripts", "--no-audit", "--no-fund"];
+    }
+    else if (await exists(join(source, "yarn.lock"))) {
+      command = "corepack";
+      const yarnVersion = version("yarn", "1.22.22");
+      args = [`yarn@${yarnVersion}`, "install"];
+      if (yarnVersion.startsWith("1.")) args.push("--frozen-lockfile", "--ignore-scripts", "--ignore-path", "--no-default-rc");
+      else {
+        // A fresh rc filename ignores every checkout/ancestor plugin and yarnPath.
+        // skip-build also suppresses workspace scripts, unlike enableScripts alone.
+        env.YARN_RC_FILENAME = `.vitehub-install-${randomUUID()}.yml`;
+        yarnConfig = join(source, env.YARN_RC_FILENAME);
+        const projectConfig = join(source, ".yarnrc.yml");
+        const config = v.parse(v.object({
+          nodeLinker: v.optional(v.picklist(["pnp", "pnpm", "node-modules"])),
+          pnpEnableEsmLoader: v.optional(v.boolean()),
+          pnpEnableInlining: v.optional(v.boolean()),
+          pnpMode: v.optional(v.picklist(["strict", "loose"])),
+          pnpFallbackMode: v.optional(v.picklist(["none", "dependencies-only", "all"])),
+          nmHoistingLimits: v.optional(v.picklist(["none", "workspaces", "dependencies"])),
+          nmSelfReferences: v.optional(v.boolean()),
+          nmMode: v.optional(v.picklist(["classic", "hardlinks-local"])),
+        }),
+          await exists(projectConfig) ? parse(await readFile(projectConfig, "utf8")) ?? {} : {});
+        const layout = Object.entries(config).map(([key, value]) => `${key}: ${value}\n`).join("");
+        await writeFile(yarnConfig, `enableScripts: false\nignorePath: true\n${layout}`, { flag: "wx" });
+        args.push("--immutable", "--mode=skip-build");
+      }
+    }
+    else throw presetsErrorDiagnostics.PRESETS_LOCKFILE_MISSING();
+    // Input validation needs changed PR evidence. Commands can fail while the
+    // registry or host is temporarily unavailable and retain their retry path.
+    retryable = true;
+    kind = "command";
+    try {
+      if (run) runMetadata = await run({ cwd: source, command: [command, ...args], env, fingerprint });
+      else await exec(command, args, { cwd: source, env, signal, timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT" && command === "corepack") {
+        // Corepack may be restored on the trusted host while this PR is parked.
+        // Keep the wait retryable so the scheduler can recheck it.
+        retryable = true;
+        kind = "prerequisite";
+        throw presetsErrorDiagnostics.PRESETS_COREPACK_MISSING({ cause: error });
+      }
+      throw error;
+    }
+    retryable = false;
+    const current = await validateGitHubInstallInputs(target).catch(error => {
+      if (isSystemError(error)) throw error;
+      return undefined;
+    });
+    if (current !== fingerprint) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_INPUTS_CHANGED();
+    retryable = true;
+    await publishGitHubInstallSnapshot(snapshot, signal);
+    await writeFile(record, JSON.stringify({ ...runMetadata, status: "installed", fingerprint, inputs, command: command ? [command, ...args] : undefined, at: new Date().toISOString(), scripts: runMetadata?.scripts ?? false }));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await writeFile(record, JSON.stringify({ status: "failed", command: command ? [command, ...args] : undefined, at: new Date().toISOString(), reason })).catch(() => undefined);
+    if (signal?.aborted) throw error;
+    // Filesystem errors remain recoverable even when they occur during input validation.
+    const lockfileDefect = isGitHubLockfileDefect(error);
+    throw githubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
+  } finally {
+    await cleanup();
+  }
+}
+
+/** Require validation to use the same dependency inputs that the host installed. */
+export async function assertGitHubDependenciesCurrent(target: string, inputs: string = target): Promise<void> {
+  if (!(await exists(join(inputs, "package.json"))) && !(await exists(join(inputs, "pnpm-workspace.yaml")))) return;
+  const fingerprint = await validateGitHubInstallInputs(inputs, inputs === target ? undefined : async paths => {
+    const checkout = await realpath(target);
+    for (const path of paths) {
+      const destination = join(inputs, path);
+      // The index owns tracked commands, including staged deletion. Generated
+      // untracked commands remain installation inputs without entering commits.
+      const indexed = await exec("git", ["--literal-pathspecs", "-C", target, "-c", "core.fsmonitor=false", "ls-files", "--cached", "--", path], {
+        env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      });
+      if (indexed.stdout.trim()) continue;
+      // A staged deletion has no index entry, but must still stay deleted in
+      // the protected commit snapshot instead of importing live worktree bytes.
+      const tracked = await exec("git", ["--literal-pathspecs", "-C", target, "-c", "core.fsmonitor=false", "ls-tree", "--name-only", "HEAD", "--", path], {
+        env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      });
+      if (tracked.stdout.trim()) continue;
+      const source = join(checkout, path);
+      const info = await lstat(source).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; });
+      if (!info) { await rm(destination, { force: true }); continue; }
+      if (!info.isFile()) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_NOT_FILE();
+      const resolved = await realpath(source);
+      const part = relative(checkout, resolved);
+      if (part === ".." || part.startsWith(`..${sep}`) || isAbsolute(part)) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_OUTSIDE();
+      // Bind the read to the validated file. A parent swap must never make
+      // pathname-based copying import a different host file into this snapshot.
+      const file = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const opened = await file.stat();
+        const assertSource = async () => {
+          const current = await lstat(source);
+          if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino
+            || !current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
+            || await realpath(source) !== resolved) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_CHANGED();
+        };
+        await assertSource();
+        await mkdir(dirname(destination), { recursive: true });
+        await assertSource();
+        const contents = await file.readFile();
+        const settled = await file.stat();
+        await assertSource();
+        if (settled.size !== opened.size || settled.mtimeMs !== opened.mtimeMs || settled.ctimeMs !== opened.ctimeMs || settled.mode !== opened.mode) {
+          throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_CHANGED();
+        }
+        // A reused input snapshot must reflect the current generated command.
+        // Remove its old entry before exclusive creation, without following it.
+        await rm(destination, { force: true });
+        await writeFile(destination, contents, { flag: "wx", mode: opened.mode & 0o777 });
+        await chmod(destination, opened.mode & 0o777);
+      } finally { await file.close(); }
+    }
+  });
+  const record = v.parse(v.object({ status: v.string(), fingerprint: v.optional(v.string()) }), JSON.parse(await readFile(join(target, ".git", "vitehub-install.json"), "utf8")));
+  if (record.status !== "installed" || record.fingerprint !== fingerprint) throw presetsErrorDiagnostics.PRESETS_DEPENDENCIES_NOT_CURRENT();
+}
+
+export interface GitHubDependencyStatus {
+  /** The last host install succeeded with the current dependency inputs. */
+  current: boolean;
+  /** Input files that differ from the last successful install. */
+  changedInputs: string[];
+  reason?: string;
+}
+
+/** Report dependency drift before validation without changing the checkout or its index. */
+export async function readGitHubDependencyStatus(target: string): Promise<GitHubDependencyStatus> {
+  if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return { current: true, changedInputs: [] };
+  const inputs: Record<string, string> = {};
+  let fingerprint: string;
+  try { fingerprint = await validateGitHubInstallInputs(target, undefined, inputs); }
+  catch (error) { return { current: false, changedInputs: [], reason: error instanceof Error ? error.message : String(error) }; }
+  const record: unknown = await readFile(join(target, ".git", "vitehub-install.json"), "utf8").then(JSON.parse, () => ({}));
+  const installed = isRecord(record) ? record : {};
+  if (installed.status === "installed" && installed.fingerprint === fingerprint) return { current: true, changedInputs: [] };
+  const previous = isRecord(installed.inputs) ? installed.inputs : {};
+  const changedInputs = [...new Set([...Object.keys(previous), ...Object.keys(inputs)])].filter(path => previous[path] !== inputs[path]).sort();
+  const reason = installed.status === "failed" && typeof installed.reason === "string"
+    ? installed.reason
+    : changedInputs.length
+      ? `Dependency inputs changed: ${changedInputs.join(", ")}. Call refreshDependencies before validation.`
+      : "No successful install matches the current dependency inputs. Call refreshDependencies before validation.";
+  return { current: false, changedInputs, reason };
+}
+
+/** Return whether the host's frozen install matches current inputs and has published outputs. */
+export async function hasCurrentGitHubDependencies(target: string, inputs: string = target): Promise<boolean> {
+  try {
+    await assertGitHubDependenciesCurrent(target, inputs);
+    // A fingerprint proves the inputs are current, not that published outputs survived.
+    // Be conservative for installs that produced no recognizable dependency tree.
+    const outputs = await Promise.all(["node_modules", ".pnp.cjs", ".pnp.js"].map(async output => {
+      const info = await lstat(join(target, output)).catch(() => undefined);
+      return output === "node_modules" ? info?.isDirectory() : info?.isFile() && info.size > 0;
+    }));
+    return outputs.some(Boolean);
+  } catch {
+    return false;
+  }
+}

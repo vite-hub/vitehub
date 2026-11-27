@@ -1,19 +1,23 @@
 ---
 title: Use Vercel Queues in a Vite app with ViteHub
-description: Use Vercel Queues from a Vite app with ViteHub. Define a queue in one file, send jobs with runQueue(), and let a private Vercel Function run each job.
+description: Use Vercel Queues from a Vite app with ViteHub. Define a queue in one file, send jobs with sendQueue(), and let a private Vercel Function run each job.
 navigation.title: Vercel Queues
 navigation.order: 24
 navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-Install `@vercel/queue`, set `preset: 'vercel'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `runQueue()` to send a job and replies at once. The build writes one private Vercel Function per queue with a `queue/v2beta` trigger, and Vercel calls it for each job.
+Install `@vercel/queue`, set `host: 'vercel'` in `vitehub()`, and add one file per queue in `server/queues/`. The files turn Queue on. A route calls `sendQueue()` to send a job and replies at once. The build writes one private Vercel Function per queue with a `queue/v2beta` trigger, and Vercel calls it for each job.
+
+::warning
+ViteHub's nightly Vercel smoke currently misses both Queue completion markers. Verify that the handler runs on your deployment before relying on it. See the [host support matrix](/docs/frameworks-hosts/support-matrix#test-status).
+::
 
 ## What Vercel Queues is
 
 [Vercel Queues](https://vercel.com/docs/queues) is Vercel's message queue, in beta on all plans. A producer sends a message to a topic. A consumer function gets it, and Vercel retries until the consumer acknowledges it or it expires. Delivery is at least once.
 
-You write the handler and the send call. ViteHub writes the topic name, consumer function, and trigger, and the same files run on [Cloudflare Queues](/docs/guides/cloudflare-queues) with another preset.
+You write the handler and the send call. ViteHub writes the topic name, consumer function, and trigger, and the same files run on [Cloudflare Queues](/docs/guides/cloudflare-queues) with another host.
 
 ## Set up Vercel Queues
 
@@ -26,14 +30,14 @@ pnpm add -D @types/node @types/ws
 
 The generated Queue code imports `@vercel/queue`. To typecheck it, set `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
 
-### Enable Queue with the Vercel preset
+### Enable Queue with the Vercel host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', queue: true },
+  vitehub: { host: 'vercel' },
 })
 ```
 :::
@@ -45,7 +49,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel' }), nitro()],
 })
 ```
 :::
@@ -56,13 +60,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', queue: true })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 :::
 ::
 
-The `vercel` preset picks the Vercel Queue Provider. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for all options.
+The `vercel` host picks the Vercel Queue Provider. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for all options.
 
 ### Define a queue
 
@@ -70,8 +74,10 @@ The `vercel` preset picks the Vercel Queue Provider. `vitehub()` includes the Ni
 import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name: welcome-email
-export default defineQueue<{ email: string }>(async ({ payload, id, attempts }) => {
-  console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id, attempts }) => {
+    console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+  },
 })
 ```
 
@@ -82,35 +88,35 @@ Vercel can deliver the same job twice. A handler that sends mail or charges a ca
 ### Send a job from a route
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() })
+  const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
   if (error) throw error
   return result
 })
 ```
 
-`runQueue()` returns `[error, result]`. When Vercel accepts the job, `result` is `{ status: 'queued', messageId }` with the Vercel message id, or `undefined` for deferred processing. The handler runs later in another function, so its result is not here. See [Queue server API](/docs/queue/server-api) for `getQueue()` and `deferQueue()`.
+`sendQueue()` returns `[error, result]`. When Vercel accepts the job, `result` is `{ status: 'queued', messageId }` with the Vercel message id, or `undefined` for deferred processing. The handler runs later in another function, so its result is not here. See [Queue server API](/docs/queue/server-api) for `useQueue()` and `deferQueue()`.
 
 ### Use the Vercel enqueue options
 
 Vercel accepts more options than Cloudflare. Pass them as the third argument.
 
 ```ts [server/utils/enqueue-welcome.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function enqueueWelcome(email: string) {
-  const [error, result] = await runQueue('welcome-email', { email }, {
-    delaySeconds: 600,
+  const [error, result] = await sendQueue('welcome-email', { email }, {
+    delay: '10m',
     idempotencyKey: `welcome:${email}`,
-    retentionSeconds: 3600,
+    retention: '1h',
   })
   if (error) throw error
   return result
@@ -119,25 +125,25 @@ export async function enqueueWelcome(email: string) {
 
 | Option | Description |
 | --- | --- |
-| `delaySeconds` | Seconds to wait before delivery. Cloudflare accepts it too. |
+| `delay` | Time to wait before delivery, such as `'10m'`. Cloudflare accepts it too. |
 | `idempotencyKey` | Vercel drops a second send with the same key. Defaults to the message `id`. |
 | `region` | The Vercel region for this send. |
-| `retentionSeconds` | How long Vercel keeps the message before it expires. |
+| `retention` | How long Vercel keeps the message before it expires, such as `'1h'`, or a number of seconds. |
 
-`idempotencyKey`, `region`, and `retentionSeconds` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and the job is not sent.
+`idempotencyKey`, `region`, and `retention` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and the job is not sent.
 
 ### Send many jobs in one request
 
-`sendBatch()` on `getQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`. The second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not. The batch uses the client's region.
+`sendBatch()` on `useQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delay`, `idempotencyKey`, and `retention`. The second argument sets `delay` and `retention` for jobs that do not. The batch uses the client's region. This excerpt uses the Queue registry generated when Vite loads the app configuration.
 
-```ts [server/utils/enqueue-welcomes.ts]
-import { getQueue } from 'vite-hub/queue'
+```ts [server/utils/enqueue-welcomes.ts] fragment
+import { useQueue } from 'vite-hub/queue'
 
 export async function enqueueWelcomes(emails: string[]) {
-  const queue = await getQueue('welcome-email')
+  const queue = await useQueue('welcome-email')
   const [error, results] = await queue.sendBatch(
     emails.map(email => ({ body: { email }, idempotencyKey: `welcome:${email}` })),
-    { delaySeconds: 600 },
+    { delay: '10m' },
   )
   if (error) throw error
   return results
@@ -156,7 +162,7 @@ Vercel keeps queue messages in one region. ViteHub reads it from `queue.region`,
 
 ## How Vercel delivers a job
 
-The build adds one Nitro route per queue file under `/api/vitehub/queues/vercel/<name>`. ViteHub gives it a `queue/v2beta` trigger through Nitro's `vercel.functionRules`, so Nitro writes one Vercel Function per queue. The topic name is `topic--` plus the queue name in hexadecimal. Do not use it in your code; pass the queue name to `runQueue()`.
+The build adds one Nitro route per queue file under `/api/vitehub/queues/vercel/<name>`. ViteHub gives it a `queue/v2beta` trigger through Nitro's `vercel.functionRules`, so Nitro writes one Vercel Function per queue. The topic name is `topic--` plus the queue name in hexadecimal. Do not use it in your code; pass the queue name to `sendQueue()`.
 
 Only Vercel's queue system calls a consumer function. It has no public URL. See [consumer function security](https://vercel.com/docs/queues/concepts#consumer-function-security).
 
@@ -172,12 +178,13 @@ When the handler throws, Vercel retries the job. ViteHub acknowledges Queue erro
 import { defineQueue } from 'vite-hub/queue'
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  if (!payload.email.includes('@')) {
-    throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
-  }
-  // Send the email here
-}, {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.email.includes('@')) {
+      throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
+    }
+    // Send the email here
+  },
   callbackOptions: {
     retry: error => getViteHubErrorShape(error)?.code === 'WELCOME_INVALID_EMAIL'
       ? { acknowledge: true }
@@ -191,7 +198,7 @@ Vercel Queues has no dead letter queue. Acknowledge a job that can never succeed
 
 ## How to use Vercel Queues locally
 
-`pnpm dev` runs jobs in the dev server, with no Vercel project or token. It uses Vercel's defaults: a retry every 60 seconds until the job expires, 24 hours of retention (set by `retentionSeconds`), `delaySeconds` up to 7 days, and payloads up to 100 MB. It does not call `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+`pnpm dev` runs jobs in the dev server, with no Vercel project or token. It uses Vercel's defaults: a retry every 60 seconds until the job expires, 24 hours of retention (set by `retention`), a `delay` of up to 7 days, and payloads up to 100 MB. It does not call `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
 ```bash [Terminal]
 pnpm dev
@@ -238,7 +245,7 @@ Vercel sets these limits. Read [Vercel Queues pricing and limits](https://vercel
 | Idempotency window | The message retention, but never more than 24 hours. |
 | Order | About write order. No first-in, first-out guarantee. |
 
-Vercel bills per API operation, and each 4 KiB of a message is one operation. A send with an idempotency key costs 2 times the units. ViteHub sends a key with every job, so every `runQueue()` send pays that rate.
+Vercel bills per API operation, and each 4 KiB of a message is one operation. A send with an idempotency key costs 2 times the units. ViteHub sends a key with every job, so every `sendQueue()` send pays that rate.
 
 Vercel pins each message to the deployment that sent it. After you promote a new deployment, the old one keeps running its consumers until each of its messages succeeds or expires. To stop them, delete the old deployment. See [deployments and versioning](https://vercel.com/docs/queues/concepts#deployments-and-versioning).
 
@@ -248,9 +255,9 @@ See [Queue limits and errors](/docs/queue/limits-and-errors) for error codes.
 
 The queue file and route stay the same. To move to Cloudflare Queues:
 
-1. Change `preset: 'vercel'` to `preset: 'cloudflare'`.
-2. Remove `idempotencyKey`, `region`, and `retentionSeconds` from `runQueue()` calls.
-3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
-4. Create the queues with `vitehub provision run --provider cloudflare`.
+1. Change `host: 'vercel'` to `host: 'cloudflare'`.
+2. Remove `idempotencyKey`, `region`, and `retention` from `sendQueue()` calls.
+3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delay: '30s' } }`.
+4. Create the queues with `vitehub provision run --host cloudflare`.
 
-See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.
+See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

@@ -1,10 +1,9 @@
 import type { RealtimeAvailability } from "../../types.ts"
 
-// Builds without the Realtime integration resolve `#vitehub/realtime/availability` here.
-const availability: RealtimeAvailability = {
+const availability: RealtimeAvailability & { noticeBase?: string } = {
   available: false,
   reason: "This build does not enable Realtime.",
-  fix: "Enable `realtime` in vitehub() with the Cloudflare preset, or with `authority: \"memory\"` for one Node.js process.",
+  fix: "Enable `realtime` in vitehub() with the Cloudflare or Node preset.",
 }
 
 export default availability

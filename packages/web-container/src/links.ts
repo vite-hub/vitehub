@@ -1,5 +1,3 @@
-// Shared by the Node snapshot builder and the browser, so this file imports nothing.
-
 /** The file in `node_modules` that lists what a snapshot cannot hold. */
 export const snapshotLinksFile = ".vitehub-snapshot-links.json"
 
@@ -12,6 +10,7 @@ export interface SnapshotLinks {
 
 /**
  * A Node script that restores the links and executable bits of a mounted snapshot, from the working directory.
+ * WebContainer `mount()` drops executable bits (https://github.com/stackblitz/webcontainer-core/issues/2186).
  *
  * The snapshot bytes come from the network, so the list is not trusted: a path must be relative and stay inside the
  * working directory, and so must the place that a link points to. Destination paths through symlinks are rejected.
@@ -65,7 +64,6 @@ export const restoreLinksScript = [
   `  if (!local(file) || typeof target !== "string" || path.isAbsolute(target) || !inside(path.resolve(root, path.dirname(file), target))) { skipped.push(file); continue }`,
   `  try { fs.symlinkSync(target, file); restored.push([file, target]) } catch (error) { if (error.code !== "EEXIST") throw error }`,
   `}`,
-  // Resolve one component at a time: normalizing `alias/..` before following the alias can hide an escape.
   `for (const [file, target] of restored) {`,
   `  if (!localTarget(file, target)) { fs.unlinkSync(file); skipped.push(file) }`,
   `}`,

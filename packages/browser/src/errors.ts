@@ -27,56 +27,30 @@ export function browserProviderError(provider: string, operation: string, option
   })
 }
 
-export function browserDefinitionNotFoundError(name: string): ViteHubError {
-  return new ViteHubError(
-    "BROWSER_DEFINITION_NOT_FOUND",
-    `[vitehub:browser] Browser Definition ${JSON.stringify(name)} was not found.`,
-    { details: { name } },
-  )
-}
-
 function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
   return getViteHubErrorShape(value)?.code.startsWith("BROWSER_") === true
 }
 
+function readQuietly<T>(read: () => T): T | undefined {
+  try {
+    return read()
+  }
+  catch {
+    return undefined
+  }
+}
+
+function errorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) return readQuietly(() => String(error.message))
+  if (readQuietly(() => Object.prototype.toString.call(error)) !== "[object Error]") return undefined
+  // SAFETY: The Error tag permits probing an optional message as unknown; readQuietly guards hostile access.
+  const value = readQuietly(() => (error as { message?: unknown }).message)
+  return value == null ? undefined : readQuietly(() => String(value))
+}
+
 export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`> {
   if (isBrowserError(error)) return error
-  let message: string | undefined
-  if (error instanceof Error) {
-    try {
-      message = String(error.message)
-    }
-    catch {
-      // Fall through to the safe string conversion below.
-    }
-  }
-  else {
-    let isError = false
-    try {
-      isError = Object.prototype.toString.call(error) === "[object Error]"
-    }
-    catch {
-      // A hostile Symbol.toStringTag must not escape error normalization.
-    }
-    if (isError) {
-      try {
-        // SAFETY: The Error tag permits probing an optional message as unknown; the catch guards hostile access.
-        const value = (error as { message?: unknown }).message
-        if (value != null) message = String(value)
-      }
-      catch {
-        // Fall through to the safe string conversion below.
-      }
-    }
-  }
-  if (message === undefined) {
-    try {
-      message = String(error)
-    }
-    catch {
-      message = ""
-    }
-  }
+  const message = errorMessage(error) ?? readQuietly(() => String(error)) ?? ""
   return new ViteHubError(
     "BROWSER_RUNTIME_ERROR",
     message || "[vitehub:browser] Browser Definition execution failed.",

@@ -6,6 +6,7 @@ import { defineConfig } from "vite"
 import { channelSimulatorPages } from "./channels-fixture.ts"
 import { consoleMockAPI } from "./mock-api.ts"
 import { consoleMockRPC } from "./rpc.ts"
+import { consoleMockSite } from "./site-fixture.ts"
 import { consoleAppConfig } from "../../packages/vite-hub/src/console/app.config.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "../..")
@@ -16,12 +17,12 @@ export default defineConfig({
   plugins: [
     consoleMockAPI(),
     consoleMockRPC(),
+    consoleMockSite(),
     channelSimulatorPages(),
     vue(),
     ...ui({
       comark: false,
       nuxtUI: {
-        // Match console.vite.config.ts: the Console appearance module owns the color scheme.
         colorMode: false,
         dts: false,
         ui: consoleAppConfig,
@@ -30,6 +31,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
+      {
+        find: "@vite-hub/kit/styles/tailwind.css",
+        replacement: resolve(workspaceRoot, "packages/kit/src/styles/tailwind.css"),
+      },
       {
         find: "@vite-hub/ui/styles.css",
         replacement: resolve(workspaceRoot, "packages/ui/styles.css"),
@@ -46,7 +51,6 @@ export default defineConfig({
         find: "vite-hub/agent/vue",
         replacement: resolve(workspaceRoot, "packages/agent/src/vue.ts"),
       },
-      // The rail, Content editing, and live editing import these. Their exports point to dist/, which a fresh checkout has not built.
       {
         find: "@vite-hub/auth/vue",
         replacement: resolve(workspaceRoot, "packages/auth/src/vue.ts"),

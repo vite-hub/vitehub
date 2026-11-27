@@ -11,21 +11,21 @@ const results = [
     <UModal title="Searched the web for cache keys" description="Three results were used in the response.">
       <button type="button">
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-globe-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-globe" /></TraceIcon>
           <TraceTitle>Searched the web for cache keys</TraceTitle>
-          <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
         </TraceLine>
       </button>
       <template #body>
         <Trace>
           <a v-for="result in results" :key="result.url" :href="result.url" target="_blank" rel="noreferrer">
             <TraceLine>
-              <TraceIcon><UIcon name="i-ph-globe-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-globe" /></TraceIcon>
               <TraceTitle>
                 {{ result.title }}
                 <span class="sr-only"> (opens in a new tab)</span>
               </TraceTitle>
-              <TraceIcon><UIcon name="i-ph-arrow-up-right-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-arrow-up-right" /></TraceIcon>
             </TraceLine>
           </a>
         </Trace>

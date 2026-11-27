@@ -108,8 +108,6 @@ async function assertPathComponents(root, path, finalType) {
   }
 }
 
-// Installers read these sections. A URL, git, or file spec there makes npm installs depend on a host
-// that the registry does not control, and many installers and registries reject it.
 const installedDependencySections = ["dependencies", "optionalDependencies", "peerDependencies"]
 const unpublishableSpecifierPattern = /^(?:https?:|git|file:)/i
 
@@ -127,7 +125,6 @@ function workspaceDependencies(manifest, publicNames) {
   const dependencies = {
     ...manifest.dependencies,
     ...manifest.optionalDependencies,
-    // Optional peers are integrations, not prerequisites for publishing the package.
     ...Object.fromEntries(Object.entries(manifest.peerDependencies || {})
       .filter(([name]) => manifest.peerDependenciesMeta?.[name]?.optional !== true)),
   }
@@ -198,6 +195,7 @@ async function command(runtime, command, args, options = {}) {
 
 function defaultRuntime() {
   return {
+    env: process.env,
     exec: execFileAsync,
     fetch,
     sleep: milliseconds => new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds)),
@@ -559,11 +557,11 @@ function assertAttestationSubject(statement, pkg) {
   if (subject?.digest?.sha512 !== sha512) fail(`Registry attestation digest mismatch for ${pkg.name}@${pkg.version}`)
 }
 
-async function registryFetch(runtime, url, options, label) {
+async function registryFetch(runtime, url, options, label, init = {}) {
   try {
     const timeout = Math.min(options.requestTimeoutMs ?? 15_000, options.deadline === undefined ? Infinity : options.deadline - Date.now())
     if (timeout <= 0) fail("Registry verification deadline passed")
-    return await runtime.fetch(url, { signal: AbortSignal.timeout(timeout) })
+    return await runtime.fetch(url, { ...init, signal: AbortSignal.timeout(timeout) })
   }
   catch (error) {
     throw new Error(`Registry request failed for ${label}`, { cause: error })
@@ -582,7 +580,7 @@ export async function inspectPublishedPackage(pkg, options) {
     fail(`Registry dist-tag ${options.tag} already points to newer ${pkg.name}@${taggedVersion}; refusing stale release ${pkg.version}`)
   }
 
-  if (packumentResponse.status === 404) return { state: "absent" }
+  if (packumentResponse.status === 404) return { exists: rootPackumentResponse.status !== 404, state: "absent" }
   if (!packumentResponse.ok) fail(`Registry returned ${packumentResponse.status} for ${pkg.name}@${pkg.version}`)
   const packument = await packumentResponse.json()
   if (packument.dist?.integrity !== pkg.integrity) fail(`Registry integrity mismatch for ${pkg.name}@${pkg.version}`)
@@ -627,7 +625,74 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-// One deadline covers every verification in the release, so slow propagation can't add up per package, conflict or request.
+async function assertTrustedPublisherIdentity(pkg, oidc, options, runtime) {
+  const idTokenUrl = new URL(oidc.requestUrl)
+  idTokenUrl.searchParams.append("audience", `npm:${new URL(registry).hostname}`)
+  const idTokenResponse = await registryFetch(runtime, idTokenUrl.href, options, `the GitHub OIDC token for ${pkg.name}`, {
+    headers: { accept: "application/json", authorization: `Bearer ${oidc.requestToken}` },
+  })
+  if (!idTokenResponse.ok) fail(`GitHub returned ${idTokenResponse.status} for the OIDC token for ${pkg.name}`)
+  const idToken = (await idTokenResponse.json())?.value
+  if (!isString(idToken) || !idToken) fail(`GitHub returned no OIDC token for ${pkg.name}`)
+
+  const exchangeResponse = await registryFetch(runtime, `${registry}/-/npm/v1/oidc/token/exchange/package/${pkg.name.replace("/", "%2f")}`, options, `the ${pkg.name} trusted publisher`, {
+    headers: { accept: "application/json", authorization: `Bearer ${idToken}` },
+    method: "POST",
+  })
+  const body = await exchangeResponse.json().catch(() => undefined)
+  if (exchangeResponse.ok && isString(body?.token) && body.token) return
+  const reason = isString(body?.message) ? `: ${body.message.slice(0, 200)}` : ""
+  fail(`npm rejected this workflow as the trusted publisher of ${pkg.name} (${exchangeResponse.status}${reason}). Trust vite-hub/vitehub, workflow release.yml, environment npm-release.`)
+}
+
+async function preflightRegistry(packages, options, runtime) {
+  const problems = []
+  const states = []
+  for (const pkg of packages) {
+    try {
+      states.push(await inspectPublishedPackage(pkg, { ...options, runtime }))
+    }
+    catch (error) {
+      states.push(undefined)
+      problems.push(error.message)
+    }
+  }
+
+  const oidc = { requestToken: runtime.env?.ACTIONS_ID_TOKEN_REQUEST_TOKEN, requestUrl: runtime.env?.ACTIONS_ID_TOKEN_REQUEST_URL }
+  const hasOidc = Boolean(oidc.requestUrl && oidc.requestToken)
+  for (const [index, pkg] of packages.entries()) {
+    if (states[index]?.state !== "absent") continue
+    if (!states[index].exists) {
+      problems.push(`${pkg.name} does not exist on npm. As a maintainer, run \`node .github/scripts/claim-npm-packages.mjs ${pkg.name}\` to reserve the name as 0.0.0-claim and configure the trusted publisher. Do not publish the release version by hand.`)
+      continue
+    }
+    if (!hasOidc) continue
+    try {
+      await assertTrustedPublisherIdentity(pkg, oidc, options, runtime)
+    }
+    catch (error) {
+      problems.push(error.message)
+    }
+  }
+  if (!hasOidc && states.some(state => state?.state === "absent")) {
+    problems.push("Publication needs GitHub Actions OIDC. Run it from release.yml with id-token: write.")
+  }
+
+  if (problems.length > 0) fail(`Release preflight failed. This run published nothing.\n- ${problems.join("\n- ")}`)
+  return states
+}
+
+function stagedConflictMessage(pkg, options, error) {
+  return [
+    `${pkg.name}@${pkg.version} is staged on npm but not published, so npm refuses to publish it. Packages after it in the release order were not published.`,
+    `A package maintainer must review it: run \`npm stage list ${pkg.name}\`, compare the staged dist-tag with ${options.tag} using \`npm stage view <stage-id>\`, and run \`npm stage download <stage-id>\`.`,
+    `Approve it with \`npm stage approve <stage-id>\` only if the dist-tag matches, the downloaded tarball has integrity ${pkg.integrity}, and you can verify release.yml provenance for ${options.sourceRef} at ${options.sourceSha}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
+    "Then rerun the failed publish job. See Releases in CONTRIBUTING.md.",
+    "",
+    String(error?.message),
+  ].join("\n")
+}
+
 async function waitUntilVerified(packages, options, verification) {
   const attempts = options.attempts || 20
   verification.deadline ??= Date.now() + (options.verifyTimeoutMs ?? 900_000)
@@ -654,7 +719,6 @@ async function auditPublishedSignatures(packages, runtime, options) {
   try {
     const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.version]))
     await writeFile(join(directory, "package.json"), `${JSON.stringify({ dependencies, private: true }, null, 2)}\n`)
-    // Signatures and attestations can appear after the versions, so retry the audit for the whole set once.
     const attempts = options.attempts || 20
     for (let attempt = 1; ; attempt++) {
       try {
@@ -685,12 +749,7 @@ export async function publishReleaseArtifacts(options) {
     fail(`Release source ref must be refs/tags/v${verified.releaseVersion}`)
   }
 
-  const registryStates = []
-  if (!options.dryRun) {
-    for (const pkg of verified.manifest.packages) {
-      registryStates.push(await inspectPublishedPackage(pkg, { ...options, runtime }))
-    }
-  }
+  const registryStates = options.dryRun ? [] : await preflightRegistry(verified.manifest.packages, options, runtime)
 
   const published = []
   const verification = {}
@@ -712,8 +771,8 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
-      // Dependents must not be published against a version this release did not produce.
+      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, options, error), { cause: error })
+      if (!/EPUBLISHCONFLICT|cannot publish over the previously published/i.test(String(error?.message))) throw error
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
       await waitUntilVerified([pkg], { ...options, runtime }, verification)
       continue
@@ -721,7 +780,6 @@ export async function publishReleaseArtifacts(options) {
     published.push(pkg)
   }
 
-  // npm can take minutes to serve new versions, so check the whole set once instead of after each package.
   await waitUntilVerified(published, { ...options, runtime }, verification)
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)

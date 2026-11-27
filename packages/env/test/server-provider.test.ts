@@ -5,6 +5,7 @@ import { env } from "../src/core/declarations.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { defineEnvProvider } from "../src/provider.ts"
 import { inspectServerEnv, loadServerEnv, resolveServerEnv } from "../src/server.ts"
+import type { SecretEnv } from "../src/index.ts"
 import type { EnvProviderValues } from "../src/types.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
 
@@ -19,19 +20,34 @@ function providerRegistry() {
 }
 
 describe("Server Env providers", () => {
-  it("skips empty values only when ordered environment sources request it", async () => {
+  it("treats an empty variable as missing in every ordered source", async () => {
     const registry = createRuntimeRegistry({
-      token: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true }) }),
-      unchanged: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
+      token: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
     })
 
     const event = cloudflareRequest({ PRIMARY_TOKEN: "", FALLBACK_TOKEN: "fallback" })
-    expect(resolveServerEnv(registry, event)).toEqual({ token: "fallback", unchanged: "" })
-    await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback", unchanged: "" })
+    expect(resolveServerEnv(registry, event)).toEqual({ token: "fallback" })
+    await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback" })
     expect(() => resolveServerEnv(registry, cloudflareRequest({ PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" })).token).toThrow(expect.objectContaining({
       code: "ENV_REQUIRED_MISSING",
-      details: { path: "env.server.token", source: "env" },
+      details: { names: ["VITEHUB_TOKEN", "PRIMARY_TOKEN", "FALLBACK_TOKEN"], path: "env.server.token", source: "env" },
     }))
+  })
+
+  it("does not let an empty VITEHUB_<PATH> win over the conventional name or satisfy a required secret", async () => {
+    const registry = createRuntimeRegistry({
+      apiKey: env({ secret: true, source: env.source("VENDOR_API_KEY") }),
+      region: env(),
+    })
+    const shadowed = resolveServerEnv<{ apiKey: SecretEnv<string>, region: string }>(registry, cloudflareRequest({ VITEHUB_API_KEY: "", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "", REGION: "eu" }))
+    expect(shadowed.region).toBe("eu")
+    expect(shadowed.apiKey.unseal()).toBe("vendor-secret")
+    expect(() => resolveServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "", REGION: "eu" })).apiKey).toThrow(expect.objectContaining({
+      code: "ENV_REQUIRED_MISSING",
+      details: { names: ["VITEHUB_API_KEY", "VENDOR_API_KEY"], path: "env.server.apiKey", source: "env" },
+    }))
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "", VITEHUB_REGION: "" }))
+    expect(inspection.entries.map(entry => entry.status)).toEqual(["missing", "missing"])
   })
 
   it("preserves __proto__ as an own key in every snapshot", async () => {
@@ -223,7 +239,6 @@ describe("Server Env providers", () => {
     const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
     const failures = [
       Object.assign(new Error("provider cancelled with private token"), { name: "AbortError" }),
-      // Deliberately bypass the public detail type to prove application errors cannot publish private fields.
       new ViteHubError("ENV_SOURCE_FAILED", "Application provider exposed a private token.", {
         details: { source: "provider", token: "private" } as never,
       }),
@@ -279,7 +294,6 @@ describe("Server Env providers", () => {
       failed: env({ optional: true, secret: true, source: env.provider("failed", "private/remote-key") }),
     })
     const values = defineEnvProvider({
-      // Deliberately bypass the public value type to prove runtime hardening at an untyped boundary.
       read: vi.fn(async () => Object.defineProperty({}, "invalid-value", {
         enumerable: true,
         value: { secret: "must-not-leak" },
@@ -318,7 +332,7 @@ describe("Server Env providers", () => {
     expect(missingRequired).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
       details: { path: "env.server.token", source: "provider" },
-      message: "[vitehub] Required Env value is missing.",
+      message: "[vitehub] Required Env value env.server.token is missing.",
     })
 
     const hostile = createRuntimeRegistry({
@@ -346,7 +360,6 @@ describe("Server Env providers", () => {
     await expect(loadServerEnv(registry, undefined, {
       providers: {
         secrets: defineEnvProvider({
-          // Deliberately bypass the public return type to prove runtime hardening at an untyped boundary.
           read: async () => Object.create(new (class ProviderValues { token = "secret" })()),
         }),
       },

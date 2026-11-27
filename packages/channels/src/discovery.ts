@@ -28,8 +28,6 @@ function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["
   })
 }
 
-const agentChannelModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
-// Default exports that cannot be a Channel Definition object.
 const nonDefinitionTypes = new Set<string>([
   "ArrayExpression",
   "ArrowFunctionExpression",
@@ -42,7 +40,6 @@ const nonDefinitionTypes = new Set<string>([
   "UnaryExpression",
 ])
 
-// A default export that is an object literal must carry `adapter`, unless a spread or computed key can add it.
 function canBeChannelDefinitionObject(value: Node): boolean {
   if (value.type !== "ObjectExpression") return true
   return objectProperties(value).some(property => property.node.type === "SpreadElement" || property.key === undefined || property.key === "adapter")
@@ -52,34 +49,24 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
   return node.type === "Identifier" ? node.name : node.value
 }
 
-/**
- * A module in `server/channels` is a Channel when its default export can be a `defineChannel()` result: not a
- * function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read, not run. A module
- * that cannot be read statically stays a Channel, so the runtime reports its problems.
- */
 function isChannelModule(file: string): boolean {
-  const module = scanModule(readFileSync(file, "utf8"), file)
+  return isOutboundChannelSource(readFileSync(file, "utf8"), file)
+}
+
+/** Classifies a Channel's source without running it or requiring a file on disk. */
+export function isOutboundChannelSource(source: string, file: string): boolean {
+  const module = scanModule(source, file)
   if (module.errors.length) return true
 
   const bindings = new Map<string, Node>()
-  const agentChannelFactories = new Set<string>()
-  const agentChannelNamespaces = new Set<string>()
   let defaultExport: Node | undefined
   let hasDefault = false
   let reexportsAll = false
 
   for (const statement of module.program.body) {
-    if (statement.type === "ImportDeclaration") {
-      if (statement.importKind === "type" || !agentChannelModules.has(statement.source.value)) continue
-      for (const specifier of statement.specifiers) {
-        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && exportName(specifier.imported) === "defineChannel") agentChannelFactories.add(specifier.local.name)
-        if (specifier.type === "ImportNamespaceSpecifier") agentChannelNamespaces.add(specifier.local.name)
-      }
-      continue
-    }
+    if (statement.type === "ImportDeclaration") continue
     if (statement.type === "ExportDefaultDeclaration") {
       const declaration = statement.declaration
-      // An interface is a type. The module has no default export at runtime.
       if (declaration.type === "TSInterfaceDeclaration") continue
       hasDefault = true
       defaultExport = declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" ? declaration : unwrapExpression(declaration)
@@ -87,7 +74,6 @@ function isChannelModule(file: string): boolean {
     }
     if (statement.type === "ExportAllDeclaration") {
       if (statement.exportKind === "type") continue
-      // `export *` can re-export a default from a module that this check does not read.
       if (!statement.exported) reexportsAll = true
       else if (exportName(statement.exported) === "default") hasDefault = true
       continue
@@ -113,20 +99,6 @@ function isChannelModule(file: string): boolean {
     }
   }
 
-  // Follow local aliases assigned from an imported Agent `defineChannel`.
-  // This keeps static classification aligned with the runtime call even when
-  // the default export goes through one or more intermediate bindings.
-  let aliasesChanged = true
-  while (aliasesChanged) {
-    aliasesChanged = false
-    for (const [name, binding] of bindings) {
-      if (binding.type === "Identifier" && agentChannelFactories.has(binding.name) && !agentChannelFactories.has(name)) {
-        agentChannelFactories.add(name)
-        aliasesChanged = true
-      }
-    }
-  }
-
   if (!hasDefault) return reexportsAll
 
   const seen = new Set<string>()
@@ -139,18 +111,10 @@ function isChannelModule(file: string): boolean {
   }
   if (!value) return true
   if (value.type === "Identifier" && (value.name === "undefined" || value.name === "NaN" || value.name === "Infinity")) return false
-  if (value.type !== "CallExpression") return !nonDefinitionTypes.has(value.type) && canBeChannelDefinitionObject(value)
-  const callee = unwrapExpression(value.callee)
-  if (callee.type === "Identifier") return !agentChannelFactories.has(callee.name)
-  return !(callee.type === "MemberExpression"
-    && callee.object.type === "Identifier"
-    && agentChannelNamespaces.has(callee.object.name)
-    && (!callee.computed
-      ? callee.property.type === "Identifier" && callee.property.name === "defineChannel"
-      : callee.property.type === "Literal" && callee.property.value === "defineChannel"))
+  return value.type === "CallExpression" || (!nonDefinitionTypes.has(value.type) && canBeChannelDefinitionObject(value))
 }
 
-const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+const channelModules = new Set(["vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 const webhookAdapterNames = new Set(["stripe", "webhook"])
 
 /**

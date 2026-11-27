@@ -38,7 +38,7 @@ describe("@vite-hub/icons", () => {
   })
 
   it("names icons in kebab case", () => {
-    for (const name of Object.keys(bodies)) expect(name).toMatch(/^[a-z]+(?:-[a-z]+)*$/)
+    for (const name of Object.keys(bodies)) expect(name).toMatch(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/)
   })
 
   it("publishes the built set as Iconify JSON", async () => {

@@ -1,6 +1,7 @@
 import {
   computed,
   getCurrentInstance,
+  isRef,
   onBeforeUnmount,
   onMounted,
   provide,
@@ -22,8 +23,10 @@ import {
   type AnchorPosition,
   type AnchorTarget,
   type CommentAnchor,
+  type CommentDelivery,
   type CommentMessage,
   type CommentsClient,
+  type CommentsOutboxEntry,
   type CommentsClientStatus,
   type CommentSubject,
   type CommentThread,
@@ -31,8 +34,9 @@ import {
   type CreateAnchorOptions,
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
-import { repliedSinceResolved } from "../internal/comment-status.ts";
+import { useSelectedComment } from "../internal/comment-selection.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
 /**
@@ -58,6 +62,8 @@ export interface CommentDraft {
   mentions: string[];
   /** Attachment keys, such as Blob keys, that the comment sends. */
   attachments: string[];
+  /** Files that the composer starts with, such as a screenshot. They upload with the comment, as picked files do. */
+  files?: File[];
   busy: boolean;
   error: string | undefined;
 }
@@ -106,6 +112,34 @@ export interface UseCommentsOptions {
   autoStart?: boolean;
   /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
   can?: CommentCan;
+  /**
+   * Which comments show on the page. Default `"all"`. Pass a ref to keep the reader's choice, such as one saved in
+   * `localStorage`: the state reads and writes it.
+   */
+  visibility?: CommentVisibility | Ref<CommentVisibility>;
+  /** How long a comment or reply that was just sent shows while comments are hidden. Default `2500`. */
+  flashMs?: number;
+}
+
+/**
+ * The comments and replies that the client's outbox saved and did not send yet. Without the `outbox` option of
+ * `createCommentsClient()`, it is empty and its actions do nothing.
+ */
+export interface CommentsOutboxState {
+  /** `true` when the client has an outbox. */
+  readonly enabled: boolean;
+  /** The entries that wait or go out now, in order. */
+  readonly queued: ComputedRef<readonly CommentsOutboxEntry[]>;
+  /** The entries that the server refused. */
+  readonly failures: ComputedRef<readonly CommentsOutboxEntry[]>;
+  /** Whether the thread, or one of its messages, is waiting or refused. `undefined` when the server has it. */
+  delivery: (threadId: string, messageId?: string) => CommentDelivery | undefined;
+  /** Sends the waiting comment or reply `id` now. Without `id`, the whole queue tries again, such as after a sign-in. */
+  retry: (id?: string) => Promise<void>;
+  /** Removes the waiting comment or reply. `false` while it is on its way. */
+  dismiss: (id: string) => Promise<boolean>;
+  /** Changes the text of the waiting comment or reply. A refused one goes back in the queue. `false` while it is on its way. */
+  edit: (id: string, body: string, mentions?: string[]) => Promise<boolean>;
 }
 
 export interface CommentsState {
@@ -121,12 +155,14 @@ export interface CommentsState {
   readonly scope: Ref<CommentScope>;
   readonly filters: CommentFilterState;
   readonly status: Ref<CommentsClientStatus>;
-  /** Every thread that the client holds. */
+  /** Every thread that the client holds, with the ones that wait in the outbox. */
   readonly threads: ShallowRef<readonly CommentThread[]>;
+  readonly outbox: CommentsOutboxState;
   /** The threads of this page that pass the filters. They get pins. */
   readonly pageThreads: ComputedRef<CommentThread[]>;
   /** The threads that pass the filters, for the page or the whole site as `scope` says. The list shows them. */
   readonly listed: ComputedRef<CommentThread[]>;
+  readonly openThreads: ComputedRef<CommentThread[]>;
   readonly counts: ComputedRef<{ open: number; resolved: number }>;
   /** Pin positions by thread id, and `"draft"` for the comment being written. */
   readonly positions: ShallowRef<ReadonlyMap<string, AnchorPosition>>;
@@ -137,20 +173,42 @@ export interface CommentsState {
   readonly listOpen: Ref<boolean>;
   /** Goes up when a composer with text stopped a click or a key. The composer shakes by itself. */
   readonly blocked: Ref<number>;
+  /** Which comments show. Writing or opening a comment never changes it. */
+  readonly visibility: Ref<CommentVisibility>;
+  /**
+   * The ids of the threads of this page that get a pin or a mark: all of them, or while comments are hidden, the open
+   * thread and each one that was just sent or replied to. The draft always shows.
+   */
+  readonly shown: ComputedRef<ReadonlySet<string>>;
+  /** The ids of threads that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out. */
+  readonly leaving: ComputedRef<ReadonlySet<string>>;
+  /** Keeps page marks visible without opening a popover. Call the returned release function when the panel closes. */
+  retainMark: (id: string) => () => void;
+  isShown: (id: string) => boolean;
+  /** Shows the thread for `flashMs` while comments are hidden. `send()`, `create()`, and `reply()` call it. */
+  flash: (id: string) => void;
   enter: () => void;
   exit: () => void;
   toggle: () => void;
-  /** Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text. A pin has no number until the server assigns one. */
-  startDraft: (target: AnchorTarget, options?: CreateAnchorOptions) => void;
+  /**
+   * Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text.
+   * A pin has no number until the server assigns one. `files` start in its composer, such as a screenshot of the area.
+   */
+  startDraft: (target: AnchorTarget, options?: CreateAnchorOptions & { files?: File[] }) => void;
   cancelDraft: () => void;
-  /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
-  send: () => Promise<CommentThread | undefined>;
+  /**
+   * Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. With
+   * an outbox the draft closes at once and the comment shows as pending, so the next draft can start while it is saved
+   * and sent; a failure shows on that comment. Without one, the draft is `busy` until the server answers. `files` go
+   * with the comment; with an outbox they may be a promise, such as a screenshot that renders after Send.
+   */
+  send: (options?: { files?: Blob[] | Promise<Blob[]> }) => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
   /** Closes the thread, returning false when unsent text prevents closing or navigation. */
   close: () => boolean;
   /** Starts a thread on the subject. The anchor defaults to the whole page. */
-  create: (input: { body: string; mentions?: string[]; attachments?: string[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
-  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[]) => Promise<CommentThread>;
+  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[] | Promise<Blob[]>; anchor?: CommentAnchor }) => Promise<CommentThread>;
+  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[] | Promise<Blob[]>) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
@@ -168,8 +226,8 @@ export interface CommentsState {
 export const draftPositionKey = "draft";
 
 const uiSelector = "[data-comments-ui]";
+const draftComposerSelector = "[data-draft] [data-slot='comment-composer']";
 
-// The comment UI may sit in a shadow root, so an element is also in it when its shadow host is.
 function defaultIgnore(element: Element): boolean {
   for (let node: Element | null = element; node; ) {
     if (node.closest(uiSelector)) return true;
@@ -179,7 +237,6 @@ function defaultIgnore(element: Element): boolean {
   return false;
 }
 
-// Events from a shadow root are retargeted to its host, so the real element is the first one of the composed path.
 const elementsOf = (event: Event): Element[] => event.composedPath().filter((node): node is Element => node instanceof Element);
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
@@ -194,6 +251,8 @@ function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefin
 
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
 const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
+
+const someFiles = (files: Blob[] | Promise<Blob[]> | undefined): files is Blob[] | Promise<Blob[]> => files !== undefined && (!Array.isArray(files) || files.length > 0);
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -220,14 +279,26 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const filters = reactive<CommentFilterState>({ open: true, resolved: false, mine: false });
   const status = ref<CommentsClientStatus>(client.status);
   const threads = shallowRef<readonly CommentThread[]>(client.threads);
+  const outboxEntries = shallowRef<readonly CommentsOutboxEntry[]>(client.outbox?.entries ?? []);
   const positions = shallowRef<ReadonlyMap<string, AnchorPosition>>(new Map());
   const draft = ref<CommentDraft | null>(null);
   const openId = ref<string | null>(null);
+  const retained = shallowRef<ReadonlyMap<symbol, string>>(new Map());
+  const retainedIds = computed(() => new Set(retained.value.values()));
+  const retainMark = (id: string): (() => void) => {
+    const key = Symbol();
+    retained.value = new Map(retained.value).set(key, id);
+    return () => {
+      const next = new Map(retained.value);
+      next.delete(key);
+      retained.value = next;
+    };
+  };
   const hoverId = ref<string | null>(null);
   const listOpen = ref(false);
   const blocked = ref(0);
 
-  const isOpen = (thread: CommentThread): boolean => thread.status === "open" || repliedSinceResolved(thread);
+  const isOpen = (thread: CommentThread): boolean => thread.status === "open";
   const passes = (thread: CommentThread): boolean => {
     const shown = (filters.open && isOpen(thread)) || (filters.resolved && thread.status === "resolved");
     if (!shown) return false;
@@ -238,34 +309,60 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listed = computed(() =>
     threads.value.filter(thread => (scope.value === "site" || onPage(thread)) && passes(thread)),
   );
-  const counts = computed(() => {
-    const scoped = threads.value.filter(thread => scope.value === "site" || onPage(thread));
-    return {
-      open: scoped.filter(isOpen).length,
-      resolved: scoped.filter(thread => thread.status === "resolved").length,
-    };
+  const scoped = computed(() => threads.value.filter(thread => scope.value === "site" || onPage(thread)));
+  const openThreads = computed(() => scoped.value.filter(isOpen));
+  const counts = computed(() => ({
+    open: openThreads.value.length,
+    resolved: scoped.value.filter(thread => thread.status === "resolved").length,
+  }));
+  const opened = useSelectedComment(threads, openId);
+  watch(opened, thread => {
+    if (thread && thread.id !== openId.value) openId.value = thread.id;
+  }, { flush: "sync" });
+
+  const visibility = isRef(options.visibility) ? options.visibility : ref<CommentVisibility>(options.visibility ?? "all");
+  const seen = createCommentVisibility({ visibility: visibility.value, flashMs: options.flashMs });
+  const seenChanges = ref(0);
+  seen.subscribe(() => seenChanges.value++);
+  watch(visibility, value => seen.set(value), { flush: "sync" });
+  watch(openId, id => seen.open(id), { flush: "sync" });
+  watch(hoverId, id => seen.hover(id), { flush: "sync" });
+  const marked = computed(() => {
+    void seenChanges.value;
+    const ids = new Set(pageThreads.value.map(thread => thread.id));
+    if (opened.value && onPage(opened.value)) ids.add(opened.value.id);
+    for (const thread of threads.value) {
+      const temporary = visibility.value === "hidden" && (seen.isShown(thread.id) || seen.leaving.includes(thread.id));
+      if (onPage(thread) && (retainedIds.value.has(thread.id) || temporary)) ids.add(thread.id);
+    }
+    return ids;
   });
-  const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
+  const shown = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set([...marked.value].filter(id => seen.isShown(id) || retainedIds.value.has(id)));
+  });
+  const leaving = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set(seen.leaving.filter(id => marked.value.has(id) && !retainedIds.value.has(id)));
+  });
+  const flash = (id: string): void => seen.flash(id);
 
   const root = (): ParentNode => toValue(options.root) ?? document;
   const uiRoot = (): ParentNode => toValue(options.uiRoot) ?? document;
 
   function measure(): void {
     const next = new Map<string, AnchorPosition>();
-    for (const thread of pageThreads.value) next.set(thread.id, resolveAnchor(thread.anchor, root()));
-    // An open thread keeps its pin even when a filter would hide it.
-    const current = opened.value;
-    if (current && onPage(current) && !next.has(current.id)) next.set(current.id, resolveAnchor(current.anchor, root()));
+    for (const thread of threads.value.filter(thread => marked.value.has(thread.id))) next.set(thread.id, resolveAnchor(thread.anchor, root()));
     if (draft.value) next.set(draftPositionKey, resolveAnchor(draft.value.anchor, root()));
     const previous = positions.value;
     const same = next.size === previous.size && [...next].every(([key, position]) => samePosition(position, previous.get(key)));
     if (!same) positions.value = next;
   }
 
-  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
-  const block = (): void => {
+  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot(), draft.value ? undefined : draftComposerSelector);
+  const block = (escape = false): void => {
     blocked.value++;
-    shakeDirtyComposers(uiRoot());
+    shakeDirtyComposers(uiRoot(), escape);
   };
 
   function enter(): void {
@@ -274,15 +371,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const container = selection.getRangeAt(0).commonAncestorContainer;
       const element = container instanceof Element ? container : container.parentElement;
-      // A selection that the page removed since, such as after a router swapped the body, has nothing to anchor to.
       if (element?.isConnected && !ignore(element)) {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
         try {
           startDraft(selection, { point: { x: rect.left, y: rect.top } });
           selection.removeAllRanges();
-        } catch {
-          // Comment mode stays on, and a click drops the pin.
-        }
+        } catch {}
       }
     }
   }
@@ -298,8 +392,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     hoverId.value = null;
     return true;
   }
-  function exit(): void {
-    if (hasText()) return block();
+  function exit(escape = false): void {
+    if (hasText()) return block(escape);
     cancelDraft();
     close();
     active.value = false;
@@ -309,13 +403,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     else enter();
   }
 
-  function startDraft(target: AnchorTarget, anchorOptions: CreateAnchorOptions = {}): void {
+  function startDraft(target: AnchorTarget, { files, ...anchorOptions }: CreateAnchorOptions & { files?: File[] } = {}): void {
     if (hasText()) return block();
     close();
     const anchor = createAnchor(target, { root: root(), ignore, ...anchorOptions });
     let point = anchorOptions.point ?? { x: 0, y: 0 };
     if (target === "page") {
-      // A comment on the whole page has no spot, so its composer opens near the top.
       point = { x: Math.max(16, window.innerWidth / 2 - 180), y: 96 };
     } else if ("nodeType" in target) {
       const box = target.getBoundingClientRect();
@@ -323,28 +416,45 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     } else if (!("rangeCount" in target) && !("startContainer" in target)) {
       point = target;
     }
-    draft.value = { anchor, point, body: "", mentions: [], attachments: [], busy: false, error: undefined };
+    draft.value = { anchor, point, body: "", mentions: [], attachments: [], ...(files?.length ? { files } : {}), busy: false, error: undefined };
     measure();
   }
 
-  async function send(): Promise<CommentThread | undefined> {
+  async function send(sendOptions: { files?: Blob[] | Promise<Blob[]> } = {}): Promise<CommentThread | undefined> {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
-    if (!current || current.busy || (!body && current.attachments.length === 0)) return undefined;
+    const files = sendOptions.files;
+    const hasFiles = someFiles(files);
+    if (!current || current.busy || (!body && current.attachments.length === 0 && !hasFiles)) return undefined;
     const submittedBody = current.body;
     const mentions = [...current.mentions];
     const attachments = [...current.attachments];
-    current.busy = true;
+    const input = {
+      subject: subject.value,
+      anchor: toRaw(current.anchor),
+      body,
+      mentions,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(hasFiles ? { files } : {}),
+    };
     current.error = undefined;
+    if (client.outbox) {
+      draft.value = null;
+      try {
+        const thread = await client.create(input);
+        flash(thread.id);
+        return thread;
+      } catch (error) {
+        current.error = describeError(error);
+        if (!draft.value) draft.value = current;
+        return undefined;
+      }
+    }
+    current.busy = true;
     try {
-      const thread = await client.create({
-        subject: subject.value,
-        anchor: toRaw(current.anchor),
-        body,
-        mentions,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      });
+      const thread = await client.create(input);
       current.busy = false;
+      flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
@@ -354,7 +464,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     }
   }
 
-  // The element may not be on the page yet, for example while a route renders. Try for a few seconds, then give up.
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   function reveal(id: string): void {
     clearTimeout(revealTimer);
@@ -390,7 +499,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    // URL normalization can produce a pathname that reparses as a protocol-relative link.
     const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
     return `${pathname}${url.search}${url.hash}`;
   }
@@ -404,7 +512,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!Number.isInteger(n) || n < 1) return;
     const thread = threads.value.find(entry => entry.n === n && onPage(entry));
     if (!thread) return;
-    // A deep link shows its thread, even a resolved one that a filter hides.
     if (thread.status === "resolved") filters.resolved = true;
     filters.mine = false;
     open(thread, { scroll: true });
@@ -416,18 +523,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const origin = path[0];
     if (event.key === "Escape") {
       if (path.some(element => element.matches("[data-slot='comment-composer']"))) return;
-      if (active.value || draft.value || openId.value) exit();
+      if (active.value || draft.value || openId.value) exit(true);
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;
-    // The keyboard way to drop a pin: in comment mode, Enter on the focused element comments on it.
     if (event.key === "Enter" && active.value && origin && !path.some(ignore) && origin !== document.body && origin !== document.documentElement) {
       event.preventDefault();
       try {
         startDraft(origin);
-      } catch {
-        // Nothing of the page to comment on.
-      }
+      } catch {}
       return;
     }
     if (hotkey === false || event.key.toLowerCase() !== hotkey) return;
@@ -437,11 +541,11 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   function start(): () => void {
     const stops: Array<() => void> = [];
-    // Set before `client.start()`: a new query makes an answer that is still on its way stale.
     client.query = scope.value === "page" ? { subject: subject.value } : {};
     stops.push(client.onChange(() => {
       status.value = client.status;
       threads.value = client.threads;
+      outboxEntries.value = client.outbox?.entries ?? [];
     }));
     status.value = client.status;
     threads.value = client.threads;
@@ -459,7 +563,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
-    // Images and fonts that load later move the page.
     window.addEventListener("load", schedule, { capture: true });
     document.fonts?.addEventListener("loadingdone", schedule);
     const onPopstate = (): void => {
@@ -467,9 +570,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       applyDeepLink();
     };
     window.addEventListener("popstate", onPopstate);
-    // Hosts with History API routing can supply a reactive location without synthesizing browser events.
     stops.push(watch(() => options.location?.().search, onPopstate));
-    // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
@@ -483,11 +584,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(watch(root, value => {
       observer.disconnect();
       observer.observe(document.documentElement, observeOptions);
-      // Shadow mutations do not cross the host. Keep watching the outer layout as well.
       if (value !== document) observer.observe(value, observeOptions);
       schedule();
     }, { immediate: true, flush: "post" }));
-    // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
     const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
     const watched = new Set<Element>();
     const follow = (): void => {
@@ -516,16 +615,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resizes?.disconnect();
       clearTimeout(revealTimer);
       if (frame) cancelAnimationFrame(frame);
+      seen.stop();
     });
 
     stops.push(watch(positions, follow, { flush: "post" }));
     stops.push(watch(
-      [pageThreads, () => draft.value?.anchor, openId],
+      [marked, () => draft.value?.anchor, openId],
       () => measure(),
       { flush: "post" },
     ));
     stops.push(watch(() => status.value === "ready", ready => ready && applyDeepLink(), { immediate: true }));
-    // By value: a parent that re-renders with a new `{ kind, id }` object for the same page must not reset the draft.
     stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();
@@ -567,6 +666,19 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   const can: CommentCan = (action, target) => user.value !== undefined && (options.can ?? defaultCommentCan(user.value))(action, target);
 
+  const outbox: CommentsOutboxState = {
+    enabled: client.outbox !== undefined,
+    queued: computed(() => outboxEntries.value.filter(entry => entry.status !== "failed")),
+    failures: computed(() => outboxEntries.value.filter(entry => entry.status === "failed")),
+    delivery(threadId, messageId) {
+      const thread = threads.value.find(item => item.id === threadId);
+      return messageId === undefined ? thread?.delivery : thread?.messages.find(item => item.id === messageId)?.delivery;
+    },
+    retry: async id => client.outbox?.retry(id),
+    dismiss: async id => (await client.outbox?.dismiss(id)) ?? false,
+    edit: async (id, body, mentions) => (await client.outbox?.edit(id, body, mentions)) ?? false,
+  };
+
   const state: CommentsState = {
     client,
     subject,
@@ -578,8 +690,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     filters,
     status,
     threads,
+    outbox,
     pageThreads,
     listed,
+    openThreads,
     counts,
     positions,
     draft,
@@ -588,6 +702,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     opened,
     listOpen,
     blocked,
+    visibility,
+    shown,
+    leaving,
+    retainMark,
+    isShown: id => shown.value.has(id),
+    flash,
     enter,
     exit,
     toggle,
@@ -596,10 +716,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     send,
     open,
     close,
-    create: ({ anchor = { kind: "page" }, attachments, body, mentions }) =>
-      client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
-    reply: (threadId, body, mentions, attachments) =>
-      client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
+    create: async ({ anchor = { kind: "page" }, attachments, body, files, mentions }) => {
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
+      flash(thread.id);
+      return thread;
+    },
+    reply: async (threadId, body, mentions, attachments, files) => {
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
+      flash(threadId);
+      return thread;
+    },
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
     remove: async (threadId, messageId) => {
       const next = await client.delete({ threadId, messageId });

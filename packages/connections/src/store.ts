@@ -1,6 +1,6 @@
 import { createEnvBridge } from "@vite-hub/env/bridge"
 import { createDatabaseEnvStore } from "@vite-hub/env/database"
-import { importSealKey, unseal } from "@vite-hub/env/seal"
+import type { EnvStoreRotation } from "@vite-hub/env/database"
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 
@@ -25,6 +25,8 @@ export interface ConnectionState {
 
 export interface ConnectionAuthorization {
   chatgpt?: { clientId: string, nonce: string, subject?: string }
+  /** The client that ViteHub registered and that built the authorization URL. The code exchange uses the same client. */
+  client?: { id: string, key: string }
   actor: string
   expiresAt: number
   name: string
@@ -60,6 +62,8 @@ export interface ConnectionStore {
     release: (name: string, owner: string) => Promise<void>
   }
   bridge: EnvBridge
+  /** Re-encrypt stored tokens with the current key. `createDatabaseConnectionStore()` provides it. */
+  rotate?: () => Promise<EnvStoreRotation>
   secrets: EnvSecretStore
   access: EnvAccessStore
   state: {
@@ -73,6 +77,7 @@ export interface ConnectionStore {
 const identifier = v.pipe(v.string(), v.minLength(1), v.maxLength(512))
 const chatgptStateSchema = v.object({ clientId: v.string(), expiresAt: v.optional(v.number()) })
 const chatgptAuthorizationSchema = v.object({ clientId: v.string(), nonce: v.string(), subject: v.optional(v.string()) })
+const authorizationClientSchema = v.object({ id: v.string(), key: v.string() })
 const stateRow = v.object({
   chatgpt: v.nullable(v.string()),
   account_email: v.nullable(v.string()),
@@ -86,6 +91,7 @@ const stateRow = v.object({
 })
 const authorizationRow = v.object({
   chatgpt: v.nullable(v.string()),
+  client: v.nullable(v.string()),
   actor: identifier,
   expires_at: v.number(),
   name: identifier,
@@ -107,9 +113,6 @@ const approvalRow = v.object({
   status: v.picklist(["approved", "denied", "executed", "failed", "pending"]),
   trace_id: v.nullable(v.string()),
 })
-const legacyGrantRow = v.object({ name: identifier, provider: v.string(), account: v.nullable(v.string()), scopes: v.string(), payload: v.string(), revision: identifier, status: v.picklist(["active", "disconnected", "error", "needs-reconnect"]), connected_at: v.string(), updated_at: v.string(), expires_at: v.nullable(v.number()) })
-const legacyPendingRow = v.object({ state: identifier, name: identifier, payload: v.string(), expires_at: v.number(), opened: v.number() })
-const legacyTokenSet = v.object({ accessToken: v.string(), account: v.optional(v.string()), expiresAt: v.optional(v.number()), refreshToken: v.optional(v.string()), scopes: v.array(v.string()), tokenType: v.string() })
 
 function parseJson(value: string): unknown {
   try {
@@ -152,15 +155,22 @@ function toApproval(row: unknown): ConnectionApproval {
  * Activity, one event per provider request, is pruned by `activityRetention`:
  * 14 days and 10,000 events by default, `false` keeps all activity.
  */
-export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKey: Uint8Array }): ConnectionStore {
-  const envStore = createDatabaseEnvStore({ db: options.db, encryptionKey: options.encryptionKey, namespace: "connections" })
+export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKeys: readonly Uint8Array[] }): ConnectionStore {
+  const envStore = createDatabaseEnvStore({ db: options.db, encryptionKeys: options.encryptionKeys, namespace: "connections" })
   const retention = resolveActivityRetention(options.activityRetention)
-  // One DELETE drops events past the newest `maxRecords` and events older than `maxAgeMs`.
-  // Events store `timestamp` as an ISO string, so text order is time order.
+  let activityIndexes: Promise<void> | undefined
+  const createActivityIndexes = async () => {
+    await options.db.run(sql`CREATE INDEX IF NOT EXISTS vitehub_connections_activity_sequence ON vitehub_env_activity (namespace, sequence) WHERE namespace = 'connections'`)
+    await options.db.run(sql`CREATE INDEX IF NOT EXISTS vitehub_connections_activity_time ON vitehub_env_activity (namespace, json_extract(payload, '$.timestamp')) WHERE namespace = 'connections' AND json_valid(payload)`)
+  }
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
+    await (activityIndexes ??= createActivityIndexes().catch((error: unknown) => {
+      activityIndexes = undefined
+      throw error
+    }))
     const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
     await options.db.run(
-      sql`DELETE FROM vitehub_env_activity WHERE namespace = 'connections' AND (sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords}) OR json_extract(payload, '$.timestamp') < ${cutoff})`,
+      sql`DELETE FROM vitehub_env_activity WHERE (namespace = 'connections' AND sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords})) OR (namespace = 'connections' AND json_valid(payload) AND json_extract(payload, '$.timestamp') < ${cutoff})`,
     )
   }
   const access: EnvAccessStore = retention === false
@@ -169,7 +179,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         ...envStore.access,
         async append(event) {
           await envStore.access.append(event)
-          // Pruning is housekeeping. It never fails the provider request that wrote the event.
           await pruneActivity(retention).catch((error: unknown) => {
             console.warn("[vitehub] Connections could not prune old activity. The next prune retries.", error)
           })
@@ -178,7 +187,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
   const bridge = createEnvBridge({
     ...envStore,
     access,
-    // Connections never resolves tokens as an Env provider. Each call gets a narrow context from Env.
     runtimeActor: { id: "connections", kind: "service" },
   })
   const db = options.db
@@ -195,41 +203,12 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         sql`CREATE TABLE IF NOT EXISTS vitehub_connection_approvals (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, trace_id TEXT, invocation_id TEXT, created_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT, error TEXT, execution_expires_at TEXT)`,
       )
       await db.run(sql`CREATE TABLE IF NOT EXISTS vitehub_connection_refresh_leases (name TEXT PRIMARY KEY, owner TEXT NOT NULL, revision TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
-      for (const table of ["vitehub_connection_state", "vitehub_connection_authorizations"]) {
+      for (const [table, name] of [["vitehub_connection_state", "chatgpt"], ["vitehub_connection_authorizations", "chatgpt"], ["vitehub_connection_authorizations", "client"]]) {
         const hasMetadata = async () => (await db.all(sql.raw(`PRAGMA table_info(${table})`)))
-          .some(column => v.parse(v.object({ name: v.string() }), column).name === "chatgpt")
+          .some(column => v.parse(v.object({ name: v.string() }), column).name === name)
         if (!await hasMetadata()) {
-          try { await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN chatgpt TEXT`)) }
+          try { await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${name} TEXT`)) }
           catch (error) { if (!await hasMetadata()) throw error }
-        }
-      }
-      // Move data from the original sealed-grant/pending tables before serving reads.
-      const legacyTables = await db.all(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('vitehub_connection_grants', 'vitehub_connection_pending')`)
-      const legacyNames = new Set(legacyTables.map(row => v.parse(v.object({ name: v.string() }), row).name))
-      if (legacyNames.has("vitehub_connection_grants")) {
-        const key = await importSealKey(options.encryptionKey)
-        const rows = await db.all(sql`SELECT name, provider, account, scopes, payload, revision, status, connected_at, updated_at, expires_at FROM vitehub_connection_grants`)
-        for (const row of rows) {
-          const grant = v.parse(legacyGrantRow, row)
-          const legacyToken = v.parse(legacyTokenSet, JSON.parse(await unseal(key, new TextEncoder().encode(JSON.stringify(["connection-grant", grant.name, grant.revision])), grant.payload)))
-          const token = { ...legacyToken, ...(legacyToken.account ? { accountId: legacyToken.account } : {}) }
-          const secretKey = `connection/${grant.name}`
-          if (!(await envStore.secrets.inspect(secretKey))) {
-            await envStore.secrets.replace({ key: secretKey, value: JSON.stringify(token), expectedRevision: null })
-          }
-          await db.run(sql`INSERT INTO vitehub_connection_state (name, status, account_id, account_email, scopes, connected_at, refreshed_at, updated_at) VALUES (${grant.name}, ${grant.status === "active" ? "connected" : grant.status === "needs-reconnect" ? "reauth_required" : "revoked"}, ${token.accountId ?? null}, ${grant.account ?? null}, ${JSON.stringify(token.scopes)}, ${grant.connected_at}, ${grant.updated_at}, ${grant.updated_at}) ON CONFLICT (name) DO NOTHING`)
-        }
-      }
-      if (legacyNames.has("vitehub_connection_pending")) {
-        const key = await importSealKey(options.encryptionKey)
-        const now = Date.now()
-        const rows = await db.all(sql`SELECT state, name, payload, expires_at, opened FROM vitehub_connection_pending WHERE opened = 1 AND expires_at > ${now}`)
-        for (const row of rows) {
-          const pending = v.parse(legacyPendingRow, row)
-          const value = v.parse(v.object({ actor: v.object({ id: v.string(), kind: v.string() }), redirectUri: v.string(), verifier: v.string() }), JSON.parse(await unseal(key, new TextEncoder().encode(JSON.stringify(["connection-pending", pending.state])), pending.payload)))
-          await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${pending.state}, ${pending.name}, ${`${value.actor.kind}:${value.actor.id}`}, ${value.verifier}, ${value.redirectUri}, ${pending.expires_at}) ON CONFLICT (state) DO NOTHING`)
-          // Remove migrated rows so a consumed authorization cannot be restored on restart.
-          await db.run(sql`DELETE FROM vitehub_connection_pending WHERE state = ${pending.state}`)
         }
       }
       const columns = await db.all(sql`PRAGMA table_info(vitehub_connection_approvals)`)
@@ -266,6 +245,10 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
   return {
     ...envStore,
     access,
+    async rotate() {
+      await initialize()
+      return envStore.rotate()
+    },
     secrets: {
       async inspect(key) {
         await initialize()
@@ -329,14 +312,14 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
       async put(authorization) {
         await initialize()
         await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at <= ${Date.now()}`)
-        await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at, chatgpt) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt}, ${authorization.chatgpt ? JSON.stringify(authorization.chatgpt) : null})`)
+        await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at, chatgpt, client) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt}, ${authorization.chatgpt ? JSON.stringify(authorization.chatgpt) : null}, ${authorization.client ? JSON.stringify(authorization.client) : null})`)
       },
       async take(state) {
         await initialize()
-        const row = (await db.all(sql`DELETE FROM vitehub_connection_authorizations WHERE state = ${state} RETURNING state, name, actor, verifier, redirect_uri, expires_at, chatgpt`))[0]
+        const row = (await db.all(sql`DELETE FROM vitehub_connection_authorizations WHERE state = ${state} RETURNING state, name, actor, verifier, redirect_uri, expires_at, chatgpt, client`))[0]
         if (row === undefined) return undefined
         const stored = v.parse(authorizationRow, row)
-        return { ...(stored.chatgpt ? { chatgpt: v.parse(chatgptAuthorizationSchema, parseJson(stored.chatgpt)) } : {}), actor: stored.actor, expiresAt: stored.expires_at, name: stored.name, redirectUri: stored.redirect_uri, state: stored.state, verifier: stored.verifier }
+        return { ...(stored.chatgpt ? { chatgpt: v.parse(chatgptAuthorizationSchema, parseJson(stored.chatgpt)) } : {}), ...(stored.client ? { client: v.parse(authorizationClientSchema, parseJson(stored.client)) } : {}), actor: stored.actor, expiresAt: stored.expires_at, name: stored.name, redirectUri: stored.redirect_uri, state: stored.state, verifier: stored.verifier }
       },
     },
     approvals: {

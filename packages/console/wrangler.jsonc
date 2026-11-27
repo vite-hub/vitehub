@@ -1,0 +1,6 @@
+// Merged into the Cloudflare output. A Worker that fetches another Worker on the same zone, such as a Console on
+// console.example.com and an app on app.example.com, gets error 1042 without `global_fetch_strictly_public`.
+{
+  "name": "vitehub-console",
+  "compatibility_flags": ["global_fetch_strictly_public"]
+}

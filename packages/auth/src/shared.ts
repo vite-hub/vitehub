@@ -12,7 +12,3 @@ export function normalizeAuthBasePath(value: string | undefined): string {
   }
   return normalized
 }
-
-export function isAuthRequestPath(pathname: string, basePath: string): boolean {
-  return basePath === "/" || pathname === basePath || pathname.startsWith(`${basePath}/`)
-}

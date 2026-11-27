@@ -23,24 +23,21 @@ const view = defineModel<"preview" | "code">("view", { default: "preview" })
 const loader = props.name ? examples[props.name] : undefined
 const live = loader ? defineAsyncComponent(loader) : undefined
 const mounts = ref(0)
-const seg = useTemplateRef<HTMLElement>("seg")
-const thumb = ref<{ left: number, width: number, slide: boolean } | null>(null)
+const views = ["preview", "code"] as const
 
-// The thumb slides under the pressed button. Its place is measured, because "Preview" and "Code" differ in width.
-function place(slide = false) {
-  const button = seg.value?.querySelector<HTMLElement>(`[data-view="${view.value}"]`)
-  if (button?.offsetWidth) thumb.value = { left: button.offsetLeft, width: button.offsetWidth, slide }
+// A segmented switch is a radio group: arrow keys move the choice and the focus, and only the checked radio is a tab
+// stop. The motion layer moves the raised look from one radio to the other.
+function onKeydown(event: KeyboardEvent) {
+  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+  if (!step) return
+  event.preventDefault()
+  const group = event.currentTarget
+  const next = views[(views.indexOf(view.value) + step + views.length) % views.length]!
+  view.value = next
+  nextTick(() => {
+    if (group instanceof HTMLElement) group.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus()
+  })
 }
-
-// A switch in a hidden tab measures zero, so it's placed again, without sliding, whenever its size changes: when its
-// tab opens or the font loads.
-let resizes: ResizeObserver | undefined
-watch(view, () => nextTick(() => place(true)))
-onMounted(() => {
-  resizes = new ResizeObserver(() => place())
-  if (seg.value) resizes.observe(seg.value)
-})
-onBeforeUnmount(() => resizes?.disconnect())
 </script>
 
 <template>
@@ -55,10 +52,8 @@ onBeforeUnmount(() => resizes?.disconnect())
         <UIcon name="i-lucide-rotate-ccw" class="size-3.5" />
         Reset
       </button>
-      <div ref="seg" class="vh-seg" role="group" aria-label="View">
-        <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
-        <button type="button" data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
-        <button type="button" data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
+      <div class="vh-seg" role="radiogroup" aria-label="View" @keydown="onKeydown">
+        <button v-for="name in views" :key="name" type="button" role="radio" data-focus-inset :data-view="name" :aria-checked="view === name" :tabindex="view === name ? 0 : -1" @click="view = name">{{ name === "preview" ? "Preview" : "Code" }}</button>
       </div>
     </div>
     <div class="vh-example-body">
@@ -121,24 +116,13 @@ onBeforeUnmount(() => resizes?.disconnect())
   }
 }
 
-/* A segmented switch: a muted track and a raised thumb that slides to the pressed button. */
+/* A segmented switch: a muted track, and a raised look on the checked radio, which the motion layer moves. */
 .vh-seg {
   position: relative;
   display: inline-flex;
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-elevated);
   padding: 3px;
-}
-
-.vh-seg-thumb {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  border-radius: 6px;
-  background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
-  transition: transform 200ms var(--vh-ease-out), width 200ms var(--vh-ease-out);
 }
 
 .vh-seg button {
@@ -152,13 +136,9 @@ onBeforeUnmount(() => resizes?.disconnect())
   transition: color 150ms ease;
 }
 
-/* Before the thumb is measured, the pressed button carries the raised surface itself. */
-.vh-seg button.is-unmeasured[aria-pressed="true"] {
+.vh-seg button[aria-checked="true"] {
   background: var(--vh-raised);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.1);
-}
-
-.vh-seg button[aria-pressed="true"] {
+  box-shadow: 0 0 0 1px var(--ui-border);
   color: var(--ui-text-highlighted);
 }
 
@@ -166,11 +146,6 @@ onBeforeUnmount(() => resizes?.disconnect())
   .vh-seg button:hover {
     color: var(--ui-text-highlighted);
   }
-}
-
-.vh-seg button:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 /* Touch screens get 44px targets. */
@@ -185,16 +160,6 @@ onBeforeUnmount(() => resizes?.disconnect())
   }
 }
 
-.vh-seg-thumb.is-still {
-  transition: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-seg-thumb {
-    transition: none;
-  }
-}
-
 /* The preview sits in a hairline frame. The source shows in its own code block. */
 .vh-example[data-view="preview"] > .vh-example-body:has(> .docs-example-preview) > :deep(:not(.docs-example-preview)),
 .vh-example[data-view="code"] > .vh-example-body > :deep(.docs-example-preview) {
@@ -202,7 +167,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 .vh-example-body > :deep(.docs-example-preview) {
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   box-shadow: 0 0 0 1px var(--ui-border);
   padding: 1.25rem 1.5rem;
 }
@@ -216,11 +181,13 @@ onBeforeUnmount(() => resizes?.disconnect())
   margin-bottom: 0;
 }
 
-/* A block that draws its own frame (code, a chart, a table, a diff, an embed, a callout, tabs, a carousel, a quiz) needs no
-   second one around it, so a preview that holds only such blocks drops its ring and padding and stacks them with a gap.
-   A block that only has an HTML renderer arrives in a `.comark-html` named after it. */
-.vh-example-body > :deep(.docs-example-preview:not(:has(> :not(style, script, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, .ctb, figure, pre, table, .comark-html:is([data-block="screenshot"], [data-block="compare"], [data-block="diff"], [data-block="question"], [data-block="poll"], [data-block="recall"]))))),
-.vh-example-body > :deep(.docs-example-preview:has(> p > :is(.cm-video, .cm-audio))) {
+/* A block that draws its own frame marks its root with `data-comark-frame` and needs no second one around it, so a
+   preview that holds only such blocks drops its ring and padding and stacks them with a gap. comark-ui's charts and
+   tables don't carry the marker, and a plain `figure`, `pre`, or `table` frames itself too. A block that only has an
+   HTML renderer arrives in a `.comark-html` wrapper, so its direct children are checked for the marker as well.
+   Only in the Preview view: these rules come after the one that hides the preview and are as specific, so they would win. */
+.vh-example[data-view="preview"] > .vh-example-body > :deep(.docs-example-preview:not(:has(> :not(style, script, .comark-html, [data-comark-frame], .cch, .ctb, figure, pre, table))):not(:has(> .comark-html > :not(style, script, [data-comark-frame], .cch, .ctb, figure, pre, table)))),
+.vh-example[data-view="preview"] > .vh-example-body > :deep(.docs-example-preview:has(> p > :is(.cm-video, .cm-audio))) {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -228,8 +195,8 @@ onBeforeUnmount(() => resizes?.disconnect())
   padding: 0;
 }
 
-.vh-example-body > :deep(.docs-example-preview > :is(.ca, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, .ctb)),
-.vh-example-body > :deep(.docs-example-preview > .comark-html > :is(.ca, .cd, .cqz)) {
+.vh-example-body > :deep(.docs-example-preview > :is([data-comark-frame], .cch, .ctb)),
+.vh-example-body > :deep(.docs-example-preview > .comark-html > [data-comark-frame]) {
   margin-block: 0;
 }
 

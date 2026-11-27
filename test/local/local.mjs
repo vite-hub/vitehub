@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Local Provider Run orchestrator: executes built Provider Output on a local
-// runtime and runs every Primitive Suite against it. Exceptions to local
-// coverage are logged loudly, never skipped silently.
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { parseArgs } from "node:util"
@@ -44,7 +41,6 @@ async function runSuite(name, command, args, env = {}, register) {
 function suiteRunner(provider, url, register) {
   const runTask = (name, task, args, env) => runSuite(name, "vp", ["run", task, ...args], env, register)
   return {
-    // blob and database take no --provider flag (parseArgs strict), matching the live workflow.
     blob: () => runTask("blob", "blob:e2e", ["--mode", "local", "--url", url]),
     database: () => runTask("database", "database:e2e", ["--url", url]),
     pkg: (name, extra = []) => runTask(name, `${name}:e2e`, ["--mode", "local", "--provider", provider, "--url", url, ...extra]),
@@ -59,7 +55,8 @@ async function runCloudflare() {
   }
   const url = `http://127.0.0.1:${CLOUDFLARE_PORT}`
   log(`starting wrangler dev on ${url}`)
-  const dev = spawn("vp", ["dlx", "wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled", "--enable-containers=false"], {
+  const wrangler = resolve(repoRoot, "node_modules/wrangler/bin/wrangler.js")
+  const dev = spawn(process.execPath, [wrangler, "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled", "--enable-containers=false"], {
     cwd: distDir,
     detached: process.platform !== "win32",
     env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },
@@ -89,16 +86,11 @@ async function runVercel() {
   if (!existsSync(resolve(outputDir, "config.json"))) {
     throw new Error("[e2e:local] Missing Vercel Provider Output. Run with --build or build the playground first.")
   }
-  // The hosted DB runtime rejects file: URLs by design; a remote-shaped URL
-  // (e.g. a local sqld container) is required for the database suite.
   const databaseUrl = process.env.TURSO_DATABASE_URL || `file:${resolve(repoRoot, ".vitehub/local-e2e.db")}`
   const hasRemoteDatabase = !databaseUrl.startsWith("file:")
   const bridgeEnv = {
-    // Emulate the documented Vercel runtime env so provider detection works.
     VERCEL: "1",
     VERCEL_ENV: "development",
-    // Placeholders satisfy import-time env checks for primitives whose suites
-    // are excepted locally (blob) or env-gated (kv); real env always wins.
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN || "vercel_blob_rw_local_placeholder",
     KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN || "local-placeholder",
     KV_REST_API_URL: process.env.KV_REST_API_URL || "https://localhost.invalid",

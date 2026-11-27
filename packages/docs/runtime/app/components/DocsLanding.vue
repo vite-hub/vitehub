@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import type { DocsPageResponse } from "@vite-hub/docs"
 
-// A landing is a wide Overview. A section Overview opens with its own hero in the Markdown, so it shows only the page
-// actions above the body and ends with the catalog footer. The docs base page is the catalog itself: it keeps the
-// page header and has no footer.
 const props = defineProps<{
   response: DocsPageResponse
   header?: boolean
@@ -14,7 +11,7 @@ const page = computed(() => props.response.page)
 </script>
 
 <template>
-  <UPage v-if="header" :ui="{ root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' }" :data-path="page.path">
+  <UPage v-if="header" :ui="withDocsTheme('page', { root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' })" :data-path="page.path">
     <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined">
       <template #links>
         <DocsPageHeaderLinks />
@@ -24,6 +21,7 @@ const page = computed(() => props.response.page)
     <UPageBody prose class="docs-content docs-catalog-content pb-16">
       <DocsMarkdown :document="response.document" />
       <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
+      <DocsBuiltWith class="not-prose mt-8" />
     </UPageBody>
   </UPage>
 

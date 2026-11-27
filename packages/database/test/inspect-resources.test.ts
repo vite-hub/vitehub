@@ -15,7 +15,7 @@ afterEach(async () => {
 async function writeDefinition(rootDir: string, name: string, cloudflare: string) {
   const dir = join(rootDir, "server", "databases", name)
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "config.ts"), [
+  await writeFile(join(dir, "index.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "export default defineDatabase({",
     `  name: ${JSON.stringify(name)},`,

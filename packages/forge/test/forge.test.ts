@@ -4,7 +4,6 @@ import { fixtureFetch } from "forges/testing"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  ForgeResponseError,
   forgeErrorStatus,
   forgeProvider,
   githubAppCredentials,
@@ -20,6 +19,23 @@ function privateKeys(type: "pkcs1" | "pkcs8") {
 }
 
 describe("internal Forge client", () => {
+  it("retries the bot user lookup after returning its plain noreply email", async () => {
+    let lookups = 0
+    const fetcher: typeof fetch = async (input, init) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/app") return Response.json({ id: 123, slug: "acme-bot" })
+      expect(path).toBe("/users/acme-bot%5Bbot%5D")
+      expect(new Headers(init?.headers).has("authorization")).toBe(false)
+      if (++lookups === 1) return Response.json({ message: "Bot user lookup failed" }, { status: 403 })
+      return Response.json({ id: 900 })
+    }
+    const credentials = githubAppCredentials({ appId: 123, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    expect(lookups).toBe(2)
+  })
+
   it("caches installation tokens and refreshes them when asked", async () => {
     const key = privateKeys("pkcs8")
     const fixture = fixtureFetch([
@@ -56,6 +72,25 @@ describe("internal Forge client", () => {
 
       clock.mockReturnValue(now + 60_000)
       await expect(other.installationToken(42)).resolves.toMatchObject({ token: "token-2" })
+      expect(calls).toBe(2)
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
+  it("replaces a cached token that expires within the requested lifetime", async () => {
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    try {
+      let calls = 0
+      const fetcher: typeof fetch = async () => Response.json({ token: `token-${++calls}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+      const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      clock.mockReturnValue(now + 50 * 60_000)
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
       expect(calls).toBe(2)
     }
     finally {
@@ -111,7 +146,7 @@ describe("internal Forge client", () => {
     const error: unknown = await failed.installationToken(8).catch((reason: unknown) => reason)
     expect(forgeErrorStatus(error)).toBe(401)
     const empty = githubAppCredentials({ appId: 988, privateKey: key, fetch: async () => Response.json({ expires_at: new Date(Date.now() + 3_600_000).toISOString() }) })
-    await expect(empty.installationToken(8)).rejects.toBeInstanceOf(ForgeResponseError)
+    await expect(empty.installationToken(8)).rejects.toMatchObject({ code: "FORGE_RESPONSE_INVALID", fix: expect.stringContaining("GitHub App") })
   })
 
   it.each(["pkcs1", "pkcs8"] as const)("signs %s private keys", async type => {
@@ -128,11 +163,41 @@ describe("internal Forge client", () => {
   it("resolves app metadata and installation ids", async () => {
     const fixture = fixtureFetch([
       { request: { method: "GET", url: "https://api.github.com/app" }, response: { status: 200, body: { id: 12, slug: "vitehub" } } },
+      { request: { method: "GET", url: "https://api.github.com/users/vitehub%5Bbot%5D" }, response: { status: 404, body: { message: "Not Found" } } },
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" }, response: { status: 200, body: { id: 33 } } },
     ])
     const credentials = githubAppCredentials({ appId: 12, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
-    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]" })
+    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]", email: "vitehub[bot]@users.noreply.github.com" })
     await expect(credentials.installation("acme/app")).resolves.toBe(33)
+  })
+
+  it("lists the repositories of every active installation", async () => {
+    const page = (ids: number[], archived = false) => ids.map(id => ({ id, name: `repo-${id}`, full_name: `acme/repo-${id}`, owner: { login: "acme" }, archived, private: false, fork: false }))
+    const fixture = fixtureFetch([
+      {
+        request: { method: "GET", url: "https://api.github.com/app/installations?per_page=100" },
+        response: { status: 200, body: [{ id: 1, account: { login: "acme" } }, { id: 2, account: { login: "paused" }, suspended_at: "2026-01-01T00:00:00Z" }] },
+      },
+      {
+        request: { method: "POST", url: "https://api.github.com/app/installations/1/access_tokens" },
+        response: { status: 201, body: { token: "installation-1", expires_at: new Date(Date.now() + 3_600_000).toISOString() } },
+      },
+      {
+        request: { method: "GET", url: "https://api.github.com/installation/repositories?per_page=100" },
+        response: { status: 200, headers: { link: '<https://api.github.com/installation/repositories?per_page=100&page=2>; rel="next"' }, body: { total_count: 3, repositories: page([1, 2]) } },
+      },
+      {
+        request: { method: "GET", url: "https://api.github.com/installation/repositories?per_page=100&page=2" },
+        response: { status: 200, body: { total_count: 3, repositories: page([3], true) } },
+      },
+    ])
+    const credentials = githubAppCredentials({ appId: 77, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
+    await expect(credentials.repositories()).resolves.toEqual([
+      { repository: "acme/repo-1", installationId: 1, archived: false },
+      { repository: "acme/repo-2", installationId: 1, archived: false },
+      { repository: "acme/repo-3", installationId: 1, archived: true },
+    ])
+    expect(fixture.calls.filter(call => call.url.includes("/installation/repositories")).map(call => call.authorization)).toEqual(["Bearer installation-1", "Bearer installation-1"])
   })
 
   it("maps a missing installation to the existing diagnostic", async () => {
@@ -159,8 +224,51 @@ describe("internal Forge client", () => {
       .rejects.toThrow()
   })
 
-  it("cancels an in-flight token fetch without cancelling another caller", async () => {
+  it("mints one token for calls that start before the first mint ends", async () => {
+    let calls = 0
+    const fetcher: typeof fetch = async () => {
+      calls++
+      await new Promise(resolve => setTimeout(resolve, 10))
+      return Response.json({ token: `token-${calls}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const tokens = await Promise.all(Array.from({ length: 8 }, () => credentials.installationToken(1)))
+    expect(tokens.map(details => details.token)).toEqual(Array.from({ length: 8 }, () => "token-1"))
+    expect(calls).toBe(1)
+    await expect(credentials.installationToken(1, { refresh: true })).resolves.toMatchObject({ token: "token-2" })
+    expect(calls).toBe(2)
+  })
+
+  it("keeps a shared token fetch while another caller waits for it", async () => {
     const controller = new AbortController()
+    let markStarted!: (signal: AbortSignal | null | undefined) => void
+    const started = new Promise<AbortSignal | null | undefined>((resolve) => { markStarted = resolve })
+    let respond!: () => void
+    const responded = new Promise<void>((resolve) => { respond = resolve })
+    let calls = 0
+    const fetcher: typeof fetch = async (_input, init) => {
+      calls++
+      markStarted(init?.signal)
+      await responded
+      return Response.json({ token: "shared", expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const pending = credentials.installationToken(1, { signal: controller.signal })
+    const rejected = expect(pending).rejects.toThrow("cancelled")
+    const signal = await started
+    const other = credentials.installationToken(1)
+    controller.abort(new Error("cancelled"))
+    await rejected
+    expect(signal?.aborted).toBe(false)
+    respond()
+    await expect(other).resolves.toMatchObject({ token: "shared" })
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "shared" })
+    expect(calls).toBe(1)
+  })
+
+  it("cancels a token fetch when every caller stops waiting, and mints again for the next caller", async () => {
+    const first = new AbortController()
+    const second = new AbortController()
     let markStarted!: (signal: AbortSignal | null | undefined) => void
     const started = new Promise<AbortSignal | null | undefined>((resolve) => { markStarted = resolve })
     let calls = 0
@@ -173,16 +281,73 @@ describe("internal Forge client", () => {
       })
     }
     const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
-    const pending = credentials.installationToken(1, { signal: controller.signal })
-    const rejected = expect(pending).rejects.toThrow("cancelled")
+    const pending = [credentials.installationToken(1, { signal: first.signal }), credentials.installationToken(1, { signal: second.signal })]
+    const rejected = pending.map(call => expect(call).rejects.toThrow("cancelled"))
     const signal = await started
-    const other = credentials.installationToken(1)
-    controller.abort(new Error("cancelled"))
-    await rejected
+    first.abort(new Error("cancelled"))
+    await rejected[0]
+    expect(signal?.aborted).toBe(false)
+    second.abort(new Error("cancelled"))
+    await rejected[1]
     expect(signal?.aborted).toBe(true)
-    await expect(other).resolves.toMatchObject({ token: "retry" })
     await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "retry" })
     expect(calls).toBe(2)
+  })
+
+  it("keeps the token of the next mint when a stopped mint answers later", async () => {
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const fetcher: typeof fetch = async () => {
+      calls++
+      const expires_at = new Date(Date.now() + 3_600_000).toISOString()
+      if (calls > 1) return Response.json({ token: "replacement", expires_at })
+      markStarted()
+      await released
+      return Response.json({ token: "abandoned", expires_at })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const abandoned = credentials.installationToken(1, { signal: controller.signal })
+    const rejected = expect(abandoned).rejects.toThrow("cancelled")
+    await started
+    controller.abort(new Error("cancelled"))
+    await rejected
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "replacement" })
+    release()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "replacement" })
+    expect(calls).toBe(2)
+  })
+
+  it("mints a token for each call on Cloudflare Workers until a token is cached", async () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const controller = new AbortController()
+    const signals: (AbortSignal | null | undefined)[] = []
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const fetcher: typeof fetch = async (_input, init) => {
+      signals.push(init?.signal)
+      const expires_at = new Date(Date.now() + 3_600_000).toISOString()
+      if (signals.length > 1) return Response.json({ token: `token-${signals.length}`, expires_at })
+      markStarted()
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const first = credentials.installationToken(1, { signal: controller.signal })
+    const rejected = expect(first).rejects.toThrow("cancelled")
+    await started
+    const second = credentials.installationToken(1)
+    controller.abort(new Error("cancelled"))
+    await rejected
+    expect(signals[0]?.aborted).toBe(true)
+    await expect(second).resolves.toMatchObject({ token: "token-2" })
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-2" })
+    expect(signals).toHaveLength(2)
   })
 
   it("rejects an aborted token request", async () => {

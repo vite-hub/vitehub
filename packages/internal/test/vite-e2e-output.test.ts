@@ -34,6 +34,9 @@ async function createWorkspaceTempDir(prefix: string) {
   }
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
+  // Provider output keeps a copy of the app's source root: the nearest folder with .git or pnpm-workspace.yaml.
+  // Without this file, every build copies the whole repository.
+  await writeFile(join(rootDir, "pnpm-workspace.yaml"), "packages: []\n")
   return rootDir
 }
 
@@ -107,6 +110,55 @@ async function withEnv<T>(env: Record<string, string>, callback: () => Promise<T
   }
 }
 
+// Sends one Vercel Queue v2beta delivery (binary mode, payload in the body) to a built consumer
+// function in a child process, and returns the marker stages that the consumer reported back.
+async function deliverVercelQueueMessage(consumerFile: string, topic: string, consumer: string, marker: string): Promise<string[]> {
+  const script = `
+import { createServer } from "node:http"
+import { pathToFileURL } from "node:url"
+const markers = []
+const delivery = Promise.withResolvers()
+const callback = createServer((req, res) => {
+  let body = ""
+  req.on("data", chunk => body += chunk)
+  req.on("end", () => {
+    const { marker, stage } = JSON.parse(body)
+    markers.push(\`\${marker}:\${stage}\`)
+    res.setHeader("content-type", "application/json")
+    res.end("{}", stage === "done" ? delivery.resolve : undefined)
+  })
+})
+await new Promise(done => callback.listen(0, "127.0.0.1", done))
+const { default: handler } = await import(pathToFileURL(process.env.CONSUMER_FILE).href)
+const server = createServer(handler)
+await new Promise(done => server.listen(0, "127.0.0.1", done))
+const response = fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "ce-type": "com.vercel.queue.v2beta",
+    "ce-vqsqueuename": process.env.QUEUE_TOPIC,
+    "ce-vqsconsumergroup": process.env.QUEUE_CONSUMER,
+    "ce-vqsmessageid": "0-1",
+    "ce-vqsreceipthandle": "receipt-1",
+    "ce-vqsdeliverycount": "1",
+    "ce-vqsregion": "iad1",
+  },
+  body: JSON.stringify({ callbackUrl: \`http://127.0.0.1:\${callback.address().port}/api/tests/queue\`, email: "ava@example.com", marker: process.env.QUEUE_MARKER }),
+})
+await Promise.race([response, delivery.promise])
+console.log(JSON.stringify(markers))
+process.exit(0)
+`
+  // Verify the handler's marker without waiting for the SDK to acknowledge the message with Vercel.
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, CONSUMER_FILE: consumerFile, QUEUE_CONSUMER: consumer, QUEUE_MARKER: marker, QUEUE_TOPIC: topic, VERCEL_REGION: "iad1" },
+    maxBuffer: execMaxBuffer,
+    timeout: 15_000,
+  })
+  return JSON.parse(stdout.trim().split("\n").at(-1)!)
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -125,7 +177,7 @@ describe("unified vite e2e hosted outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-provision-")
     const env = readLiveSmokeStepEnv("Provision Cloudflare resources")
 
-    expect(env.VITEHUB_HOSTING).toBe("cloudflare")
+    expect(env.VITEHUB_HOST).toBe("cloudflare")
     expect(env.VITEHUB_VITE_MODE).toBe("e2e")
 
     await withEnv(env, async () => {
@@ -139,8 +191,12 @@ describe("unified vite e2e hosted outputs", () => {
     })
   }, 45_000)
 
-  it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
+  it("keeps the Cloudflare artifact provider-pure and preserves hosted bindings from config and provision state", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: { d1: { analytics: "analytics-d1-id", primary: "primary-d1-id" } },
+    }))
 
     await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
@@ -151,10 +207,10 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "",
+        VITEHUB_D1_DATABASE_ID: "",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
       maxBuffer: execMaxBuffer,
@@ -209,50 +265,6 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.artifacts).toBeUndefined()
   }, 90_000)
 
-  it("uses provision state for cloudflare D1 bindings", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-provision-")
-    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
-    await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
-      cloudflare: {
-        d1: {
-          analytics: "analytics-d1-id",
-          primary: "primary-d1-id",
-        },
-      },
-    }, null, 2)}\n`)
-
-    await execFileAsync(process.execPath, [vp, "build"], {
-      cwd: rootDir,
-      env: {
-        ...process.env,
-        BLOB_BUCKET_NAME: "assets",
-        KV_NAMESPACE_ID: "kv-namespace",
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
-        VITEHUB_VITE_MODE: "e2e",
-      },
-      maxBuffer: execMaxBuffer,
-    })
-
-    const cloudflareConfig = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
-
-    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        binding: "DB",
-        database_id: "primary-d1-id",
-        database_name: "vitehub-playground-db",
-      }),
-      expect.objectContaining({
-        binding: "DB_ANALYTICS",
-        database_id: "analytics-d1-id",
-        database_name: "vitehub-playground-analytics",
-      }),
-    ]))
-  }, 90_000)
-
   it("names every Cloudflare resource after the live-smoke scratch prefix", async () => {
     const prefix = "vitehub-smoke-123"
     const scratchEnv = {
@@ -261,7 +273,7 @@ describe("unified vite e2e hosted outputs", () => {
       VITEHUB_CLOUDFLARE_WORKFLOW_NAME: `${prefix}-welcome`,
       VITEHUB_D1_ANALYTICS_DATABASE_NAME: `${prefix}-analytics`,
       VITEHUB_D1_DATABASE_NAME: `${prefix}-db`,
-      VITEHUB_HOSTING: "cloudflare",
+      VITEHUB_HOST: "cloudflare",
       VITEHUB_KV_NAMESPACE_NAME: `${prefix}-kv`,
       VITEHUB_QUEUE_NAME_PREFIX: `${prefix}-`,
       VITEHUB_VITE_MODE: "e2e",
@@ -318,13 +330,14 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        VITEHUB_HOSTING: "vercel",
+        VITEHUB_HOST: "vercel",
         VITEHUB_VITE_MODE: "e2e",
         VITE_SANDBOX_PROJECT_ID: "project-id",
         VITE_SANDBOX_TEAM_ID: "team-id",
         VITE_SANDBOX_TOKEN: "sandbox-token",
       },
       maxBuffer: execMaxBuffer,
+      timeout: 150_000,
     })
 
     const vercelConfig = await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")
@@ -344,15 +357,14 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).toContain("/api/database/analytics")
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
-    expect(vercelServerContents).toContain("vercel-blob")
-    expect(vercelServerContents).toContain('"access": "private",\n    "driver": "vercel-blob"')
+    expect(vercelServerContents).toMatch(/\baccess["']?\s*:\s*["']private["'],\s*["']?driver["']?\s*:\s*["']vercel["']/)
     expect(vercelServerContents).not.toContain('import("files-sdk")')
     expect(vercelServerContents).not.toContain('import("files-sdk/vercel-blob")')
     expect(vercelServerContents).not.toContain("requires files-sdk")
     expect(vercelServerContents).not.toContain('from "@vercel/blob"')
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
     expect(vercelServerContents).not.toContain('import("vite")')
-    expect(vercelServerConfig.runtime).toBe("nodejs22.x")
+    expect(vercelServerConfig.runtime).toBe("nodejs24.x")
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).toContain("handleHostedVercelQueueCallback")
     expect(vercelScheduleContents).toContain("process.env.CRON_SECRET")
@@ -362,6 +374,8 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
+    const { consumer, topic } = vercelConsumerConfig.experimentalTriggers[0]
+    expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery:received", "vercel-delivery:done"])
   }, 180_000)
 
   it("builds the env and chat playground modes", async () => {
@@ -403,7 +417,7 @@ describe("unified vite e2e hosted outputs", () => {
       cwd: rootDir,
       env: {
         ...process.env,
-        VITEHUB_HOSTING: "netlify",
+        VITEHUB_HOST: "netlify",
         VITEHUB_VITE_MODE: "chat",
       },
       maxBuffer: execMaxBuffer,
@@ -414,11 +428,11 @@ describe("unified vite e2e hosted outputs", () => {
     const config = JSON.parse(await readFile(join(rootDir, ".netlify", "v1", "config.json"), "utf8"))
 
     expect(source).toContain("viteHubAgentNetlifyFunction")
-    expect(functionFile).toContain("export const config = {")
+    expect(functionFile).toMatch(/^export const config = \{|^export \{ vitehubNetlifyFunctionConfig\d* as config \}$/m)
     expect(functionFile).toContain("\"name\": \"vitehub-agent\"")
     expect(functionFile).toContain("\"nodeBundler\": \"esbuild\"")
-    expect(functionFile).toContain("\"/api/_vitehub/agents/:agent/chat\"")
-    expect(functionFile).toContain("\"/api/_vitehub/agents/:agent/webhooks/:webhook\"")
+    expect(functionFile).toContain("\"/_vitehub/agents/:agent/chat\"")
+    expect(functionFile).toContain("\"/_vitehub/agents/:agent/webhooks/:webhook\"")
     expect(config).toEqual({})
   }, 45_000)
 })

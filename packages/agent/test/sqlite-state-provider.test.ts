@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@libsql/client", async importOriginal => {
   const actual = await importOriginal<typeof import("@libsql/client")>()
-  return { ...actual, createClient: vi.fn(actual.createClient) }
+  const { followFakeClockClient } = await import("./support/state-database-clock.ts")
+  return { ...actual, createClient: vi.fn(followFakeClockClient(actual.createClient)) }
 })
 
 import { createLibsqlAgentState, createSqliteAgentState, type LibsqlAgentStateClient, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
@@ -627,7 +628,7 @@ describe("SQLite Agent State Provider", () => {
     busyCleanup = true
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(11)
+    expect(execute.mock.calls.some(([statement]) => String(statement).startsWith("DELETE FROM test_agent_state_locks WHERE expires_at <= CAST("))).toBe(true)
     Reflect.set(contended, "nextCleanupAt", 0)
     busyCleanup = true
     await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)

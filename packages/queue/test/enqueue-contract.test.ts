@@ -3,27 +3,50 @@ import { afterEach, expect, it, vi } from "vitest"
 import { defineQueue } from "../src/definition.ts"
 import { normalizeQueueEnqueueInput } from "../src/enqueue.ts"
 import { createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
+import { createLocalQueueClient, localQueueDeliveryRules, type LocalQueueEngine } from "../src/providers/local.ts"
+import { createPostgresQueueClient, type PostgresQueueEngine } from "../src/providers/postgres.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import type { QueueEnqueueOptions } from "../src/types.ts"
 
 afterEach(() => {
   setQueueRuntimeConfig(undefined)
   setQueueRuntimeRegistry(undefined)
 })
 
+it.each(["cloudflare", "local", "postgres", "vercel"] as const)("rejects removed timing keys before dispatching a %s batch", async (provider) => {
+  const dispatch = vi.fn()
+  const client = provider === "cloudflare"
+    ? createCloudflareQueueClient({ driver: provider, binding: { send: vi.fn(), sendBatch: dispatch } })
+    : provider === "vercel"
+      ? await createVercelQueueClient({ driver: provider, topic: "audit", client: { send: vi.fn(), sendBatch: dispatch, handleCallback: vi.fn() } })
+      : provider === "postgres"
+        ? createPostgresQueueClient({ enqueue: dispatch } as unknown as PostgresQueueEngine, "audit")
+        : createLocalQueueClient({ enqueue: dispatch, rules: localQueueDeliveryRules.local } as unknown as LocalQueueEngine, "audit")
+
+  for (const key of ["delaySeconds", "retentionSeconds"]) {
+    const item = { body: {}, [key]: 60 }
+    const options = { delay: "1m" as const, [key]: 60 }
+    for (const result of [await client.sendBatch([{ body: {} }, item]), await client.sendBatch([{ body: {} }], options)]) {
+      expect(result).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION", fix: expect.stringContaining("Rename `delaySeconds` to `delay`"), why: expect.stringContaining(key) }, undefined])
+    }
+  }
+  expect(dispatch).not.toHaveBeenCalled()
+})
+
 it.each(["cloudflare", "vercel"] as const)("preserves business option names through %s enqueue", async (provider) => {
   const sent: { payload: unknown, options: unknown }[] = []
   const client = provider === "cloudflare"
     ? createCloudflareQueueClient({
-        provider,
+        driver: provider,
         binding: {
           send: async (payload, options) => { sent.push({ payload, options }) },
           sendBatch: vi.fn(async () => {}),
         },
       })
     : await createVercelQueueClient({
-        provider,
+        driver: provider,
         topic: "audit",
         client: {
           send: async (_topic, payload, options) => {
@@ -33,8 +56,8 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
           handleCallback: vi.fn(),
         },
       })
-  setQueueRuntimeConfig({ provider }, async () => client)
-  setQueueRuntimeRegistry({ audit: async () => defineQueue(() => {}) })
+  setQueueRuntimeConfig({ driver: provider }, async () => client)
+  setQueueRuntimeRegistry({ audit: async () => defineQueue({ handler: () => {} }) })
 
   const payloads = [
     { payload: "event" },
@@ -42,7 +65,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     { payload: "event", region: "business-region", id: "business-id", kind: "audit" },
   ]
   for (const payload of payloads) {
-    expect((await dynamicQueue.run("audit", payload, { delaySeconds: 5, id: "dispatch-id" }))[0]).toBeUndefined()
+    expect((await dynamicQueue.send("audit", payload, { delay: "5s" }))[0]).toBeUndefined()
   }
   expect(sent.map(call => call.payload)).toEqual(payloads)
   for (const call of sent) {
@@ -50,7 +73,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     expect(call.options).not.toMatchObject({ region: "business-region" })
   }
   if (provider === "vercel") {
-    expect(sent[0]?.options).toMatchObject({ idempotencyKey: "dispatch-id" })
+    expect(sent[0]?.options).toMatchObject({ idempotencyKey: expect.any(String) })
     await expect(client.send(payloads[0], { contentType: "json" })).resolves.toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   }
   else {
@@ -58,66 +81,32 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   }
 })
 
-it.each(["cloudflare", "vercel"] as const)("uses only own enqueue ids through %s", async (provider) => {
-  const sent: { options: unknown }[] = []
+it.each(["cloudflare", "vercel"] as const)("rejects a caller message id through %s before the provider call", async (provider) => {
+  const send = vi.fn(async () => ({ messageId: "provider-id" }))
   const client = provider === "cloudflare"
-    ? createCloudflareQueueClient({
-        provider,
-        binding: {
-          send: async (_payload, options) => { sent.push({ options }) },
-          sendBatch: vi.fn(async () => {}),
-        },
-      })
-    : await createVercelQueueClient({
-        provider,
-        topic: "audit",
-        client: {
-          send: async (_topic, _payload, options) => {
-            sent.push({ options })
-            return { messageId: "provider-id" }
-          },
-          handleCallback: vi.fn(),
-        },
-      })
+    ? createCloudflareQueueClient({ driver: provider, binding: { send, sendBatch: vi.fn(async () => {}) } })
+    : await createVercelQueueClient({ driver: provider, topic: "audit", client: { send, handleCallback: vi.fn() } })
 
-  const inherited = Object.create({ id: "inherited-id" }) as { id?: string }
-  const cases = [
-    { label: "absent", options: undefined, expectedId: undefined },
-    { label: "own", options: { id: "own-id" }, expectedId: "own-id" },
-    { label: "inherited", options: inherited, expectedId: undefined },
-  ] as const
-
-  for (const { label, options, expectedId } of cases) {
-    const [error, result] = await client.send("event", options)
-
-    expect(error, label).toBeUndefined()
-    if (provider === "cloudflare") {
-      if (expectedId) expect(result?.messageId, label).toBe(expectedId)
-      else expect(result?.messageId, label).toEqual(expect.any(String))
-    }
-    else {
-      expect(result?.messageId, label).toBe("provider-id")
-    }
-    if (!expectedId) expect(result?.messageId, label).not.toBe("inherited-id")
-
-    const providerOptions = sent.at(-1)?.options
-    expect(providerOptions, label).not.toHaveProperty("id", "inherited-id")
-    if (provider === "vercel") {
-      expect(providerOptions, label).toMatchObject({ idempotencyKey: expectedId || expect.any(String) })
-      expect(providerOptions, label).not.toMatchObject({ idempotencyKey: "inherited-id" })
-    }
-  }
+  // SAFETY: A JavaScript caller can still pass the removed `id` option.
+  const [error, result] = await client.send("event", { id: "own-id" } as QueueEnqueueOptions)
+  expect(result).toBeUndefined()
+  expect(error).toMatchObject({
+    code: "QUEUE_UNSUPPORTED_OPTION",
+    fix: "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it.",
+  })
+  expect(send).not.toHaveBeenCalled()
 })
 
+it("returns no message id from Cloudflare, which assigns the id that the handler gets", async () => {
+  const client = createCloudflareQueueClient({ driver: "cloudflare", binding: { send: vi.fn(async () => {}), sendBatch: vi.fn(async () => {}) } })
 
-it.each([true, false])("reads an own enqueue id getter once when enumerable is %s", (enumerable) => {
-  const readId = vi.fn(() => "own-id")
-  const options = Object.defineProperty({ delaySeconds: 5 }, "id", { enumerable, get: readId })
+  expect(await client.send("event")).toEqual([undefined, { status: "queued" }])
+})
 
-  expect(normalizeQueueEnqueueInput("event", options)).toEqual({
-    id: "own-id",
-    options: { delaySeconds: 5 },
-    payload: "event",
-  })
-  expect(readId).toHaveBeenCalledOnce()
+it("generates the message id and ignores an inherited id", () => {
+  const inherited = Object.create({ id: "inherited-id" }) as QueueEnqueueOptions
+  const input = normalizeQueueEnqueueInput("event", inherited)
+
+  expect(input.id).toMatch(/^queue_/)
+  expect(input.options).toEqual({})
 })

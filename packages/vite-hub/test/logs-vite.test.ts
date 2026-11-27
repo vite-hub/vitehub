@@ -1,12 +1,15 @@
-import { mkdtemp, readFile, rm, stat, utimes } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import { mergeConfig, resolveConfig } from "vite";
 import type { ConfigEnv, InlineConfig } from "vite";
 import { describe, expect, it, vi } from "vitest";
 import evlog from "evlog/nitro/v3";
+import { runCodemod } from "@vite-hub/codemods";
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
 import { vitehub } from "../src/index.ts";
 import { logsVitePlugin } from "../src/logs-vite.ts";
+import { observabilityVitePlugin } from "../src/observability-vite.ts";
 
 vi.mock("evlog/nitro/v3", async (importOriginal) => {
   const module = await importOriginal<typeof import("evlog/nitro/v3")>();
@@ -37,25 +40,63 @@ async function configure(
 }
 
 describe("Logs host integration", () => {
-  it("has one owner for request error logging", () => {
-    const names = (logs: NonNullable<Parameters<typeof vitehub>[0]>["logs"]) =>
-      vitehub({ preset: "node", logs }).flatMap((plugin) =>
-        plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
-      );
-    expect(names(true)).not.toContain("vite-hub/error-log");
-    expect(names({ source: "./server/logs.ts" })).toContain("vite-hub/error-log");
-    expect(names({ evlog: { enabled: false } })).toContain("vite-hub/error-log");
-  });
-  it("attaches a local drain and reuses the installed Evlog module", async () => {
+  it.each([
+    ["false", true, false],
+    ["command === 'serve' ? true : false", true, false],
+    ["{ source: './logs.ts' }", false, true],
+  ])("preserves Evlog and Logs registration after migrating %s for builds", async (logs, evlogEnabled, logsEnabled) => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
-      const config = await configure(root, { maxEntries: 32, evlog: { redact: true } }, "serve");
-      expect(config.nitro.modules).toEqual([expect.objectContaining({ name: "evlog" })]);
-      const replay = await configure(root, true, "serve", config.nitro);
-      expect(replay.nitro.modules).toHaveLength(1);
-      expect(replay.nitro.plugins).toHaveLength(1);
+      const importLine = 'import { vitehub } from "vite-hub"\n';
+      await writeFile(resolve(root, "vite.config.ts"), `${importLine}export default ({ command }) => ({ plugins: vitehub({ host: 'node', observability: { logs: ${logs} } }) })`);
+      const { result } = await runCodemod("vitehub-options", { cwd: root, dryRun: true });
+      expect(result.followUps).toEqual([]);
+      const code = result.edits[0]?.after;
+      if (!code) throw new Error("Expected the Logs migration to edit vite.config.ts");
+      const evaluate = runInNewContext(`(${code.slice(importLine.length + "export default ".length)})`, { vitehub }) as (env: { command: string }) => { plugins: ReturnType<typeof vitehub> };
+      const names = evaluate({ command: "build" }).plugins.flatMap((plugin) =>
+        plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
+      );
+      expect(names.includes("vite-hub/observability")).toBe(evlogEnabled);
+      expect(names.includes("vite-hub/logs")).toBe(logsEnabled);
+    }
+    finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("has one owner for request error logging", () => {
+    type Options = NonNullable<Parameters<typeof vitehub>[0]>;
+    const names = (options: Pick<Options, "logs" | "observability">) =>
+      vitehub({ host: "node", ...options }).flatMap((plugin) =>
+        plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
+      );
+    expect(names({ logs: true })).not.toContain("vite-hub/error-log");
+    expect(names({ observability: true })).not.toContain("vite-hub/error-log");
+    expect(names({ logs: { source: "./server/logs.ts" } })).toContain("vite-hub/error-log");
+    expect(names({ logs: true, observability: { evlog: { enabled: false } } })).toContain("vite-hub/error-log");
+  });
+  it("starts no logger for a source without observability", () => {
+    type Options = NonNullable<Parameters<typeof vitehub>[0]>;
+    const names = (options: Pick<Options, "logs" | "observability">) =>
+      vitehub({ host: "node", ...options }).flatMap((plugin) =>
+        plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
+      );
+    expect(names({ logs: { source: "./server/logs.ts" } })).not.toContain("vite-hub/observability");
+    expect(names({ logs: { source: "./server/logs.ts" } })).toContain("vite-hub/logs");
+    expect(names({ logs: { source: "./server/logs.ts" }, observability: true })).toEqual(expect.arrayContaining(["vite-hub/observability", "vite-hub/logs"]));
+    expect(names({ logs: true })).toEqual(expect.arrayContaining(["vite-hub/observability", "vite-hub/logs"]));
+  });
+  it("attaches a local drain once", async () => {
+    const root = await mkdtemp(resolve(".logs-vite-test-"));
+    try {
+      const config = await configure(root, { maxEntries: 32 }, "serve");
+      expect(config.nitro.modules ?? []).toHaveLength(0);
       const plugin = await readFile(config.nitro.plugins[0]!, "utf8");
+      const replay = await configure(root, { maxEntries: 32 }, "serve", config.nitro);
+      expect(replay.nitro.plugins).toHaveLength(1);
       expect(plugin).toContain('app.hooks.hook("evlog:drain", buffer.drain)');
+      expect(plugin).toContain('"maxEntries":32');
       expect(plugin).not.toContain("initLogger");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -65,11 +106,11 @@ describe("Logs host integration", () => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
       // The dev server writes the plugin first. A `vitehub` command then loads the same project while the server watches it.
-      const config = await configure(root, true, "serve");
+      const config = await configure(root, {}, "serve");
       const plugin = config.nitro.plugins[0]!;
       const written = new Date("2020-01-01T00:00:00Z");
       await utimes(plugin, written, written);
-      await configure(root, true, "serve");
+      await configure(root, {}, "serve");
       expect((await stat(plugin)).mtime).toEqual(written);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -83,7 +124,7 @@ describe("Logs host integration", () => {
         root,
         [VITEHUB_PROJECT_ROOT]: root,
         configFile: false,
-        plugins: [logsVitePlugin(true)],
+        plugins: [observabilityVitePlugin({}), logsVitePlugin({})],
         nitro: { modules: [existing], plugins: ["existing-plugin"] },
       };
       const config = await resolveConfig(input, "serve");
@@ -95,15 +136,14 @@ describe("Logs host integration", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
-  it("keeps local Logs active when Observability disables Evlog", async () => {
+  it("registers Evlog with its options for local Logs without a service", async () => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
       const plugins = vitehub({
-        preset: "node",
+        host: "node",
         logs: true,
-        observability: { service: "api", evlog: { enabled: false, redact: true } },
+        observability: { evlog: { redact: true } },
       }).flatMap((plugin) => plugin && typeof plugin === "object" && "name" in plugin ? [plugin] : []);
-      expect(plugins.map(plugin => plugin.name)).not.toContain("vite-hub/error-log");
       const input: LogsConfig = {
         root,
         [VITEHUB_PROJECT_ROOT]: root,
@@ -112,8 +152,12 @@ describe("Logs host integration", () => {
         nitro: { plugins: [] },
       };
       const config = await resolveConfig(input, "serve");
-      expect(Reflect.get(config, "nitro")).toMatchObject({ modules: [expect.objectContaining({ name: "evlog" })] });
-      expect(evlog).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true, redact: true }));
+      expect(Reflect.get(config, "nitro")).toMatchObject({
+        modules: [expect.objectContaining({ name: "evlog" })],
+        // No service: only the Logs plugin, and no `useObservability()` plugin.
+        plugins: [resolve(root, ".vitehub/nitro/logs/plugin.mjs")],
+      });
+      expect(evlog).toHaveBeenLastCalledWith({ redact: true });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -127,7 +171,7 @@ describe("Logs host integration", () => {
       expect(plugin).toContain("server/logs.ts");
       expect(plugin).not.toContain("createLogBuffer");
       expect(plugin).not.toContain("evlog:drain");
-      await expect(configure(root, true, "build")).rejects.toThrow(
+      await expect(configure(root, {}, "build")).rejects.toThrow(
         "Production Logs needs an existing source",
       );
     } finally {

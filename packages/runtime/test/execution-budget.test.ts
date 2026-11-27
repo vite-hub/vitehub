@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createExecutionBudget, ExecutionBudgetExceededError } from "../src/index.ts"
+import { createExecutionBudget } from "../src/internal/execution-budget.ts"
 
 describe("ExecutionBudget", () => {
   describe.each(["root", "child"] as const)("%s deadline before timer delivery", (kind) => {
@@ -11,7 +11,6 @@ describe("ExecutionBudget", () => {
       const budget = kind === "root" ? root : root.child({ deadlineAt })
       const descendant = budget.child()
       try {
-        // Moving the clock does not deliver the pending deadline timer.
         vi.setSystemTime(deadlineAt)
         expect(budget.signal.aborted).toBe(false)
         const charge = () => {
@@ -46,7 +45,6 @@ describe("ExecutionBudget", () => {
       try {
         root.recordToolCall(3)
         const usage = root.snapshot().usage
-        // Expire the inherited deadline without delivering any deadline timer.
         vi.setSystemTime(deadlineAt)
         expect(owner.signal.aborted).toBe(false)
         const charge = () => {
@@ -125,7 +123,7 @@ describe("ExecutionBudget", () => {
       remaining: { inputBytes: 6, outputBytes: 7, retries: 0, toolCalls: 1 },
       usage: { inputBytes: 4, outputBytes: 5, retries: 1, toolCalls: 1 },
     })
-    expect(() => budget.recordRetry()).toThrow(ExecutionBudgetExceededError)
+    expect(() => budget.recordRetry()).toThrow(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" }))
     expect(budget.snapshot().cancelled).toBe(true)
     expect(() => budget.recordToolCall(7)).toThrow("retries")
     expect(budget.signal.aborted).toBe(true)
@@ -136,7 +134,7 @@ describe("ExecutionBudget", () => {
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1])("rejects invalid tool input bytes %s without charging or cancelling", (inputBytes) => {
     const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 1 })
     try {
-      expect(() => budget.recordToolCall(inputBytes)).toThrow(RangeError)
+      expect(() => budget.recordToolCall(inputBytes)).toThrowError(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID" }))
       expect(budget.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
       expect(budget.signal.aborted).toBe(false)
 
@@ -167,7 +165,7 @@ describe("ExecutionBudget", () => {
     const removeListener = vi.spyOn(controller.signal, "removeEventListener")
     const budget = createExecutionBudget({ maxOutputBytes: 1, signal: controller.signal })
 
-    expect(() => budget.recordOutputBytes(2)).toThrow(ExecutionBudgetExceededError)
+    expect(() => budget.recordOutputBytes(2)).toThrow(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" }))
     expect(budget.signal.aborted).toBe(true)
     expect(removeListener).toHaveBeenCalled()
   })
@@ -180,9 +178,9 @@ describe("ExecutionBudget", () => {
     budget.consume(counter)
     const usage = budget.snapshot().usage
 
-    expect(() => budget.consume(counter)).toThrow(ExecutionBudgetExceededError)
+    expect(() => budget.consume(counter)).toThrow(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" }))
     expect(budget.signal.aborted).toBe(true)
-    expect(budget.signal.reason).toBeInstanceOf(ExecutionBudgetExceededError)
+    expect(budget.signal.reason).toMatchObject({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED", fix: expect.stringContaining("executionBudget") })
     expect(child.signal.aborted).toBe(true)
     expect(child.signal.reason).toBe(budget.signal.reason)
     expect(budget.snapshot().usage).toEqual(usage)
@@ -191,7 +189,7 @@ describe("ExecutionBudget", () => {
 
   it("does not cancel public consume for an invalid amount", () => {
     const budget = createExecutionBudget({ maxInputBytes: 1 })
-    expect(() => budget.consume("inputBytes", -1)).toThrow(RangeError)
+    expect(() => budget.consume("inputBytes", -1)).toThrowError(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID" }))
     expect(budget.signal.aborted).toBe(false)
     expect(budget.snapshot().usage.inputBytes).toBe(0)
   })
@@ -204,7 +202,7 @@ describe("ExecutionBudget", () => {
     child.recordToolCall()
     expect(child.snapshot().remaining.toolCalls).toBe(0)
     expect(budget.snapshot().usage.toolCalls).toBe(1)
-    expect(() => child.recordToolCall()).toThrow(ExecutionBudgetExceededError)
+    expect(() => child.recordToolCall()).toThrow(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" }))
 
     controller.abort(new Error("cancelled"))
     expect(child.snapshot().cancelled).toBe(true)
@@ -244,7 +242,7 @@ describe("ExecutionBudget", () => {
 
   it("keeps failed compound usage atomic and honors child signals and deadlines", async () => {
     const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 2 })
-    expect(() => budget.recordToolCall(4)).toThrow(ExecutionBudgetExceededError)
+    expect(() => budget.recordToolCall(4)).toThrow(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED" }))
     expect(budget.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
 
     const signal = AbortSignal.timeout(5)

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 
 import { bundleCliContributor } from "../src/cli.ts"
 import { collectEnvironmentReport } from "../src/collect.ts"
-import { readEnvironmentReports, writeEnvironmentReport } from "../src/files.ts"
+import { readEnvironmentReports, writeBundleReportRoot, writeEnvironmentReport } from "../src/files.ts"
 import { moduleGroup, moduleId } from "../src/groups.ts"
 import { createBundleReport, explainBundle } from "../src/report.ts"
 
@@ -31,7 +31,6 @@ function graph(edges: Record<string, string[]>, entries: string[], dynamic: Reco
   return id => ({ importedIds: edges[id] ?? [], dynamicallyImportedIds: dynamic[id] ?? [], isEntry: entries.includes(id) })
 }
 
-/** Nuxt 5: Nitro bundles the SSR output from the buildDir under `node_modules/.cache`. */
 function nuxtBuild(build = "2026-11-06T10:00:00.000Z") {
   const ssrOut = `${root}/node_modules/.cache/nuxt/.nuxt/dist/server`
   const ssr = collectEnvironmentReport({
@@ -86,6 +85,19 @@ describe("module ids and groups", () => {
     }
   })
 
+  it("fails on an unreadable manifest instead of treating its folder as a plain directory", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vitehub-bundle-workspace-"))
+    try {
+      const packageDir = join(workspace, "packages", "shared")
+      mkdirSync(packageDir, { recursive: true })
+      writeFileSync(join(packageDir, "package.json"), "{ \"name\": ")
+      expect(() => moduleId(join(packageDir, "dist", "index.js"), join(workspace, "apps", "site"))).toThrow(SyntaxError)
+    }
+    finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
   it("normalizes Windows app, dependency, workspace, and Nuxt template paths", () => {
     const windowsRoot = "C:\\repo\\app\\"
     expect(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot)).toBe("server/api/hello.ts")
@@ -101,7 +113,7 @@ describe("module ids and groups", () => {
     expect(moduleId("/repo/packages/agent/dist/index.js", root)).toBe("/repo/packages/agent/dist/index.js")
     expect(moduleId(`${root}/node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs`, root)).toBe("node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs")
     expect(moduleGroup("node_modules/vite-hub/dist/console/runtime/server/mcp.js")).toEqual({ name: "vite-hub/console", kind: "vitehub" })
-    expect(moduleGroup("node_modules/vite-hub/dist/usage-index-DINxJnhe.js")).toEqual({ name: "vite-hub/usage-index", kind: "vitehub" })
+    expect(moduleGroup("node_modules/vite-hub/dist/operations-DINxJnhe.js")).toEqual({ name: "vite-hub/operations", kind: "vitehub" })
     expect(moduleGroup("node_modules/@vite-hub/agent/dist/index.js")).toEqual({ name: "@vite-hub/agent", kind: "vitehub" })
     expect(moduleGroup("node_modules/h3/dist/index.mjs").kind).toBe("framework")
     expect(moduleGroup("node_modules/.cache/nuxt/.nuxt/x.mjs")).toEqual({ name: ".nuxt", kind: "generated" })
@@ -183,7 +195,6 @@ describe("environment reports", () => {
     const secondModule = report.chunks.find(row => row.file === "second.js")!.modules.find(module => module.id === "second.js")!
     expect(secondModule.imports).toEqual(["node_modules/zod/index.js"])
     expect(secondModule.dynamicImports).toEqual(["lazy.js"])
-    // Remove the first entry to prove that the later traversal also has a usable chain.
     const withoutFirst = { ...report, chunks: report.chunks.filter(row => row.file !== "first.js") }
     expect(explainBundle([withoutFirst], "zod")[0]!.chain.map(step => step.id)).toEqual(["second.js", "node_modules/zod/index.js"])
   })
@@ -233,7 +244,6 @@ describe("app report", () => {
     expect(report.server!.bytes).toBe(1100)
     expect(report.server!.startup).toMatchObject({ bytes: 1000, chunks: 1 })
     const groups = Object.fromEntries(report.server!.groups.map(group => [group.name, group]))
-    // 400 of 1000 rendered bytes in a 1000 B file, and the 200 B SSR module split 67/33/100.
     expect(groups["@libsql/client"]).toMatchObject({ bytes: 400, startupBytes: 400, kind: "dependency" })
     expect(groups.zod).toMatchObject({ bytes: 100, startupBytes: 100 })
     expect(groups.app).toMatchObject({ bytes: 67 })
@@ -264,6 +274,21 @@ describe("app report", () => {
 })
 
 describe("why", () => {
+  it("prefers a literal virtual module ID to the project-relative filename", () => {
+    const entry = root + "/entry.ts"
+    const virtual = "\0./banner.ts"
+    const physical = root + "/banner.ts"
+    const report = collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "x".repeat(100), { [entry]: 10, [virtual]: 30, [physical]: 60 }, { entry }),
+    }, {
+      build: "build", environment: "client", side: "client", root, outDir: root + "/dist",
+      getModuleInfo: graph({ [entry]: [physical, virtual] }, [entry]),
+    })
+    expect(explainBundle([report], "./banner.ts")).toMatchObject([
+      { target: "./banner.ts", bytes: 30, chain: [{ id: "entry.ts" }, { id: "./banner.ts" }] },
+    ])
+  })
+
   it("prefers the static chain that loads a module at startup over a shorter lazy one", () => {
     const entry = `${root}/server/index.ts`
     const usage = `${root}/server/routes/usage.ts`
@@ -284,15 +309,31 @@ describe("why", () => {
 })
 
 describe("files and CLI", () => {
-  function run(root: string, args: string[]): { code: number | void, stdout: string, stderr: string } {
+  function run(root: string, args: string[], cwd = root): { code: number | void, stdout: string, stderr: string } {
     let stdout = ""
     let stderr = ""
-    const context = { cwd: root, env: {}, rootDir: root, spawn: async () => ({ exitCode: 0 }), stdout: { write: (text: string | Uint8Array) => { stdout += String(text) } }, stderr: { write: (text: string | Uint8Array) => { stderr += String(text) } } } as ViteHubCliContext
+    const context = { cwd, env: {}, rootDir: root, spawn: async () => ({ exitCode: 0 }), stdout: { write: (text: string | Uint8Array) => { stdout += String(text) } }, stderr: { write: (text: string | Uint8Array) => { stderr += String(text) } } } as ViteHubCliContext
     const [namespace] = bundleCliContributor.namespaces
     const feature = namespace!.features.find(candidate => candidate.name === (args[0] === "why" ? "why" : "report"))!
     const code = feature.run(args[0] === "why" ? args.slice(1) : args, context) as number
     return { code, stdout, stderr }
   }
+
+  it("keeps the root supplied by a CLI that loaded the project", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vitehub-bundle-loaded-root-"))
+    const app = join(dir, "web")
+    try {
+      mkdirSync(app)
+      writeFileSync(join(app, "package.json"), '{"type":"module"}')
+      for (const report of nuxtBuild("workspace-build")) writeEnvironmentReport(dir, report)
+      for (const report of nuxtBuild("app-build")) writeEnvironmentReport(app, report)
+      writeBundleReportRoot(app, dir)
+      expect(JSON.parse(run(app, ["--json"], dir).stdout).build).toBe("app-build")
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   it("writes one file per environment, removes older builds, and prints the report", () => {
     const dir = mkdtempSync(join(tmpdir(), "vitehub-bundle-"))

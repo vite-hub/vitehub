@@ -1,5 +1,5 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
@@ -9,7 +9,8 @@ import { papercuts } from "./capabilities/papercuts.ts"
 import { diagnostics } from "./capabilities/diagnostics.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
 import { agentInvocationId } from "./invocations.ts"
-import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime"
+import { resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
 import type { RuntimeDiagnosticReporter } from "@vite-hub/runtime"
 import type { AgentEvlogStatus } from "./internal/observability-types.ts"
@@ -80,9 +81,9 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const runtimeProcess = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
   const environment = options.environment?.trim() || runtimeProcess?.env?.NODE_ENV || "development"
   const maxPending = options.maxPending ?? 1000
-  if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
+  if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw agentDiagnostics.AGENT_OBSERVABILITY_MAX_PENDING_INVALID()
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw agentDiagnostics.AGENT_TIMER_DURATION_INVALID({ option: "evlog deliveryTimeoutMs" })
   const sessionUrl = ({ agentName, id }: { agentName: string, id: string }, discoveredName = agentName) => {
     if (options.sessionUrl) return options.sessionUrl({ agentName, id })
     const origin = resolvePublicUrl({ agentName: discoveredName })
@@ -116,7 +117,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   function safeError(error: unknown) {
     let original = error instanceof Error ? error : new Error("Operation failed")
     for (let i = 0; i < 5 && !("code" in original) && original.cause instanceof Error; i++) original = original.cause
-    const code = "code" in original && hasRuntimeType(original.code, "string") && /^[a-z0-9_.-]{1,100}$/i.test(original.code) ? original.code : undefined
+    const code = "code" in original && typeof original.code === "string" && /^[a-z0-9_.-]{1,100}$/i.test(original.code) ? original.code : undefined
     const safe = new Error(code && options.trustedErrorCodes?.includes(code) ? String(sanitizeAgentLog({ message: original.message }).message) : "Operation failed")
     safe.name = code || "Error"
     if (original.stack) safe.stack = `${safe.name}: ${safe.message}\n${original.stack.split("\n").filter(line => /^\s+at /.test(line)).map(line => sanitizeAgentLog({ line }).line).join("\n")}`
@@ -136,8 +137,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   }
 
   async function capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }) {
-    if (closing || !exporter) throw new Error("[vitehub] Agent telemetry delivery is unavailable.")
-    if (pending.size >= maxPending) { counts.dropped++; throw new Error("[vitehub] Agent telemetry queue is full.") }
+    if (closing || !exporter) throw agentDiagnostics.AGENT_TELEMETRY_UNAVAILABLE()
+    if (pending.size >= maxPending) { counts.dropped++; throw agentDiagnostics.AGENT_TELEMETRY_QUEUE_FULL() }
     const filtered = filterAgentObservability(level, { ...properties, ...metadata, event })
     const task = withExportDeadline(timeoutMs, signal => exporter.capture(event, sanitizeAgentLog(filtered, { allowContent: level === "full" }), { ...delivery, signal }))
     // Explicit reports await delivery and propagate failure to their durable reporter.
@@ -230,7 +231,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   }) : undefined
   capability.capabilities = [
     ...(options.resources ? [diagnostics({ resources: options.resources, reporter: reportDiagnostics })] : []),
-    ...(reporter ? [papercuts({ report: reporter.report })] : []),
+    ...(reporter ? [papercuts({ report: reporter.report, dedupe: reporter.index })] : []),
   ]
   const telemetry: AgentEvlog = {
     capability, capture, diagnostics: reportDiagnostics, event, exception,
@@ -242,7 +243,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       if (httpRequest && exportedLogs === "failures"
         && context.event.level !== "warn"
         && context.event.level !== "error"
-        && !(hasRuntimeType(context.event.status, "number") && context.event.status >= 400)) return
+        && !(typeof context.event.status === "number" && context.event.status >= 400)) return
       const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
       logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service, environment })
@@ -276,7 +277,7 @@ export interface AgentEvlogHost {
 export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = [], onClose?: () => void): (host: AgentEvlogHost) => void {
   const statusCodeOf = (error: unknown) => {
     const value = readAgentErrorProperty(error, "statusCode") ?? readAgentErrorProperty(error, "status")
-    return hasRuntimeType(value, "number") && Number.isInteger(value) ? value : undefined
+    return typeof value === "number" && Number.isInteger(value) ? value : undefined
   }
   return (host) => {
     const installed: ["request" | "evlog:drain" | "error" | "close", unknown, unknown][] = []
@@ -290,7 +291,7 @@ export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { st
         try { await telemetry.flush() }
         finally {
           for (const [name, callback, disposer] of installed) {
-            if (hasRuntimeType(disposer, "function")) disposer()
+            if (typeof disposer === "function") disposer()
             else host.hooks.removeHook(name, callback)
           }
           onClose?.()

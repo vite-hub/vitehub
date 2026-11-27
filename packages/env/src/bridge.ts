@@ -59,7 +59,8 @@ export interface EnvActivity {
   timestamp: string;
   actor: EnvActor;
   key: string;
-  action: "inspect" | "preview" | "replace" | "resolve" | "use" | "grant" | "revoke";
+  /** `remove`: a store deleted the key, such as the env values of a Console. The bridge never writes it. */
+  action: "inspect" | "preview" | "replace" | "remove" | "resolve" | "use" | "grant" | "revoke";
   outcome: "started" | "succeeded" | "failed" | "denied";
   revision?: string;
   operation?: string;
@@ -125,17 +126,17 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     } catch {
       throw envBridgeError("audit_failed");
     }
-    // Export cannot undo a persisted operation. Durable activity is the source of truth.
     try {
       await options.emit?.(structuredClone(event));
-    } catch {}
+    } catch {
+      console.warn(`[vitehub] Env activity export failed for event ${event.id}. The activity store keeps the event.`);
+    }
   }
   async function allowed(
     context: EnvAccessContext,
     key: string,
     permission: EnvPermission | "activity" | "admin",
   ): Promise<boolean> {
-    // Only Env creates contexts. Each one carries the authority that its producer could prove.
     const authority = envAccessAuthority(context);
     identifier(key);
     validateActor(context.actor);
@@ -151,7 +152,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return false;
     return await safe(async () => {
       const grants = await options.access.grants(key);
-      if (!Array.isArray(grants)) throw new TypeError("Invalid access grants.");
+      if (!Array.isArray(grants)) throw envBridgeError("operation_failed");
       for (const grant of grants) {
         if (
           !grant ||
@@ -164,7 +165,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
           !Array.isArray(grant.permissions) ||
           !grant.permissions.every((value: unknown) => ["inspect", "preview", "replace", "use"].includes(value as string))
         )
-          throw new TypeError("Invalid access grant.");
+          throw envBridgeError("operation_failed");
         if (
           grant.key === key &&
           grant.actor.id === context.actor.id &&
@@ -334,3 +335,8 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
   };
   return bridge;
 }
+
+export { createEnvAuthenticator } from "./auth.ts";
+export type { EnvAgentScope, EnvAgentSession, EnvAuthenticatorOptions, EnvHumanSession } from "./auth.ts";
+export { createEnvBridgeHandler } from "./http.ts";
+export type { EnvBridgeRequestOptions, EnvManagement, EnvManagementResolver } from "./http.ts";

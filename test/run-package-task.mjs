@@ -6,7 +6,8 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_MAX_PARALLEL = 2
-const LEADING_BUILD = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/
+const BUILD_MAX_PARALLEL = 4
+const LEADING_BUILD = /^vp run (?:--cache )?-t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
   "@vite-hub/gateways",
@@ -14,16 +15,12 @@ const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/runtime",
 ])
 
-// Package tests that read files outside their own package directory. A change
-// under one of these paths runs the tests of the named packages.
 const OUTSIDE_TEST_INPUTS = Object.freeze([
   ["docs/content/", ["@vite-hub/ui", "vite-hub"]],
   ["fixtures/tutorials/", ["@vite-hub/agent", "vite-hub"]],
   ["playground/console/", ["vite-hub"]],
   ["playground/vite/", ["@vite-hub/blob", "@vite-hub/internal", "@vite-hub/queue", "@vite-hub/workflow"]],
 ])
-// Package tests do not read these paths. Any other path outside a package,
-// such as a root config or lockfile, runs the tests of every package.
 const NO_PACKAGE_TEST_INPUTS = Object.freeze([
   /^\.github\/(?!actions\/)/,
   /^docs\//,
@@ -45,6 +42,7 @@ function parseArguments(argv) {
 
   const options = {
     affectedBase: undefined,
+    cache: false,
     excludedNames: [],
     list: false,
     maxParallel: DEFAULT_MAX_PARALLEL,
@@ -58,6 +56,10 @@ function parseArguments(argv) {
     const flag = rest[index]
     if (flag === "--list") {
       options.list = true
+      continue
+    }
+    if (flag === "--cache") {
+      options.cache = true
       continue
     }
     const value = rest[++index]
@@ -109,7 +111,6 @@ function workspaceDependencies(pkg, packageByName) {
 
 function selectPackages(packages, task, requestedNames, excludedNames = []) {
   const packageByName = new Map(packages.map(pkg => [pkg.name, pkg]))
-  // Excluded names must exist, so a renamed package cannot silently leave a CI shard.
   for (const name of excludedNames) if (!packageByName.has(name)) throw new Error(`Unknown workspace package: ${name}`)
   const excluded = new Set(excludedNames)
   const selectedNames = requestedNames
@@ -129,8 +130,6 @@ function selectPackages(packages, task, requestedNames, excludedNames = []) {
 }
 
 function changedFiles(workspaceRoot, base) {
-  // The three-dot range compares HEAD with its merge base, so commits that
-  // landed on the base branch after the fork do not count.
   const output = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...HEAD`], {
     cwd: workspaceRoot,
     encoding: "utf8",
@@ -138,8 +137,6 @@ function changedFiles(workspaceRoot, base) {
   return output.split("\0").filter(Boolean)
 }
 
-// Returns the packages that own a changed file, plus every package that
-// depends on them. A file that no rule explains selects every package.
 export function affectedPackageNames(packages, files) {
   const packageByName = new Map(packages.map(pkg => [pkg.name, pkg]))
   const packageByPath = new Map(packages.map(pkg => [pkg.path, pkg]))
@@ -196,8 +193,6 @@ function buildClosure(selected, packageByName) {
   }
   for (const pkg of selected) {
     add(pkg)
-    // A test can need a package that is not a dependency, such as the vite-hub
-    // bin. Build it here once, so the test script does not rebuild its graph.
     for (const target of leadingBuildTargets(pkg.manifest.scripts.test)) {
       if (packageByName.has(target)) add(packageByName.get(target))
     }
@@ -216,7 +211,6 @@ function executePackage(pkg, phase, options) {
   if (phase === "test") {
     const packageScript = pkg.manifest.scripts.test
     let testScript = packageScript.trim()
-    // Only remove leading build tasks that this runner has already completed.
     for (;;) {
       const build = LEADING_BUILD.exec(testScript)
       if (!build || options.buildResults?.get(build[1])?.status !== "passed") break
@@ -226,6 +220,9 @@ function executePackage(pkg, phase, options) {
     if (testScript !== packageScript.trim()) {
       return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "--shell-mode", "exec", testScript], options.workspaceRoot, options.signal)
     }
+  }
+  if (phase === "build" && options.cache) {
+    return spawnCommand("corepack", ["pnpm", "exec", "vp", "run", "--cache", "--filter", pkg.name, "build"], options.workspaceRoot, options.signal)
   }
   return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "run", phase], options.workspaceRoot, options.signal)
 }
@@ -376,6 +373,7 @@ export async function runPackageTask(options) {
   const execute = options.execute ?? ((pkg, phase, executionOptions) => executePackage(pkg, phase, {
     ...executionOptions,
     buildResults,
+    cache: options.cache,
     workspaceRoot,
   }))
   let buildResults
@@ -384,10 +382,10 @@ export async function runPackageTask(options) {
     const buildPackages = buildClosure(selected, packageByName)
     buildResults = await runPhase({
       execute,
-      maxParallel: options.maxParallel ?? DEFAULT_MAX_PARALLEL,
+      maxParallel: options.cache ? 1 : BUILD_MAX_PARALLEL,
       packages: buildPackages,
       packageByName,
-      parallelSafePackages: options.parallelSafePackages ?? DEFAULT_PARALLEL_SAFE_PACKAGES,
+      parallelSafePackages: buildPackages.map(pkg => pkg.name),
       phase: "build",
       signal: controller.signal,
     })
@@ -395,7 +393,7 @@ export async function runPackageTask(options) {
 
   const taskResults = await runPhase({
     execute,
-    maxParallel: options.maxParallel ?? DEFAULT_MAX_PARALLEL,
+    maxParallel: options.task === "typecheck" ? 1 : options.maxParallel ?? DEFAULT_MAX_PARALLEL,
     packages: selected,
     packageByName,
     parallelSafePackages: options.parallelSafePackages ?? DEFAULT_PARALLEL_SAFE_PACKAGES,

@@ -3,7 +3,7 @@ title: Sync Status
 description: "Show whether edits are loading, saving, saved, or not saved, with a custom label and an accessible live status."
 navigation.order: 32
 navigation.group: Collaboration
-icon: i-ph-cloud-check-light
+icon: i-lucide-cloud-check
 ---
 
 `SyncStatus` shows if local edits are saved. The values follow [Liveblocks' Yjs sync status](https://liveblocks.io/docs/api-reference/liveblocks-yjs) (`loading`, `synchronizing`, `synchronized`), plus `error` for a failed save. The parts match [Kibo UI's Status](https://www.kibo-ui.com/components/status).
@@ -13,10 +13,10 @@ icon: i-ph-cloud-check-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/sync-status`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { SyncStatus, SyncStatusIndicator, SyncStatusLabel } from "@vite-hub/ui";
+import { SyncStatus, SyncStatusIndicator, SyncStatusLabel } from "vite-hub/ui";
 ```
 
 ## Usage
@@ -25,7 +25,7 @@ Derive the status from the Realtime room:
 
 ```ts
 import { computed, ref } from "vue"
-import type { SyncStatusValue } from "@vite-hub/ui";
+import type { SyncStatusValue } from "vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
 const realtime = useRealtimeTiptap("docs", "guides/welcome.md");

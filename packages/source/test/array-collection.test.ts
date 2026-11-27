@@ -1,6 +1,6 @@
 import { H3 } from "h3"
 import * as v from "valibot"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
@@ -18,6 +18,7 @@ type Item = Record<string, unknown>
 
 function articles(items: readonly Item[] | (() => Item[] | { items: Item[], digest?: string }) = records, options: ArrayCollectionOptions<"category" | "authors.name"> = {}) {
   return defineCollection({
+    access: "public",
     source: array<Item, "category" | "authors.name">(items, {
       facets: ["category", "authors.name"],
       filters: ["category", "authors.name"],
@@ -95,7 +96,7 @@ describe("array()", () => {
   })
 
   it("sorts numbers numerically and strings in either direction", async () => {
-    const numeric = defineCollection({ source: array([{ rank: 10 }, { rank: 2 }, { rank: 1 }], { sort: { field: "rank" } }) })
+    const numeric = defineCollection({ route: false, source: array([{ rank: 10 }, { rank: 2 }, { rank: 1 }], { sort: { field: "rank" } }) })
     expect((await numeric.page({ query: {} })).items).toEqual([{ rank: 1 }, { rank: 2 }, { rank: 10 }])
     const descending = articles(records, { sort: { direction: "desc", field: "title" } })
     expect((await query(descending, {})).items.map(item => item.slug)).toEqual(["untagged", "gamma", "beta", "alpha"])
@@ -107,7 +108,7 @@ describe("array()", () => {
       { id: "second", meta: { ranks: [{ value: 1 }] } },
       { id: "third", meta: { ranks: [{ value: 2 }] } },
     ]
-    const collection = defineCollection({ source: array(items, { sort: { direction, field: "meta.ranks.value" } }) })
+    const collection = defineCollection({ route: false, source: array(items, { sort: { direction, field: "meta.ranks.value" } }) })
     const first = await collection.page({ limit: 2, query: {} })
     const second = await collection.page({ cursor: first.nextCursor!, limit: 2, query: {} })
     expect([...first.items, ...second.items].map(item => item.id)).toEqual(
@@ -116,9 +117,49 @@ describe("array()", () => {
     expect(items.map(item => item.id)).toEqual(["first", "second", "third"])
   })
 
+  it("keeps the order of strings and the next page when the host locale changes", async () => {
+    const items = [{ name: "Zebra" }, { name: "Åland" }]
+    const collection = defineCollection({ route: false, source: array(items, { facets: ["name"], sort: { field: "name" } }) })
+    const first = await collection.page({ limit: 1, query: {} })
+    const swedish = new Intl.Collator("sv")
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+      return swedish.compare(this, that)
+    })
+    try {
+      const second = await collection.page({ cursor: first.nextCursor!, limit: 1, query: {} })
+      expect([...first.items, ...second.items]).toEqual([{ name: "Åland" }, { name: "Zebra" }])
+      expect(second.facets?.name?.map(facet => facet.value)).toEqual(["Åland", "Zebra"])
+    }
+    finally {
+      localeCompare.mockRestore()
+    }
+  })
+
+  it("sorts strings without case or accents first, then by code unit, without the runtime collation", async () => {
+    const collator = vi.spyOn(Intl, "Collator").mockImplementation(() => {
+      throw new Error("Intl.Collator differs between runtimes")
+    })
+    const names = ["𪛙", "Zebra", "apple", "丁", "Åland", "ab", "Ab", "Banana", "A\u030Aland"]
+    const collection = defineCollection({ route: false, source: array(names.map(name => ({ name })), { facets: ["name"], sort: { field: "name" } }) })
+    const page = await collection.page({ query: {} })
+    const order = ["Ab", "ab", "A\u030Aland", "Åland", "apple", "Banana", "Zebra", "丁", "𪛙"]
+    expect(page.items.map(item => item.name)).toEqual(order)
+    expect(page.facets?.name?.map(facet => facet.value)).toEqual(order)
+    expect(collator).not.toHaveBeenCalled()
+  })
+
+  it("keeps newer Unicode marks outside the Latin folding range in page and facet sort keys", async () => {
+    const items = [{ name: "A\u{1E6E3}" }, { name: "Ab" }]
+    const collection = defineCollection({ route: false, source: array(items, { facets: ["name"], sort: { field: "name" } }) })
+    const first = await collection.page({ limit: 1, query: {} })
+    const second = await collection.page({ cursor: first.nextCursor!, limit: 1, query: {} })
+    expect([...first.items, ...second.items]).toEqual([items[1], items[0]])
+    expect(first.facets?.name?.map(facet => facet.value)).toEqual(["Ab", "A\u{1E6E3}"])
+  })
+
   it("reads updated sort keys on each load", async () => {
     const items = [{ id: "first", rank: 2 }, { id: "second", rank: 1 }]
-    const collection = defineCollection({ source: array(() => items, { sort: { field: "rank" } }) })
+    const collection = defineCollection({ route: false, source: array(() => items, { sort: { field: "rank" } }) })
     expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["second", "first"])
     items[0]!.rank = 0
     expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["first", "second"])
@@ -130,7 +171,7 @@ describe("array()", () => {
       { date: new Date("2026-09-30T00:00:00.000Z"), slug: "a" },
       { date: new Date("2026-10-10T00:00:00.000Z"), slug: "c" },
     ]
-    const dated = defineCollection({ source: array(items, { facets: ["date"], filters: ["date"], sort: { direction: "desc", field: "date" } }) })
+    const dated = defineCollection({ route: false, source: array(items, { facets: ["date"], filters: ["date"], sort: { direction: "desc", field: "date" } }) })
     const page = await dated.page({ query: {} })
     expect(page.items.map(item => item.slug)).toEqual(["c", "b", "a"])
     expect(page.facets?.date?.[0]).toEqual({ count: 1, value: "2026-09-30T00:00:00.000Z" })
@@ -148,7 +189,7 @@ describe("array()", () => {
   })
 
   it("omits facets when none are declared and always reports total", async () => {
-    const collection = defineCollection({ source: array(records) })
+    const collection = defineCollection({ route: false, source: array(records) })
     const page = await collection.page({ query: {} })
     expect(page.total).toBe(4)
     expect(page).not.toHaveProperty("facets")
@@ -158,21 +199,21 @@ describe("array()", () => {
     const collection = articles()
     await expect(collection.get?.("beta")).resolves.toEqual(records[1])
     await expect(collection.get?.("missing")).resolves.toBeNull()
-    expect(defineCollection({ source: array(records) }).get).toBeUndefined()
+    expect(defineCollection({ route: false, source: array(records) }).get).toBeUndefined()
   })
 
   it("looks up items without requiring cursor serialization", async () => {
     const items = [{ id: "first", value: 1n }, { id: "second", value: 2n }]
-    const collection = defineCollection({ source: array(items, { key: "id" }) })
+    const collection = defineCollection({ route: false, source: array(items, { key: "id" }) })
     await expect(collection.get?.("second")).resolves.toEqual(items[1])
     await expect(collection.get?.("missing")).resolves.toBeNull()
   })
 
   it("still validates every item and looks up parsed keys", async () => {
     const schema = v.object({ id: v.pipe(v.string(), v.transform(value => value.toLowerCase())) })
-    const collection = defineCollection({ source: array([{ id: "FIRST" }], { key: "id", schema }) })
+    const collection = defineCollection({ route: false, source: array([{ id: "FIRST" }], { key: "id", schema }) })
     await expect(collection.get?.("first")).resolves.toEqual({ id: "first" })
-    const invalid = defineCollection({ source: array([{ id: "first" }, { id: 2 }], { key: "id", schema }) })
+    const invalid = defineCollection({ route: false, source: array([{ id: "first" }, { id: 2 }], { key: "id", schema }) })
     await expect(invalid.get?.("first")).rejects.toThrow("item 1 does not match its schema")
   })
 
@@ -182,7 +223,7 @@ describe("array()", () => {
     await expect(collection.parseQuery({ sort: "secret" })).rejects.toThrow("not allowed")
     await expect(collection.parseQuery({ empty: "secret" })).rejects.toThrow("not allowed")
     await expect(collection.parseQuery({ search: ["a", "b"] })).rejects.toThrow("one value")
-    const unsearchable = defineCollection({ source: array(records) })
+    const unsearchable = defineCollection({ route: false, source: array(records) })
     await expect(unsearchable.parseQuery({ search: "a" })).rejects.toThrow("not enabled")
     await expect(unsearchable.parseQuery({ search: "" })).resolves.toEqual({ search: "" })
   })
@@ -194,6 +235,7 @@ describe("array()", () => {
 
   it("preserves a declared __proto__ filter", async () => {
     const collection = defineCollection({
+      route: false,
       source: array([{ ["__proto__"]: "secret" }, { ["__proto__"]: "other" }], { filters: ["__proto__"] }),
     })
     const query = await collection.parseQuery({ ["__proto__"]: "secret" })
@@ -202,6 +244,7 @@ describe("array()", () => {
 
   it("validates and parses items with a schema", async () => {
     const collection = defineCollection({
+      route: false,
       source: array(async () => [{ rank: "2" }, { rank: "1" }], {
         schema: v.object({ rank: v.pipe(v.string(), v.transform(Number)) }),
         sort: { field: "rank" },
@@ -209,16 +252,23 @@ describe("array()", () => {
     })
     await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ rank: 1 }, { rank: 2 }] })
 
-    const invalid = defineCollection({ source: array([{ rank: 1 }], { schema: v.object({ rank: v.string() }) }) })
+    const invalid = defineCollection({ route: false, source: array([{ rank: 1 }], { schema: v.object({ rank: v.string() }) }) })
     await expect(invalid.page({ query: {} })).rejects.toThrow("item 0 does not match its schema")
   })
 
   it("rejects loaders that do not return an array", async () => {
-    const collection = defineCollection({ source: array(async () => ({ items: "nope" }) as never) })
+    const collection = defineCollection({ route: false, source: array(async () => ({ items: "nope" }) as never) })
     await expect(collection.page({ query: {} })).rejects.toThrow("must return an array")
   })
 
   describe("cursors", () => {
+    it("rejects a sorted cursor from before the text order was versioned", async () => {
+      const items = [{ name: "Zebra" }, { name: "Åland" }]
+      const collection = defineCollection({ route: false, source: array(items, { sort: { field: "name" } }) })
+      const legacyCursor = "eyJkaWdlc3QiOiIzY2MwZWY5ZjA0YzE3OWI0NDFjMDM1NTAyMWJjMDFjYjdjZWQzYzBkNzEyYzM0YTFhMGZjM2M1ZjU1YjViMDFlIiwib2Zmc2V0IjoxLCJxdWVyeSI6IjdhM2Q1NjRjNzUwZDdhZjU3ZWU3MGIzODE4YjkxZjdkOWI3YzRiZTA4NmEwNGNhY2Y2N2I4ZjkyZDc0OWVkOGUifQ"
+      await expect(collection.page({ cursor: legacyCursor, limit: 1, query: {} })).rejects.toMatchObject({ code: "SOURCE_R0027", reason: "stale" })
+    })
+
     it("rejects malformed and non-canonical cursors", async () => {
       const collection = articles(Array.from({ length: 12 }, (_, id) => ({ id })))
       const first = await query(collection, {}, undefined, 1)
@@ -268,7 +318,7 @@ describe("array()", () => {
         { "2": "two", "10": "ten", "02": "padded", category: "guide", id: "second" },
         { "2": "other", "10": "ten", "02": "padded", category: "guide", id: "excluded" },
       ]
-      const collection = defineCollection({ source: array(items, { filters: ["2", "10", "02", "category"] }) })
+      const collection = defineCollection({ route: false, source: array(items, { filters: ["2", "10", "02", "category"] }) })
       const first = await collection.page({
         limit: 1,
         query: await collection.parseQuery({ category: "GUIDE", "02": "PADDED", "10": ["TEN", "ten"], "2": "TWO" }),

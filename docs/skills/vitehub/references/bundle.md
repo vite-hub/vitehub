@@ -17,6 +17,18 @@ Use this when a task asks how big the app is, why the server starts slowly or hi
 
 `vitehub bundle why <package|file|group>` prints the bytes on each side, whether the target loads at startup, and the shortest import chain from the entry. Read the chain from the end: the first step that is app code or a ViteHub feature is usually the one to change. For example, change a static import to `import()` or turn the feature off.
 
+## Routes
+
+Static aliases load the same files as their canonical route. Lookup follows Nuxt's case and trailing-slash settings. When a custom `app/router.options.ts` file is present (also from a layer or module), route estimates are unavailable because that file can change routes at runtime. Page redirects also make route estimates unavailable because the destination can change before rendering. The CLI explains this and JSON includes `client.routesUnavailable`; bundle totals and module explanations still work.
+
+In a Nuxt app, `vitehub bundle` also lists the largest page routes. For each route it gives the JavaScript of a first visit and the part of it that only page files add. `vitehub bundle why /docs/kv` takes a URL path, finds the route that renders it, such as `/docs/:slug()`, and prints:
+
+- the files that the browser loads on a first visit: the startup files, and the files of the layout and the pages with every file that they import statically,
+- the CSS of those files,
+- the largest modules in the page files. These are what the route adds. Run `vitehub bundle why <module>` on one to get its import chain.
+
+Code that the page loads later with `import()` does not count. The layout comes from a static `layout` in `definePageMeta`, or is `default`, and counts only when the startup or page files load `NuxtLayout`. If Nuxt does not expose that component's file, layouts are omitted. A layout set at runtime, conditional rendering of `NuxtLayout`, route middleware, and prefetching are not counted: Nuxt's `<link rel="prefetch">` files and the pages of visible `<NuxtLink>`s load at low priority after the page. Nuxt can inline some CSS in the HTML, so `cssBytes` is an upper bound for the CSS files the browser fetches. `--json` gives the routes in `client.routes`.
+
 Use `--json` on both commands when you compare numbers or write them into a report.
 
 ## Act on findings

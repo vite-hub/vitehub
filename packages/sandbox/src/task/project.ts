@@ -4,6 +4,8 @@ import { dirname, relative, resolve } from 'node:path'
 import picomatch from 'picomatch'
 import type { SandboxTaskProjectOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
+import { assertSandboxTaskTransferOptions } from './transfer-options'
 
 type SandboxTaskPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -118,10 +120,6 @@ function parseManifest(source: string, path: string): PackageManifest {
   }
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
 function parseSandboxTaskProjectOptions(manifest: PackageManifest, path: string): SandboxTaskProjectOptions | undefined {
   if (typeof manifest.vitehub === 'undefined')
     return undefined
@@ -134,20 +132,23 @@ function parseSandboxTaskProjectOptions(manifest: PackageManifest, path: string)
   if (!isPlainObject(sandbox))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0058({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" must be an object: ${path}` })
 
-  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout')
+  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout' && key !== 'transfer')
   if (unsupported.length) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0059({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" has unsupported keys: ${unsupported.join(', ')}.` })
   }
 
-  const timeout = sandbox.timeout
-  if (timeout === undefined)
-    return undefined
-  const numericTimeout = Number(timeout)
-  if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
+  const { timeout, transfer } = sandbox
+  if (timeout !== undefined && (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0 || timeout > maxTimeout)) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0060({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask.timeout" must be a positive integer no greater than ${maxTimeout}.` })
   }
 
-  return { timeout: numericTimeout }
+  assertSandboxTaskTransferOptions(transfer)
+  if (timeout === undefined && transfer === undefined)
+    return undefined
+  return {
+    ...(timeout === undefined ? {} : { timeout }),
+    ...(transfer === undefined ? {} : { transfer }),
+  }
 }
 
 function pnpmPatchPaths(manifest: PackageManifest) {
@@ -157,7 +158,6 @@ function pnpmPatchPaths(manifest: PackageManifest) {
 }
 
 async function parsePnpmWorkspacePatchPaths(source: string) {
-  // Loaded on demand: every `vite` start imports this module, and few apps have a Sandbox project with a pnpm workspace.
   const { parse: parseYaml } = await import('yaml')
   const workspace: unknown = parseYaml(source)
   const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined

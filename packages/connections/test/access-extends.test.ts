@@ -25,7 +25,6 @@ describe("Connection access through Agent extends", () => {
     await expect(child.call(...modify)).resolves.toEqual({ id: "message-1" })
     const grandchild = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-canary" }, {}, ["bot-dev", "bot"]) })
     await expect(grandchild.call(...modify)).resolves.toEqual({ id: "message-1" })
-    // The same Agent without parents is an inline Agent that `runAgent()` ran. It gets only rules that name it.
     const inline = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }) })
     expect(await rejection(inline.call(...modify))).toMatchObject({ code: "CONNECTIONS_DENIED" })
   })
@@ -54,7 +53,6 @@ describe("Connection access through Agent extends", () => {
     for (const options of forged) {
       expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
     }
-    // A name that only looks like an extension of `bot` inherits nothing.
     expect(await rejection(test.runtime.client("mail", { access: minted }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.provider.calls).toHaveLength(calls)
   })
@@ -66,7 +64,7 @@ describe("Connection access through Agent extends", () => {
     expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(approval).toMatchObject({ actor: "agent:bot-dev", input: { inherited: ["agent:bot"] } })
-    await expect(test.runtime.approve({ id: approval!.id })).resolves.toMatchObject({ approval: { status: "executed" } })
+    await expect(test.runtime.approve({ actor: "user:owner", id: approval!.id })).resolves.toMatchObject({ approval: { status: "executed" } })
   })
 
   it("rejects a stored approval whose inherited set is not a list of Agent actors", async () => {
@@ -75,11 +73,10 @@ describe("Connection access through Agent extends", () => {
     const child = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }, {}, ["bot"]) })
     await rejection(child.call(...modify))
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
-    // A changed store row cannot widen the replayed decision to a non-Agent rule.
     const tampered = { ...approval!, id: "approval_tampered", input: { ...(approval!.input as object), inherited: ["server"] } }
     await test.store.approvals.create(tampered)
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id: tampered.id })).rejects.toBeDefined()
+    await expect(test.runtime.approve({ actor: "user:owner", id: tampered.id })).rejects.toBeDefined()
     expect(test.provider.calls).toHaveLength(before)
   })
 })

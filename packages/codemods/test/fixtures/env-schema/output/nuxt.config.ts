@@ -1,4 +1,4 @@
-import { envSchema } from '@vite-hub/env/vite';
+import { envSchema } from 'vite-hub/env/vite';
 
 export default defineNuxtConfig({
   extends: ['./layers/base'],
@@ -11,7 +11,7 @@ export default defineNuxtConfig({
     keepMe: true,
   },
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     env: envSchema(new URL('./.env.example', import.meta.url), { prefix: 'NUXT_', paths: { NUXT_DATABASE_URL: 'database.url' } }),
   },
 });

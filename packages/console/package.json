@@ -1,0 +1,41 @@
+{
+  "name": "@vite-hub/console",
+  "private": true,
+  "description": "The ViteHub Console as its own app. Deploy it once, sign in, and link your apps. It signs each call to an app's Operations endpoint from its server with the key of that app's link.",
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "dev": "vp dev",
+    "typecheck": "vp run --cache -t vite-hub#build && vp build && tsc --noEmit -p tsconfig.json",
+    "test": "vp run --cache -t @vite-hub/console#build && vp test"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
+    "@better-auth/passkey": "catalog:auth",
+    "@modelcontextprotocol/sdk": "catalog:ai",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "better-auth": "catalog:auth",
+    "drizzle-orm": "catalog:database",
+    "nitro": "catalog:unjs",
+    "nostics": "catalog:runtime",
+    "undici": "8.12.2",
+    "vite-hub": "workspace:*",
+    "zod": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@libsql/client": "catalog:database",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "drizzle-kit": "catalog:database",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

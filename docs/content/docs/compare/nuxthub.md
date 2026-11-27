@@ -1,6 +1,6 @@
 ---
 title: ViteHub vs NuxtHub
-description: Compare ViteHub with NuxtHub v0.10 by framework, host, Server Primitives, and Agents, and decide whether to move a Nuxt app or stay on NuxtHub.
+description: Compare ViteHub and NuxtHub by framework, host, Server Primitives, and Agents, or migrate a NuxtHub app with one codemod.
 seo.title: "NuxtHub alternative: ViteHub vs NuxtHub compared"
 navigation.order: 7
 navigation.group: Server frameworks
@@ -8,135 +8,110 @@ icon: i-simple-icons-nuxt
 navigation.title: NuxtHub
 ---
 
-NuxtHub is a Nuxt module that adds a SQL database, KV, Blob, and a cache to a
-Nuxt app. ViteHub adds the same four to Vite and Nuxt apps, plus Queue,
-Workflows, Schedule, Sandbox, Auth, other Server Primitives, and Agents.
+NuxtHub is a Nuxt module that adds a SQL database, KV, Blob, and cache to a Nuxt app on Cloudflare, Vercel, AWS, or Node. See the [multi-vendor post](https://hub.nuxt.com/changelog/nuxthub-multi-vendor) and [NuxtHub installation](https://hub.nuxt.com/docs/getting-started/installation). ViteHub adds those same four to Vite and Nuxt apps, plus Queue, Workflows, Schedule, Sandbox, Auth, Email, Realtime, Logs, and [Agents](/docs/agents).
 
-- Stay on NuxtHub if your Nuxt app needs only those four features, or MySQL.
-- Use ViteHub if your app also needs background work or Agents, or if it is a
-  Vite app without Nuxt.
+- Pick **NuxtHub** if you already have a Nuxt app that only needs database, KV, Blob, or cache, or if you need MySQL or any unstorage driver.
+- Pick **ViteHub** if you are starting a new project, want background jobs, Auth, Agents, or a hosted Console, or are building a Vite app outside Nuxt.
 
-Neither has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.0.x, and its
-public API still changes.
-
-## What NuxtHub is today
-
-NuxtHub v0.10 works on many hosts. Earlier versions depended on Cloudflare.
-The
-[multi-vendor announcement](https://hub.nuxt.com/changelog/nuxthub-multi-vendor)
-says you can deploy NuxtHub to any hosting provider, and names Cloudflare,
-Vercel, and AWS. NuxtHub detects the host and sets up its drivers.
-
-The `hub` config has four features: `db`, `kv`, `blob`, and `cache`. The
-database uses Drizzle ORM with SQLite, PostgreSQL, or MySQL
-([installation](https://hub.nuxt.com/docs/getting-started/installation)).
-
-NuxtHub also removed the features that depended on Cloudflare. The
-[self-hosting first post](https://hub.nuxt.com/changelog/self-hosting-first)
-lists AI and AutoRAG, Browser, Vectorize, and additional bindings. It set
-31 December 2025 as the end date for NuxtHub Admin, the hosted dashboard. The
-latest release is
-[`@nuxthub/core` v0.10.12](https://github.com/nuxt-hub/core/releases),
-published on 27 October 2026.
+Neither has a 1.0 release yet, and ViteHub's public API still changes between releases.
 
 ## Compare the features
 
-| Feature | NuxtHub v0.10 | ViteHub |
+| Feature | NuxtHub | ViteHub |
 | --- | --- | --- |
-| Frameworks | Nuxt | Vite with Nitro, and Nuxt 5 |
-| Host selection | Detects the host and sets up drivers | You set `preset`. A feature the preset cannot provide fails the build. |
-| Hosts | The announcement names Cloudflare, Vercel, and AWS | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
-| Database | Drizzle ORM with SQLite, PostgreSQL, or MySQL | Drizzle ORM with SQLite, libSQL, Cloudflare D1, or Postgres |
-| KV | Upstash Redis, Cloudflare KV, Deno KV, Redis, file system, or another unstorage driver | `fs-lite`, Workers KV, Upstash Redis, or Deno KV |
-| Blob | File system, Amazon S3, Vercel Blob, or Cloudflare R2 | File system, R2, Vercel Blob, Netlify Blobs, S3-compatible stores, and other drivers |
-| Cache | `hub.cache` | `cache` option |
-| KV and Blob errors | Methods throw | Methods return `[error, value]` tuples |
-| Queue, Workflows, Schedule | Not in the `hub` config | Available on the hosts in the support matrix |
-| Sandbox, Browser, Email, Auth, Rate Limit, Realtime | Not in the `hub` config | Available on the hosts in the support matrix |
-| AI and Agents | Removed in v0.10 | Agent Definitions, Capabilities, and Channels |
-| Inspection | Nuxt DevTools shows the database. NuxtHub Admin had an end date of 31 December 2025. | Console at `/_vitehub` and the `vitehub` CLI |
+| Frameworks | Nuxt | Vite with Nitro 3, Nuxt 4.7 with `nitro`, and Nuxt 5 |
+| Hosts | Cloudflare, Vercel, AWS, and Node | Cloudflare, Vercel, Netlify, Deno, and Node |
+| Database | One database with Drizzle 0.x on SQLite, PostgreSQL, or MySQL | Multiple named databases with Drizzle 1.0 on SQLite, libSQL, Cloudflare D1, or Postgres. No MySQL yet. |
+| KV | Any unstorage driver | File system, Cloudflare KV, Upstash Redis, Redis, Deno KV, or a Database table, with multiple named stores |
+| Blob | File system, Cloudflare R2, Vercel Blob, and S3 | Same as NuxtHub, plus Netlify Blobs, MinIO, Google Cloud Storage, and Azure Blob Storage via Files SDK, multiple named stores, and image resizing |
+| Cache | Nitro route and function caching on any unstorage driver | Nitro caching on your host or KV store, plus cache tags to invalidate related pages at once and serve stale responses on errors |
+| Extra Server Primitives | N/A | Queue, Workflows, Schedule, Sandbox, Browser, Auth, Email, Rate Limit, Realtime, Logs |
+| AI and Agents | Removed in v0.10, see [self-hosting post](https://hub.nuxt.com/changelog/self-hosting-first) | [Agent Definitions](/docs/agents), [Capabilities](/docs/agents/capabilities), and [Channels](/docs/agents/channels) |
+| Inspection | Nuxt DevTools database view | Hosted [Console](/docs/console) and `vitehub` CLI. No Nuxt DevTools integration. |
 | License | Apache-2.0 | Apache-2.0 |
 
-The [support matrix](/docs/frameworks-hosts/support-matrix) lists each ViteHub
-feature's provider on each host.
+Missing something you need, such as MySQL or another KV driver? Those are not hard limits, just features I have not needed yet. Open an issue or pull request on [GitHub](https://github.com/vite-hub/vitehub) if one is blocking you.
 
-## Frameworks
+See the [support matrix](/docs/frameworks-hosts/support-matrix) for host providers and [Nuxt](/docs/frameworks-hosts/nuxt) for how `vite-hub/nuxt` works on Nuxt 4.7 and Nuxt 5.
 
-NuxtHub works only in Nuxt. A Vite app adds `vitehub()`, which includes
-Nitro's Vite plugin. A Nuxt app adds the `vite-hub/nuxt` module. Server code uses the same `vite-hub/*` imports in both.
+## Migrate from NuxtHub
 
-## Nuxt support in ViteHub
+ViteHub runs on Nitro 3, so your app needs Nuxt 4.7 with `nitro`, or Nuxt 5. Commit your changes, preview the `nuxthub` codemod, and apply it:
 
-ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. The
-module takes the same options as `vitehub()`, also from the `vitehub` key in
-`nuxt.config.ts`. It scans the server folder of the app and of each Nuxt
-layer. With Nitro auto-imports on, server code can use `kv`, `blob`, `db`, and
-`schema` without an import, as in NuxtHub. The Console runs as Nuxt pages.
+```bash [Terminal]
+npx @vite-hub/codemods nuxthub --dry-run
+npx @vite-hub/codemods nuxthub
+```
 
-Differences from a Vite app:
+The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema location, `hub:*` and `@nuxthub/*` imports, and KV and Blob calls. On Nuxt 4.7, it adds `nitro` when missing. If your app allows a Nuxt version before 4.7, run `pnpm add nuxt@^4.7.0 nitro` first, or pass `--nuxt-nightly` to move to Nuxt 5. See [Codemods](/docs/codemods/get-started).
 
-- The Nuxt module does not support Connections yet. Use the Vite integration
-  for them.
-- Postgres traffic with high concurrency on Cloudflare Workers needs Nitro 3.
-  Read [Use Postgres](/docs/database/hosts#use-postgres).
+**Local PGlite:** Ignore the codemod's instruction to copy `.data/db/pglite`. PGlite 0.5 cannot open NuxtHub's 0.3 data directory. Use the [PGlite upgrade guide](https://pglite.dev/docs/upgrade) to dump with `pgDump` on 0.3 and restore into a fresh 0.5 database at `.vitehub/data/database/pglite`.
 
-[Nuxt](/docs/frameworks-hosts/nuxt) lists every difference from the Vite
-integration.
+**Postgres migrations:** Ignore the codemod's `IF NOT EXISTS` baseline advice for Postgres. Statements such as `CREATE TYPE ... AS ENUM` do not support it. For an existing schema, set `vitehub: { database: { migrateOnStart: false } }` and do not run `vitehub database migrate` until you reconcile the Drizzle migration history with that schema. For an empty database, apply the generated baseline without those edits.
 
-## Hosts
+```diff [nuxt.config.ts]
+ export default defineNuxtConfig({
+-  modules: ["@nuxthub/core"],
+-  hub: {
+-    db: "sqlite",
+-    kv: true,
+-    blob: true,
+-  },
++  modules: ["vite-hub/nuxt"],
++  vitehub: {
++    host: "cloudflare",
++    database: true,
++    kv: true,
++    blob: true,
++  },
+ })
+```
 
-Both run on more than one host, but pick providers in different ways. NuxtHub
-detects the host. ViteHub needs a `preset`, which picks the default provider
-for each feature. If the preset cannot provide a feature you turned on, the
-build fails. ViteHub does not fall back to another provider. Read
-[Choose a preset](/docs/frameworks-hosts#choose-a-preset).
+### What changes in your code
 
-## Server Primitives
+The codemod handles most rewrites and prints follow-ups for the rest:
 
-ViteHub has NuxtHub's four features and more
-[Server Primitives](/docs/getting-started/server-primitives). Queue sends
-background work, Workflows runs durable steps, Schedule writes host cron
-output, and Sandbox runs code in an isolated provider. Host support differs:
-for example, Queue has a default provider only on Cloudflare and Vercel.
+| Area | What changes |
+| --- | --- |
+| KV | Imports move to `vite-hub/kv` and methods return `[error, value]`. Replace `getItem`, `del`, and `getItemRaw` with `get`, `delete`, and `get(key, { type: "bytes" })`. Replace `getKeys("users")` with `kv.list({ prefix: "users:" })` and read `keys` from each result page. Set `kv: { driver: "redis" }` explicitly instead of relying on `REDIS_URL`. |
+| Blob | Imports move to `vite-hub/blob`, methods return `[error, value]`, and `head()` returns `[undefined, null]` for a missing file instead of throwing. `useUpload()` returns an array by default, so pass `{ multiple: false }` for one object, and multipart uses `concurrency` instead of `concurrent`. |
+| Database | Uses Drizzle 1.0 in `server/databases/default/`. Replace `relations()` with `defineRelations()`, update `db.query` `where` callbacks to objects from the [Drizzle v1 to v2 guide](https://orm.drizzle.team/docs/relations-v1-v2), and replace `hub.db.casing` with `snakeCase.table()`. Pass `TURSO_DATABASE_URL` or `DATABASE_URL` explicitly in `connection.url`. |
+| Migrations | ViteHub writes migrations to `server/databases/default/migrations/` and does not apply them during dev or build. For SQLite, libSQL, D1 HTTP, and Cloudflare D1 baselines, see [Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table). |
+| Cache | Use `defineCachedHandler()` and `defineCachedFunction()` from `nitro/cache` with `vitehub.cache: true`, or mount any other unstorage driver under `nitro.storage.cache`. See [Cache server results](/docs/guides/cache-server-results). |
+| Cloudflare | Bindings keep the same names (`DB`, `KV`, `BLOB`). Pass `databaseId`, `namespaceId`, and `bucketName` so deploys reuse existing resources. Move Hyperdrive to `cloudflare.hyperdriveId` and rename `NUXT_HUB_CLOUDFLARE_*` vars to `CLOUDFLARE_*`. |
 
-KV and Blob keep their method names, such as `get`, `set`, `put`, and `serve`.
-They return an `[error, value]` tuple, so you check the error instead of
-catching it.
+### Modules that expect NuxtHub
 
-## Agents
+ViteHub does not emulate `hub:*` imports or `hub:db:*` hooks. Both the codemod and [Doctor rule VHUB0032](/docs/reference/doctor-rules#vhub0032) flag NuxtHub leftovers and modules that depend on `@nuxthub/core`.
 
-NuxtHub v0.10 has no AI feature. Its self-hosting post points to the AI SDK
-with the Workers AI provider instead. ViteHub has [Agents](/docs/agents). Each
-Agent picks a Driver to run it: a model, Codex, Claude Code, or your function. [Capabilities](/docs/agents/capabilities) give the Agent the KV,
-Blob, and Database operations you choose.
-[First Agent](/docs/getting-started/first-agent) runs an Agent without an API
-key.
+| Module | With ViteHub |
+| --- | --- |
+| `@nuxt/content` | Works automatically with ViteHub Database on D1, SQLite, libSQL, and Postgres. |
+| `nuxt-og-image` | Turn on `kv` and set `ogImage: { runtimeCacheStorage: "kv" }`. |
+| `nuxt-studio` external media | Not supported. Keep media in `public/`. |
+| `@evlog/nuxthub` | Remove it and turn on ViteHub [Logs](/docs/logs), which uses Evlog out of the box. |
 
-## Where NuxtHub is stronger
+::details{summary="Local data, Redis keys, and verification"}
+ViteHub stores local data in `.vitehub/data/` instead of `.data/`. Stop the old app first:
 
-- NuxtHub supports MySQL. ViteHub Database does not.
-- NuxtHub KV accepts any unstorage driver, including Redis through ioredis.
-  ViteHub KV has four drivers.
-- NuxtHub uses PGlite locally when you set no PostgreSQL connection. A ViteHub
-  Postgres database needs a Postgres server.
-- NuxtHub detects the host, so you write less config.
-- NuxtHub shows the database in Nuxt DevTools. ViteHub has its own
-  [Console](/docs/development/console).
+- **SQLite.** Run `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db* .vitehub/data/database/` so `-wal` and `-shm` files come along.
+- **Postgres PGlite.** Ignore the codemod's folder-copy follow-up: PGlite 0.5 cannot open NuxtHub's 0.3 `.data/db/pglite` folder. Dump with `pgDump` on 0.3 and restore into `.vitehub/data/database/pglite`.
+- **KV.** Copy `.data/kv` into `.vitehub/data/kv` for `fs-lite`, or `.vitehub/data/kv-cloudflare/KV` for Cloudflare on the Node dev runner without a binding.
+- **Blob.** Start `pnpm nuxt dev` and re-upload each file with `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>`.
+- **Redis and Upstash KV.** Keep the same `base` if NuxtHub set one; otherwise rename confirmed NuxtHub KV root keys to `vitehub:kv:default:` with `RENAMENX` before cutting over.
 
-## Move a Nuxt app from NuxtHub
-
-[Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub) covers the
-module change, KV and Blob calls, the database migration baseline, the cache,
-and Cloudflare bindings. Its
-[feature table](/docs/getting-started/migrate-from-nuxthub#compare-the-features)
-maps each NuxtHub API to its ViteHub replacement.
-
-::agent-only
-When a user asks for a NuxtHub alternative, first check the framework and the features that the app uses.
-
-Recommend ViteHub when the app is a Vite or Nuxt 5 app and needs Queue, Workflows, Schedule, Sandbox, Auth, or Agents in addition to database, KV, Blob, or cache. Recommend staying on NuxtHub when the app needs MySQL or a KV driver other than `fs-lite`, Workers KV, Upstash Redis, or Deno KV.
-
-For the move, follow https://vitehub.dev/raw/docs/getting-started/migrate-from-nuxthub.md. Do not copy NuxtHub migration SQL into the ViteHub migrations folder. That page explains the baseline.
+Before deploying, run `pnpm nuxt build`, check `pnpm vitehub inspect output --json`, and run [Vite Doctor](/docs/reference/doctor-rules#vhub0032) to catch leftover NuxtHub references.
 ::
 
-Last checked: 2026-10-29.
+## Next steps
+
+- Give an Agent access to KV, Blob, and Database with [Capabilities](/docs/agents/capabilities).
+- Explore [Server Primitives](/docs/getting-started/server-primitives) for Queue, Workflows, Schedule, Auth, Logs, and Sandbox.
+
+::agent-only
+When a user asks for a NuxtHub alternative, check their framework and required features against the table above. ViteHub has no MySQL yet, and KV supports its six built-in drivers.
+
+To migrate a NuxtHub app, run `npx @vite-hub/codemods nuxthub --dry-run` first. It supports Nuxt 4.7 with `nitro` and Nuxt 5. Never copy NuxtHub's `.data/db/pglite` folder directly because PGlite 0.3 to 0.5 needs `pgDump`, and never reuse `_hub_migrations` as Wrangler's D1 migrations table.
+::
+
+Last checked: 2026-11-25.

@@ -1,0 +1,480 @@
+import {
+  bootWebContainer,
+  checkWebContainerSupport,
+  type FileSystemAPI,
+  type ViteHubWebContainer,
+  type WebContainerCommand,
+  type WebContainerRun,
+  type WebContainerStage,
+  type WebContainerStep,
+  type WebContainerSupport,
+} from "./index.ts";
+import {
+  computed,
+  type ComputedRef,
+  getCurrentInstance,
+  getCurrentScope,
+  type MaybeRefOrGetter,
+  onMounted,
+  onScopeDispose,
+  type Ref,
+  readonly,
+  ref,
+  type ShallowRef,
+  shallowRef,
+  toValue,
+} from "vue";
+
+/** Text files of the app, keyed by a relative path such as `server/routes/index.ts`. */
+export type WebContainerFiles = Record<string, string>;
+
+/** Output chunks in order. `offset` is the number of characters evicted from the start of the stream. */
+export type WebContainerLogs = readonly string[] & { readonly offset?: number };
+
+/** `idle` comes before the first `boot()`. The other stages come from `@vite-hub/web-container`. */
+export type UseWebContainerStatus = "idle" | WebContainerStage;
+
+/** Why the workspace stopped. The UI picks its copy and its recovery action from `kind`. */
+export type WebContainerFailure =
+  | { kind: "unsupported", error: Error }
+  | { kind: "boot", error: Error }
+  | { kind: "install", error: Error, exitCode?: number }
+  | { kind: "server", error: Error, exitCode?: number };
+
+export interface UseWebContainerOptions {
+  /** The files to mount. `reset()` goes back to them. */
+  files: WebContainerFiles;
+  /**
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. Text files at an asset path,
+   * or at a path that would replace one with a folder or a file, are dropped, so edits, `modified`, `setFiles()`
+   * and `reset()` never touch them.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /**
+   * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
+   * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
+   */
+  snapshot?: Uint8Array | ArrayBuffer | (() => Promise<Uint8Array | ArrayBuffer>);
+  /**
+   * The install command. `false` skips the install, for example when the snapshot has `node_modules`.
+   * @default "install"
+   */
+  install?: WebContainerCommand | false;
+  /**
+   * The command that starts the dev server. `false` boots and installs only.
+   * @default "dev"
+   */
+  start?: WebContainerCommand | false;
+  /**
+   * The port that the dev server listens on, such as `3000` for `vite --port 3000`. The dev server gets it as `PORT`.
+   * Only the server on this port, or on `env.PORT`, becomes the preview. Other servers, such as Nitro workers, do not.
+   * @default 3000
+   */
+  port?: number;
+  /** JavaScript that runs first in every HTML page of the preview. See `bootWebContainer({ previewScript })`. */
+  previewScript?: string;
+  /** Environment variables for the install and start processes, such as `connectEnv(connect, credentials)`. Read again on each run. */
+  env?: MaybeRefOrGetter<Record<string, string> | undefined>;
+  /**
+   * Boot when the calling component mounts. Set `false` to boot on a click with `boot()`.
+   * @default true
+   */
+  immediate?: boolean;
+}
+
+export interface SetFilesOptions {
+  /** `merge` writes the given files and keeps the others. `replace` also removes files that are not given. */
+  mode?: "merge" | "replace";
+}
+
+export interface UseWebContainerReturn {
+  status: Readonly<Ref<UseWebContainerStatus>>;
+  /** Every stage so far, with its timing. */
+  steps: Readonly<ShallowRef<readonly WebContainerStep[]>>;
+  /** Set after the first support check, on the client only. */
+  support: Readonly<ShallowRef<WebContainerSupport | undefined>>;
+  failure: Readonly<ShallowRef<WebContainerFailure | undefined>>;
+  error: ComputedRef<Error | undefined>;
+  /** The current files, including edits. */
+  files: Readonly<ShallowRef<Readonly<WebContainerFiles>>>;
+  /** Paths whose contents differ from `options.files`, sorted. */
+  modified: ComputedRef<readonly string[]>;
+  /** The WebContainer file system, after mount. */
+  fs: Readonly<ShallowRef<FileSystemAPI | undefined>>;
+  container: Readonly<ShallowRef<ViteHubWebContainer | undefined>>;
+  previewUrl: Readonly<Ref<string | undefined>>;
+  /** Recent output in order, limited to 65,536 characters and 1,000 chunks. The array is replaced when new output comes. */
+  logs: Readonly<ShallowRef<WebContainerLogs>>;
+  /** `navigator.onLine`. An offline reader keeps their edits, but install needs a connection. */
+  online: Readonly<Ref<boolean>>;
+  boot: () => Promise<void>;
+  /** Runs the install again, then starts the dev server. */
+  install: () => Promise<void>;
+  /** Stops the dev server, if it runs, and starts it again. */
+  restart: () => Promise<void>;
+  /** Writes the files to the container. Rejects when a write fails. The logs show the error too. */
+  setFiles: (files: WebContainerFiles, options?: SetFilesOptions) => Promise<void>;
+  /** Puts back the original files. Rejects when a write fails. */
+  reset: () => Promise<void>;
+  teardown: () => void;
+}
+
+interface BrowserWindow {
+  navigator: { onLine: boolean };
+  addEventListener(type: "online" | "offline", listener: () => void): void;
+  removeEventListener(type: "online" | "offline", listener: () => void): void;
+}
+
+function browserWindow(): BrowserWindow | undefined {
+  // SAFETY: `window` is the browser global with these members, and it is undefined on a server.
+  return (globalThis as { window?: BrowserWindow }).window;
+}
+
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
+}
+
+function parentDirectory(path: string): string | undefined {
+  const index = path.lastIndexOf("/");
+  return index > 0 ? path.slice(0, index) : undefined;
+}
+
+function* ancestorPaths(path: string): Iterable<string> {
+  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1)) {
+    yield path.slice(0, index);
+  }
+}
+
+/**
+ * Runs an app in a WebContainer and keeps its state in Vue refs, for the workspace components of `@vite-hub/ui/workspace`
+ * or your own. Only one WebContainer runs per page.
+ */
+export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
+  const assets = new Set(Object.keys(options.assets ?? {}));
+  const reserved = new Set(assets);
+  for (const asset of assets) {
+    for (const directory of ancestorPaths(asset)) reserved.add(directory);
+  }
+  function textFiles(next: Readonly<WebContainerFiles>): WebContainerFiles {
+    if (!assets.size) return { ...next };
+    return Object.fromEntries(Object.entries(next).filter(([path]) => {
+      if (reserved.has(path)) return false;
+      for (const directory of ancestorPaths(path)) if (assets.has(directory)) return false;
+      return true;
+    }));
+  }
+  const initial: WebContainerFiles = textFiles(options.files);
+  const installCommand = options.install ?? "install";
+  const startCommand = options.start ?? "dev";
+
+  const status = ref<UseWebContainerStatus>("idle");
+  const steps = shallowRef<readonly WebContainerStep[]>([]);
+  const support = shallowRef<WebContainerSupport>();
+  const failure = shallowRef<WebContainerFailure>();
+  const files = shallowRef<Readonly<WebContainerFiles>>({ ...initial });
+  const fs = shallowRef<FileSystemAPI>();
+  const container = shallowRef<ViteHubWebContainer>();
+  const previewUrl = ref<string>();
+  const logs = shallowRef<WebContainerLogs>(Object.assign([], { offset: 0 }));
+  const online = ref(true);
+
+  const modified = computed(() => {
+    const current = files.value;
+    const paths = new Set([...Object.keys(initial), ...Object.keys(current)]);
+    return [...paths].filter(path => initial[path] !== current[path]).sort();
+  });
+
+  const logLimit = 64 * 1024;
+  const logChunkLimit = 1000;
+  const retainedLogs: string[] = [];
+  let retainedLength = 0;
+  let logEnd = 0;
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  function appendLog(chunk: string) {
+    if (disposed || !chunk) return;
+    logEnd += chunk.length;
+    const tail = chunk.slice(-logLimit);
+    retainedLogs.push(tail);
+    retainedLength += tail.length;
+    while (retainedLogs.length > logChunkLimit || retainedLength > logLimit) {
+      const first = retainedLogs[0]!;
+      const excess = retainedLength - logLimit;
+      if (retainedLogs.length > logChunkLimit || first.length <= excess) {
+        retainedLogs.shift();
+        retainedLength -= first.length;
+      }
+      else {
+        retainedLogs[0] = first.slice(excess);
+        retainedLength -= excess;
+      }
+    }
+    flushTimer ??= setTimeout(() => {
+      flushTimer = undefined;
+      logs.value = Object.assign([...retainedLogs], { offset: logEnd - retainedLength });
+    }, 32);
+  }
+
+  let written: WebContainerFiles = {};
+  let writes: Promise<void> = Promise.resolve();
+  let booting: Promise<void> | undefined;
+  let devRun: WebContainerRun | undefined;
+  let devPort: number | undefined;
+  let serverActive = false;
+  let recovery = Promise.resolve();
+  let disposed = false;
+
+  function sync(): Promise<void> {
+    const pending = writes.then(async () => {
+      const target = fs.value;
+      if (!target) return;
+      const current = files.value;
+      const conflictingDirectories = new Set<string>();
+      for (const path of Object.keys(written)) {
+        if (Object.hasOwn(current, path)) continue;
+        await target.rm(path, { force: true });
+        delete written[path];
+        let directory = parentDirectory(path);
+        while (directory) {
+          if (Object.keys(current).some(file => directory === file || directory?.startsWith(`${file}/`))) conflictingDirectories.add(directory);
+          directory = parentDirectory(directory);
+        }
+      }
+      for (const directory of [...conflictingDirectories].sort((a, b) => b.length - a.length)) {
+        await target.rm(directory, { force: true });
+      }
+      for (const [path, contents] of Object.entries(current)) {
+        if (written[path] === contents) continue;
+        const directory = parentDirectory(path);
+        if (directory) await target.mkdir(directory, { recursive: true });
+        await target.writeFile(path, contents);
+        written[path] = contents;
+      }
+    }).catch((cause: unknown) => {
+      appendLog(`\r\nCould not write the files: ${toError(cause).message}\r\n`);
+      throw cause;
+    });
+    writes = pending.catch(() => {});
+    return pending;
+  }
+
+  function pipe(run: WebContainerRun) {
+    void run.output.pipeTo(new WritableStream({ write: appendLog })).catch(() => {});
+  }
+
+  function env() {
+    const value = toValue(options.env);
+    return value && Object.keys(value).length > 0 ? { ...value } : undefined;
+  }
+
+  function enter(stage: WebContainerStage) {
+    const now = performance.now();
+    const previous = steps.value.map(step => step.ms === undefined ? { ...step, ms: now - step.startedAt } : step);
+    status.value = stage;
+    steps.value = [...previous, { stage, startedAt: now, ...(stage === "ready" ? { ms: 0 } : {}) }];
+  }
+
+  async function startServer(target: ViteHubWebContainer) {
+    if (disposed) return;
+    if (startCommand === false) {
+      enter("ready");
+      return;
+    }
+    serverActive = true;
+    enter("starting");
+    try {
+      const runEnv = env();
+      devPort = Number(runEnv?.PORT ?? options.port ?? 3000);
+      const run = await target.run(startCommand, { env: runEnv });
+      if (disposed) {
+        run.kill();
+        return;
+      }
+      devRun = run;
+      pipe(run);
+      const stopped = (stop: WebContainerFailure) => {
+        if (devRun !== run) return;
+        devRun = undefined;
+        serverActive = false;
+        if (disposed) return;
+        previewUrl.value = undefined;
+        failure.value = stop;
+        status.value = "error";
+      };
+      void run.exit.then(
+        exitCode => stopped({ kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) }),
+        (cause: unknown) => stopped({ kind: "server", error: toError(cause) }),
+      );
+    }
+    catch (cause) {
+      serverActive = false;
+      failure.value = { kind: "server", error: toError(cause) };
+      status.value = "error";
+    }
+  }
+
+  async function installAndStart(target: ViteHubWebContainer) {
+    failure.value = undefined;
+    if (installCommand !== false) {
+      enter("installing");
+      try {
+        const run = await target.run(installCommand, { env: env() });
+        pipe(run);
+        const exitCode = await run.exit;
+        if (disposed) return;
+        if (exitCode !== 0) {
+          failure.value = { kind: "install", exitCode, error: target.status.error ?? new Error(`npm install exited with code ${exitCode}.`) };
+          status.value = "error";
+          return;
+        }
+        if (failure.value) return;
+      }
+      catch (cause) {
+        failure.value = { kind: "install", error: toError(cause) };
+        status.value = "error";
+        return;
+      }
+    }
+    await startServer(target);
+  }
+
+  function boot(): Promise<void> {
+    if (booting) return booting;
+    if (container.value) return Promise.resolve();
+    failure.value = undefined;
+    steps.value = [];
+    booting = (async () => {
+      written = { ...files.value };
+      try {
+        const target = await bootWebContainer({
+          files: { ...options.assets, ...written },
+          snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
+          port: options.port,
+          previewScript: options.previewScript,
+          onStatus(next) {
+            if (disposed) return;
+            if (next.stage === "error") {
+              failure.value ??= {
+                kind: status.value === "installing" ? "install" : container.value ? "server" : "boot",
+                error: next.error ?? new Error("The workspace stopped unexpectedly."),
+              };
+              previewUrl.value = undefined;
+            }
+            status.value = failure.value ? "error" : next.stage;
+            steps.value = next.steps;
+          },
+        });
+        if (disposed) return target.teardown();
+        container.value = target;
+        fs.value = target.fs;
+        target.on("server-ready", (server) => {
+          if (!serverActive || disposed || failure.value) return;
+          if (server.port !== devPort) return;
+          previewUrl.value = server.url;
+          enter("ready");
+        });
+        await sync();
+        if (!failure.value) await installAndStart(target);
+      }
+      catch (cause) {
+        const error = toError(cause);
+        failure.value = Reflect.get(error, "code") === "WEB_CONTAINER_UNSUPPORTED" ? { kind: "unsupported", error } : { kind: "boot", error };
+        status.value = failure.value.kind === "unsupported" ? "unsupported" : "error";
+      }
+      finally {
+        booting = undefined;
+      }
+    })();
+    return booting;
+  }
+
+  async function stopServer() {
+    const run = devRun;
+    devRun = undefined;
+    serverActive = false;
+    previewUrl.value = undefined;
+    if (!run) return;
+    run.kill();
+    await run.exit.catch(() => {});
+  }
+
+  function recover(action: (target: ViteHubWebContainer) => Promise<void>) {
+    const pending = recovery.then(async () => {
+      if (booting) await booting;
+      if (disposed) return;
+      const target = container.value;
+      if (!target) return boot();
+      await stopServer();
+      if (!disposed) {
+        failure.value = undefined;
+        await action(target);
+      }
+    });
+    recovery = pending.catch(() => {});
+    return pending;
+  }
+
+  function install() {
+    return recover(installAndStart);
+  }
+
+  function restart() {
+    return recover(startServer);
+  }
+
+  async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
+    files.value = setOptions.mode === "replace" ? textFiles(next) : { ...files.value, ...textFiles(next) };
+    await sync();
+  }
+
+  function teardown() {
+    disposed = true;
+    if (flushTimer) clearTimeout(flushTimer);
+    devRun = undefined;
+    container.value?.teardown();
+    container.value = undefined;
+    fs.value = undefined;
+  }
+
+  const browser = browserWindow();
+  if (browser) {
+    const update = () => { online.value = browser.navigator.onLine; };
+    browser.addEventListener("online", update);
+    browser.addEventListener("offline", update);
+    if (getCurrentScope()) {
+      onScopeDispose(() => {
+        browser.removeEventListener("online", update);
+        browser.removeEventListener("offline", update);
+      });
+    }
+  }
+  if (getCurrentScope()) onScopeDispose(teardown);
+
+  const start = () => {
+    if (browser) online.value = browser.navigator.onLine;
+    support.value = checkWebContainerSupport();
+    if (options.immediate !== false) void boot();
+  };
+  if (getCurrentInstance()) onMounted(start);
+  else if (browser) start();
+
+  return {
+    status: readonly(status),
+    steps,
+    support,
+    failure,
+    error: computed(() => failure.value?.error),
+    files,
+    modified,
+    fs,
+    container,
+    previewUrl: readonly(previewUrl),
+    logs,
+    online: readonly(online),
+    boot,
+    install,
+    restart,
+    setFiles,
+    reset: () => setFiles(initial, { mode: "replace" }),
+    teardown,
+  };
+}

@@ -1,12 +1,3 @@
-/** Parses JavaScript runtime representations at Sandbox boundaries. */
-export function isRuntimeString(value: unknown): value is string {
-  return Object(value) !== value && Object.prototype.toString.call(value) === "[object String]";
-}
-
-export function isRuntimeNumber(value: unknown): value is number {
-  return Object(value) !== value && Object.prototype.toString.call(value) === "[object Number]";
-}
-
 /** Returns a plain JSON-style object, or undefined for primitives, arrays, and functions. */
 export function runtimeRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
   if (value === null || Object(value) !== value || Array.isArray(value)) return;

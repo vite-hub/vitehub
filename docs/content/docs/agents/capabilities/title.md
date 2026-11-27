@@ -154,7 +154,6 @@ Use `template`, `variables`, or `execute` to add product context.
 ## Related pages
 
 - [chat()](/docs/agents/capabilities/chat)
-- [chatSummary()](/docs/agents/capabilities/chat-summary)
 - [progressSummary()](/docs/agents/capabilities/progress-summary)
 - [Agent Drivers](/docs/agents/agent-drivers)
 - [Channels](/docs/agents/channels)

@@ -1,27 +1,24 @@
 import { execFile } from "node:child_process"
-import { cp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, cp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
 import { encode } from "@msgpack/msgpack"
+import { invariant } from "@vite-hub/internal/invariant"
 
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { snapshotLinksFile, type SnapshotLinks } from "./links.ts"
-import { aliasName, lockedAliases, sameRecord, withoutAliases, withoutTarballIntegrity } from "./lockfile.ts"
+import { aliasName, lockedAliases, lockedFiles, sameRecord, withoutAliases, withoutFilePackages, withoutTarballIntegrity } from "./lockfile.ts"
 import { readTree } from "./tree.ts"
 
 const run = promisify(execFile)
 const npmFlags = ["--ignore-scripts", "--no-audit", "--no-fund", "--no-progress"]
 
-/**
- * Packages that npm in a WebContainer replaces with their wasm build of the same version.
- * A probe of `npm install` in a WebContainer shows the swap: `node_modules/esbuild` holds `esbuild-wasm`.
- */
 const wasmBuilds: Record<string, string> = {
   "esbuild": "esbuild-wasm",
   "lightningcss": "lightningcss-wasm",
   "@libsql/client": "@libsql/client-wasm",
 }
-/** rolldown is not swapped. In a WebContainer it installs this binding into `/tmp` on first use, which takes seconds. */
 const wasmBindings: Record<string, string> = {
   rolldown: "@rolldown/binding-wasm32-wasi",
 }
@@ -50,11 +47,6 @@ export interface NodeModulesSnapshot {
   lockfile: string
 }
 
-/** A supplied lockfile is out of sync with the app's dependencies or required wasm aliases. */
-export class SnapshotLockfileMismatchError extends Error {
-  override name = "SnapshotLockfileMismatchError"
-}
-
 /**
  * Installs the dependencies of an app on this machine as npm in a WebContainer does, and returns a snapshot that holds
  * only `node_modules`. Mount it with `bootWebContainer({ snapshot })`, so the container skips `npm install`.
@@ -62,10 +54,12 @@ export class SnapshotLockfileMismatchError extends Error {
  * Native binaries are left out: the install uses `--cpu=wasm32`, swaps packages for their wasm builds, and adds the
  * wasm binding of rolldown. Install scripts do not run. Source maps are dropped.
  * The snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer` restores them.
+ * It is encoded with msgpack directly: @webcontainer/snapshot runs out of memory on large trees
+ * (https://github.com/stackblitz/webcontainer-core/issues/2187).
  * Creation requires a POSIX host (Linux, macOS, or WSL); Windows npm shims cannot be restored as POSIX bin links.
  */
 export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<NodeModulesSnapshot> {
-  if (process.platform === "win32") throw new Error("createNodeModulesSnapshot requires a POSIX host (Linux, macOS, or WSL).")
+  if (process.platform === "win32") throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_POSIX_REQUIRED()
   const { dir } = options
   const modules = join(dir, "node_modules")
   const manifestPath = join(dir, "package.json")
@@ -74,34 +68,34 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
   const manifest: Manifest = JSON.parse(originalManifest.toString("utf8"))
   const frozen = options.lockfile !== undefined && options.frozenLockfile !== false
   let aliases = options.lockfile === undefined ? {} : lockedAliases(options.lockfile)
+  if (frozen && options.lockfile !== undefined) {
+    for (const file of lockedFiles(options.lockfile)) {
+      const found = await access(join(dir, file)).then(() => true, () => false)
+      if (!found) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ file, wasm: false })
+    }
+  }
   try {
-    if (options.lockfile !== undefined) await writeFile(lockPath, options.lockfile)
+    if (options.lockfile !== undefined) await writeFile(lockPath, frozen ? options.lockfile : withoutFilePackages(options.lockfile))
     else await rm(lockPath, { force: true })
 
-    // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
-    // versions than the aliases have, install again with the new aliases. A second round always agrees.
     for (let round = 0; ; round++) {
-      // The aliases are optional dependencies: npm checks the `cpu` of a required dependency against this machine even
-      // with `--cpu=wasm32`, and refuses `@rolldown/binding-wasm32-wasi` when an app has two rolldown versions.
       await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: withoutAliases(manifest.dependencies), optionalDependencies: { ...withoutAliases(manifest.optionalDependencies), ...aliases } }, null, 2)}\n`)
       await rm(modules, { recursive: true, force: true })
       try {
-        // The snapshot needs these aliases even when the app's npm configuration omits optional dependencies.
         await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", "--include=optional", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
       }
       catch (error) {
-        // EUSAGE alone also covers unrelated npm usage errors. Only its explicit sync diagnostic permits an update.
         if (frozen && error instanceof Error && "stderr" in error && typeof error.stderr === "string"
           && error.stderr.includes("code EUSAGE")
           && error.stderr.includes("`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync.")) {
-          throw new SnapshotLockfileMismatchError("The lockfile does not match the app. Pass frozenLockfile: false to update it.", { cause: error })
+          throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ cause: error, wasm: false })
         }
         throw error
       }
       const needed = await neededAliases(modules)
       if (sameRecord(needed, aliases)) break
-      if (frozen) throw new SnapshotLockfileMismatchError("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
-      if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
+      if (frozen) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ wasm: true })
+      invariant(round <= 1, "the second install pins every wasm alias, so the wasm builds settle on one set of versions")
       aliases = needed
     }
 
@@ -110,7 +104,6 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
       const target = wasm ?? wasmBindings[name]
       if (!target) continue
       const alias = join(modules, aliasName(target, await packageVersion(path)))
-      // A wasm build takes the place of the package. A binding goes into the package's own node_modules.
       const destination = wasm ? path : join(path, "node_modules", target)
       if (wasm) await rm(path, { recursive: true, force: true })
       await cp(alias, destination, { recursive: true, verbatimSymlinks: true })
@@ -135,7 +128,6 @@ interface Manifest {
 
 
 
-/** An alias for each wasm build or binding that the installed packages need, such as `npm:esbuild-wasm@0.28.2`. */
 async function neededAliases(modules: string): Promise<Record<string, string>> {
   const needed: Record<string, string> = {}
   for (const { name, path } of await packageDirs(modules)) {
@@ -154,7 +146,7 @@ async function neededAliases(modules: string): Promise<Record<string, string>> {
  */
 export function packSnapshot(data: Uint8Array, options: { partBytes?: number } = {}): Uint8Array[] {
   const partBytes = options.partBytes ?? 20 * 2 ** 20
-  if (!Number.isSafeInteger(partBytes) || partBytes <= 0) throw new RangeError("partBytes must be a positive safe integer.")
+  if (!Number.isSafeInteger(partBytes) || partBytes <= 0) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID()
   const compressed = gzipSync(data, { level: 9 })
   const parts: Uint8Array[] = []
   for (let offset = 0; offset < compressed.byteLength; offset += partBytes) parts.push(compressed.subarray(offset, offset + partBytes))
@@ -164,11 +156,10 @@ export function packSnapshot(data: Uint8Array, options: { partBytes?: number } =
 async function packageVersion(path: string): Promise<string> {
   const manifest: unknown = JSON.parse(await readFile(join(path, "package.json"), "utf8"))
   const version = manifest && typeof manifest === "object" && "version" in manifest ? manifest.version : undefined
-  if (typeof version !== "string") throw new Error(`${path}/package.json has no version.`)
+  invariant(typeof version === "string", `npm writes a version into every installed package.json, but ${path}/package.json has none`)
   return version
 }
 
-/** Every package folder below `modules`, with its name. `nested` also walks the node_modules of each package. */
 async function packageDirs(modules: string, nested = true): Promise<{ name: string, path: string }[]> {
   const found: { name: string, path: string }[] = []
   const entries = await readdir(modules, { withFileTypes: true }).catch((error) => {

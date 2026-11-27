@@ -10,9 +10,10 @@ import config from "../nuxt.config";
 const docsRoot = resolve(import.meta.dirname, "..");
 const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
+const workspacePages = ["learn/choices", "learn/first-agent", "learn/first-server-primitive", "playground"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", () => {
+  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const docsPackage = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
@@ -21,15 +22,10 @@ describe("agent-ready HTTP contracts", () => {
     const diagnostics = modules.indexOf("./modules/diagnostics");
     expect(diagnostics).toBeGreaterThanOrEqual(0);
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
-    // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
-    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
-    // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
-    expect(workspace).toContain("nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch");
-    expect(workspace).not.toContain("docus");
-    // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
-    expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
-    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
+    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
+    expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual([...trustPages, ...workspacePages].sort().map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
   });
@@ -38,16 +34,8 @@ describe("agent-ready HTTP contracts", () => {
     expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
     expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
     expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
-    expect(config.docs?.sitemap).toEqual(["/learn", "/playground", "/examples", "/projects", "/templates"]);
+    expect(config.docs?.sitemap).toEqual(["/learn", "/examples", "/projects", "/templates"]);
     expect(typeof config.docs?.rawMarkdown).toBe("function");
-  });
-
-  it("serves raw Markdown copies from the docs package", () => {
-    const docsModule = readFileSync(resolve(packageRoot, "src/nuxt.ts"), "utf8");
-
-    expect(docsModule).toContain('for (const method of ["get", "head"] as const) addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })');
-    expect(docsModule).toContain('{ baseName: "docs-raw", dir: rawDir }');
-    expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl)");
   });
 
   it("derives Capability references from the real model-facing tools", async () => {
@@ -69,16 +57,15 @@ describe("agent-ready HTTP contracts", () => {
     expect(references["gmail.draft"]?.tools.map(tool => tool.name)).toEqual(["gmail_draft", "gmail_read", "gmail_search"]);
   });
 
-  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", () => {
+  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     const links = [...source.matchAll(/href: "https:\/\/vitehub\.dev(\/[^"]*)"/g)].map(match => match[1]!);
     const machineResources = ["/openapi.json", "/.well-known/skills/vitehub/SKILL.md", "/mcp"];
 
     expect(links.length).toBeGreaterThan(0);
     for (const link of links.filter(link => !machineResources.includes(link))) {
       expect(link).toMatch(/^\/raw\/.+\.md$/);
-      // Each raw link names a page that the build writes a raw copy for.
       expect(findDocsPage(manifest, link.replace(/^\/raw/, "").replace(/\.md$/, "")), link).not.toBeNull();
     }
   });
@@ -90,20 +77,21 @@ describe("agent-ready HTTP contracts", () => {
     expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
   });
 
-  it("pins the patched Nuxt toolchain and disables DevTools", () => {
+  it("pins the Nuxt 5 toolchain and disables DevTools", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+    const docsPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/docs/package.json"), "utf8"));
 
-    expect(workspace).toContain("nuxt: ^4.6.4");
-    expect(lockfile).toContain("nuxt@4.6.4:");
-    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
-    expect(lockfile).not.toContain("nuxt@4.4.8:");
-    expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
+    expect(workspace).toMatch(/^ +nuxt: npm:nuxt-nightly@5\./m);
+    expect(lockfile).toMatch(/^ {2}nuxt-nightly@5\.[^:]+:$/m);
+    expect(lockfile).toMatch(/^ {2}nitro@3\.[^:]+:$/m);
+    expect(lockfile).toMatch(/^ {2}'@nuxt\/devtools@3\.[^']+':$/m);
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
+    expect(cliPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+    expect(docsPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
   });
 });
 
@@ -140,52 +128,5 @@ describe("ViteHub OpenAPI document", () => {
         }
       }
     }
-  });
-});
-
-describe("trust and developer discovery content", () => {
-  it("publishes substantive About, Contact, and Privacy source pages", () => {
-    for (const page of trustPages) {
-      const source = readFileSync(resolve(docsRoot, `content/${page}.md`), "utf8");
-      expect(source.length, page).toBeGreaterThan(500);
-      expect(source, page).toContain(`title: ${page === "privacy" ? "ViteHub privacy" : `${page[0]!.toUpperCase()}${page.slice(1)} ViteHub`}`);
-      // The page header renders the title as the only H1.
-      expect(source, page).not.toMatch(/^# /m);
-    }
-  });
-
-  it("renders no site footer and keeps recovery links on the 404 page", () => {
-    const app = readFileSync(resolve(packageRoot, "runtime/app/app.vue"), "utf8");
-    const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
-
-    expect(app).not.toMatch(/<(?:AppFooter|UFooter)\b/);
-    expect(error).not.toMatch(/<(?:AppFooter|UFooter)\b/);
-    expect(error).toContain("label: \"Docs\", to: \"/docs\"");
-    expect(error).toContain("<AppSearch");
-    expect(error).toContain("llms.txt");
-    expect(error).toContain("Sitemap");
-  });
-
-  it("names the OpenAPI, skill, MCP, and npm CLI entry points", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const resources = readFileSync(resolve(docsRoot, "content/docs/getting-started/ai-resources/index.md"), "utf8");
-    const combined = `${config}\n${resources}`;
-
-    expect(combined).toContain("When to use ViteHub");
-    expect(combined).toContain("ViteHub OpenAPI");
-    expect(combined).toContain("ViteHub Agent Skill");
-    expect(combined).toContain("ViteHub MCP server");
-    expect(combined).toContain("https://www.npmjs.com/package/vite-hub");
-  });
-
-  it("uses Nuxt Schema.org for truthful product and project identities", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const landing = readFileSync(resolve(docsRoot, "app/pages/index.vue"), "utf8");
-
-    expect(config).toContain('"nuxt-schema-org"');
-    expect(landing).toContain("defineOrganization({");
-    expect(landing).toContain("defineSoftwareApp({");
-    expect(landing).toContain('applicationCategory: "DeveloperApplication"');
-    expect(landing).not.toMatch(/telephone|postalCode|streetAddress/);
   });
 });

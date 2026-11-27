@@ -9,7 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, isAgentEmulatorStandalone, loadConfigScanner, readAgentJournalPostgres, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
+import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
+import { consoleTestKey } from "./support/console-signature.ts";
 
 const roots: string[] = []
 
@@ -40,13 +42,37 @@ describe("ViteHub CLI config loading", () => {
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
 
+  it("runs agent emulator without the project only for an explicit emulator, help, or no config", async () => {
+    const empty = await mkdtemp(join(tmpdir(), "vitehub-emulator-guard-"))
+    roots.push(empty)
+    const vite = await createProject("vite")
+    const nuxt = await createProject("nuxt")
+    expect(isAgentEmulatorStandalone([], {}, empty)).toBe(true)
+    expect(isAgentEmulatorStandalone([], {}, vite)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--json"], {}, nuxt)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--url", "http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--url=http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--help"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone([], { VITEHUB_EMULATE_URL: "http://localhost:4014" }, vite)).toBe(true)
+  })
+
+  it("keeps the Agent CLI enabled when the config scanner cannot load vite", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), "export default {}\n", "utf8")
+    const missing = (name: string) => Object.assign(new Error(`Cannot find package '${name}' imported from /app/node_modules/vite-hub/dist/scan-module.js`), { code: "ERR_MODULE_NOT_FOUND" })
+    await expect(loadConfigScanner(() => Promise.reject(missing("vite")))).resolves.toBeUndefined()
+    await expect(loadConfigScanner(() => Promise.reject(missing("oxc")))).rejects.toThrow("'oxc'")
+    await expect(isAgentCliEnabled(root, async () => undefined)).resolves.toBe(true)
+  })
+
   it("handles nested Agent options and ignores comments or unrelated objects", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)
     await writeFile(join(root, "vite.config.ts"), `
       // agent: false
       const unrelated = { agent: false }
-      export default { vitehub: { agent: { providers: { state: { provider: "memory" } }, cli: false } } }
+      export default { vitehub: { agent: { providers: { state: { driver: "memory" } }, cli: false } } }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
@@ -68,6 +94,109 @@ describe("ViteHub CLI config loading", () => {
       export default { plugins: [plugin({ agent: false })] }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  const state = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  const vite = (options: string, before = "") => `import { vitehub } from 'vite-hub'\n${before}export default { plugins: [vitehub({ ${options} })] }\n`
+  it.each([
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), {}, "file:.vitehub/agent-state.db"],
+    ["vite.config.ts", `import { defineConfig } from 'vite'\nimport { vitehub as hub } from 'vite-hub'\nexport default defineConfig({ plugins: [hub({ host: 'node', agent: { ${state} } })] })`, {}, "file:.vitehub/agent-state.db"],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, {}, "file:/srv/app/state.db"],
+    ["vite.config.ts", vite(`agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'vercel', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), { VITEHUB_HOST: "deno" }, undefined],
+    ["vite.config.ts", vite(`host: 'node', dataDir: '/data', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: 'database', ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: process.env.STATE_URL } } }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ...agent, ${state} }`, "const agent = {}\n"), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: 'libsql://db.example.com' } } }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`, "const other = vitehub(options)\n"), {}, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst unused = vitehub({ host: 'node', agent: { ${state} } })\nexport default { plugins: [] }`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node', agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { providers: { state: { url: 'file:dev/state.db' } } } } })\n`, {}, undefined],
+    ["nuxt.config.ts", `const moduleName = 'vite-hub/nuxt'\nexport default defineNuxtConfig({ modules: [[moduleName, { agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ nitro: { preset: 'deno-server' }, vitehub: { agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { ${state} } }, ...shared })\n`, {}, undefined],
+  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, env, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, file), source, "utf8")
+    await expect(readAgentJournalStateUrl(root, env)).resolves.toBe(expected)
+  })
+
+  const postgresDatabase = (options: string) => `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', ${options}schema: {} })\n`
+  const envUrl = "connection: { url: process.env.DATABASE_URL }, "
+  it.each([
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, { url: "postgres://db/app" }],
+    [vite("agent: {}, database: {}"), postgresDatabase(`driver: 'node-postgres', ${envUrl}`), { DATABASE_URL: " postgres://db/app " }, { driver: "node-postgres", url: "postgres://db/app" }],
+    [vite("host: 'node', agent: { invocations: true }, database: true"), postgresDatabase(""), { PGHOST: "db" }, {}],
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(envUrl), {}, undefined],
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(`driver: 'pglite', ${envUrl}`), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: {}, database: true"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'vercel', agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app", VERCEL: "1" }, undefined],
+    [vite("host: 'node', agent: { invocations: { store: 'journal' } }, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' } }, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: false, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: {}"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', dataDir: '.data', agent: true, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: true, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app", VITEHUB_HOST_SOURCE: "cli", VITEHUB_HOST: "cloudflare-module" }, undefined],
+    [vite("host: 'vercel', agent: true, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app", VITEHUB_HOST_SOURCE: "cli", VITEHUB_HOST: "node-server" }, { url: "postgres://db/app" }],
+    [vite("host: 'node', agent: { ...options }, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: true, database: true"), postgresDatabase("connection: { url: new URL(process.env.DATABASE_URL).href }, "), { PGHOST: "db", DATABASE_URL: "postgres://other/app" }, undefined],
+  ])("finds the Postgres default Database of the default journal: %#", async (config, definition, env, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), config, "utf8")
+    await mkdir(join(root, "server/databases/default"), { recursive: true })
+    await writeFile(join(root, "server/databases/default/index.ts"), definition, "utf8")
+    await expect(readAgentJournalPostgres(root, env)).resolves.toEqual(expected)
+  })
+
+  it.each([
+    ["'node-server'", { url: "postgres://db/app" }],
+    ["'cloudflare-module'", undefined],
+    ["process.env.APP_PRESET", undefined],
+  ])("uses the Nuxt Nitro preset to select the Postgres journal: %s", async (preset, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "nuxt.config.ts"), `export default defineNuxtConfig({ nitro: { preset: ${preset} }, vitehub: { agent: true, database: true } })`)
+    await mkdir(join(root, "server/databases/default"), { recursive: true })
+    await writeFile(join(root, "server/databases/default/index.ts"), postgresDatabase(envUrl))
+    await expect(readAgentJournalPostgres(root, { DATABASE_URL: "postgres://db/app" })).resolves.toEqual(expected)
+  })
+
+  it.each(["'backend'", "process.env.APP_SERVER_DIR"])("does not read a stale Postgres journal with Nuxt serverDir %s", async (serverDir) => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), `export default defineNuxtConfig({ serverDir: ${serverDir}, vitehub: { agent: true, database: true } })`)
+    await mkdir(join(root, "server/databases"), { recursive: true })
+    await writeFile(join(root, "server/databases/default.ts"), postgresDatabase("connection: { url: 'postgres://old/app' }, "))
+    await mkdir(join(root, "backend/databases"), { recursive: true })
+    await writeFile(join(root, "backend/databases/default.ts"), postgresDatabase("connection: { url: 'postgres://live/app' }, "))
+    await expect(readAgentJournalPostgres(root, {})).resolves.toBeUndefined()
+  })
+
+  it("does not infer the Nuxt Postgres journal when local layers can change discovery", async () => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({ vitehub: { agent: true, database: true } })")
+    await mkdir(join(root, "server/databases"), { recursive: true })
+    await writeFile(join(root, "server/databases/default.ts"), postgresDatabase(envUrl))
+    await mkdir(join(root, "layers/shared"), { recursive: true })
+    await writeFile(join(root, "layers/shared/nuxt.config.ts"), "export default defineNuxtConfig({ serverDir: 'backend' })")
+    await expect(readAgentJournalPostgres(root, { DATABASE_URL: "postgres://db/app" })).resolves.toBeUndefined()
+  })
+
+  it("finds the Postgres journal for Agents enabled by Definition discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), vite("host: 'node', database: true"))
+    await mkdir(join(root, "server/databases/default"), { recursive: true })
+    await writeFile(join(root, "server/databases/default/index.ts"), postgresDatabase(envUrl))
+    const env = { DATABASE_URL: "postgres://db/app" }
+    await expect(readAgentJournalPostgres(root, env)).resolves.toBeUndefined()
+    await mkdir(join(root, "server/agents"))
+    await writeFile(join(root, "server/agents/support.ts"), "export default {}")
+    await expect(readAgentJournalPostgres(root, env)).resolves.toEqual({ url: "postgres://db/app" })
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {
@@ -140,10 +269,37 @@ describe("ViteHub CLI config loading", () => {
     expect(loadNuxt).toHaveBeenCalledWith({
       cwd: root,
       dev: true,
+      envName: "development",
       overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
       ready: true,
     })
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["serve", "node"],
+    ["build", "cloudflare"],
+  ] as const)("resolves Nuxt's $development overrides like the dev server for %s", async (command, host) => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), "export default { vitehub: { host: 'cloudflare' }, $development: { vitehub: { host: 'node' } } }\n", "utf8")
+    const previous = process.env.NODE_ENV
+    delete process.env.NODE_ENV
+    try {
+      const { loadNuxtConfig } = await import("nuxt/kit")
+      let vitehub: unknown
+      const loadNuxt = vi.fn(async (options: Parameters<typeof loadNuxtConfig>[0]) => {
+        const config = await loadNuxtConfig(options)
+        vitehub = Reflect.get(config, "vitehub")
+        return { options: { rootDir: root, vite: {} } }
+      })
+      const resolveViteConfig = vi.fn(async () => ({ plugins: [], root }))
+      await loadViteHubCliConfig(root, command, undefined, { loadNuxt, resolveViteConfig })
+      expect(vitehub).toEqual({ host })
+    }
+    finally {
+      if (previous === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = previous
+    }
   })
 
   it.each([
@@ -237,6 +393,21 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", mode ?? "development")
   })
 
+  it("keeps the root selected by Vite's config environment for CLI discovery", async () => {
+    const root = await createProject("vite")
+    await writeFile(join(root, "vite.config.ts"), 'export default { root: process.env.NODE_ENV === "development" ? "web" : "wrong" }\n', "utf8")
+    await mkdir(join(root, "web"))
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      const config = await loadViteHubCliConfig(root, "serve")
+      expect(config.root).toBe(join(root, "web"))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {
     const root = await createProject("vite")
     await writeFile(join(root, "nuxt.config.ts"), "export default {}\n", "utf8")
@@ -263,11 +434,72 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
+  it.each(["option", "environment variable"])("requires the Telegram token in env check with simulation enabled by %s", async source => {
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-channel-env-"));
+    roots.push(root);
+    await mkdir(join(root, "server/agents"), { recursive: true });
+    await writeFile(join(root, "server/agents/chat.ts"), `
+import { defineAgent } from "vite-hub/agent"
+import { telegram } from "vite-hub/agent/channels"
+export default defineAgent({ driver: { model: "openai/gpt-5.1-mini" }, channels: { telegram: telegram({ mode: "webhook" }) } })
+`);
+    await writeFile(join(root, "vite.config.ts"), `
+import { vitehub } from "vite-hub"
+export default { plugins: [vitehub({ agent: { channels: { simulate: ${source === "option"} } } })] }
+`);
+
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEHUB_CHANNELS", source === "option" ? undefined : "simulate");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", undefined);
+    vi.stubEnv("VITEHUB_TELEGRAM_BOT_TOKEN", undefined);
+    let stdout = "";
+    let stderr = "";
+    try {
+      const code = await runViteHubCli({
+        args: ["env", "check", "--stage", "production", "--json"],
+        cwd: root,
+        loadConfig: loadViteHubCliConfig,
+        stdout: { write: chunk => { stdout += chunk; return true } },
+        stderr: { write: chunk => { stderr += chunk; return true } },
+      });
+      expect(code, stderr).toBe(1);
+    }
+    finally {
+      vi.unstubAllEnvs();
+    }
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      stage: "production",
+      entries: expect.arrayContaining([expect.objectContaining({ path: "env.server.telegram.botToken", required: true, status: "missing" })]),
+    });
+  });
 })
 
 describe("shipped ViteHub CLI production discovery", () => {
   const execFileAsync = promisify(execFile);
   const bin = resolve(import.meta.dirname, "../dist/bin.js");
+
+  it.each([false, true])("checks a content-only folder through the public entrypoint (throwing config: %s)", async throwingConfig => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-content-only-"));
+    roots.push(root);
+    await mkdir(join(root, "content"));
+    await writeFile(join(root, "content/guide.md"), "---\ntitle: Getting started\ndescription: This description contains enough detail to meet the minimum length for search results.\n---\nSee [setup](/setup).\n");
+    await writeFile(join(root, "content/setup.md"), "---\ntitle: Project setup\ndescription: This setup description contains enough detail to meet the minimum length for search results.\n---\nBody\n");
+    if (throwingConfig) await writeFile(join(root, "vite.config.ts"), "throw new Error('project config must not load')\n");
+    const { stdout } = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root });
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true, errors: 0, warnings: 0, sources: [{ source: "default", pages: 2 }] });
+
+    if (!throwingConfig) {
+      const result = await execFileAsync(process.execPath, [bin, "content", "check", "--json"], { cwd: root }).catch((error: { code: number, stderr: string }) => error);
+      expect(result).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown ViteHub CLI namespace: content") });
+      await writeFile(join(root, "content/guide.md"), "[Broken link](/guide/missing)\n");
+      const failed = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root }).catch((error: { code: number, stdout: string }) => error);
+      expect(failed).toMatchObject({ code: 1 });
+      expect(JSON.parse(failed.stdout)).toMatchObject({ ok: false, errors: 1, findings: expect.arrayContaining([expect.objectContaining({ code: "CONTENT_R0062" })]) });
+    }
+  });
 
   it("inspects build-only Vite output through the framework entrypoint", async () => {
     const root = await createProject("vite");
@@ -285,7 +517,7 @@ export default ({ command, mode }) => ({
     );
     const { stdout } = await execFileAsync(
       process.execPath,
-      [bin, "inspect", "provider-output", "--json"],
+      [bin, "inspect", "output", "--json"],
       { cwd: root },
     );
     expect(JSON.parse(stdout).providerOutput).toEqual(
@@ -296,7 +528,6 @@ export default ({ command, mode }) => ({
   });
 
   it("keeps Nitro config logs out of JSON output", async () => {
-    // The app stays inside the package so its config resolves the installed Nitro, Blob, and Env packages.
     const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
     await mkdir(tmp, { recursive: true });
     const root = await mkdtemp(join(tmp, "cli-json-nitro-"));
@@ -314,30 +545,24 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
     const run = (args: string[]) => execFileAsync(
       process.execPath,
       [bin, ...args],
-      // Consola hides info logs under Vitest, so restore the level a developer sees.
       { cwd: root, env: { ...process.env, CONSOLA_LEVEL: "3" } },
     ).then(
       result => ({ code: 0, ...result }),
       (error: { code: number, stderr: string, stdout: string }) => error,
     );
 
-    // The CLI loads the project config before every project command.
     const blob = await run(["blob", "list", "--json", "--url", "http://127.0.0.1:1"]);
     expect(blob).toMatchObject({ code: 1, stderr: expect.stringContaining("as renderer template") });
-    // JSON.parse fails when any log line comes before the payload.
     expect(JSON.parse(blob.stdout)).toEqual({
       error: expect.objectContaining({ message: expect.stringContaining("http://127.0.0.1:1 failed") }),
     });
 
-    // `env check` also starts a stage Development Server, which loads the config again.
     const env = await run(["env", "check", "--json"]);
     expect(env).toMatchObject({ code: 0, stderr: expect.stringContaining("as renderer template") });
     expect(env.stdout).toBe(`${JSON.stringify({ entries: [], ok: true, stage: "development" }, null, 2)}\n`);
   }, 60_000);
 
   it("closes the Nitro dev runner after config discovery", async () => {
-    // Nitro starts its dev env runner while Vite resolves a `serve` config. If discovery leaves it open, the process cannot
-    // exit by itself, and the CLI's process.exit() then wedges a StackBlitz WebContainer.
     const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
     await mkdir(tmp, { recursive: true });
     const root = await mkdtemp(join(tmp, "cli-nitro-close-"));
@@ -349,7 +574,6 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       `console.log("discovered")`,
     ].join("\n"));
 
-    // Without the close, the child keeps running until the timeout kills it.
     const { stdout } = await execFileAsync(process.execPath, ["discover.mts"], { cwd: root, timeout: 30_000 });
     expect(stdout).toContain("discovered");
   }, 60_000);
@@ -362,25 +586,27 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       let body = "";
       request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
       request.on("end", () => {
-        calls.push({ authorization: request.headers.authorization, body: JSON.parse(body), url: request.url });
+        calls.push({ authorization: request.headers.authorization, body: operationRpcRequest(body), signature: request.headers["x-vitehub-signature"], url: request.url });
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } }));
+        response.end(JSON.stringify(operationRpcReply(body, { ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } })));
       });
     });
     await new Promise<void>(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
     try {
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a TCP address.");
+      const ci = await consoleTestKey("CI");
       const { stdout } = await execFileAsync(
         process.execPath,
-        [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}/_vitehub`],
-        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test" } },
+        [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}`],
+        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test", [`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`]: ci.key.privateKey } },
       );
       expect(stdout).toBe("ainv_1 cancel requested\n");
       expect(calls).toEqual([{
-        authorization: "Bearer cli-test",
+        authorization: undefined,
+        signature: expect.stringContaining("key=CI"),
         body: { input: { id: "ainv_1" }, operation: "invocations.cancel" },
-        url: "/_vitehub/rpc/__call",
+        url: "/_vitehub/rpc",
       }]);
     }
     finally {
@@ -419,7 +645,7 @@ export default function (_options, nuxt) {
     );
     const { stdout } = await execFileAsync(
       process.execPath,
-      [bin, "inspect", "provider-output", "--json"],
+      [bin, "inspect", "output", "--json"],
       { cwd: root },
     );
     expect(JSON.parse(stdout).providerOutput).toEqual(

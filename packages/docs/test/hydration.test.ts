@@ -15,14 +15,15 @@ import * as serverRenderer from "vue/server-renderer"
 function compile(file: string, ssr: boolean): vue.ComponentOptions {
   const filename = resolve(import.meta.dirname, "../runtime/app", file)
   const { descriptor } = parse(readFileSync(filename, "utf8"), { filename })
-  const script = descriptor.script ? compileScript(descriptor, { id: "test", isProd: true }).content : "export default {}"
+  const script = descriptor.script || descriptor.scriptSetup ? compileScript(descriptor, { id: "test", isProd: true }) : undefined
   const template = descriptor.template
-    ? compileTemplate({ source: descriptor.template.content, filename, id: "test", ssr, isProd: true, compilerOptions: { comments: false } }).code
+    ? compileTemplate({ source: descriptor.template.content, filename, id: "test", ssr, isProd: true, compilerOptions: { comments: false, bindingMetadata: script?.bindings } }).code
     : ""
-  const source = `${script.replace("export default", "const component =")}\n${template}\nexport default component`
+  const source = `${(script?.content ?? "export default {}").replace("export default", "const component =")}\n${template}\nexport default component`
   const { outputText } = transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext } })
   const exports: { default?: vue.ComponentOptions, render?: vue.ComponentOptions["render"], ssrRender?: vue.ComponentOptions["ssrRender"] } = {}
-  runInNewContext(outputText, { exports, require: (id: string) => id === "vue/server-renderer" ? serverRenderer : vue })
+  // Nuxt auto-imports Vue's API, such as `ref` and `onMounted`, so the sandbox has it as globals.
+  runInNewContext(outputText, { ...vue, exports, require: (id: string) => id === "vue/server-renderer" ? serverRenderer : vue })
   return { ...exports.default, ...exports.render && { render: exports.render }, ...exports.ssrRender && { ssrRender: exports.ssrRender } }
 }
 
@@ -32,6 +33,17 @@ it("renders the same empty placeholder on the server and in the browser when the
   const server = await serverRenderer.renderToString(vue.createSSRApp(compile("assistant/DocsAssistantOff.vue", true)))
   // A component without `ssrRender` renders its client vnodes, which is what hydration compares the server HTML with.
   const browser = await serverRenderer.renderToString(vue.createSSRApp({ ...compile("assistant/DocsAssistantOff.vue", false), ssrRender: undefined }))
+  expect(server).toBe(browser)
+})
+
+// Annotated screenshots, diffs, quizzes, and comments reach the page as server-drawn HTML in `ComarkHtml`. If the server
+// HTML leaves it out, the block is empty without JavaScript and the browser fails hydration when it fills it in.
+it.each([false, true])("renders an HTML-only block's HTML on the server the same as in the browser (inline=%s)", async (inline) => {
+  const props = { html: '<mark class="cr-sg">npm</mark>', block: "suggestion", inline }
+  const server = await serverRenderer.renderToString(vue.createSSRApp(compile("components/content/ComarkHtml.vue", true), props))
+  const browser = await serverRenderer.renderToString(vue.createSSRApp({ ...compile("components/content/ComarkHtml.vue", false), ssrRender: undefined }, props))
+  const tag = inline ? "span" : "div"
+  expect(server).toBe(`<${tag} class="comark-html" data-block="suggestion"><mark class="cr-sg">npm</mark></${tag}>`)
   expect(server).toBe(browser)
 })
 

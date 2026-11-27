@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/connections",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
     "api-key",
@@ -60,10 +60,10 @@
       "import": "./dist/google.js",
       "default": "./dist/google.js"
     },
-    "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js",
-      "default": "./dist/http.js"
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -82,9 +82,10 @@
     "dev": "vp pack --watch",
     "generate": "node scripts/generate-google.ts gmail v1",
     "typecheck": "vp run --cache -t @vite-hub/connections#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t vite-hub#build && vp run -t @vite-hub/connections#build && vp test"
+    "test": "vp run --cache -t vite-hub#build && vp run --cache -t @vite-hub/connections#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "jose": "catalog:auth",
@@ -105,7 +106,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -117,6 +118,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

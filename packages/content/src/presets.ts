@@ -14,6 +14,11 @@ export interface ContentPresetDefaults {
   publish?: "commit" | "pr"
   /** The policy of `content.can()` when `defineContent()` sets no `authorize`. */
   authorize?: ContentAuthorize
+  /**
+   * Branches of `github()` Sources that `content.sources.allow()` never makes public, such as the CMS draft branch. A
+   * request needs the preview cookie or a signed link to read them, or a pull request from them.
+   */
+  privateBranches?: readonly string[]
 }
 
 /**
@@ -67,18 +72,18 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
     selection = readPresetSelection(extension, "Content")
   }
   catch (error) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: error instanceof Error ? error.message : String(error) })
+    throw contentErrorDiagnostics.CONTENT_PRESET_INVALID({ reason: error instanceof Error ? error.message : String(error) })
   }
   const { preset, options } = selection
   if (!isContentPreset(preset)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) requires a Content preset, such as cms from vite-hub/cms." })
+    throw contentErrorDiagnostics.CONTENT_PRESET_INVALID({ reason: "[vitehub] defineContent({ extends }) requires a Content preset, such as cms from vite-hub/cms." })
   }
   if (options) {
     try {
       assertKnownPresetOptions(preset.options, options, `Content ${preset.name} preset`)
     }
     catch (error) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: error instanceof Error ? error.message : String(error) })
+      throw contentErrorDiagnostics.CONTENT_PRESET_OPTION_UNKNOWN({ reason: error instanceof Error ? error.message : String(error) })
     }
   }
   const merged = { ...preset.options }
@@ -87,11 +92,10 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   }
   const defaults = preset.configure(merged)
   if (!isPresetOptionsRecord(defaults)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return an options object from configure().` })
+    throw contentErrorDiagnostics.CONTENT_PRESET_CONFIGURE_INVALID({ preset: preset.name, returned: "an options object" })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A preset policy is a callback and may come from another realm.
   if (defaults.authorize !== undefined && typeof defaults.authorize !== "function") {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return authorize as a function from configure().` })
+    throw contentErrorDiagnostics.CONTENT_PRESET_CONFIGURE_INVALID({ preset: preset.name, returned: "authorize as a function" })
   }
   return defaults
 }

@@ -5,7 +5,10 @@ export const cmsNameOptions = ["blob", "database", "workspace"] as const
 export const cmsGitHubOptions = ["repo", "branch", "draftBranch", "root", "publish"] as const
 
 /** Every option of the `cms` preset. */
-export const cmsOptionKeys: readonly string[] = ["access", ...cmsNameOptions, "store", ...cmsGitHubOptions]
+export const cmsOptionKeys: readonly string[] = ["roles", ...cmsNameOptions, "store", ...cmsGitHubOptions]
+
+/** Why the removed `access` option fails, worded to complete `Content cms preset ...`. */
+export const cmsRenamedAccessProblem = "option \"access\" was renamed. Replace `access: \"roles\"` with `roles: true`. `vitehub migrate` renames it."
 
 export const cmsStores = ["blob-database", "github"] as const
 export const cmsPublishModes = ["commit", "pr"] as const
@@ -25,7 +28,7 @@ export const cmsGitHubDefaults = { branch: "main", draftBranch: "vitehub/content
 export function cmsOptionProblem(key: string, value: unknown): string | undefined {
   if (value === undefined) return
   const text = String(value) === value ? value : undefined
-  if (key === "access") return text === "roles" ? undefined : `must be "roles".`
+  if (key === "roles") return value === true ? undefined : "must be true."
   if ((cmsNameOptions as readonly string[]).includes(key)) {
     return text !== undefined && namePattern.test(text) ? undefined : "must be a name of letters, numbers, dots, underscores, dashes, and slashes."
   }
@@ -39,7 +42,6 @@ export function cmsOptionProblem(key: string, value: unknown): string | undefine
     return text !== undefined && text.length <= 128 && branchPattern.test(text) ? undefined : "must be a branch name of letters, numbers, underscores, and dashes, separated by single dots or slashes."
   }
   if (key === "root") {
-    // The empty string is the repository root.
     return text !== undefined && (text === "" || (rootPattern.test(text) && !text.split("/").some(part => part === "." || part === ".."))) ? undefined : "must be a folder inside the repository, such as \"content\", or \"\" for the repository root."
   }
   if (key === "publish") {

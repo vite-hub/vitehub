@@ -3,11 +3,11 @@ import { execFile as execFileCallback } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { basename, delimiter, dirname, join, resolve } from "node:path"
+import { basename, delimiter, dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitropack/core"
+import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitro/builder"
 import { nitro } from "nitro/vite"
 import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vite"
 import { vitehub } from "vite-hub"
@@ -22,7 +22,7 @@ function flattenPlugins(options: PluginOption[]): Plugin[] {
 }
 
 it("keeps implicit Workflow inert when Agent targets Netlify", () => {
-  const names = flattenPlugins(vitehub({ agent: { invocations: false }, preset: "netlify" }))
+  const names = flattenPlugins(vitehub({ agent: { invocations: false }, host: "netlify" }))
     .map(plugin => plugin.name)
 
   expect(names).toContain("@vite-hub/agent/vite")
@@ -30,8 +30,8 @@ it("keeps implicit Workflow inert when Agent targets Netlify", () => {
 })
 
 it("disables Workflow in the Netlify consumer fixture", async () => {
-  const previousPreset = process.env.VITEHUB_PRESET
-  process.env.VITEHUB_PRESET = "netlify"
+  const previousHost = process.env.VITEHUB_HOST
+  process.env.VITEHUB_HOST = "netlify"
   try {
     const config = (await import("../../fixtures/consumer/vite-hub/vite.config.ts")).default
     if (typeof config === "function" || config instanceof Promise) throw new TypeError("Expected an object Vite config.")
@@ -45,8 +45,8 @@ it("disables Workflow in the Netlify consumer fixture", async () => {
     expect(names).not.toContain("@vite-hub/workflow/vite")
   }
   finally {
-    if (previousPreset === undefined) delete process.env.VITEHUB_PRESET
-    else process.env.VITEHUB_PRESET = previousPreset
+    if (previousHost === undefined) delete process.env.VITEHUB_HOST
+    else process.env.VITEHUB_HOST = previousHost
   }
 })
 
@@ -56,11 +56,11 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
   try {
     await mkdir(join(root, "server/routes"), { recursive: true })
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "netlify-fixture" }), "utf8")
-    await writeFile(join(root, "server/routes/index.ts"), "export default defineEventHandler(() => 'ok')\n", "utf8")
+    await writeFile(join(root, "server/routes/index.ts"), 'import { defineHandler } from "nitro/h3"\n\nexport default defineHandler(() => "ok")\n', "utf8")
     const config = await resolveConfig({
       root,
       plugins: [vitehub({
-        preset: "netlify",
+        host: "netlify",
         agent: false,
         blob: false,
         database: false,
@@ -74,7 +74,7 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
     const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro>[0] }).nitro
     expect(nitroConfig).toBeDefined()
 
-    nitro = await createNitro({ ...nitroConfig, dev: false, rootDir: root })
+    nitro = await createNitro({ ...nitroConfig, dev: false, rootDir: root, serverDir: "./server" })
     await prepare(nitro)
     await copyPublicAssets(nitro)
     await prerender(nitro)
@@ -82,7 +82,7 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
 
     const netlifyDeploymentPath = join(root, ".netlify/deployment.json")
     const missingNetlifyDeploymentOutputs = [
-      ".netlify/functions-internal/server/server.mjs",
+      ".netlify/v1/functions/server/server.mjs",
       "dist/_redirects",
       ".netlify/deployment.json",
     ].filter(path => !existsSync(join(root, path)))
@@ -95,9 +95,8 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
       },
       output: {
         directory: ".netlify",
-        entry: "functions-internal/server/server.mjs",
+        entry: "v1/functions/server/server.mjs",
       },
-      preset: "netlify",
       runtime: "node",
     })
   } finally {
@@ -118,9 +117,10 @@ it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "agent-ai-cloudflare-fixture" }), "utf8")
     const aiSdkRuntime = resolve(import.meta.dirname, "../../packages/agent/src/internal/ai-sdk-runtime.ts")
     await writeFile(join(root, "server/api/agent.get.ts"), [
+      'import { defineHandler } from "nitro/h3"',
       `import { loadAiSdk } from ${JSON.stringify(aiSdkRuntime)}`,
       "",
-      "export default defineEventHandler(async () => typeof (await loadAiSdk()).generateText)",
+      'export default defineHandler(async () => ["agent-ai-route", typeof (await loadAiSdk()).generateText])',
       "",
     ].join("\n"), "utf8")
 
@@ -129,20 +129,25 @@ it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
       dev: false,
       preset: "cloudflare-module",
       rootDir: root,
-      srcDir: join(root, "server"),
+      serverDir: "./server",
     })
     await prepare(nitro)
     await copyPublicAssets(nitro)
     await prerender(nitro)
     await build(nitro)
 
-    const route = join(root, ".output/server/chunks/routes/api/agent.get.mjs")
-    const routeSource = await readFile(route, "utf8")
+    const serverDir = join(root, ".output/server")
+    const chunks = await Promise.all((await readdir(serverDir, { recursive: true }))
+      .filter(file => file.endsWith(".mjs"))
+      .map(async file => ({ path: join(serverDir, file), source: await readFile(join(serverDir, file), "utf8") })))
+    const routeChunks = chunks.filter(chunk => chunk.source.includes("agent-ai-route"))
+    expect(routeChunks.map(chunk => chunk.path)).toHaveLength(1)
+    const { path: route, source: routeSource } = routeChunks[0]!
     const aiSpecifier = routeSource.match(/import\(["']([^"']+)["']\)/)?.[1]
     expect(aiSpecifier).toMatch(/^\.\.?\//)
-    const aiModule = resolve(dirname(route), aiSpecifier!)
-    expect(existsSync(aiModule)).toBe(true)
-    await expect(import(pathToFileURL(aiModule).href)).resolves.toHaveProperty("generateText")
+    expect(existsSync(resolve(dirname(route), aiSpecifier!))).toBe(true)
+    const handler = (await import(pathToFileURL(route).href) as { default: (event: unknown) => Promise<unknown> }).default
+    await expect(handler({})).resolves.toEqual(["agent-ai-route", "function"])
   } finally {
     try {
       await nitro?.close()
@@ -170,7 +175,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/queues/image-optimization.ts"), [
       'import { defineQueue } from "vite-hub/queue"',
-      'export default defineQueue<string>(async () => undefined)',
+      'export default defineQueue<string>({ handler: async () => undefined })',
       '',
     ].join("\n"), "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [
@@ -207,7 +212,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
       },
       plugins: [
         vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           agent: false,
           blob: true,
           database: false,
@@ -281,10 +286,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).toContain(generatedQueue)
     expect(emittedSource).toContain('requireRateLimit(event, "image-upload"')
     expect(emittedSource).toContain('bindingPrefix = "RATE_LIMIT"')
-    expect(emittedSource).not.toContain("@vercel/functions")
-    // Provider-specific diagnostics may mention the Vercel SDK, but the
-    // Cloudflare bundle must not import its runtime implementation.
-    expect(emittedSource).not.toMatch(/(?:from|import\()\s*["']@vercel\/queue["']/)
+    expect(emittedSource).not.toMatch(/(?:from|import\()\s*["']@vercel\/(?:functions|queue)["']/)
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
     if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
@@ -319,7 +321,7 @@ it("loads the generated Schedule module and emits each Cloudflare cron once", as
       },
       plugins: [
         vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           agent: false,
           blob: false,
           database: false,
@@ -351,7 +353,6 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const require = createRequire(join(workspaceRoot, "packages/internal/package.json"))
   const sharpEntry = await realpath(require.resolve("sharp"))
   const sharpRoot = dirname(dirname(sharpEntry))
-  // Sharp names its native files by release. Read the names from the installed packages so a dependency refresh keeps this test valid.
   const sharpRequire = createRequire(sharpEntry)
   const sharpAddon = `sharp-linux-x64-${(sharpRequire("@img/sharp-linux-x64/package") as { version: string }).version}.node`
   const libvipsLibrary = basename(sharpRequire.resolve("@img/sharp-libvips-linux-x64/binary"))
@@ -359,59 +360,55 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const remote = await mkdtemp(join(tmpdir(), "vitehub-deno-native-remote-"))
   const bin = join(root, "bin")
   const invocationsFile = join(root, "invocations.jsonl")
-  let nitro: Awaited<ReturnType<typeof createNitro>> | undefined
   try {
     await mkdir(join(root, "node_modules"), { recursive: true })
     await mkdir(join(root, "server/api"), { recursive: true })
     await symlink(sharpRoot, join(root, "node_modules/sharp"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "deno-native-fixture" }), "utf8")
+    await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/api/optimize.get.ts"), `import { createRequire } from "node:module"
-import { join } from "node:path"
+import { join, relative } from "node:path"
+import { defineHandler } from "nitro/h3"
 import sharp from "sharp"
 
 const require = createRequire(join(process.cwd(), "server/index.mjs"))
 
-export default defineEventHandler(async () => {
+export default defineHandler(async () => {
   const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
-  if (!nativePath.startsWith(join(process.cwd(), "node_modules"))) throw new Error("Sharp did not resolve from the uploaded Deno artifact")
+  if (relative(process.cwd(), nativePath).startsWith("..")) throw new Error("Sharp did not resolve from the uploaded Deno artifact")
   const png = await sharp({ create: { background: "#123456", channels: 4, height: 2, width: 2 } }).png().toBuffer()
   return [...png.subarray(0, 4)]
 })
 `, "utf8")
-    const config = await resolveConfig({
+    const builder = await createBuilder({
+      nitro: { serverDir: true },
+      plugins: [
+        vitehub({
+          host: "deno",
+          agent: false,
+          blob: false,
+          database: false,
+          env: false,
+          queue: false,
+          rateLimit: false,
+          workflow: false,
+          workspace: false,
+        }),
+        nitro(),
+      ],
       root,
-      // This test builds with Nitro alone, without the Vite resolver that bundles generated plugins into the server.
-      // Nitro leaves generated runtime plugins external, so `deno check` follows their ViteHub imports
-      // outside the artifact. These plugins do not affect native package uploads.
-      plugins: flattenPlugins([vitehub({
-        preset: "deno",
-        agent: false,
-        blob: false,
-        database: false,
-        env: false,
-        queue: false,
-        rateLimit: false,
-        workflow: false,
-        workspace: false,
-      })]).filter(plugin => plugin.name !== "vite-hub/error-log" && plugin.name !== "vite-hub/standard-context"),
-    }, "build")
-    const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro>[0] }).nitro
-    expect(nitroConfig).toBeDefined()
-
-    nitro = await createNitro({
-      ...nitroConfig,
-      dev: false,
-      externals: { trace: false },
-      noExternals: false,
-      rootDir: root,
-      srcDir: join(root, "server"),
     })
-    await prepare(nitro)
-    await copyPublicAssets(nitro)
-    await prerender(nitro)
-    await build(nitro)
+    await builder.buildApp()
 
-    expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib", sharpAddon))).toBe(true)
-    expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib", libvipsLibrary))).toBe(true)
+    const artifactRequire = createRequire(join(output, "server/index.mjs"))
+    const nativeFiles = [
+      join(dirname(artifactRequire.resolve("@img/sharp-linux-x64/package")), "lib", sharpAddon),
+      join(dirname(artifactRequire.resolve("@img/sharp-libvips-linux-x64/package")), "lib", libvipsLibrary),
+    ].map(file => relative(output, file))
+    for (const file of nativeFiles) {
+      expect(file, "Native packages must be inside the Deno artifact").not.toMatch(/^\.\./)
+      expect(existsSync(join(output, file)), file).toBe(true)
+    }
     const entry = "server/index.mjs"
     expect(existsSync(join(output, entry))).toBe(true)
     expect(existsSync(join(output, "server/index.ts"))).toBe(true)
@@ -479,16 +476,11 @@ process.exit(result.status ?? 1)
     expect(invocations[0]!.slice(0, 3)).toEqual(["deploy", "create", "."])
     expect(invocations[1]!.slice(0, 2)).toEqual(["deploy", "."])
     for (const invocation of invocations) expect(invocation).toContain("--allow-node-modules")
-    expect(existsSync(join(remote, "node_modules/@img/sharp-linux-x64/lib", sharpAddon))).toBe(true)
-    expect(existsSync(join(remote, "node_modules/@img/sharp-libvips-linux-x64/lib", libvipsLibrary))).toBe(true)
+    for (const file of nativeFiles) expect(existsSync(join(remote, file)), file).toBe(true)
   } finally {
-    try {
-      await nitro?.close()
-    } finally {
-      await Promise.all([
-        rm(root, { force: true, recursive: true }),
-        rm(remote, { force: true, recursive: true }),
-      ])
-    }
+    await Promise.all([
+      rm(root, { force: true, recursive: true }),
+      rm(remote, { force: true, recursive: true }),
+    ])
   }
 }, 60_000)

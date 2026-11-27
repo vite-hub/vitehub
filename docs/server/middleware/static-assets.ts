@@ -1,5 +1,6 @@
 import { appendResponseHeader, defineEventHandler, getCookie, getRequestHeader, getRequestURL, setResponseHeader } from "h3";
-import { docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import { docsSidebarCollapses, docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import { getRouteRules, useRuntimeConfig } from "nuxt/server";
 import manifest from "#docs/manifest";
 
 type CloudflareAssets = {
@@ -19,11 +20,11 @@ function isCloudflareAssets(value: unknown): value is CloudflareAssets {
   return typeof value === "object" && value !== null && "fetch" in value && typeof value.fetch === "function";
 }
 
-// Nitro keeps the Worker request in `event.context.cloudflare`. h3 v1 events have no `request`.
-function getCloudflareAssetRequest(value: unknown) {
-  if (!isRecord(value) || !isRecord(value.env) || !(value.request instanceof Request)) return;
+// Nitro 3 attaches Worker bindings to the incoming request runtime.
+function getCloudflareAssets(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.env)) return;
   const assets = value.env.ASSETS;
-  return isCloudflareAssets(assets) ? { assets, request: value.request } : undefined;
+  return isCloudflareAssets(assets) ? assets : undefined;
 }
 
 function acceptsMarkdown(accept: string | undefined) {
@@ -64,39 +65,44 @@ export function shouldServePrerenderedAsset(input: {
 // This keeps Markdown negotiation and avoids slow server rendering of pages
 // that Nitro already prerendered.
 export default defineEventHandler(async (event) => {
-  const isTutorial = findDocsPage(manifest, getRequestURL(event).pathname)?.page.codePanel === true;
-  if (isTutorial) {
+  const path = getRequestURL(event).pathname.replace(/\/+$/, "");
+  const page = findDocsPage(manifest, path)?.page;
+  // These app pages opt in through definePageMeta, so they are absent from the content manifest.
+  const collapses = path === "/playground" || /^\/learn\/[^/]+$/.test(path) || (!!page && docsSidebarCollapses(page));
+  if (collapses) {
     // The browser must request the layout again after the navigation cookie changes.
     setResponseHeader(event, "Cache-Control", "private, no-store");
     appendResponseHeader(event, "Vary", "Cookie");
-    // Prerendered tutorials have no navigation. Render saved open layouts with the
+    // Prerendered pages show the collapsed sidebar. Render saved open layouts with the
     // request cookie so the server and client agree before hydration.
     if (getCookie(event, docsTutorialNavigationCookie) === "true") return;
   }
 
-  const cloudflare = getCloudflareAssetRequest(event.context.cloudflare);
+  const assets = getCloudflareAssets(event.req.runtime?.cloudflare);
   const agentDiscovery = useRuntimeConfig(event).agentDiscovery;
   const userAgents = isRecord(agentDiscovery) ? agentDiscovery.userAgents : undefined;
-  if (!cloudflare || !shouldServePrerenderedAsset({
+  if (!assets || !shouldServePrerenderedAsset({
     accept: getRequestHeader(event, "accept"),
     method: event.method,
     userAgent: getRequestHeader(event, "user-agent"),
     userAgents,
   })) return;
 
-  const response = await cloudflare.assets.fetch(cloudflare.request);
+  const response = await assets.fetch(event.req);
   if (response.status !== 404) {
     const headers = new Headers(response.headers);
     // Same as the Vary that Markdown negotiation sends, since this choice also reads both headers.
     // `_headers` already sets it for some pages.
     const vary = new Set((headers.get("Vary") ?? "").split(",").map(value => value.trim()).filter(Boolean));
     headers.set("Vary", [...vary.add("Accept").add("User-Agent")].join(", "));
-    // The asset response replaces the one that Nitro started, so it must carry the route rule headers too, such as
+    // The asset response must carry the route rule headers too, such as
     // the cross-origin isolation of `/learn/**`.
     for (const [name, value] of Object.entries(getRouteRules(event).headers ?? {})) headers.set(name, value);
-    if (isTutorial) {
+    if (collapses) {
       headers.set("Cache-Control", "private, no-store");
       headers.append("Vary", "Cookie");
+      // H3 applies staged headers to returned Responses. Keep the asset's full Vary value.
+      setResponseHeader(event, "Vary", headers.get("Vary")!);
     }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }

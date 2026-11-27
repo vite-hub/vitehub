@@ -1,7 +1,8 @@
 import { RealtimeDocumentConflict } from "@vite-hub/realtime"
 import { isWorkspaceConflict } from "@vite-hub/workspace/files"
 
-import { contentRealtimeEditor } from "./editor.ts"
+import { contentEditorRealtime, loadComarkEditor } from "./editor-codec.ts"
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentLiveSession } from "./live.ts"
 
 import type {
@@ -20,7 +21,6 @@ import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentCanContext, ContentUser } from "./index.ts"
 import type { ContentSessions } from "./sessions.ts"
 
-export { contentRealtimeEditor } from "./editor.ts"
 export { contentLive, contentLiveRoom, contentLiveSession, installContentLive } from "./live.ts"
 export type { ContentLiveInstall } from "./live.ts"
 
@@ -117,7 +117,7 @@ export function contentDocument(collection: AnyContentCollection, options: Conte
       }
       if (!result.editing && result.holder) {
         const holder = result.holder.user.name ?? result.holder.user.id
-        throw new Error(`${holder} is editing this document alone. Live edits save once they stop or someone takes over.`)
+        throw contentErrorDiagnostics.CONTENT_LIVE_DOCUMENT_HELD({ holder })
       }
     },
     async release(context) {
@@ -144,8 +144,8 @@ export interface ContentLiveRuntime {
 export interface ContentRealtimeOptions {
   /** Resolve the person in the room, such as from the Console session. Defaults to the ViteHub Auth session. */
   identify?: RealtimeDefinition["identify"]
-  /** A check before `content.can()`, such as Console section access. Return `false` to deny. */
-  authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+  /** A check before `content.can()`, such as Console section access. Only `true` allows. */
+  authorize?: (context: RealtimeAuthorizeContext) => boolean | Promise<boolean>
   /** The user that `content.can()` gets. Defaults to the identified Realtime user. */
   user?: (context: RealtimeRequestContext & { user: RealtimeUser | null }) => ContentUser | null | undefined | Promise<ContentUser | null | undefined>
 }
@@ -170,16 +170,16 @@ export function contentLiveTarget(content: Pick<ContentLiveRuntime, "collection"
 /**
  * One Realtime Definition for every Markdown document of a Content runtime. Rooms are `<collection>/<id>`, or the
  * collection name of a singleton. Each collection gets its own codec from `contentRealtimeEditor()`, and the room holds
- * the edit lease as `kind: 'live'`. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs
+ * the edit lease as `kind: 'live'`. `authorize` maps to `content.can()`: reading a room needs `read-draft`, editing needs
  * `write`. ViteHub contributes it as the `content` definition when Content and Realtime are enabled on a host with a
  * room authority.
  */
 export function contentRealtime(content: ContentLiveRuntime, options: ContentRealtimeOptions = {}): RealtimeDefinition {
-  const editors = new Map<string, RealtimeEditor>()
+  const editors = new Map<string, Promise<RealtimeEditor>>()
   const adapters = new Map<string, RealtimeDocumentAdapter>()
   function target(context: RealtimeDocumentContext) {
     const found = contentLiveTarget(content, context.documentId)
-    if (!found) throw new Error(`No Content Markdown document matches the live room ${JSON.stringify(context.documentId)}.`)
+    if (!found) throw contentErrorDiagnostics.CONTENT_LIVE_ROOM_UNKNOWN({ documentId: context.documentId })
     return found
   }
   function adapter(context: RealtimeDocumentContext): { adapter: RealtimeDocumentAdapter, context: RealtimeDocumentContext } {
@@ -211,27 +211,27 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
     },
   }
   return {
-    auth: true,
     identify: options.identify,
     document,
-    editor: (context) => {
+    editor: async (context) => {
       const { collection } = target(context)
       let editor = editors.get(collection.name)
       if (!editor) {
-        editor = contentRealtimeEditor()
+        editor = loadComarkEditor().then(comarkEditor => contentEditorRealtime(comarkEditor))
         editors.set(collection.name, editor)
       }
-      return editor
+      return await editor
     },
     async authorize(context) {
-      if (content.live === false) return false
-      if (options.authorize && (await options.authorize(context)) === false) return false
+      // Only an identified person edits Content live: the Console person from `identify`, or the Auth session user.
+      if (content.live === false || !context.user) return false
+      if (options.authorize && (await options.authorize(context)) !== true) return false
       // The Workspace event channel carries no document. Content rooms do not use it, so any identified person may listen.
       if (context.documentId === null) return context.mode === "read"
       const found = contentLiveTarget(content, context.documentId)
       if (!found) return false
       const user = options.user ? await options.user(context) : context.user && { ...context.user }
-      return await content.can({ user: user ?? null, collection: found.collection.name, action: context.mode === "write" ? "write" : "read", id: found.id })
+      return await content.can({ user: user ?? null, collection: found.collection.name, action: context.mode === "write" ? "write" : "read-draft", id: found.id })
     },
   }
 }

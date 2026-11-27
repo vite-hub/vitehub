@@ -1,18 +1,14 @@
+import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
+import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueDriverOptions, VercelQueueSDK } from "../types.ts"
 
 function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
   return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
-}
-
-function isRuntimeFunction(value: unknown): boolean {
-  // Callable HTMLDDA browser values report undefined without being undefined.
-  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
@@ -39,7 +35,7 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
           let constructor: PropertyDescriptor | undefined
           try {
             constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
-            if (!constructor || !("value" in constructor) || !isRuntimeFunction(constructor.value) || constructor.value.prototype !== owner) {
+            if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) {
               return false
             }
           }
@@ -47,9 +43,9 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
             return false
           }
         }
-        if ("value" in descriptor) return isRuntimeFunction(descriptor.value)
+        if ("value" in descriptor) return typeof descriptor.value === "function"
         try {
-          return isRuntimeFunction(Reflect.get(value, name))
+          return typeof Reflect.get(value, name) === "function"
         }
         catch {
           return false
@@ -68,11 +64,9 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
-class VercelQueueBatchFailedError extends Error {
-  constructor(readonly results: readonly VercelQueueBatchSendResult[]) {
-    super(`@vercel/queue did not accept ${results.filter(result => result.status === "failed").length} of ${results.length} batch messages.`)
-    this.name = "VercelQueueBatchFailedError"
-  }
+function batchRejected(results: readonly VercelQueueBatchSendResult[]) {
+  const failed = results.filter(result => result.status === "failed").length
+  return Object.assign(queueErrorDiagnostics.QUEUE_VERCEL_BATCH_REJECTED({ failed, total: results.length }), { results })
 }
 
 function parseVercelBatchResults(value: unknown, length: number): Result<QueueSendResult[], "QUEUE_PROVIDER_INVALID_RESPONSE"> {
@@ -97,7 +91,6 @@ function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE
   catch (cause) {
     return invalidVercelSendResponse(cause)
   }
-  // `@vercel/queue` returns `messageId: null` when it accepts a message for deferred processing (HTTP 202).
   if (messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     return invalidVercelSendResponse(value)
@@ -129,7 +122,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   }
 
   const { region: resolvedRegion } = resolveVercelQueueRegion(region)
-  if (Object.hasOwn(module, "QueueClient") && isRuntimeFunction(module.QueueClient)) {
+  if (Object.hasOwn(module, "QueueClient") && typeof module.QueueClient === "function") {
     if (!resolvedRegion) {
       throw queueErrorDiagnostics.QUEUE_MISSING_REGION()
     }
@@ -138,18 +131,18 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     return new (module.QueueClient as new (options: { region: string }) => VercelQueueSDK)({ region: resolvedRegion })
   }
 
-  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && isRuntimeFunction(module.send) && isRuntimeFunction(module.handleCallback)) {
+  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && typeof module.send === "function" && typeof module.handleCallback === "function") {
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
       send: module.send as VercelQueueSDK["send"],
-      ...(Object.hasOwn(module, "sendBatch") && isRuntimeFunction(module.sendBatch) ? { sendBatch: module.sendBatch as VercelQueueSDK["sendBatch"] } : {}),
+      ...(Object.hasOwn(module, "sendBatch") && typeof module.sendBatch === "function" ? { sendBatch: module.sendBatch as VercelQueueSDK["sendBatch"] } : {}),
     }
   }
 
   throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_INVALID()
 }
 
-export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
+export async function createVercelQueueClient(provider: VercelQueueDriverOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
     throw queueErrorDiagnostics.QUEUE_MISSING_TOPIC()
@@ -167,12 +160,14 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = queueUnsupportedOptionsError(normalized.options, "vercel")
       if (optionsError) return [optionsError, undefined]
+      const [timeError, times] = readQueueTimes(normalized.options, "ceil")
+      if (timeError) return [timeError, undefined]
 
       const [error, response] = await queueProviderResult("vercel", "send", () => client.send(topic, normalized.payload, {
-        delaySeconds: normalized.options.delaySeconds,
+        delaySeconds: times.delaySeconds,
         idempotencyKey: normalized.options.idempotencyKey || normalized.id,
         region: normalized.options.region ?? provider.region,
-        retentionSeconds: normalized.options.retentionSeconds,
+        retentionSeconds: times.retentionSeconds,
       }))
       if (error) return [error, undefined]
       const [responseError, messageId] = parseVercelMessageId(response)
@@ -180,16 +175,23 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
       return [undefined, { status: "queued", messageId }]
     },
     async sendBatch(items, options) {
-      const messages = items.map(item => ({
-        delaySeconds: item.delaySeconds ?? options?.delaySeconds,
-        idempotencyKey: item.idempotencyKey || createQueueMessageId(),
-        payload: item.body,
-        retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
-      }))
+      const removed = queueRemovedOptionsError("vercel", options, items)
+      if (removed) return [removed, undefined]
+      const messages: { delaySeconds?: number, idempotencyKey: string, payload: unknown, retentionSeconds?: number }[] = []
+      for (const item of items) {
+        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: item.retention ?? options?.retention }, "ceil")
+        if (timeError) return [timeError, undefined]
+        messages.push({
+          delaySeconds: times.delaySeconds,
+          idempotencyKey: item.idempotencyKey || createQueueMessageId(),
+          payload: item.body,
+          retentionSeconds: times.retentionSeconds,
+        })
+      }
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
-        if (!isRuntimeFunction(client.sendBatch)) throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
+        if (typeof client.sendBatch !== "function") throw queueErrorDiagnostics.QUEUE_VERCEL_SEND_BATCH_UNAVAILABLE()
         const results = await client.sendBatch!(topic, messages)
-        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
+        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw batchRejected(results)
         return results
       })
       if (error) return [error, undefined]

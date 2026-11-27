@@ -10,7 +10,8 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeHandler, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, restoreRealtimeDocument, workspaceDocument } from "../src/server.ts"
+import { createRealtimeHandler, workspaceDocument } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, restoreRealtimeDocument } from "../src/internal/server.ts"
 import { workspaceDocument as packagedWorkspaceDocument } from "../dist/server.js"
 import { realtimeMarkdownEditor } from "../src/editor.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
@@ -25,7 +26,7 @@ const serverMocks = vi.hoisted(() => ({
   useWorkspaceFiles: vi.fn(),
 }))
 
-vi.mock("@vite-hub/auth/server", () => ({
+vi.mock("@vite-hub/auth/internal/server", () => ({
   assertAuthOrigin: serverMocks.assertAuthOrigin,
 }))
 
@@ -50,9 +51,9 @@ beforeEach(() => {
   serverMocks.useWorkspaceFiles.mockReset()
 })
 
-function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean, persistence?: false } = {}) {
+function realtimeRegistry(options: { authorize?: true | ((context: { user: unknown }) => boolean), checkpoint?: boolean, persistence?: false } = {}) {
   const definition = {
-    auth: options.auth,
+    ...options.authorize ? { authorize: options.authorize } : { access: "public" },
     document: { workspace: "test" },
     history: options.checkpoint ? { checkpoint: true } : undefined,
     persistence: options.persistence,
@@ -70,7 +71,7 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
 }
 
 function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
-  const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+  const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
     headers: { upgrade: "websocket" },
   }) as Request & { runtime?: unknown }
   request.runtime = { cloudflare: { env: {}, context: { storage: { sql: nativeSqlCarrier(exec) } } } }
@@ -85,9 +86,8 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    // A document can itself contain the reserved route's segments; only the first prefix identifies the route.
-    for (const room of ["page.md", "%40workspace?workspace=events", "docs/api/_vitehub/realtime/page.md"]) {
-      const response = await handler.fetch(new Request(`https://example.com${base}/api/_vitehub/realtime/docs/${room}`, {
+    for (const room of ["page.md", "%40workspace?workspace=events", "docs/_vitehub/realtime/page.md"]) {
+      const response = await handler.fetch(new Request(`https://example.com${base}/_vitehub/realtime/docs/${room}`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws?: unknown }
       expect(response.status).toBe(426)
@@ -98,7 +98,7 @@ describe("realtime server handler", () => {
   it("rejects malformed encoded room paths", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%E0%A4%A", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%E0%A4%A", {
       headers: { upgrade: "websocket" },
     }))
 
@@ -108,7 +108,7 @@ describe("realtime server handler", () => {
   it.each(["%2e%2e%2fsecret", ".vitehub/secret", "docs%5csecret.md"])("rejects unsafe Workspace room path %s", async (path) => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/${path}`, {
+    const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/${path}`, {
       headers: { upgrade: "websocket" },
     }))
 
@@ -118,7 +118,7 @@ describe("realtime server handler", () => {
   it("ignores inherited realtime registry entries", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/constructor/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/constructor/page.md", {
       headers: { upgrade: "websocket" },
     }))
 
@@ -133,7 +133,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context } }
@@ -153,7 +153,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/inherited.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/inherited.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = {
@@ -177,7 +177,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
@@ -200,7 +200,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage } } }
@@ -225,7 +225,7 @@ describe("realtime server handler", () => {
         readFile: vi.fn(),
         stat: vi.fn().mockResolvedValue(undefined),
       }))
-      const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
         headers: { upgrade: "websocket" },
       }) as Request & { runtime?: unknown }
       request.runtime = { cloudflare: { env: {}, context: { storage: { sql: {} } } } }
@@ -251,7 +251,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
@@ -268,15 +268,60 @@ describe("realtime server handler", () => {
 
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?history=checkpoint", {
       headers: { origin: "https://example.com" },
       method: "POST",
     }))
 
     expect(response.status).toBe(401)
     expect(serverMocks.useWorkspaceFiles).not.toHaveBeenCalled()
+  })
+
+  it("gives an authorize() callback the Auth session user of a same-origin request, and answers 401 when it denies a signed-out caller", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(({ user }: { user: unknown }) => user !== null)
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize }))
+    const refresh = () => handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://example.com" },
+      method: "POST",
+    }))
+
+    serverMocks.getSession.mockResolvedValue(null)
+    expect((await refresh()).status).toBe(401)
+    expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ user: null }))
+
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    expect((await refresh()).status).toBe(200)
+    expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ user: { id: "ana" } }))
+
+    serverMocks.assertAuthOrigin.mockClear()
+    const server = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", { method: "POST" }))
+    expect(server.status).toBe(401)
+    expect(serverMocks.assertAuthOrigin).not.toHaveBeenCalled()
+  })
+
+  it("does not read the Auth session for an origin accepted by origins()", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    const authorize = vi.fn(() => false)
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { authorize, document: { workspace: "test" }, origins: () => true } }),
+    } as never)
+
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://embed.example" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(401)
+    expect(serverMocks.assertAuthOrigin).not.toHaveBeenCalled()
+    expect(serverMocks.getSession).not.toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: null }))
   })
 
   it("uses the Auth Definition trusted-origin policy", async () => {
@@ -286,13 +331,38 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
 
-    await handler.fetch(new Request("https://api.example.com/api/_vitehub/realtime/docs/page.md", {
+    await handler.fetch(new Request("https://api.example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://app.example.com", upgrade: "websocket" },
     }))
 
-    expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
+    expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/_vitehub/realtime/docs/page.md" }), expect.anything())
+  })
+
+  it("uses Auth trusted origins for authorize() when there is no custom origin or identity rule", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(({ user }: { user: unknown }) => user !== null)
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize }))
+    const refresh = () => handler.fetch(new Request("https://api.example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://app.example.com" },
+      method: "POST",
+    }))
+
+    expect((await refresh()).status).toBe(200)
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: { id: "ana" } }))
+
+    authorize.mockClear()
+    serverMocks.getSession.mockClear()
+    serverMocks.assertAuthOrigin.mockRejectedValueOnce(new Error("Origin is not trusted"))
+    expect((await refresh()).status).toBe(403)
+    expect(serverMocks.getSession).not.toHaveBeenCalled()
+    expect(authorize).not.toHaveBeenCalled()
   })
 
   it("compares the identify() origin with the origin behind a TLS-terminating proxy", async () => {
@@ -303,9 +373,9 @@ describe("realtime server handler", () => {
     }))
     const identify = vi.fn(() => ({ id: "ana" }))
     const handler = createRealtimeHandler({
-      docs: async () => ({ default: { document: { workspace: "test" }, identify } }),
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify } }),
     } as never)
-    const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/api/_vitehub/realtime/docs/page.md", {
+    const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/_vitehub/realtime/docs/page.md", {
       headers: { origin, upgrade: "websocket", "x-forwarded-host": "site.example, proxy", "x-forwarded-proto": "https, http" },
     })) as Promise<Response & { crossws?: unknown }>
 
@@ -315,6 +385,84 @@ describe("realtime server handler", () => {
       expect((await connect(origin)).status).toBe(403)
     }
     expect(identify).toHaveBeenCalledOnce()
+  })
+
+  it("lets in the other origins a definition's origins() accepts", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const identify = vi.fn(() => ({ id: "ana" }))
+    const origins = vi.fn(({ origin }: { origin: string }) => origin === "https://preview.example")
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify, origins } }),
+    } as never)
+    const connect = (origin: string) => handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md?ticket=t", {
+      headers: { origin, upgrade: "websocket" },
+    })) as Promise<Response & { crossws?: unknown }>
+
+    expect((await connect("https://preview.example")).crossws).toBeDefined()
+    expect(origins).toHaveBeenCalledWith(expect.objectContaining({ definition: "docs", origin: "https://preview.example" }))
+    expect((await connect("https://evil.example")).status).toBe(403)
+    expect(identify).toHaveBeenCalledOnce()
+    origins.mockClear()
+    expect((await connect("https://app.example")).crossws).toBeDefined()
+    expect(origins).not.toHaveBeenCalled()
+  })
+
+  it("refuses every request to a definition without an access rule", async () => {
+    const save = vi.fn()
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile: vi.fn().mockResolvedValue("Private"),
+      stat: vi.fn().mockResolvedValue({ digest: "v1" }),
+      writeFile: save,
+    }))
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { document: { workspace: "test" }, origins: () => false } }),
+    } as never)
+
+    const socket = await handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws?: { upgrade?: () => Response } }
+    const post = await handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md?document=save", {
+      body: new Uint8Array([0]),
+      method: "POST",
+    }))
+
+    expect(socket.status).toBe(500)
+    expect(socket.crossws?.upgrade?.().status).toBe(500)
+    expect(post.status).toBe(500)
+    expect(serverMocks.useWorkspaceFiles).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it("rejects origins not accepted by origins() or the Auth policy", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(() => true)
+    const origins = vi.fn(({ origin }: { origin: string }) => origin === "https://preview.example")
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, origins } }),
+      notes: async () => ({ default: { authorize, document: { workspace: "test" } } }),
+    } as never)
+    const connect = (name: string, origin?: string) => handler.fetch(new Request(`https://app.example/_vitehub/realtime/${name}/page.md`, {
+      headers: origin ? { origin, upgrade: "websocket" } : { upgrade: "websocket" },
+    })) as Promise<Response & { crossws?: unknown }>
+
+    expect((await connect("docs", "https://evil.example")).status).toBe(403)
+    expect((await connect("docs", "https://preview.example")).crossws).toBeDefined()
+    expect((await connect("docs", "https://app.example")).crossws).toBeDefined()
+    expect((await connect("docs")).crossws).toBeDefined()
+    serverMocks.assertAuthOrigin.mockRejectedValueOnce(new Error("Origin is not trusted"))
+    expect((await connect("notes", "https://evil.example")).status).toBe(403)
+    expect(authorize).not.toHaveBeenCalled()
+    expect((await connect("notes", "https://app.example")).crossws).toBeDefined()
+    expect(authorize).toHaveBeenCalled()
   })
 
   it("rejects saves when the Workspace Store cannot write conditionally", async () => {
@@ -327,7 +475,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = new Y.Doc()
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=save", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -347,7 +495,7 @@ describe("realtime server handler", () => {
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = new Y.Doc()
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md?document=save", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     })
@@ -356,7 +504,7 @@ describe("realtime server handler", () => {
     const response = await handler.fetch(request)
 
     expect(response.status).toBe(501)
-    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime rooms require a durable Workspace Store." })
+    await expect(response.json()).resolves.toMatchObject({ message: "Durable and shared realtime rooms require a durable Workspace Store." })
     expect(writeFile).not.toHaveBeenCalled()
     client.destroy()
   })
@@ -372,7 +520,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = await markdownToYDoc("# Unsynchronized client version")
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -383,6 +531,69 @@ describe("realtime server handler", () => {
     client.destroy()
   })
 
+  it.each([
+    { scenario: "uses the Store author by default", optIn: false, requester: "requester", authored: false },
+    { scenario: "uses an approved author for the requester, not the editor", optIn: true, requester: "requester", authored: true },
+    { scenario: "uses the Store author for an anonymous requester after an identified edit", optIn: true, requester: undefined, authored: false },
+    { scenario: "uses the Store author for an unmapped requester", optIn: true, requester: "unmapped", authored: false },
+  ])("$scenario", async ({ optIn, requester, authored }) => {
+    const author = { email: "123+ana@users.noreply.github.com", name: "Ana" }
+    const checkpointAuthor = vi.fn(async ({ id }: { id: string }) => id === "unmapped" ? undefined : author)
+    const checkpoint = vi.fn(async () => ({ entries: { "page.md": { digest: "saved" } }, id: "snapshot-1" }))
+    let markdown: string | undefined
+    const writeFile = vi.fn(async (_path: string, body: string) => { markdown = body })
+    serverMocks.useWorkspaceFiles.mockReturnValue({
+      ...workspaceFacade({
+        exists: async () => markdown !== undefined,
+        readFile: async () => markdown,
+        stat: async () => markdown === undefined ? undefined : { digest: "saved" },
+        writeFile,
+      }),
+      history: { checkpoint },
+    })
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: {
+        access: "public",
+        document: { workspace: "test", ...(optIn ? { checkpointAuthor } : {}) },
+        history: { checkpoint: true },
+        identify: ({ request }) => {
+          const id = request.headers.get("x-test-user")
+          return id ? { email: `${id}@example.com`, id } : null
+        },
+        persistence: false,
+      } }),
+    })
+    const url = "https://example.com/_vitehub/realtime/docs/page.md"
+    const connection = await handler.fetch(new Request(url, {
+      headers: { upgrade: "websocket", "x-test-user": "editor" },
+    })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const client = await markdownToYDoc("# Saved by the editor")
+    const update = Y.encodeStateAsUpdate(client)
+    connection.crossws.open(peer)
+    connection.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    try {
+      const response = await handler.fetch(new Request(`${url}?history=checkpoint`, {
+        body: Uint8Array.from(update).buffer,
+        headers: requester ? { "x-test-user": requester } : undefined,
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ savedBy: { id: "editor" } })
+      expect(writeFile).toHaveBeenCalledOnce()
+      expect(checkpoint).toHaveBeenCalledExactlyOnceWith({
+        message: "docs: checkpoint page.md",
+        ...(authored ? { author } : {}),
+      })
+      expect(checkpointAuthor.mock.calls.map(([user]) => user.id)).toEqual(optIn && requester ? [requester] : [])
+    }
+    finally {
+      connection.crossws.close(peer)
+      client.destroy()
+    }
+  })
+
   it("accepts workspace changes only on the workspace room", async () => {
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(true),
@@ -390,7 +601,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -415,7 +626,7 @@ describe("realtime server handler", () => {
       stat: vi.fn(),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const inheritedPublish = vi.fn()
@@ -442,7 +653,7 @@ describe("realtime server handler", () => {
       stat: vi.fn(),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const inheritedPublish = vi.fn()
@@ -470,7 +681,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -493,7 +704,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -519,7 +730,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -540,7 +751,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -549,8 +760,10 @@ describe("realtime server handler", () => {
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
 
-    expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
-    expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
+    const awarenessPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(awarenessPeer)
+    expect(() => response.crossws.message(awarenessPeer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
+    expect(awarenessPeer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
   it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {
@@ -560,7 +773,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -574,11 +787,9 @@ describe("realtime server handler", () => {
         client.getMap("edits").set(key, true)
         response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
       }
-      // A burst of 40 updates, such as fast typing, is applied at once.
       for (let index = 0; index < 40; index++) edit(`key-${index}`)
       const applied = peer.publish.mock.calls.length
       expect(applied).toBeGreaterThan(0)
-      // Holding a key keeps sending: the next ones wait instead of closing the peer.
       for (let index = 0; index < 5; index++) edit(`held-${index}`)
       expect(peer.publish.mock.calls.length).toBe(applied)
       now.mockRestore()
@@ -586,7 +797,6 @@ describe("realtime server handler", () => {
       await new Promise(resolve => setTimeout(resolve, 80))
 
       expect(peer.close).not.toHaveBeenCalled()
-      // The five held updates reach the room as one.
       expect(peer.publish.mock.calls.length).toBe(applied + 1)
     }
     finally {
@@ -602,7 +812,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -610,8 +820,6 @@ describe("realtime server handler", () => {
     response.crossws.open(peer)
 
     const text = "x".repeat(64 * 1024)
-    // The rate limit refills with wall time. A slow runner spent long enough on each 64 KiB update to refill it,
-    // so nothing was held back. One frozen instant makes the burst arrive at once.
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
     try {
       for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
@@ -635,7 +843,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -649,7 +857,6 @@ describe("realtime server handler", () => {
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
-    // Later sync responses count against the update burst like any update, and wait past it.
     for (let index = 0; index < 40; index++) response.crossws.message(peer, { uint8Array: () => syncStep2 })
     expect(peer.close).not.toHaveBeenCalled()
     server.destroy()
@@ -667,7 +874,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = await markdownToYDoc("# Unsynchronized client version")
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -688,7 +895,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
     for (let index = 0; index <= 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/page-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws?: { close(peer: object): void, open(peer: object): void } }
       const peer = {
@@ -717,7 +924,7 @@ describe("realtime server handler", () => {
     const update = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
 
     for (let index = 0; index < 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/edited-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/edited-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
       const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -726,7 +933,7 @@ describe("realtime server handler", () => {
       response.crossws.close(peer)
     }
 
-    const overflow = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+    const overflow = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/overflow.md", {
       headers: { upgrade: "websocket" },
     }))
     expect(overflow.status).toBe(503)
@@ -742,7 +949,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
     for (let index = 0; index < 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/page-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
       const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -751,10 +958,10 @@ describe("realtime server handler", () => {
     }
 
     const [reconnecting, overflow] = await Promise.all([
-      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page-0.md", {
+      handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page-0.md", {
         headers: { upgrade: "websocket" },
       })),
-      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+      handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/overflow.md", {
         headers: { upgrade: "websocket" },
       })),
     ])
@@ -772,13 +979,13 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
 
     for (let index = 0; index < 129; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/rejected-${index}.md?history=checkpoint`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/rejected-${index}.md?history=checkpoint`, {
         method: "POST",
       }))
       expect(response.status).toBe(400)
     }
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/valid.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/valid.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws?: unknown }
     expect(response.crossws).toBeDefined()
@@ -813,8 +1020,8 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://example.com", upgrade: "websocket" },
     })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
     const firstPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -856,7 +1063,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -1047,6 +1254,23 @@ describe("realtime Workspace documents", () => {
     expect(destroy).toHaveBeenCalledOnce()
   })
 
+  it("restores durable Yjs identities only for the matching Workspace version", async () => {
+    const original = await markdownToYDoc("# Shared draft")
+    const stored = {
+      baseline_digest: "baseline",
+      update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
+    }
+    const restored = await restoreRealtimeDocument("# Shared draft", "baseline", stored)
+    const replaced = await restoreRealtimeDocument("# Workspace replacement", "changed", stored)
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(await yDocToMarkdown(replaced)).toBe("# Workspace replacement")
+
+    original.destroy()
+    restored.destroy()
+    replaced.destroy()
+  })
+
   it("restores durable state from a cross-realm ArrayBuffer", async () => {
     const original = await markdownToYDoc("# Shared draft")
     const bytes = Y.encodeStateAsUpdate(original)
@@ -1178,8 +1402,8 @@ describe("realtime application paths", () => {
   it("prefixes endpoints with the configured application base URL", () => {
     vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/wiki/")
 
-    expect(resolveRealtimeApplicationPath("/api/_vitehub/realtime/docs"))
-      .toBe("/wiki/api/_vitehub/realtime/docs")
+    expect(resolveRealtimeApplicationPath("/_vitehub/realtime/docs"))
+      .toBe("/wiki/_vitehub/realtime/docs")
   })
 })
 
@@ -1336,7 +1560,6 @@ describe("tiptap-markdown documents", () => {
     expect(Y.encodeStateVector(server)).toEqual(Y.encodeStateVector(client))
     expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
 
-    // A room that moved ahead of the client still contains everything the client sent.
     Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
     server.getMap("later").set("edit", true)
     expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(true)

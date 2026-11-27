@@ -1,14 +1,15 @@
+import { existsSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { zipFiles } from "@vite-hub/ui/playground";
-import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
-import { runnableTutorials } from "../modules/tutorials/list";
-import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
-import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+import { frameworkNodes, parseCurl, restartsDevServer, splitTutorialDocument, tutorialStepFiles, tutorialWorkspaceFiles } from "@vite-hub/docs/runnable";
+
+import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest } from "../../packages/docs/src/runnable/build";
+import { learnLessonSource } from "../../packages/docs/src/runnable/workspaces";
+import { learnPages } from "./workspace-pages";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -41,7 +42,7 @@ describe("documentation tutorials", () => {
       ["agents", ["@vite-hub/agent", "@vite-hub/workflow"]],
       ["first-agent", ["@vite-hub/agent"]],
       ["server-primitives", ["@vite-hub/kv"]],
-      ["decisions", ["@vite-hub/decisions", "@vite-hub/gateways"]],
+      ["choices", ["@vite-hub/choices", "@vite-hub/gateways"]],
       ["playground-blob", ["@vite-hub/blob"]],
       ["playground-cache", []],
       ["playground-queue", ["@vite-hub/queue"]],
@@ -95,9 +96,9 @@ describe("documentation tutorials", () => {
 
   it("covers public packages that live outside a primitive section", async () => {
     for (const [page, title] of [
-      ["content/docs/ui/get-started.md", "Get started"],
+      ["content/docs/ui/chat-tutorial.md", "Chat tutorial"],
       ["content/docs/agents/sandbox-tutorial.md", "Sandbox tutorial"],
-      ["content/docs/reference/markdown-template-tutorial.md", "Tutorial"],
+      ["content/docs/markdown-template/get-started.md", "Get started"],
     ]) {
       const source = await readFile(resolve(docsRoot, page), "utf8");
       expect(source, page).toContain("layout: tutorial");
@@ -114,7 +115,6 @@ describe("documentation tutorials", () => {
     expect(page).toContain('<DocsArticle :response="response" />');
     expect(step).toContain("<slot />");
     expect(step).not.toContain("display: none");
-    expect(step).not.toContain("CodeTreeIntersection");
     expect(step).not.toContain("min-height: 30rem");
     expect(step).toContain("counter-increment: tutorial-step");
   });
@@ -153,9 +153,8 @@ describe("documentation tutorials", () => {
     ]);
   });
 
-  it("keeps the Decisions tutorial on its fixture", async () => {
-    await expectPageToUseFixture("content/docs/decisions/get-started.md", "decisions", [
-      "server/utils/word-gateway.ts",
+  it("keeps the Choices tutorial on its fixture", async () => {
+    await expectPageToUseFixture("content/docs/choices/get-started.md", "choices", [
       "server/utils/forecast-choices.ts",
       "server/api/choices.post.ts",
       "vite.config.ts",
@@ -202,13 +201,20 @@ describe("documentation tutorials", () => {
 
 });
 
+const pages = await learnPages();
+const runnableTutorials = pages.map(learnLessonSource);
+
 describe("runnable tutorials", () => {
   const repoRoot = resolve(docsRoot, "..");
   const build = async (index: number) => buildRunnableTutorial({
     source: runnableTutorials[index]!,
-    contentDir: resolve(docsRoot, "content"),
+    readPage: (path) => {
+      const file = resolve(docsRoot, `content${path}.md`);
+      return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+    },
     fixturesDir: fixturesRoot,
     versions: await readWorkspaceVersions(repoRoot),
+    start: "/docs/getting-started/installation",
   });
 
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
@@ -217,7 +223,8 @@ describe("runnable tutorials", () => {
     const installation = frameworkView(await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8"), "Vite");
 
     // The docs page links to this copy, and the steps are the page's steps.
-    expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);
+    expect(lesson).toContain(`::run-tutorial{to="${pages[index]!.path}"}`);
+    expect(slug).toBe(`learn-${pages[index]!.path.split("/").at(-1)}`);
     expect(tutorial.steps.map(step => step.title)).toEqual([...lesson.matchAll(/^::tutorial-step\{title="([^"]+)"\}/gm)].map(match => match[1]));
 
     // Step 1 starts from the app of Installation. Every file code block of a step is the fixture file.
@@ -266,7 +273,7 @@ describe("runnable tutorials", () => {
   });
 
   it("restarts the dev server when a step adds or removes the page, not for config edits", async () => {
-    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "decisions"));
+    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "learn-choices"));
     const pageStep = tutorial.steps.findIndex(step => "index.html" in step.files);
     const before = tutorialStepFiles(tutorial, pageStep, "start");
     const after = tutorialStepFiles(tutorial, pageStep, "solution");
@@ -284,14 +291,6 @@ describe("runnable tutorials", () => {
     expect(specifiers.filter(specifier => /^(?:catalog|workspace):/.test(specifier))).toEqual([]);
     expect(manifest.dependencies["vite-hub"]).toMatch(/^\^\d+\.\d+\.\d+/);
     expect(() => resolveManifest(JSON.stringify({ dependencies: { missing: "catalog:none" } }), { catalogs: {}, packages: {} })).toThrow(/pnpm catalog/);
-  });
-
-  it("zips the starter with the files of step 1", async () => {
-    const tutorial = await build(0);
-    const zip = Buffer.from(zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
-    expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
-    expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
-    expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");
   });
 
   it("splits the lesson into its steps", () => {
@@ -319,11 +318,9 @@ describe("runnable tutorials", () => {
     expect(parseCurl("pnpm dev")).toBeUndefined();
   });
 
-  it("isolates only the tutorial pages and the playground", async () => {
-    const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
-    expect(module).toContain(`"/learn": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/learn/**": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/playground": { headers: { ...webContainerHeaders } }`);
-    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(3);
+  it("isolates the workspace pages from their frontmatter, not from the app config", async () => {
+    const config = await readFile(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    expect(config).not.toContain("webContainer");
+    expect(await readFile(resolve(repoRoot, "packages/docs/src/runnable/nuxt.ts"), "utf8")).not.toContain("webContainerHeaders");
   });
 });

@@ -21,10 +21,12 @@ export const commentThreads = pgTable("vitehub_comment_threads", {
   metadata: text("metadata"),
   context: text("context"),
   revision: bigint("revision", { mode: "number" }),
+  requestId: text("request_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, table => [
   uniqueIndex("vitehub_comment_threads_scope_n").on(table.scope, table.n),
+  uniqueIndex("vitehub_comment_threads_scope_request").on(table.scope, table.requestId),
   index("vitehub_comment_threads_subject").on(table.subjectKind, table.subjectId),
   index("vitehub_comment_threads_status").on(table.status, table.updatedAt),
 ])

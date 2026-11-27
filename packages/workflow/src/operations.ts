@@ -1,26 +1,22 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowSignalResult } from "./results.ts"
+import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult } from "./results.ts"
 import type { WorkflowRunStatus } from "./types.ts"
 
-// The runtime module reads the Workflow state of the app, which only exists in the Nitro runtime. The operations load it
-// when they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const name = v.pipe(v.string(), v.check(value => value.trim() !== "", "Name a Workflow."))
 const runId = v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the id of a run."))
-// A payload can be larger than the default request limit of a call.
 const maxRequestBytes = 1024 * 1024
 
 function defineWorkflowOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The Console section is `workflows`. The commands are `vitehub workflow <verb>`. The runtime never reads the user.
   return defineOperation({ ...definition, cli: { namespace: "workflow", ...definition.cli }, section: "workflows", user: false })
 }
 
 const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, WorkflowRunResult>({
-  cli: { positional: ["workflow"] },
+  cli: { positional: ["workflow", "payload"] },
   description: "Start a Workflow run by name. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), workflow: name }),
   invoke: true,
@@ -31,8 +27,8 @@ const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, W
 })
 
 const get = defineWorkflowOperation<{ runId: string, workflow?: string }, WorkflowRunResult>({
-  cli: { positional: ["runId"] },
-  description: "Show the status and result of a Workflow run. Pass `workflow` for a run that this runtime did not start.",
+  cli: { command: "runs get", format: formatRun, positional: ["runId"] },
+  description: "Show the status and result of a Workflow run, with its steps when `vite dev` recorded it. Pass `workflow` for a run that this runtime did not start.",
   input: v.object({ runId, workflow: v.optional(name) }),
   kind: "read",
   name: "workflow.get",
@@ -49,7 +45,7 @@ const cancel = defineWorkflowOperation<{ runId: string, workflow?: string }, Wor
 })
 
 const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, WorkflowSignalResult>({
-  cli: { positional: ["token"] },
+  cli: { positional: ["token", "payload"] },
   description: "Resume a Workflow signal with its opaque token. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), token: v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the signal token.")) }),
   invoke: true,
@@ -58,11 +54,6 @@ const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, Wor
   name: "workflow.resume",
   run: async input => (await runtime()).runWorkflowOperation("resume", input),
 })
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function formatRuns({ runs }: WorkflowRunsListResult): string {
   if (runs.length === 0) return "No runs.\n"
@@ -76,7 +67,17 @@ function json(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2)
 }
 
-function formatRun({ run }: { run: WorkflowRunDetailView }): string {
+/** The steps of a run that `vite dev` recorded. A run of another runtime has no steps. */
+function stepLines(steps: WorkflowRunDetailView["steps"] | undefined): string[] {
+  if (!steps) return []
+  if (!steps.length) return ["Steps: none"]
+  return ["Steps:", table([
+    ["STEP", "STATUS", "STARTED AT", "COMPLETED AT", "ERROR"],
+    ...steps.map(step => [step.name, step.status, step.startedAt, step.completedAt ?? "-", step.error?.message ?? "-"]),
+  ])]
+}
+
+function formatRun({ run }: { run: WorkflowRunView & Partial<Pick<WorkflowRunDetailView, "steps">> }): string {
   return [
     `Run: ${run.id}`,
     `Workflow: ${run.workflow}`,
@@ -86,12 +87,7 @@ function formatRun({ run }: { run: WorkflowRunDetailView }): string {
     ...(run.startedAt ? [`Started at: ${run.startedAt}`] : []),
     ...(run.completedAt ? [`Completed at: ${run.completedAt}`] : []),
     ...(run.error ? [`Error: ${run.error.code ? `${run.error.code} ` : ""}${run.error.message}`] : []),
-    ...(run.steps.length
-      ? ["Steps:", table([
-          ["STEP", "STATUS", "STARTED AT", "COMPLETED AT", "ERROR"],
-          ...run.steps.map(step => [step.name, step.status, step.startedAt, step.completedAt ?? "-", step.error?.message ?? "-"]),
-        ])]
-      : ["Steps: none"]),
+    ...stepLines(run.steps),
     ...(run.status === "completed" ? ["Result:", json(run.result)] : []),
     "",
   ].join("\n")
@@ -110,15 +106,6 @@ const runsList = defineWorkflowOperation<{ limit?: number, status?: WorkflowRunS
   run: async input => (await runtime()).listWorkflowRuns(input),
 })
 
-const runsShow = defineWorkflowOperation<{ id: string, workflow?: string }, WorkflowRunsShowResult>({
-  cli: { command: "runs show", format: formatRun, positional: ["id"] },
-  description: "Show one Workflow run that `vite dev` recorded, with its steps, status, result, and error.",
-  input: v.strictObject({ id: runId, workflow: v.optional(name) }),
-  kind: "read",
-  name: "workflow.runs-show",
-  run: async input => (await runtime()).showWorkflowRun(input),
-})
-
 const runsClear = defineWorkflowOperation<Record<string, never>, WorkflowRunsClearResult>({
   cli: { command: "runs clear", format: ({ cleared }) => `Cleared ${cleared} ${cleared === 1 ? "run" : "runs"}.\n` },
   description: "Remove the Workflow runs that `vite dev` recorded. Other runtimes keep no history and fail with WORKFLOW_RUNS_UNAVAILABLE.",
@@ -132,6 +119,6 @@ const runsClear = defineWorkflowOperation<Record<string, never>, WorkflowRunsCle
  * The `workflow.*` operations: start, get, cancel, resume, and the run history of `vite dev`. The Console,
  * `vitehub workflow`, and agents run them.
  */
-export const workflowOperations: readonly AnyOperation[] = [start, get, cancel, resume, runsList, runsShow, runsClear]
+export const workflowOperations: readonly AnyOperation[] = [start, get, cancel, resume, runsList, runsClear]
 
-export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"
+export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"

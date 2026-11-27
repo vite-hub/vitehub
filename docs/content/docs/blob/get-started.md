@@ -8,30 +8,30 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Blob stores files, such as images, PDFs, or text files. You save a file under a name, and you read it back later by that name.
+Blob stores files such as images, PDFs, or text files. You save a file under a name and read it back later by that name.
 
-In this tutorial, you make one API route that uploads `hello.txt` and one that reads it back. The read returns `Hello from ViteHub`.
+In this tutorial, you build one API route that uploads `hello.txt` and one that reads it back. The read returns `Hello from ViteHub`.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. On your computer, Blob saves files in the `.vitehub/data/blob` folder.
+> Use the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need no account or API key. Locally, Blob writes files to `.vitehub/data/blob`.
 
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
 
-Install the Blob package in the app:
+Install the Blob package:
 
 ```bash pm [commands/install-blob]
 pnpm add @vite-hub/blob
 ```
 
-Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
+Add `blob: true` to your ViteHub options in `nuxt.config.ts` or `vite.config.ts`, keeping any other enabled features and plugins.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', blob: true },
+  vitehub: { blob: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', blob: true }), nitro()],
+  plugins: [vitehub({ blob: true }), nitro()],
 })
 ```
 ::::
@@ -56,29 +56,27 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', blob: true })],
+  plugins: [vitehub({ blob: true })],
 })
 ```
 ::::
 :::
-
-Did you choose Nuxt in Installation? Then add `blob: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 
 ::tutorial-step{title="Accept a text upload"}
 ## Accept a text upload
 
-Create `server/api/files.post.ts`. This file is the route `POST /api/files`. It saves the text of the request as `hello.txt`.
+Create `server/api/files.post.ts`. This route handles `POST /api/files` and saves the text of the request as `hello.txt`:
 
 ```ts [server/api/files.post.ts]
-import { createError, defineEventHandler, readRawBody } from 'h3'
+import { defineEventHandler, HTTPError, readRawBody } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const text = await readRawBody(event)
   if (!text) {
-    throw createError({ statusCode: 400, message: 'Send a text file in the request body.' })
+    throw new HTTPError({ status: 400, message: 'Send a text file in the request body.' })
   }
 
   const [error, object] = await blob.put('hello.txt', text, {
@@ -93,7 +91,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-- `blob.put()` saves the file. If `hello.txt` exists, the new upload replaces it.
+- `blob.put()` saves the file, replacing `hello.txt` if it already exists.
 - `blob.put()` returns `[error, object]`. Check `error` for storage failures. Invalid arguments and configuration errors can throw.
 - `object` describes the saved file. The route returns its name, type, and size.
 
@@ -102,17 +100,17 @@ export default defineEventHandler(async (event) => {
 ::tutorial-step{title="Retrieve the file"}
 ## Retrieve the file
 
-Create `server/api/files.get.ts`. This route reads `hello.txt` and returns its text.
+Create `server/api/files.get.ts` to read `hello.txt` and return its text:
 
 ```ts [server/api/files.get.ts]
-import { createError, defineEventHandler, setResponseHeader } from 'h3'
+import { defineEventHandler, HTTPError, setResponseHeader } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const [error, file] = await blob.get('hello.txt')
   if (error) throw error
   if (file === null) {
-    throw createError({ statusCode: 404, message: 'Upload hello.txt first.' })
+    throw new HTTPError({ status: 404, message: 'Upload hello.txt first.' })
   }
 
   setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
@@ -120,22 +118,22 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-- `blob.get()` returns `[error, file]`. `file` is a standard `Blob`, or `null` when no file has that name.
+- `blob.get()` returns `[error, file]`, where `file` is a standard `Blob` or `null` when no file has that name.
 - `file.text()` reads the content as text.
-- When the file is missing, the route returns `404`.
+- If the file is missing, the route returns `404`.
 
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start or restart the app after the config change:
+Start or restart the dev server after the config change:
 
 ```bash [commands/start]
 pnpm dev
 ```
 
-Open a second terminal. Create a test file:
+In a second terminal, create a test file:
 
 ```bash [commands/file]
 printf 'Hello from ViteHub' > hello.txt
@@ -149,7 +147,7 @@ curl -X POST http://localhost:3000/api/files \
   --data-binary @hello.txt
 ```
 
-The response shows the name, the type, and the size of the saved file:
+The response shows the name, type, and size of the saved file:
 
 ```json [output/response.json]
 { "pathname": "hello.txt", "contentType": "text/plain", "size": 18 }
@@ -161,7 +159,7 @@ Read the file back:
 curl http://localhost:3000/api/files
 ```
 
-The response is the text of the file:
+You get the file text back:
 
 ```text [output/file.txt]
 Hello from ViteHub
@@ -184,6 +182,6 @@ Accept form uploads and check file type and size.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/blob/hosts"}
-Store files in R2 or S3, so that all app instances share them.
+Store files in R2 or S3 so all app instances share them.
 :::
 ::

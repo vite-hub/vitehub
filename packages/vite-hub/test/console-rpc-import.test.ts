@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it, vi } from "vitest"
 
 describe("Console RPC module", () => {
@@ -15,17 +17,15 @@ describe("Console RPC module", () => {
     }
   }, 60_000)
 
-  it.each(["rpc", "mcp", "mcp-metadata", "mcp-authorization-server"])("loads %s on h3 1, because Nuxt 4 bundles every h3 import as its own h3 1", async (name) => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { default: handler } = await import(`../src/console/runtime/server/${name}.ts`)
+  it.each([
+    ["logs.get", "../src/logs/console/logs.get.ts", () => import("../src/logs/console/logs.get.ts")],
+    ["rpc", "../src/console/runtime/server/rpc.ts", () => import("../src/console/runtime/server/rpc.ts")],
+    ["status.get", "../src/agent/console/status.get.ts", () => import("../src/agent/console/status.get.ts")],
+    ["invocations.usage", "../src/agent/console/invocations.usage.ts", () => import("../src/agent/console/invocations.usage.ts")],
+  ] as const)("serves %s as a Fetchable route that imports nothing from h3", async (_name, file, load) => {
+    const { default: route } = await load()
 
-      expect(handler).toBeTypeOf("function")
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
+    expect(route.fetch).toBeTypeOf("function")
+    expect(await readFile(new URL(file, import.meta.url), "utf8")).not.toMatch(/from "h3"/)
   }, 60_000)
 })

@@ -1,0 +1,69 @@
+---
+title: Codemods
+description: Move an app to ViteHub, or to a newer ViteHub API, with npx @vite-hub/codemods. Each codemod edits what it can change safely and reports the rest.
+navigation.title: Overview
+navigation.order: 1
+icon: i-lucide-wand-sparkles
+---
+
+A codemod is a program that edits your source files for you. `@vite-hub/codemods` moves an app to ViteHub, or to a newer ViteHub API. Each codemod edits the files that it can change safely. It ends with a report: the files that it changed, and a numbered list of manual follow-ups with `file:line` where it applies.
+
+```bash [Terminal]
+npx @vite-hub/codemods --dry-run
+```
+
+The command finds every module in the app that a codemod supports and runs those codemods, one after another. `--dry-run` prints the edits as diffs and writes nothing. The package requires Node.js 22.12 or newer. The migrated app needs Node.js 24.15 or newer for `vite-hub`.
+
+## Move from a Nuxt module
+
+| Codemod | Moves |
+| --- | --- |
+| [`nuxt-safe-runtime-config`](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config) | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub [Env](/docs/env) |
+| [`t3-env`](/docs/codemods/nuxt-modules#t3-env) | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env |
+| [`resend`](/docs/codemods/nuxt-modules#resend) | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub [Email](/docs/email) |
+| [`nuxt-cron`](/docs/codemods/nuxt-modules#nuxt-cron) | `nuxt-cron` jobs to ViteHub [Schedule](/docs/schedule) Definitions |
+| [`nuxt-better-auth`](/docs/codemods/nuxt-modules#nuxt-better-auth) | A Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/auth) |
+| [`docus`](/docs/codemods/nuxt-modules#docus) | A Docus site to [`@vite-hub/docs`](/docs/docs-site) |
+| [`nuxt-content`](/docs/codemods/nuxt-modules#nuxt-content) | Nuxt Content collections to ViteHub [Content](/docs/content) Sources |
+
+## Upgrade ViteHub
+
+`vitehub migrate [dir]` runs every upgrade codemod that applies, in one run. See [Upgrade ViteHub](/docs/codemods/upgrade-vitehub).
+
+| Codemod | Moves |
+| --- | --- |
+| [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Queue, Schedule, Sandbox Task, Workflow, Content, and Database to the one form of each |
+| [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, the Console journal options into `agent.invocations`, and `devtools`, `contentImportBase` and the Console options that left the app removed |
+| [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
+| [`queue-durations`](/docs/codemods/upgrade-vitehub#queue-durations) | Queue `delaySeconds` to `delay` with a duration such as `'60s'`, and `retentionSeconds` to `retention` |
+| [`result-tuples`](/docs/codemods/upgrade-vitehub#result-tuples) | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, `runSchedule()`, `listAuthEvents()`, `aggregateAuthEvents()`, `runBrowser()`, `runBrowserContent()`, `runSandboxTask()`, and gateway `ask()` to `[error, data]` reads |
+| [`one-entry-imports`](/docs/codemods/upgrade-vitehub#one-entry-imports) | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
+| [`agent-surface`](/docs/codemods/upgrade-vitehub#agent-surface) | The old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
+| [`driver-key`](/docs/codemods/upgrade-vitehub#driver-key) | The old keys that select a backend (`provider`, `authority`) and the old driver names, such as `cloudflare-kv-binding` and `d1`, to `driver` and the host name |
+| [`tsconfig-paths`](/docs/codemods/upgrade-vitehub#tsconfig-paths) | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
+| [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
+| [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
+| [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
+| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Imports of `vite-hub/agent/channels` to `vite-hub/channels/adapters` and `vite-hub/channels`, simple Agent `http()` calls to `channelAdapter('http')`, and webhook `secretToken` and signature names to the ones of Webhooks |
+| [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
+| [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
+| [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |
+| [`cli-yes-flag`](/docs/codemods/upgrade-vitehub#cli-yes-flag) | Replace old CLI prompt flags in scripts and CI, or report a manual migration |
+| [`cli-url-flag`](/docs/codemods/upgrade-vitehub#cli-url-flag) | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL |
+| [`cms-roles`](/docs/codemods/upgrade-vitehub#cms-roles) | The `cms` preset option `access: "roles"` to `roles: true` |
+| [`console-out-of-app`](/docs/codemods/upgrade-vitehub#console-out-of-app) | The `via: 'page'` branch of `console.authorize` and `ConsolePageAuthorizeContext` removed, `VITEHUB_CONSOLE_MCP_KEY` reported |
+| [`choices-package`](/docs/codemods/upgrade-vitehub#choices-package) | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices` |
+| [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
+| [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |
+
+ViteHub needs Nitro 3: Nuxt 4.7 with the `nitro` package, or Nuxt 5. A codemod that adds `vite-hub/nuxt` adds `nitro` to `package.json` on Nuxt 4.7. On a Nuxt version before 4.7, it stops and writes nothing. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to move the app to `npm:nuxt-nightly@5x` in the same run. The codemods do not install packages.
+
+::card-group
+  :::card{title="Get started" icon="i-lucide-rocket" to="/docs/codemods/get-started"}
+  Preview a migration, run it, and work through the report.
+  :::
+
+  :::card{title="Reference" icon="i-lucide-book-open" to="/docs/codemods/reference"}
+  CLI options, exit codes, the Node API, and how to add a codemod.
+  :::
+::

@@ -8,6 +8,7 @@ import { createBuilder } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { consoleTestKey } from "./support/console-signature.ts"
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -28,13 +29,14 @@ it("starts a KV app with the Console from the Node output", async () => {
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/health.get.ts"), "import { defineEventHandler } from \"h3\"\n\nexport default defineEventHandler(() => ({ ok: true }))\n")
 
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: false }, kv: true, preset: "node" })], root })
+    const ci = await consoleTestKey("CI")
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: true, kv: true, host: "node" })], root })
     await builder.buildApp()
 
     const port = await freePort()
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
       cwd: root,
-      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port) },
+      env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), ...ci.env },
       stdio: ["ignore", "ignore", "pipe"],
     })
     let stderr = ""
@@ -54,6 +56,17 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(stderr).not.toContain("TypeError")
       expect(response?.status).toBe(200)
       expect(await response?.json()).toEqual({ ok: true })
+      // The built server refuses an unsigned call. plugin-order-build.test.ts checks a signed call on a Node build.
+      const unsigned = await fetch(`http://127.0.0.1:${port}/_vitehub/rpc`, { body: "{}", headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
+      expect(unsigned.status).toBe(401)
+      // The default security headers wrap fetch and pass Nitro a copy of each Node request. `/_vitehub` still finds
+      // the app origin, and an app without Comments serves no page tools session.
+      const entry = await fetch(`http://127.0.0.1:${port}/_vitehub/agents?tab=trace`, { redirect: "manual" })
+      expect(entry.status).toBe(303)
+      expect(entry.headers.get("location")).toBe(`https://console.vitehub.dev/open?project=${encodeURIComponent(`http://127.0.0.1:${port}`)}&path=${encodeURIComponent("/agents?tab=trace")}`)
+      const session = await fetch(`http://127.0.0.1:${port}/_vitehub/page/tools`, { redirect: "manual" })
+      expect(session.headers.get("content-type") ?? "").not.toContain("json")
+      expect(stderr).not.toContain("Unhandled error")
     }
     finally {
       server.kill()

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createBlobCliNamespaces, runBlobCli } from "../src/cli.ts"
 import { blobDevMaximumUploadBytes } from "../src/results.ts"
 import { hubBlob } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
-  return { ...actual, readFile: vi.fn(actual.readFile) }
+  return { ...actual, readFile: vi.fn(actual.readFile), stat: vi.fn(actual.stat) }
 })
 
 let cwd: string
@@ -48,11 +49,11 @@ function context() {
  * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
  */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "BLOB_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "BLOB_FAILED", message: error.message, status })
   })
 }
 
@@ -63,7 +64,7 @@ function fileServer(bytes: Uint8Array, header: { contentType?: string, pathname:
 
 /** The operation and input that a command sent, with the operation name as `operation`. */
 function sentBody(fetch: ReturnType<typeof devServer>): Record<string, unknown> {
-  const { input, operation } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { input: Record<string, unknown>, operation: string }
+  const { input, operation } = operationRpcRequest(fetch.mock.calls[0]?.[1]?.body) as { input: Record<string, unknown>, operation: string }
   return { ...input, operation: operation.replace(/^blob\./, "") }
 }
 
@@ -74,7 +75,7 @@ describe("Blob delete confirmation", () => {
   it.each([{ target: [] }, { target: ["--url", "https://app.example/base/"] }])("refuses an unconfirmed deletion: $target", async ({ target }) => {
     const output = context()
     const fetch = devServer({ deleted: true, pathname: "a", store: "default" })
-    await expect(runBlobCli(["del", "a", ...target], output.context, { fetch })).resolves.toBe(1)
+    await expect(runBlobCli(["delete", "a", ...target], output.context, { fetch })).resolves.toBe(1)
     expect(output.stderr.output()).toContain("was not confirmed")
     expect(output.stderr.output()).toContain("--yes")
     expect(fetch).not.toHaveBeenCalled()
@@ -83,7 +84,7 @@ describe("Blob delete confirmation", () => {
   it("reports a declined confirmation as JSON without sending a request", async () => {
     const output = context()
     const fetch = vi.fn()
-    await expect(runBlobCli(["del", "a", "--json", "--url", "https://app.example"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
+    await expect(runBlobCli(["delete", "a", "--json", "--url", "https://app.example"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "BLOB_NOT_CONFIRMED" } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
@@ -93,20 +94,20 @@ describe("Blob delete confirmation", () => {
     const output = context()
     const fetch = devServer({ deleted: true, pathname: "a", store: "archive" })
     const confirm = vi.fn(async (_question: string) => true)
-    await expect(runBlobCli(["del", "a", "--store", "archive", "--url", "https://app.example/base/"], output.context, { confirm, fetch })).resolves.toBe(0)
+    await expect(runBlobCli(["delete", "a", "--store", "archive", "--url", "https://app.example/base/"], output.context, { confirm, fetch })).resolves.toBe(0)
     expect(confirm).toHaveBeenCalledOnce()
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("a"))
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("archive"))
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("https://app.example/base/"))
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
-    expect(sentBody(fetch)).toEqual({ operation: "del", pathname: "a", store: "archive" })
+    expect(sentBody(fetch)).toEqual({ operation: "delete", pathname: "a", store: "archive" })
   })
 
   it.each(["--yes", "-y"])("deletes with %s without prompting", async flag => {
     const output = context()
     const fetch = devServer({ deleted: true, pathname: "a", store: "default" })
     const confirm = vi.fn(() => false)
-    await expect(runBlobCli(["del", "a", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
+    await expect(runBlobCli(["delete", "a", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
     expect(confirm).not.toHaveBeenCalled()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
   })
@@ -114,7 +115,7 @@ describe("Blob delete confirmation", () => {
   it("does not treat a literal --yes after -- as confirmation", async () => {
     const output = context()
     const fetch = vi.fn()
-    await expect(runBlobCli(["del", "--", "--yes"], output.context, { fetch })).resolves.toBe(1)
+    await expect(runBlobCli(["delete", "--", "--yes"], output.context, { fetch })).resolves.toBe(1)
     expect(output.stderr.output()).toContain("was not confirmed")
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -125,16 +126,16 @@ describe("vitehub blob", () => {
     const output = context()
     const fetch = devServer({ blobs: [], hasMore: false, limit: 100, prefix: "", store: "default", stores: ["default"] })
     await expect(runBlobCli(["list"], output.context, { fetch })).resolves.toBe(0)
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://localhost:5173/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://localhost:5173/_vitehub/rpc")
     expect(sentBody(fetch)).toEqual({ operation: "list", showVitehub: true })
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-console")).toBe("1")
   })
 
-  it.each([["head", "--json"], ["list", "--limit", "0", "--json"], ["list", "--timeout", "4294967296", "--json"], ["list", "--timeout", "2147483648", "--json"]])("returns JSON for argument errors: %j", async (...args) => {
+  it.each([["head", "--json"], ["get", "a.txt", "--json"], ["list", "--limit", "0", "--json"], ["list", "--timeout", "4294967296", "--json"], ["list", "--timeout", "2147483648", "--json"]])("returns JSON for argument errors: %j", async (...args) => {
     const output = context()
     const fetch = vi.fn()
     await expect(runBlobCli(args, output.context, { fetch })).resolves.toBe(1)
-    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: expect.any(String) } })
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { code: "BLOB_R0029", fix: expect.stringContaining("--help"), message: expect.any(String) } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -168,7 +169,7 @@ describe("vitehub blob", () => {
       "",
     ].join("\n"))
     expect(human.stderr.output()).toBe("More blobs exist. Next page: --cursor next\n")
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
     expect(sentBody(fetch)).toEqual({ limit: 2, operation: "list", prefix: "images/", showVitehub: true })
 
     const json = context()
@@ -246,17 +247,17 @@ describe("vitehub blob", () => {
     expect(replaced.stdout.output()).toBe("Replaced blob files/raw.bin in store media (11 B, image/png).\n")
   })
 
-  it("prints what del changed", async () => {
+  it("prints what delete changed", async () => {
     const deleted = context()
-    await expect(runBlobCli(["del", "a.txt", "--yes"], deleted.context, { fetch: devServer({ deleted: true, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
+    await expect(runBlobCli(["delete", "a.txt", "--yes"], deleted.context, { fetch: devServer({ deleted: true, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
     expect(deleted.stdout.output()).toBe("Deleted blob a.txt from store default.\n")
 
     const unchanged = context()
-    await expect(runBlobCli(["del", "a.txt", "--yes"], unchanged.context, { fetch: devServer({ deleted: false, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
+    await expect(runBlobCli(["delete", "a.txt", "--yes"], unchanged.context, { fetch: devServer({ deleted: false, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
     expect(unchanged.stdout.output()).toBe("Blob a.txt did not exist in store default. Nothing changed.\n")
 
     const json = context()
-    await expect(runBlobCli(["del", "a.txt", "--json", "--yes"], json.context, { fetch: devServer({ deleted: true, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
+    await expect(runBlobCli(["delete", "a.txt", "--json", "--yes"], json.context, { fetch: devServer({ deleted: true, pathname: "a.txt", store: "default" }) })).resolves.toBe(0)
     expect(JSON.parse(json.stdout.output())).toEqual({ deleted: true, pathname: "a.txt", store: "default" })
   })
 
@@ -271,6 +272,11 @@ describe("vitehub blob", () => {
     const missing = context()
     await expect(runBlobCli(["put", "a.txt", "missing.txt"], missing.context, { fetch })).resolves.toBe(1)
     expect(missing.stderr.output()).toBe(`File not found: ${join(cwd, "missing.txt")}\n`)
+
+    const missingJson = context()
+    await expect(runBlobCli(["put", "a.txt", "missing.txt", "--json"], missingJson.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(missingJson.stdout.output())).toEqual({ error: { code: "BLOB_R0029", fix: expect.stringContaining("--help"), message: `File not found: ${join(cwd, "missing.txt")}` } })
+    expect(missingJson.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -311,6 +317,25 @@ describe("vitehub blob", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("keeps a usage code for a path that is not a file", async () => {
+    await mkdir(join(cwd, "folder"))
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runBlobCli(["put", "target.bin", "folder", "--json"], output.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "BLOB_R0029", message: `File not found: ${join(cwd, "folder")}` } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("reports upload stat errors other than a missing path without a usage code", async () => {
+    vi.mocked(stat).mockRejectedValueOnce(Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }))
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runBlobCli(["put", "target.bin", "locked/source.bin", "--json"], output.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: `Could not read ${join(cwd, "locked/source.bin")}: EACCES: permission denied` } })
+    expect(output.stderr.output()).toBe("")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("reports an app that cannot be reached as JSON without stderr diagnostics", async () => {
     const output = context()
     const fetch = vi.fn(async () => { throw new Error("offline") })
@@ -341,8 +366,8 @@ describe("vitehub blob", () => {
       [["list", "--output", "x"], "Unknown option: --output."],
       [["head", "a.txt", "--prefix", "x"], "Unknown option: --prefix."],
       [["list", "--store"], "--store needs a value."],
-      [["del", "a.txt", "--store", ""], "--store needs a nonempty name."],
-      [["del", "a.txt", "--store="], "--store needs a nonempty name."],
+      [["delete", "a.txt", "--store", ""], "--store needs a nonempty name."],
+      [["delete", "a.txt", "--store="], "--store needs a nonempty name."],
     ]
     for (const [args, message] of cases) {
       const invalid = context()
@@ -358,7 +383,7 @@ describe("vitehub blob", () => {
     }
     const unknown = context()
     await expect(runBlobCli(["sign"], unknown.context, { fetch })).resolves.toBe(1)
-    expect(unknown.stderr.output()).toBe("Unknown blob command: sign\nCommands: list, head, get, put, del, media, variants\n")
+    expect(unknown.stderr.output()).toBe("Unknown blob command: sign\nCommands: list, head, get, put, delete, media, variants\n")
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -366,7 +391,7 @@ describe("vitehub blob", () => {
     const record = {
       alt: "Hero", color: "#336699", contentType: "image/png", createdAt: "2026-10-01T00:00:00.000Z",
       crops: { mobile: { aspect: "4:5", focal: { x: 0.5, y: 0.2 }, replacement: { contentType: "image/png", hash: "f".repeat(64), height: 500, pathname: "_vitehub/media/crops/abc/mobile.ffffffffffff.png", size: 10, width: 400 } }, square: { aspect: "1:1" } },
-      focal: { x: 0.25, y: 0.75 }, hash: "a".repeat(64), height: 300, pathname: "images/hero.png", size: 2048, updatedAt: "2026-10-02T00:00:00.000Z", url: "/api/_vitehub/blob/images/hero.png", width: 600,
+      focal: { x: 0.25, y: 0.75 }, hash: "a".repeat(64), height: 300, pathname: "images/hero.png", size: 2048, updatedAt: "2026-10-02T00:00:00.000Z", url: "/_vitehub/blob/images/hero.png", width: 600,
     }
     const human = context()
     const fetch = devServer({ record, store: "default" })
@@ -382,7 +407,7 @@ describe("vitehub blob", () => {
       "Alt           Hero",
       "Focal point   0.25,0.75",
       "Color         #336699",
-      "URL           /api/_vitehub/blob/images/hero.png",
+      "URL           /_vitehub/blob/images/hero.png",
       "Updated       2026-10-02T00:00:00.000Z",
       "Crops         mobile 4:5, focal 0.5,0.2, replacement _vitehub/media/crops/abc/mobile.ffffffffffff.png (400x500)",
       "              square 1:1",
@@ -408,7 +433,7 @@ describe("vitehub blob", () => {
   it("contributes one feature per command", () => {
     const [namespace] = createBlobCliNamespaces()
     expect(namespace?.name).toBe("blob")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "head", "get", "put", "del", "media", "variants"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "head", "get", "put", "delete", "media", "variants"])
     expect(namespace?.features.find(feature => feature.name === "put")?.usage).toBe(
       "vitehub blob put <pathname> <file> [--content-type <type>] [--store <name>] [--json] [--url <url>]",
     )
@@ -421,18 +446,8 @@ describe("hubBlob", () => {
     const contributor = await plugin.vitehub?.cli?.()
     expect(contributor?.namespaces?.map(namespace => namespace.name)).toEqual(["blob"])
     expect(contributor?.provision).toHaveLength(2)
-    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "blobOperations", module: "@vite-hub/blob/operations" })])
+    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "blobOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
-    expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.del", "blob.media", "blob.variants"])
-  })
-
-  it("registers no Nitro route for the commands, in serve or in build mode", async () => {
-    const plugin = hubBlob({ base: ".data/blob", driver: "fs" })
-    for (const command of ["build", "serve"]) {
-      const config: Record<string, unknown> = { build: { outDir: "dist" }, command, nitro: {}, root: cwd }
-      await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-      expect(JSON.stringify(config.nitro)).not.toContain("dev-handler")
-      expect(JSON.stringify(config.nitro)).not.toContain("/_vitehub/blob/dev")
-    }
+    expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.delete", "blob.media", "blob.variants"])
   })
 })

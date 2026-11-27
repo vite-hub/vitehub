@@ -24,7 +24,7 @@ it.each([
     await writeFile(join(root, "package.json"), '{"name":"public-dispatch","type":"module"}')
     await writeFile(join(root, "src/welcome.queue.ts"), [
       'import { defineQueue } from "vite-hub/queue"',
-      'export default defineQueue<{ email: string }>(job => job.payload.email)',
+      'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeFile(join(root, "src/report.schedule.ts"), [
       'import { defineSchedule } from "vite-hub/schedule"',
@@ -32,7 +32,7 @@ it.each([
     ].join("\n"))
     const options = {
       agent: false, auth: false, blob: false, database: false,
-      env: false, kv: false, preset, queue: true, rateLimit: false,
+      env: false, host: preset, kv: false, queue: true, rateLimit: false,
       realtime: false, sandboxTask: false, schedule: true, workflow: false, workspace: false,
     } as const
     if (framework === "nuxt") {
@@ -56,12 +56,12 @@ it.each([
     // Static Schedules need no generated type map.
     await expect(readFile(join(root, ".vitehub/schedule.d.ts"), "utf8")).rejects.toThrow()
     await writeFile(join(root, "consumer.mts"), [
-      'import { runQueue, getQueue } from "vite-hub/queue"',
-      'const [error] = await runQueue("welcome", { email: "ada@example.test" })',
-      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
-      'await (await getQueue("welcome")).send({ email: "ada@example.test" })',
+      'import { sendQueue, useQueue } from "vite-hub/queue"',
+      'const [error] = await sendQueue("welcome", { email: "ada@example.test" })',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"',
+      'await (await useQueue("welcome")).send({ email: "ada@example.test" })',
       '// @ts-expect-error Queue payload comes from the generated public map.',
-      'await runQueue("welcome", { count: 1 })',
+      'await sendQueue("welcome", { count: 1 })',
     ].join("\n"))
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

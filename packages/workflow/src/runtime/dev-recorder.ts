@@ -1,7 +1,4 @@
-import type { WorkflowProvider } from "../types.ts"
-
-// The slot for the run history of `vite dev`. Only the dev Nitro plugin imports the recorder from `./dev-runs.ts` and
-// installs it here, so a build has no recorder and no history code.
+import type { WorkflowDriver } from "../types.ts"
 
 /** One step of a recorded run. */
 export interface WorkflowDevStepRecord {
@@ -19,7 +16,7 @@ export interface WorkflowDevRunRecord {
   createdAt: Date
   error?: unknown
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   result?: unknown
   startedAt?: Date
   status: "completed" | "failed" | "queued" | "running"
@@ -34,10 +31,12 @@ export type WorkflowDevRunner = <T>(run: () => Promise<T>) => Promise<T>
 export interface WorkflowDevRecorder {
   /** Removes all recorded runs and returns how many it removed. */
   clear(): number
+  /** One recorded run. */
+  get(workflow: string, id: string): WorkflowDevRunRecord | undefined
   /** The recorded runs, newest first. */
   list(): WorkflowDevRunRecord[]
   /** Records a new queued run. */
-  start(workflow: string, id: string, provider: WorkflowProvider): WorkflowDevRunner
+  start(workflow: string, id: string, provider: WorkflowDriver): WorkflowDevRunner
   /** Runs one step and records it on the active run. */
   step<T>(name: string, run: () => T | Promise<T>): Promise<T>
 }

@@ -36,7 +36,7 @@ app.put("/api/blob", async (event) => {
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  const [error] = await blob.del(body.pathname)
+  const [error] = await blob.delete(body.pathname)
   if (error) throw error
   return { ok: true }
 })
@@ -73,9 +73,7 @@ app.get("/api/blob/serve", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  const [error, stream] = await blob.serve(event, pathname)
-  if (error) throw error
-  return stream
+  return blob.serve(event.req, pathname)
 })
 
 export default app

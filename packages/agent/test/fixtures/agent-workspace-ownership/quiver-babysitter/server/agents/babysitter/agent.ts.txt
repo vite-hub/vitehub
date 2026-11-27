@@ -1,0 +1,85 @@
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defineAgent } from 'vite-hub/agent'
+import { githubInstallationToken } from '../../github-app.ts'
+import portalGithub from '../../portal.github.ts'
+import instructions from './instructions.md?raw'
+import { babysitterContext, renderBabysitterContext } from './context.ts'
+import { authenticatePreview } from './runtime.ts'
+
+const codexAuth = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')
+const codexBridge = fileURLToPath(new URL('./bridge/', import.meta.resolve('@ai-sdk/harness-codex')))
+const setup = String.raw`set -eu
+mkdir -p .vitehub/bin .vitehub/tools "$HOME/references"
+printf '%s\n' '.vitehub/' 'agent-browser' 'tmp/harness/' >> .git/info/exclude
+git remote set-url origin "https://github.com/$PR_REPOSITORY.git"
+gh auth setup-git >/dev/null
+if test ! -x .vitehub/tools/node_modules/.bin/agent-browser; then npm install --silent --no-package-lock --no-save --prefix .vitehub/tools agent-browser@0.32.0; fi
+cat > agent-browser <<'SCRIPT'
+#!/bin/sh
+set -eu
+root="$(git rev-parse --show-toplevel)"
+export AGENT_BROWSER_SOCKET_DIR="$root/.vitehub/browser"
+exec "$root/.vitehub/tools/node_modules/.bin/agent-browser" "$@"
+SCRIPT
+chmod 700 agent-browser
+for repo in engine infra; do
+  target="$HOME/references/$repo"
+  if test ! -d "$target/.git"; then git clone --quiet --local --no-hardlinks --depth 1 "/srv/references/$repo.git" "$target"; fi
+  git -C "$target" remote set-url --push origin disabled://read-only
+done`
+
+export default defineAgent({
+  box: {
+    checkout: {
+      ref: ({ input }) => babysitterContext(input).pullRequest.head.ref,
+      remote: async ({ input }) => {
+        const context = babysitterContext(input)
+        const repository = context.pullRequest.head.repo?.full_name || context.repository
+        const token = await githubInstallationToken(context.installationId)
+        return `https://x-access-token:${encodeURIComponent(token)}@github.com/${repository}.git`
+      },
+      sha: ({ input }) => babysitterContext(input).pullRequest.head.sha,
+    },
+    env: {
+      AGENT_BROWSER_ARGS: '--no-sandbox',
+      AGENT_BROWSER_SESSION: ({ input }) => `pr-${babysitterContext(input).pullRequest.number}-${babysitterContext(input).trigger.deliveryId.slice(0, 12)}`,
+      GH_TOKEN: ({ input }) => githubInstallationToken(babysitterContext(input).installationId),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      PATH: '.:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      PREVIEW_URL: ({ input }) => `https://pr${babysitterContext(input).pullRequest.number}.preview.example.com`,
+      PR_HEAD_REF: ({ input }) => babysitterContext(input).pullRequest.head.ref,
+      PR_NUMBER: ({ input }) => String(babysitterContext(input).pullRequest.number),
+    },
+    home: {
+      files: {
+        ...(existsSync(codexAuth) ? {
+          '.codex/auth.json': { contents: () => readFile(codexAuth) },
+        } : {}),
+        'harness/codex/bridge.mjs': { contents: () => readFile(join(codexBridge, 'index.mjs')) },
+        'PULL_REQUEST.md': { contents: ({ input }) => renderBabysitterContext(babysitterContext(input)) },
+      },
+    },
+    requires: [
+      'git',
+      { args: ['auth', 'status'], command: 'gh' },
+      'node',
+      'pnpm',
+      { args: ['-c', setup], command: 'sh', name: 'Babysitter Box setup', timeout: 5 * 60_000 },
+      { args: ['-c', authenticatePreview], command: 'sh', name: 'Babysitter preview authentication', timeout: 8 * 60_000 },
+    ],
+    runtime: {
+      kind: 'crabbox',
+      profile: 'babysitter',
+    },
+  },
+  channels: { github: portalGithub },
+  driver: {
+    kind: 'codex',
+    instructions,
+  },
+})

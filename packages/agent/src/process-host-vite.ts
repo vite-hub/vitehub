@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { agentDiagnostics } from "./agent-diagnostics.ts";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
 
@@ -13,25 +14,23 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       const entry = resolve(root, options.entry);
       const exportName = options.exportName ?? "default";
       if (!/^[$_\p{ID_Start}][$‌‍\p{ID_Continue}]*$/u.test(exportName))
-        throw new Error("Process host exportName must be a JavaScript identifier.");
+        throw agentDiagnostics.AGENT_PROCESS_HOST_EXPORT_NAME_INVALID();
       const hostImport = exportName !== "default"
         ? `import { ${exportName} as host } from ${JSON.stringify(entry)}`
         : `import host from ${JSON.stringify(entry)}`;
       const drainRoute = options.drainRoute ?? "/api/drain";
       if (!drainRoute.startsWith("/") || /[?#*]/.test(drainRoute))
-        throw new Error(
-          "Process host drainRoute must be an absolute route without query, hash, or wildcard.",
-        );
+        throw agentDiagnostics.AGENT_PROCESS_HOST_DRAIN_ROUTE_INVALID();
       // SAFETY: Nitro adds an optional handlers configuration to Vite UserConfig.
       const nitro = (config as typeof config & { nitro?: { handlers?: { route?: string }[] } })
         .nitro;
       if (nitro?.handlers?.some((handler) => handler.route === drainRoute))
-        throw new Error(`Process host route already registered: ${drainRoute}`);
+        throw agentDiagnostics.AGENT_PROCESS_HOST_ROUTE_DUPLICATE({ route: drainRoute });
       await mkdir(directory, { recursive: true });
       const plugin = resolve(directory, "plugin.ts");
       const drain = resolve(directory, "drain.ts");
       // The generated file lives in the application, which may not resolve ViteHub packages.
-      const shutdown = createRequire(import.meta.url).resolve("@vite-hub/runtime/shutdown");
+      const shutdown = createRequire(import.meta.url).resolve("@vite-hub/runtime/internal/shutdown");
       // On a stop signal, ViteHub stops admission with `host.close()` while HTTP stays up, so
       // webhooks still reach durable queues. Then the server closes HTTP and the process exits.
       await writeFile(
@@ -48,7 +47,7 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       );
       await writeFile(
         drain,
-        `${hostImport}\nexport default () => ({ status: host.status() })\n`,
+        `${hostImport}\nexport default { fetch: () => Response.json({ status: host.status() }) }\n`,
       );
       const result: import("vite").UserConfig & { nitro: { plugins: string[], handlers: { route: string, handler: string }[] } } = { nitro: { plugins: [plugin], handlers: [{ route: drainRoute, handler: drain }] } };
       return result

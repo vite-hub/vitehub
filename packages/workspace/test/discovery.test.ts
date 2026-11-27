@@ -3,9 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createSource } from "@vite-hub/source"
-import { file } from "@vite-hub/source/file"
-import { glob } from "@vite-hub/source/glob"
+import { useSource, file, glob } from "@vite-hub/source"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createWorkspaceRegistryContents, createWorkspaceVirtualRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"
@@ -66,16 +64,6 @@ describe("discoverServerWorkspaceDefinitions", () => {
     expect(() => discoverServerWorkspaceDefinitions(root)).toThrow('Duplicate workspace name "docs"')
   })
 
-  it("creates registry entries from discovered workspace definitions", async () => {
-    const root = await createRoot()
-    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
-    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
-
-    const contents = createWorkspaceRegistryContents(registryFile, discoverServerWorkspaceDefinitions(root))
-    expect(contents).toContain('["docs"]: async () => {')
-    expect(contents).toContain("const mod = await import(")
-  })
-
   it.each(["file", "virtual"] as const)("loads a discovered __proto__ definition from the %s registry", async (kind) => {
     const root = await createRoot()
     const registryFile = join(root, "registry.mjs")
@@ -111,9 +99,9 @@ describe("discoverServerWorkspaceDefinitions", () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: { store: { provider: 'cloudflare-artifacts' } } })\n", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: { store: { driver: 'cloudflare' } } })\n", "utf8")
     const definitions = discoverServerWorkspaceDefinitions(root)
-    const store = { binding: "ENV_ARTIFACTS", namespace: "environment", provider: "cloudflare-artifacts" }
+    const store = { binding: "ENV_ARTIFACTS", namespace: "environment", driver: "cloudflare" }
 
     const contents = createWorkspaceRegistryContents(registryFile, definitions, new Map([["docs", { store }]]))
 
@@ -162,8 +150,8 @@ describe("discoverServerWorkspaceDefinitions", () => {
     const { default: registry }: { default: Record<string, () => Promise<{ default: { sourceRootDir?: string } }>> } = await import(pathToFileURL(registryFile).href)
     const { default: workspace } = await registry["docs"]!()
 
-    await expect(createSource(file({ path: "docs/intro.md" }), workspace).read("docs/intro.md")).resolves.toBe("Project docs\n")
-    await expect(createSource(glob({ cwd: "docs", include: "**/*.md" }), workspace).read("intro.md")).resolves.toBe("Project docs\n")
+    await expect(useSource(file({ path: "docs/intro.md" }), workspace).read("docs/intro.md")).resolves.toBe("Project docs\n")
+    await expect(useSource(glob({ cwd: "docs", include: "**/*.md" }), workspace).read("intro.md")).resolves.toBe("Project docs\n")
   })
 
   it.each([false, true])("preserves colocated Source roots for flat Nuxt layer Workspaces (workspace folder: %s)", async (workspaceFolder) => {
@@ -186,7 +174,7 @@ describe("discoverServerWorkspaceDefinitions", () => {
     const { default: workspace } = await registry["docs"]!()
 
     expect(workspace.sourceRootDir).toBe(sourceRootDir)
-    await expect(createSource(file({ path: "README.md" }), workspace).read("README.md")).resolves.toBe("Layer docs\n")
+    await expect(useSource(file({ path: "README.md" }), workspace).read("README.md")).resolves.toBe("Layer docs\n")
     expect(definitions.find(definition => definition.name === "app")).toHaveProperty("sourceRootDir", root)
   })
 

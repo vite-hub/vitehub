@@ -14,6 +14,12 @@ const ENV_KEY = "sk_env_fallback_key_1"
 const STORED_KEY = "sk_live_stored_key_1"
 const URL_ITEMS = "https://api.example.com/items"
 
+function deferred<T = void>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 function harness(fallback: ConnectionApiKeyFallback, options: { access?: ConnectionDefinition["access"], store?: ConnectionStore | (() => ConnectionStore) } = {}) {
   const keys: Array<string | null> = []
   let fallbackCalls = 0
@@ -50,6 +56,58 @@ describe("API key fallback", () => {
     expect(JSON.stringify(activity)).not.toContain(ENV_KEY)
   })
 
+  it("sends concurrent fallback requests while an earlier one is still waiting for the provider", async () => {
+    const enteredSlow = deferred()
+    const slow = deferred()
+    const runtime = createConnectionsRuntime({
+      definitions: { executor: defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], fallback: () => ENV_KEY }) }) },
+      fetch: async (input) => {
+        if (String(input).endsWith("/slow")) {
+          enteredSlow.resolve()
+          await slow.promise
+        }
+        return Response.json({ ok: true })
+      },
+      store: createStore(),
+    })
+    const client = runtime.client("executor", {})
+    const pending = client.fetch("https://api.example.com/slow")
+    try {
+      expect(await Promise.race([enteredSlow.promise, pending])).toBeUndefined()
+      expect((await client.fetch(URL_ITEMS)).status).toBe(200)
+    }
+    finally {
+      slow.resolve()
+      await Promise.allSettled([pending])
+    }
+    expect((await pending).status).toBe(200)
+  })
+
+  it("checks the fallback grant again before a scheduled retry", async () => {
+    const enteredProvider = deferred()
+    const providerResponse = deferred<Response>()
+    let calls = 0
+    const runtime = createConnectionsRuntime({
+      definitions: { executor: defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], fallback: () => ENV_KEY, requests: { retry: { attempts: 2, delayMs: 0 } } }) }) },
+      fetch: () => {
+        calls += 1
+        enteredProvider.resolve()
+        return providerResponse.promise
+      },
+      store: createStore(),
+    })
+    const pending = runtime.client("executor", {}).fetch(URL_ITEMS)
+    try {
+      await Promise.race([enteredProvider.promise, pending])
+      await runtime.revoke({ actor: "user:owner", name: "executor" })
+    }
+    finally {
+      providerResponse.resolve(new Response(null, { status: 503 }))
+    }
+    await expect(pending).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(calls).toBe(1)
+  })
+
   it("unseals a sealed Server Env secret", async () => {
     const test = harness(async () => new SecretEnv(ENV_KEY))
     await test.runtime.client("executor", {}).fetch(URL_ITEMS)
@@ -58,7 +116,7 @@ describe("API key fallback", () => {
 
   it("lets a stored key win over the fallback", async () => {
     const test = harness(() => ENV_KEY)
-    expect(await test.runtime.setKey({ key: STORED_KEY, name: "executor" })).toMatchObject({ keySource: "stored", status: "connected" })
+    expect(await test.runtime.setKey({ actor: "user:owner", key: STORED_KEY, name: "executor" })).toMatchObject({ keySource: "stored", status: "connected" })
     const calls = test.fallbackCalls()
     await test.runtime.client("executor", {}).fetch(URL_ITEMS)
     expect(test.keys).toEqual([`Bearer ${STORED_KEY}`])
@@ -67,12 +125,12 @@ describe("API key fallback", () => {
 
   it("keeps a revoked Connection disconnected instead of falling back", async () => {
     const test = harness(() => ENV_KEY)
-    expect(await test.runtime.revoke({ name: "executor" })).toMatchObject({ status: "revoked" })
+    expect(await test.runtime.revoke({ actor: "user:owner", name: "executor" })).toMatchObject({ status: "revoked" })
     expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
     await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
 
-    await test.runtime.setKey({ key: STORED_KEY, name: "executor" })
-    await test.runtime.revoke({ name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: STORED_KEY, name: "executor" })
+    await test.runtime.revoke({ actor: "user:owner", name: "executor" })
     await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect(test.keys).toEqual([])
   })
@@ -94,18 +152,20 @@ describe("API key fallback", () => {
 
   it("rejects a fallback key that fails the key format check, without exposing it", async () => {
     const test = harness(() => "has space")
-    expect(await test.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
-    expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
+    expect(await test.runtime.inspect("executor")).toMatchObject({ keyError: "CONNECTIONS_INVALID_PROVIDER", keySource: "fallback", status: "disconnected" })
     const error = await test.runtime.client("executor", {}).fetch(URL_ITEMS).catch((cause: unknown) => cause)
     expect(error).toMatchObject({ code: "CONNECTIONS_INVALID_PROVIDER", why: "The fallback key of Connection \"executor\" must contain 1 to 8192 visible ASCII characters." })
     expect(String(error)).not.toContain("has space")
     expect(test.keys).toEqual([])
   })
 
-  it("reports no key when the fallback is empty or fails during inspection", async () => {
-    expect(await harness(() => undefined).runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
-    const failing = harness(() => { throw new Error("missing env") })
-    expect(await failing.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
+  it("reports no key when the fallback is empty, and the failure when it throws during inspection", async () => {
+    const empty = await harness(() => undefined).runtime.inspect("executor")
+    expect(empty).toMatchObject({ status: "disconnected" })
+    expect(empty).not.toHaveProperty("keySource")
+    expect(empty).not.toHaveProperty("keyError")
+    const failing = harness(() => { throw Object.assign(new Error("missing env"), { code: "ENV_MISSING" }) })
+    expect(await failing.runtime.inspect("executor")).toMatchObject({ keyError: "ENV_MISSING", keySource: "fallback", status: "disconnected" })
     await expect(failing.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toThrow("missing env")
   })
 
@@ -115,7 +175,7 @@ describe("API key fallback", () => {
     await expect(agent.fetch(URL_ITEMS, { body: "{}", method: "POST" })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ name: "executor", status: "pending" })).approvals
     expect(approval!.input).toMatchObject({ grantId: "fallback" })
-    expect(await test.runtime.approve({ id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { status: 200 } })
+    expect(await test.runtime.approve({ actor: "user:owner", id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { status: 200 } })
     expect(test.keys).toEqual([`Bearer ${ENV_KEY}`])
   })
 
@@ -124,8 +184,40 @@ describe("API key fallback", () => {
     const agent = test.runtime.client("executor", { access: agentEnvAccess({ name: "support" }) })
     await expect(agent.fetch(URL_ITEMS, { body: "{}", method: "POST" })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ name: "executor", status: "pending" })).approvals
-    await test.runtime.setKey({ key: STORED_KEY, name: "executor" })
-    await expect(test.runtime.approve({ id: approval!.id })).rejects.toThrow("previous Connection grant")
+    await test.runtime.setKey({ actor: "user:owner", key: STORED_KEY, name: "executor" })
+    await expect(test.runtime.approve({ actor: "user:owner", id: approval!.id })).rejects.toThrow("previous Connection grant")
     expect(test.keys).toEqual([])
+  })
+
+  it.each(["setKey", "revoke"] as const)("does not dispatch an approved fallback write after %s wins during the audit write", async (mutation) => {
+    const store = createStore()
+    const { runtime, keys } = harness(() => ENV_KEY, { access: { "agent:support": { read: true, write: ["fetch"] } }, store })
+    const agent = runtime.client("executor", { access: agentEnvAccess({ name: "support" }) })
+    await expect(agent.fetch(URL_ITEMS, { body: "{}", method: "POST" })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
+    const [approval] = (await runtime.approvals({ name: "executor", status: "pending" })).approvals
+    const enteredAudit = deferred()
+    const audit = deferred()
+    const append = store.access.append.bind(store.access)
+    store.access.append = async (entry) => {
+      if (entry.action === "use" && entry.outcome === "started" && entry.revision === "fallback") {
+        enteredAudit.resolve()
+        await audit.promise
+      }
+      return await append(entry)
+    }
+    const pending = runtime.approve({ actor: "user:owner", id: approval!.id })
+    const settled = Promise.allSettled([pending])
+    try {
+      await Promise.race([enteredAudit.promise, pending])
+      const input = { actor: "user:owner", name: "executor" }
+      if (mutation === "setKey") await runtime.setKey({ ...input, key: STORED_KEY })
+      else await runtime.revoke(input)
+    }
+    finally {
+      audit.resolve()
+      await settled
+    }
+    await expect(pending).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(keys).toEqual([])
   })
 })

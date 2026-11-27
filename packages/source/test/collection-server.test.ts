@@ -1,11 +1,11 @@
 import { H3 } from "h3"
-import { getStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
 
+import { getStandardContext } from "@vite-hub/runtime"
 import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { CollectionAuthorizationGuard } from "../src/server.ts"
 
@@ -17,6 +17,7 @@ function createApp() {
         .slice(0, limit)
     },
     {
+      access: "public",
       cursor: (item: { id: number }) => item.id,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -36,6 +37,57 @@ class NonPlainItem {
 }
 
 describe("defineCollectionHandler", () => {
+  describe("route access", () => {
+    const load = async () => [{ id: 1 }]
+
+    it("requires authorize on a routed Collection", () => {
+      // @ts-expect-error A routed Collection must set authorize or route: false.
+      expect(() => defineCollection(load, { cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
+    })
+
+    it("fails closed for a Collection object without authorize", () => {
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      const { route: _route, ...routed } = collection
+      expect(() => defineCollectionHandler(routed)).toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
+    })
+
+    it("serves access: \"public\" without Auth", async () => {
+      const collection = defineCollection(load, { access: "public", cursor: item => item.id, cursorSchema: v.number() })
+
+      const response = await defineCollectionHandler(collection).fetch(new Request("https://app.test/items"))
+
+      expect(collection.access).toBe("public")
+      expect(collection).not.toHaveProperty("authorize")
+      expect(await response.json()).toEqual({ items: [{ id: 1 }], nextCursor: null })
+    })
+
+    it("refuses authorize: false with a fix that names access: \"public\"", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => defineCollection(load, { authorize: false as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_AUTHORIZE_FALSE", fix: expect.stringContaining('access: "public"') }))
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      const { route: _route, ...routed } = collection
+      expect(() => defineCollectionHandler({ ...routed, authorize: false as never }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_AUTHORIZE_FALSE" }))
+    })
+
+    it("refuses access: \"public\" together with authorize", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => defineCollection(load, { access: "public", authorize: true as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_CONFLICT" }))
+      // SAFETY: Same as above.
+      expect(() => defineCollection(load, { access: "everyone" as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0024" }))
+    })
+
+    it("allows a server-only Collection without authorize", async () => {
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      expect(collection.authorize).toBeUndefined()
+      expect((await collection.page({ query: {} })).items).toEqual([{ id: 1 }])
+    })
+  })
+
   describe("authorize", () => {
     function privateCollection(authorize: AccessAuthorizeOption, load = vi.fn(async () => [{ id: 1 }])) {
       return {
@@ -44,15 +96,13 @@ describe("defineCollectionHandler", () => {
       }
     }
 
-    // Mirrors Auth's withAuthorization contract: the Auth package tests the real session lookup.
-    const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (event) => {
-      const request = getStandardContext(event).req
+    const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (request) => {
       const user = request.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
-      const result = authorize === true || await authorize({ request, session: {}, user })
+      const result = authorize === true || await authorize({ event: Object.assign(request, { "~standard": getStandardContext(new Request(request)) }), request, session: {}, user })
       if (result instanceof Response) return result
       if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
-      return handler(event)
+      return handler(request)
     }
 
     it("fails closed when the route has no Auth authorizer", () => {
@@ -96,7 +146,7 @@ describe("defineCollectionHandler", () => {
     })
 
     it("keeps public Collections public when an authorizer is present", async () => {
-      const collection = defineCollection(async () => [{ id: 1 }], { cursor: item => item.id, cursorSchema: v.number() })
+      const collection = defineCollection(async () => [{ id: 1 }], { access: "public", cursor: item => item.id, cursorSchema: v.number() })
       const authorizer = vi.fn()
       const guard: CollectionAuthorizationGuard = (authorize, handler) => {
         authorizer()
@@ -135,6 +185,8 @@ describe("defineCollectionHandler", () => {
 
   it("accepts Collection methods declared on a class prototype", () => {
     class CollectionLike {
+      readonly access = "public"
+
       async page() {
         return { items: [], nextCursor: null }
       }
@@ -174,6 +226,7 @@ describe("defineCollectionHandler", () => {
         return []
       },
       {
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
         querySchema: v.object({ tags: v.optional(v.union([v.string(), v.array(v.string())])) }),
@@ -196,6 +249,7 @@ describe("defineCollectionHandler", () => {
         },
       ],
       {
+        access: "public",
         cursor: item => item.at.toISOString(),
         cursorSchema: v.string(),
       },
@@ -236,6 +290,7 @@ describe("defineCollectionHandler", () => {
         ]
       },
       {
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -250,6 +305,7 @@ describe("defineCollectionHandler", () => {
 
   it("coerces an item whose toJSON returns undefined to null", async () => {
     const collection = defineCollection(async () => [{ toJSON: () => undefined }], {
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -260,12 +316,14 @@ describe("defineCollectionHandler", () => {
 
   it("applies toJSON once to each serialized property", async () => {
     const rejected = defineCollection(async () => [{ toJSON: () => new Date("2026-08-22T00:00:00.000Z") }], {
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
     const accepted = defineCollection(
       async () => [{ toJSON: () => ({ nested: new Date("2026-08-22T00:00:00.000Z") }) }],
       {
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -284,6 +342,7 @@ describe("defineCollectionHandler", () => {
 
   it("rejects Collection pages containing bigint", async () => {
     const collection = defineCollection(async () => [{ id: 1n }], {
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -296,6 +355,7 @@ describe("defineCollectionHandler", () => {
   it("serializes only the supported active branches of item unions", async () => {
     let value: bigint | string = "one"
     const collection = defineCollection(async () => [{ array: [value], nested: { value }, value }], {
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -327,6 +387,7 @@ describe("defineCollectionHandler", () => {
     new NonPlainItem(),
   ])("rejects non-plain Collection item objects", async item => {
     const collection = defineCollection(async () => [item], {
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -335,22 +396,38 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
-  it("reads the query of a Nuxt 4 event from its Standard Context request", async () => {
+  it("answers 404 for a Collection with route: false and does not read it", async () => {
+    const load = vi.fn(async () => [{ id: 1 }])
+    const collection = defineCollection(load, {
+      authorize: true,
+      cursor: (item: { id: number }) => item.id,
+      cursorSchema: v.number(),
+      querySchema: v.object({}),
+      route: false,
+    })
+    const handler = defineCollectionHandler(collection)
+
+    const response = await handler.fetch(new Request("http://example.test/api/articles"))
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ status: 404, message: "Not Found" })
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("answers a Web Request as a Fetchable, with JSON error Responses", async () => {
     const collection = defineCollection(
       async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),
-      { cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
+      { access: "public", cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
     )
-    const h3V1Event = (url: string) => ({
-      context: {},
-      // An H3 1 event: `node.req` is Node's request, and the event has no Web URL of its own.
-      node: {
-        req: { headers: { host: "example.test" }, method: "GET", url, async *[Symbol.asyncIterator]() {} },
-        res: { getHeader: () => undefined, getHeaders: () => ({}), removeHeader() {}, setHeader() {}, statusCode: 200 },
-      },
-    })
+    const handler = defineCollectionHandler(collection)
 
-    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&minimum=2"))).resolves.toMatchObject({ items: [{ id: 3 }] })
-    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&limit=2"))).rejects.toMatchObject({ statusCode: 400 })
+    const page = await handler.fetch(new Request("http://example.test/base/items?limit=1&minimum=2"))
+    expect(page.status).toBe(200)
+    expect(page.headers.get("content-type")).toBe("application/json")
+    await expect(page.json()).resolves.toEqual({ items: [{ id: 3 }], nextCursor: "Mw" })
+
+    const invalid = await handler.fetch(new Request("http://example.test/items?limit=1&limit=2"))
+    expect(invalid.status).toBe(400)
+    await expect(invalid.json()).resolves.toEqual({ status: 400, message: "[vitehub] Collection query parameter \"limit\" must have one value." })
   })
 
   it("maps malformed limits, queries, and cursors to client errors", async () => {

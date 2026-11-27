@@ -75,18 +75,15 @@ describe("UI server rendering", () => {
     expect(html).toContain("message");
   });
 
-  it("keeps raw HTML disabled when callers request the HTML plugin", async () => {
+  it("rejects the HTML plugin through public Markdown", async () => {
     const app = createSSRApp({
       render: () => h(Markdown, {
-        options: { html: true },
         plugins: [html()],
         value: '<script>globalThis.__vitehubXss = true</script>message',
       }),
     });
 
-    const output = await renderToString(app);
-    expect(output).not.toContain("<script>");
-    expect(output).toContain("message");
+    await expect(renderToString(app)).rejects.toMatchObject({ code: "UI_R0002" });
   });
 
   it("preserves non-HTML Markdown defaults", async () => {
@@ -97,6 +94,15 @@ describe("UI server rendering", () => {
     const html = await renderToString(app);
     expect(html).toContain('type="checkbox"');
     expect(html).toContain("completed");
+  });
+
+  it("links bare URLs", async () => {
+    const app = createSSRApp({
+      render: () => h(Markdown, { value: "See https://vitehub.dev/docs for details." }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).toMatch(/<a [^>]*href="https:\/\/vitehub\.dev\/docs"/);
   });
 
   it("renders Nuxt UI components without registering them on the app", async () => {

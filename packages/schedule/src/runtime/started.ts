@@ -1,10 +1,12 @@
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { isScheduleDue } from "./due.ts"
-import { executeSchedule } from "./execute.ts"
-import { getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
+import { executeSchedule, toRunId } from "./execute.ts"
+import { getScheduleOccurrenceClaims, getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { errorCode, logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -101,7 +103,7 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
     async delete(id) {
       read.delete(id)
       if (!await kv.has(key(id))) return false
-      await kv.del(key(id))
+      await kv.delete(key(id))
       return true
     },
     async get(id) {
@@ -130,20 +132,14 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
-}
-
 function unwrapStartableDefinition(loaded: unknown): ScheduleDefinition | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
   return isRecord(candidate) && typeof candidate.handler === "function" && !Object.hasOwn(candidate, "cron")
     // SAFETY: The checks above prove the fields that the tick reads.
     ? candidate as unknown as ScheduleDefinition
     : undefined
 }
 
-/** The minutes in `[first, last]` when `schedule` is due, after it was created. A one-time Schedule is due once `at` passed. */
 function dueMinutes(schedule: StartedSchedule, first: number, last: number): Date[] {
   if (schedule.at) return schedule.at.getTime() <= last ? [schedule.at] : []
   const due: Date[] = []
@@ -155,29 +151,41 @@ function dueMinutes(schedule: StartedSchedule, first: number, last: number): Dat
   return due
 }
 
-async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedSchedule, scheduledAt: Date, waitUntil: ScheduleRunContext["waitUntil"]): Promise<void> {
+async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedSchedule, scheduledAt: Date, waitUntil: ScheduleRunContext["waitUntil"]): Promise<boolean> {
   const load = Object.hasOwn(runtime.registry, schedule.name) ? runtime.registry[schedule.name] : undefined
   const definition = unwrapStartableDefinition(await load?.())
   if (!definition) {
-    // A deploy removed the Definition or gave it a cron. A cron Schedule stays, so it runs again if the Definition returns.
     if (schedule.at) await runtime.store.delete(schedule.id)
     throw startedScheduleErrors.SCHEDULE_NOT_STARTABLE({ name: schedule.name })
   }
-  try {
-    await executeSchedule({
-      captureHandlerFailure: true,
-      definition: { handler: context => definition.handler({ ...context, payload: schedule.payload }) },
-      scheduleId: schedule.id,
-      scheduledAt,
-      source: "started",
-      target: schedule.name,
-      waitUntil,
-    })
+  const claims = getScheduleOccurrenceClaims()
+  const run = async (markFinal?: () => void) => {
+    let final = false
+    try {
+      await executeSchedule({
+        captureHandlerFailure: true,
+        ...(claims ? { claimed: true } : {}),
+        definition: { handler: context => definition.handler({ ...context, payload: schedule.payload }) },
+        onExecution() {
+          final = true
+          markFinal?.()
+        },
+        scheduleId: schedule.id,
+        scheduledAt,
+        source: "started",
+        target: schedule.name,
+        waitUntil,
+      })
+    }
+    finally {
+      if (schedule.at && final) await runtime.store.delete(schedule.id)
+    }
   }
-  finally {
-    // A one-time Schedule runs once, also when the handler fails. The failed run stays in the run history.
-    if (schedule.at) await runtime.store.delete(schedule.id)
+  if (!claims) {
+    await run()
+    return true
   }
+  return await claims.run(toRunId("started", schedule.id, scheduledAt), run) !== "held"
 }
 
 /**
@@ -192,12 +200,38 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
   const first = runtime.checkedThrough === undefined
     ? minute - runtime.catchUpMs
     : Math.min(minute, runtime.checkedThrough + minuteMs)
-  const occurrences = (await runtime.store.list()).flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
+  const schedules = await runtime.store.list()
+  const occurrences = schedules.flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
+  const held = runtime.held ??= new Map()
+  const byId = new Map(schedules.map(schedule => [schedule.id, schedule]))
+  const failing = runtime.failing ??= new Map()
+  for (const id of failing.keys()) {
+    if (!byId.has(id)) failing.delete(id)
+  }
+  for (const [runId, entry] of held) {
+    const schedule = byId.get(entry.scheduleId)
+    if (!schedule) held.delete(runId)
+    else if (!occurrences.some(occurrence => occurrence.schedule.id === schedule.id && occurrence.scheduledAt.getTime() === entry.scheduledAt.getTime())) {
+      occurrences.push({ schedule, scheduledAt: entry.scheduledAt })
+    }
+  }
   const results = await Promise.allSettled(occurrences.map(({ schedule, scheduledAt }) => runOccurrence(runtime, schedule, scheduledAt, context.waitUntil)))
   results.forEach((result, index) => {
-    if (result.status === "fulfilled") return
-    const { schedule } = occurrences[index]!
-    console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    const { schedule, scheduledAt } = occurrences[index]!
+    const runId = toRunId("started", schedule.id, scheduledAt)
+    if (result.status === "fulfilled") {
+      if (result.value) held.delete(runId)
+      else held.set(runId, { scheduleId: schedule.id, scheduledAt })
+      failing.delete(schedule.id)
+      return
+    }
+    held.set(runId, { scheduleId: schedule.id, scheduledAt })
+    const cause = errorCode(result.reason) ?? (result.reason instanceof Error ? result.reason.message : String(result.reason))
+    if (failing.get(schedule.id) === cause) return
+    failing.set(schedule.id, cause)
+    logFailure({ field: "schedule", fields: { op: "started", name: schedule.name, id: schedule.id }, level: "error", message: "Started Schedule failed", error: result.reason, waitUntil: promise => context.waitUntil(promise) }, () => {
+      console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    })
   })
   if (results.every(result => result.status === "fulfilled")) {
     runtime.checkedThrough = Math.max(runtime.checkedThrough ?? minute, minute)

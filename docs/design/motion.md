@@ -1,0 +1,144 @@
+# Motion
+
+Every click answers back. When a person presses, drags, or waits, the thing under the pointer reacts, and every change of state shows where it came from and where it went. Nothing teleports and nothing appears from nowhere.
+
+Motion belongs to the interaction, not to the component. A component gets its motion from what a person does with it: press it, flip it, pick from it, drag it, wait on it. So a component we add next year moves like the ones we have today, without anyone designing its motion again.
+
+## Rules
+
+1. **Springs move things.** Position, size, and shape change with a spring, not with a duration and an easing curve. A spring that gets a new target keeps its speed, so a fast second click never jumps. `snappy` moves and resizes. `soft` wobbles and settles.
+2. **The pressed thing gives.** On pointer down, the control squashes a little. On release, it springs back past rest and settles.
+3. **Shape follows speed.** A knob, a thumb, an indicator, or a divider stretches in the direction it moves and becomes round again when it stops.
+4. **Labels change letter by letter.** Keep the letters that the old and new label share. Blur out the other old letters where they are. Type the new letters in one at a time with a short blur. The control's width follows the letters. A width never jumps.
+5. **Icons say what happened.** An arrow leaves in the direction it points. A spinner and a check draw their stroke in. An old icon blurs out while the new one comes in.
+6. **Counts roll.** Only the digits that change roll: up when the number grows, down when it shrinks.
+7. **A finished action rings once.** Saved, published, copied: a 5px ring in the border color grows around the control and fades.
+8. **Things come from where they live.** A tooltip rises from behind its trigger. A toast comes in from its edge. A new list item grows from where it was made. A deleted item leaves toward where it goes. Do not fade content in from empty space.
+9. **Reading surfaces open at once.** Menus, popovers, and dialogs open without motion, because the person reads them. Their trigger still reacts.
+10. **Reduced motion keeps meaning, drops travel.** Under `prefers-reduced-motion`, nothing stretches, travels, or wobbles. Label and icon swaps become a 150ms crossfade. Rings and rolls are removed.
+11. **Animate cheap things.** Animate `transform`, `opacity`, `filter`, and SVG path data. Animate `width` only for a label that changes and for a panel that opens beside the page, through their springs. Motion never blocks input.
+
+## Motion follows the interaction
+
+List what a person does with the component. Each interaction brings its effect. A component with three interactions gets three effects.
+
+```
+Press: a button, a row, a card, an icon, a menu item       → The pressed thing squashes, then springs back past rest
+Toggle: a switch, a checkbox, a saved/starred/pinned icon  → The knob or icon carries the change: the knob stretches as it travels and lands larger; a check draws; a toggled icon wobbles like jelly
+Select one of many: tabs, segments, radio, menu, list row  → One indicator travels to the new item, stretching toward it, then settles
+Drag a value: slider, resize, scrub, reorder               → Shape follows speed: a tail trails the thumb, a divider bends past its limit and springs back
+Label or icon changes with state: copy, save, deploy       → Label morph with the width following, icon swap, ring when done
+A number changes                                           → Digit roll
+Something appears next to its trigger: tooltip, hint       → Rises from behind its trigger, widens to fit, then slides between triggers
+Something arrives on its own: toast, banner, new message   → Comes in from its edge; the others make room with a spring
+Something moves to a new place: a picture that zooms         → It travels from its old box to its new one, position and size on springs
+Pictures wait in a comment box: a stack beside the text       → A new one comes out of where it came from; the stack fans out above the box, each card travelling to its place
+A share shows: the bars of a poll after a vote               → Each bar grows from where it was to its share, with the travel helper
+Something the person reads opens: menu, popover, dialog    → Opens at once; only the trigger reacts
+Show or hide content: details, a collapsible section       → The chevron turns with a spring; the content opens at once
+A panel opens beside the page: a sidebar                   → Its width follows a spring, and the page makes room
+A bar folds into its mark: the page pill                   → The shape closes around the mark with a spring, and the bar moves so the mark lands on the edge
+Items are added, removed, or reordered                     → Neighbors move to their new place with a spring; a new item grows from where it was made; a removed item folds away
+Work runs: upload, deploy, sync, long request              → A head on the bar while it fills, a wave while it processes, a dot that becomes a check
+Files are dragged in                                       → The drop area leans toward the dragged file
+Something is deleted and the delete can be undone          → Hold to delete, the item leaves toward the trash, then Undo
+A box refuses an action but keeps what was typed           → The box shakes once from side to side
+```
+
+When a component does something that is not in this list, add the interaction and its effect here before you build it.
+
+## How a component gets its motion
+
+1. **From the motion layer, by role.** `installMotion()` from `@vite-hub/ui/motion` attaches press, toggle, select, drag, and appear motion to elements by their role: `button`, `link`, `tab`, `radio`, `menuitem`, `option`, `switch`, `checkbox`, `slider`, `separator`, `tooltip`, the items of a notifications `region` (toasts), a `<details>` or an `aria-expanded` control (disclosure), and an element with `data-motion-panel`. `createViteHubUI()` installs it in the browser, and the Nuxt module does it through the same plugin, so every app that uses `@vite-hub/ui` has it. Nuxt UI, kit, and our own components already render those roles, so they move with no code of their own. A new component gets the same motion when it uses the right element or role, which it must do anyway for keyboard and screen reader users.
+2. **From a helper, for what only the component knows.** A label that changes, a count, progress, a list that changes, and a delete that can be undone are events of the component, not of an element. Call the helper for each: the label morph, the digit roll, the progress bar, the list mover, and hold to delete, all from `@vite-hub/ui`. See [From a helper](#from-a-helper).
+
+   | Event | Vue part (`@vite-hub/ui`) | Helper (`@vite-hub/ui/motion`, no Vue) |
+   | --- | --- | --- |
+   | Items are added, removed, or reordered | `MotionList` in place of `<TransitionGroup>`, with `origin` for a duplicate and `target` for where a removed item goes | `createMotionList(container)`: call `measure()` before the change and `play({ origin, target })` after it. For a change that you only see after it happened, such as a resize or a place that a library sets, call `play()` and then `measure()` each time: `measure()` reads the places without the motion. `movesOnly` moves only the items that stay, for items that come and go with the scroll |
+   | Work runs | `Progress` with `value` (0 to 1, or `null` for the wave) and `done` | `createProgress(host)`: `set(value)`, `done()`, `reset()` |
+   | Files are dragged in | `DropField`, a label around a file input, which emits `files` | `createDropField(field, { onFiles, surface })` |
+   | A delete that can be undone | `HoldToDelete` with `commit`, which emits `delete` and `undo` | `createHoldToDelete(button, { commit, onDelete, onUndo, item })` |
+
+   `MotionList` and `Progress` take the numbers of the prototype: a new item moves out of its origin on a (380, 26) spring, a removed item folds on (260, 28), and neighbors move on `snappy`. Hold to delete runs `commit` only when the Undo window has passed. When its part unmounts or the page closes during that window, it commits: the person deleted the item and did not undo it. Use it only where the real delete can wait, such as a delete in the browser. A delete that the server must do at once keeps its confirm.
+3. **Never by hand.** Do not write a local spring, a `setTimeout` letter loop, a `requestAnimationFrame` loop, or a CSS `transition`, `animation`, or `@keyframes` that imitates one of these effects. `test/design-rules.test.ts` fails on them outside the motion layer.
+
+A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it. When the files of such a figure animate by hand, they go on the "own-motion figures" list of `test/design-rules.test.ts`, with the reason. A figure is a picture that is not a control: a label, a list, a button, or a disclosure next to it still gets its motion from the layer. A plain TypeScript surface, such as the page pill, the page tools, or the comments overlay, imports `installMotion` from `@vite-hub/ui/motion` (it has no Vue) and passes its host element and each of its shadow roots, so the layer also sees the state attributes inside them. It does not install the document: the page that it is on keeps its own motion, or none. A surface that ships its own small bundle, such as the page pill, imports `installMotion` from `@vite-hub/ui/motion/core` instead and lists the effects that it runs: `installMotion(host, { effects: [pressEffect, appearEffect] })`. Only those effects go in its bundle. Effects are shared by the installs of one copy of the module, so the comments overlay, which uses `@vite-hub/ui/motion`, brings every effect.
+
+A page can load more than one copy of `@vite-hub/ui/motion`, such as the app's, the one in the bundle of the page pill, and the one that Comark UI inlines in a document that it renders. The first copy that installs is the shared layer: a copy that installs after it gives that copy its effects and its installs, so one set of listeners and one observer serve every copy, and an element that two copies cover moves once. Effects keep the springs of their own copy, so `setMotionSlowFactor()` and `forceReducedMotion()` act on the effects of the copy that you call them on. A copy from before this rule moves only what its installs cover, and the copy that starts a press marks the event, so a press squashes once.
+
+### What the layer does
+
+- **One listener, one observer.** `installMotion(root?)` covers the document, a shadow root, or an element and everything in it, also the shadow roots inside them. It adds one set of capture listeners on the document (`pointerdown`, `pointerup`, `pointercancel`, and `keydown`/`keyup` for Space and Enter) and one `MutationObserver` for `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `aria-valuenow`, `aria-valuetext`, `data-state`, `data-checked`, `data-open`, `open` (of `<details>`), and `data-leaving`. When an effect has a `content` hook, as the label effect does, the observer also reports changes of children and text. The listeners read `event.composedPath()`, so they reach elements in shadow DOM. A second call adds nothing; each call returns its own uninstall.
+- **One frame loop.** Every spring, and every tween or frame step of a helper (`onEachFrame`), runs in one shared `requestAnimationFrame` loop that stops when nothing moves. A spring that gets a new target keeps its speed. `springs.snappy` (stiffness 520, damping 34) moves and resizes. `springs.soft` (380, 20) wobbles and settles.
+- **Only its own properties.** The layer writes the separate CSS properties `scale`, `translate`, and `rotate`, and `filter`, `opacity`, or `clip-path` where an effect needs them, never `transform`, so it adds to a component's own transform. A check or an icon outline also changes SVG attributes (`stroke-dasharray`, `stroke-dashoffset`, `d`), or the `--svg` mask of an Iconify CSS icon. It removes what it wrote when the spring settles, and puts back the exact attribute values. A component must not set `scale`, `translate`, or `rotate` inline itself.
+- **Press.** On pointer down, or Space or Enter on the focused control, the pressed control squashes with a stiff spring (900, 40) and springs back past rest with a loose one (380, 14) on release. It squashes by 3% from 40px high, 4% from 32px, and 5% below. An icon-only control squashes its icon by 15% and keeps its background still. A control that another element draws names that element with `data-motion-press-target`, a selector that `closest()` finds from the control: the folded page pill squashes its glass when its mark is pressed. Disabled controls, `aria-disabled="true"`, and non-transformable inline controls do not squash. The effect skips pointer presses near an edge that could move out from under the pointer, and clears the squash if the pointer leaves.
+- **Toggle.** When `aria-checked` or `aria-pressed` changes, the changed thing carries the change. A switch knob (`[data-slot=thumb]`, or the first child of a plain `role="switch"`) travels with a spring (300, 24), stretches with its speed, lands at the size of the new state (320, 16), then wobbles once (520, 9) 170ms later. A pressed knob grows into a pill (700, 32); the switch itself does not squash. The ViteHub theme takes the CSS transition off `USwitch`'s thumb and draws the off knob at 75%, so the knob lands larger when it turns on. A checkbox (`role="checkbox"`) draws its check or its minus in with `snappy` and draws it out when it turns off: Nuxt UI removes the check at once, so a copy of it stays in its place, fades, and goes. A toggle button with one icon (`aria-pressed`) wobbles like jelly when the icon is one outline, such as a bookmark or a star: a bulge runs down the path for 840ms, then the path gets its exact data back. It works on an inline `<svg>` and on an Iconify CSS icon, through its `--svg` mask. An icon of more than one outline only gets the press squash, and buttons of one row where one turns on while another turns off are a choice of one of many, so they do not wobble.
+  Clearing a mixed checkbox skips the exit if the previous mark is not available. Jelly requires one closed path. CSS icons that need more than basic SVG geometry keep their original mask.
+- **Select.** When an item of a `tablist`, `radiogroup`, `listbox`, or group of `menuitemradio` becomes selected (`aria-selected`, `aria-checked`, `data-state="active"` or `"checked"`, `data-checked`), one indicator travels from the old item to the new one on `snappy` springs. It stretches toward the new item: the leading edge goes ahead by up to 55% of its size, as the prototype's switch knob does, and the trailing edge catches up. The indicator is the first of these:
+  1. A `data-motion-indicator` or `data-slot="indicator"` element in the new item, such as Nuxt UI's radio dot, or a mark that each item renders while it is selected.
+  2. The indicator of the group, outside its items: `data-motion-indicator`, or a `data-slot` of `indicator` or one that ends in `-indicator`, such as Nuxt UI's `UTabs` indicator and ui-sdk's tab and segmented control indicators.
+  3. A plain group with no indicator, where the selected item draws its own look (a background, a ring, or a border side): a copy of that look travels behind the items, and the item shows its look again when the copy lands.
+
+  The indicator keeps the place that its component gives it, so a resize or new content moves nothing. The layer writes only `translate` and `scale` on top of it while it travels. Arrow keys move it the same way, because they change the same attributes. Under reduced motion it is in its new place at once, with no stretch. A group that is not one of these roles, such as a grid of links that marks the hovered one, sets `data-motion-select` on its root and `data-state="active"` on the marked item. Do not give an indicator a CSS transition of its own.
+- **Drag a value.** Slider and divider motion continues outside the element until the pointer goes up. The component still moves the value; the layer only changes how it looks.
+  - **Slider.** `[role=slider]` (Nuxt UI `USlider`, Reka, plain) and the range input inside a ui-sdk or kit thumb. When the value changes, from a pointer or a key, the thumb that people see starts where it was and follows with a spring (520, 38). It stretches along the track with its speed, as the switch knob does (9% for each track length per second, at most 55%, and a quarter of that across), and it grows by 12% while it is held. A tail in the color of the range trails it: 0.13px for each pixel per second, at most 150px, on a spring (260, 30). The tail tapers from 95% of the thumb's radius and never leaves the track. The filled range ends under the thumb. An arrow key gives the same spring over one step, a small nudge. A native `<input type="range">` with no thumb element keeps its own look, because its thumb is a pseudo-element. The value bubble with rolling digits belongs to the component: it uses the digit roll helper.
+  - **Divider.** `[role=separator]` that a person can drag: it has a resize cursor, focus, or `aria-valuenow` (Nuxt UI `USplitter` and `UDashboardPanel`, Reka, ui-sdk and kit `Resizable`, the Console, the workspace, the agent session, the device frame). Within its limits the layer does nothing, so the divider stays under the pointer. Past a limit the component keeps the panel at its limit, and the line of the divider bends toward the pointer: `over / (1 + |over| / 60)` pixels, drawn as an SVG path where the pointer is. On release it springs back straight (500, 14) and passes straight once. The divider's own line hides while the drawn line bends: the divider, when its background or a pseudo-element draws the line, or else the thin child that is the line, so a grip beside it in the divider stays.
+  - **Reorder.** No surface drags items to reorder today. When one does, `MotionList`, the list mover helper, moves the neighbors, and the dragged item gets its lift there.
+- **Tooltip.** A `role=tooltip` element (Reka's box is the parent of its visually hidden `role=tooltip`) rises from behind its trigger: it starts narrow (30px) and fully past the near edge of its trigger, with the part behind the trigger clipped, and rises with a spring (380, 26). After 120ms it widens to its label (440, 32), and 70ms later its label blurs in (6px, 240ms). When the next trigger opens its tooltip while this one leaves, the new tooltip takes the place, width, and speed of the old one and slides over (480, 36): the old label blurs out (5px, 150ms) and the new one blurs in 40ms later. One tooltip element that a component moves between triggers slides the same way. A tooltip that closes narrows, sinks back behind its trigger after 90ms, and goes after 520ms. Reka and ui-sdk remove a closed tooltip at once, so the exit plays on an inert copy. Floating UI still places the tooltip. A trigger inside `data-motion="none"` turns its tooltip off too.
+- **Appear.** The `appear` effect, which shares the code of the tooltip effect: something else that appears next to its trigger sets `data-motion-appear` and comes out of it the same way when it is added to the page: the draft bubble of a comment comes out of its pin, a tab of the page pill comes out from under the bar, and the bar over selected text rises from the text. The value is a selector of the trigger, the nearest element around it or a sibling, such as `[data-slot=comment-pin]`. An empty value has no trigger: the element rises from 8px past its own edge, on the side that `data-side` names. Its parts are revealed, not squeezed, while it widens, and it does not take the place of another one. When it is removed, a copy of it narrows and sinks back. A position that the page sets with `translate` would be replaced, so center it with `transform` instead.
+- **Toast.** An item of the list of a fixed notifications region, as Nuxt UI's toaster and ui-sdk's toast region render, comes in from its edge of the screen, top or bottom, with `snappy`. The toasts that the list moves start from where they were and spring to their new places. A toast that closes leaves on an inert copy past the side of the screen that the toaster sits at, so it does not cross the other toasts (past its top or bottom edge for a toaster in the middle), and the others close the gap. A toast that a person swiped away leaves from where they let go. It is a role effect, not a helper, because every toaster renders the same structure and the app does not call anything.
+- **Disclosure.** A `<details>` with its `<summary>`, or a control with `aria-expanded`, such as an accordion item or a folded group of a sidebar, shows or hides content. The content opens at once, because the person reads it, and the chevron carries the change. The stylesheet turns the chevron for each state, with `rotate` (such as `group-open:rotate-90`) or with `transform` (such as `[aria-expanded=true] svg { transform: rotate(90deg) }`), and with no transition. When the person presses the trigger, the layer reads the angle of each icon in it. When the state changes, each icon whose angle changed turns from the old angle to the new one on `snappy`, and passes it a little. A second click turns it back from where it is. The icons are the SVGs, images, and Iconify icons of the `<summary>` or the trigger; mark another element that turns with `data-motion-chevron`. A change from code, with no press, such as on the first load, puts the chevron at its new angle at once. A chevron that still has a CSS transition on `rotate` or `transform` keeps it, and the layer leaves it alone.
+- **Panel.** An element with `data-motion-panel` that gets wider or narrower when one of its state attributes changes, such as a sidebar with `[data-open]`, follows a spring (420, 30) from its old width to its new one, and the page beside it makes room on each frame. The layer writes `width` inline only while the spring moves. A panel that covers the page, such as a drawer, opens at once, as a dialog does: give it no `data-motion-panel`, or keep its own width the same.
+- **Leave.** A mark that the page removes a moment later sets `data-leaving="true"` first, as the comment pins do when one comment shows on its own. The mark hides at once, and a copy of it folds away in its place, as a removed item of a list does: to 90% on (260, 28). When the page shows it again, the copy goes.
+- **Reading surfaces.** `vitehubTheme` turns off Nuxt UI's enter and leave animations of the modal, the side panel (slideover), the popover, the dropdown and context menus, the select, select menu, and input menu, and the editor suggestion menu. A dialog and its backdrop appear in the same frame, and a command palette opens inside a modal. The motion layer does not add an effect to them: only their trigger moves, with its press.
+- **Reduced motion.** `prefersReducedMotion()` follows the system setting live, and `forceReducedMotion()` sets it from an app setting or a test. Under it, a press does nothing and a spring jumps to its target: a knob moves with no stretch, a chevron and a panel take their new angle and width at once, a check fades in and out in 150ms, nothing wobbles, a slider thumb does not stretch and has no tail, and a divider does not bend. A tooltip, an appearing element, and a toast crossfade in and out in 150ms and do not travel. A leaving mark fades in 150ms, and a box does not shake. A helper that must still show a change passes `{ tween: 0.15 }` to `spring.to()` for the 150ms crossfade.
+- **¼×.** `setMotionSlowFactor(4)` runs every spring four times slower, to record or study an effect.
+
+### Spinners and fades
+
+A loading spinner that turns forever (`animate-spin`, or `@keyframes` that only rotate) shows that work runs, so it is not hand-written motion. The same is true for a skeleton pulse (`animate-pulse`) and for any color or opacity fade. Rule 5 still applies when a spinner becomes a check: draw the stroke with the helper.
+
+### From a helper
+
+Each helper has a Vue component in `@vite-hub/ui` and a plain function in `@vite-hub/ui/motion` for a page without Vue:
+
+| Event | Vue | Function | What it does |
+| --- | --- | --- | --- |
+| A label changes | `<MorphText :text>` | `morphText(element, text)` | Rule 4. The shared start stays, the other old letters blur out in place, and the new letters type in 55ms apart with a 6px blur. The width follows with a spring (380, 34). |
+| An icon changes | `<SwapIcon :name :exit :enter>` | `swapIcon(container, icon, { exit, enter })` | Rule 5. The old icon blurs out, or leaves the way it points (`exit: "right"`). The new one blurs in, slides in, or draws its stroke (`enter: "draw"`, the default for a spinner). |
+| A number changes | `<RollNumber :value :format>` | `rollNumber(element, value, format?)` | Rule 6. Only the changed digits roll, up when the number grows and down when it shrinks. The width follows. |
+| An action finished | `v-ring="done"` | `ring(element)` | Rule 7. A 5px ring in `--ui-border-accented` grows and fades in 720ms. |
+| A box refuses an action | | `shake(element)` | The box shakes once from side to side, out to 5px, in 400ms. Under reduced motion it does nothing: show the refusal with a color, as the comment box flashes its frame. |
+| A thing moves to a new place | | `travel(element, { from, to })` | Rule 8. The page puts the element at its new place, and the element travels there from `from`, its old box, with `translate` and `scale` on `snappy` springs. With `to`, it travels from where it is to `to` and stays there, as a zoomed picture goes back to its place in the page before the page removes the copy. A new travel in the middle of one keeps the speed. `done` is true when it lands. Under reduced motion it is at its place at once. |
+
+A helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text in a visually hidden copy, and the moving letters are `aria-hidden`, so the accessible name is the new text at once. When the motion ends, the element holds plain text again. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
+
+**Every `UButton` gets the label morph and the icon swap from the layer.** The layer watches the text of `[data-slot=label]` in a button, and the children of its leading and trailing SVG icon, and morphs them when they change. So a button that changes `label` with state, such as `:label="loading ? 'Publishing' : 'Publish'"`, morphs with no code, and the spinner of `loading` draws in where the icon was. We chose the layer over a wrapper of `UButton` or the theme: the theme cannot run code, and a wrapper would need every app to use another component. With `@nuxt/icon` in CSS mode, an icon is a class that the layer does not watch, so a `UButton` icon changes at once there. Put a `SwapIcon` in the `leading` slot when the icon must swap in a Nuxt app, as `CopyButton` does.
+
+## Adding a component
+
+1. List its interactions from the table above.
+2. Render the right element or role for each one, so the motion layer picks it up.
+3. Call the helper for each label, count, progress, list, or delete event.
+4. Add it to the motion page, `packages/ui/test/browser/motion/`, and assert its effect in `test/browser/motion.browser.mjs`, or in a `test/browser/motion-<effect>.browser.mjs` of its own (`pnpm --filter @vite-hub/ui test:motion` runs them all). Record it at ¼× with `MOTION_RECORD=<dir>` and attach the recording to the pull request.
+
+## Adding an effect
+
+An interaction that the layer does not cover yet gets an effect of its own: a `MotionEffect` in a file in `packages/ui/src/motion/effects/`, listed in `motionEffects` and exported from `src/motion-core.ts` as `<name>Effect`. The core does not change. An app adds one with `defineMotionEffect`, which takes the same object:
+
+```ts
+import { createSpring, defineMotionEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion";
+
+defineMotionEffect({
+  name: "stamp",
+  selector: "[data-stamp]",
+  // A pointer or key press. Return { release, move? } to hear the rest of it.
+  press(element, event) {},
+  // One of the state attributes changed. Also runs under reduced motion: keep the meaning.
+  state(element, { attribute, oldValue, value }) {},
+  // The element was added to the page, such as a tooltip.
+  enter(element) {},
+  // The children or the text of the element changed, such as the label of a button.
+  content(element, { added, removed, oldText }) {},
+});
+```

@@ -6,14 +6,12 @@ import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupExitCodes, setupFailure, type SetupFailure } from "../envelope.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
-/** The lock file of `vitehub pull` and `vitehub push`, at the project root. */
 const lockFile = "vitehub.lock"
 
-/** The local state of one checkout folder, as `localCheckoutStatus()` returns it. */
 interface CheckoutStatus {
   workspace: string
   dir: string
@@ -51,7 +49,6 @@ export type DeployCheckoutsOutput = { results: CheckoutPushResult[], changed: st
 type CheckoutCall = (operation: string, input: unknown, remote: string | undefined) => ReturnType<typeof callOperationFromCli>
 type CheckoutContext = { call: CheckoutCall, rootDir: string }
 
-/** The part of `@vite-hub/workspace/checkout` that deploy uses. */
 interface CheckoutModule {
   localCheckoutStatus: (rootDir: string) => Promise<CheckoutStatus[] | undefined>
   pullWorkspaces: (context: CheckoutContext) => Promise<Array<CheckoutPushResult["pull"]>>
@@ -62,20 +59,14 @@ function isCheckoutModule(value: unknown): value is CheckoutModule {
   return Object(value) === value && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function" && typeof Reflect.get(Object(value), "pullWorkspaces") === "function" && typeof Reflect.get(Object(value), "pushWorkspaces") === "function"
 }
 
-/** The checkout module of the Workspace package. */
 const checkoutSpecifiers = ["@vite-hub/workspace/checkout", "vite-hub/workspace/checkout"]
 
-/** True when `specifier` itself does not resolve: the package is not installed, or it has no `./checkout` export. */
 function isNotInstalled(error: unknown, specifier: string): boolean {
   const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (code === "ERR_PACKAGE_PATH_NOT_EXPORTED") return true
   return code === "MODULE_NOT_FOUND" && error instanceof Error && error.message.includes(`'${specifier}'`)
 }
 
-/**
- * The checkout module of the Workspace package that the project installs. Undefined only when no specifier resolves.
- * A module that resolves but does not load stops the deploy, because a silent skip would deploy without the push.
- */
 async function importCheckoutModule(root: string): Promise<CheckoutModule | undefined> {
   const require = createRequire(join(root, "package.json"))
   for (const specifier of checkoutSpecifiers) {
@@ -102,13 +93,9 @@ async function importCheckoutModule(root: string): Promise<CheckoutModule | unde
 
 function moduleFailure(specifier: string, file: string, error: unknown): SetupFailure {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
 }
 
-/**
- * True when `vitehub.lock` lists at least one checkout folder. False without a lock. A lock that is not JSON, such as
- * one with a Git conflict, counts, so the checkout module reports it.
- */
 async function lockHasCheckouts(root: string): Promise<boolean> {
   let source: string
   try {
@@ -162,7 +149,7 @@ export async function prepareDeployCheckouts(root: string, context: Pick<ViteHub
 
 function assertNoConflicts(statuses: CheckoutStatus[]): void {
   const conflicts = statuses.flatMap(status => status.local.conflicted.map(path => `${status.dir}/${path}`))
-  if (conflicts.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_CONFLICT({ files: conflicts.join(", ") }), setupExitCodes.error)
+  if (conflicts.length) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_CONFLICT({ files: conflicts.join(", ") }), setupExitCodes.error)
 }
 
 async function readLock(root: string): Promise<string | undefined> {

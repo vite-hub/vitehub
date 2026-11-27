@@ -23,7 +23,7 @@ let runtimeDatabase: object = {}
 
 // SAFETY: Vitest supports the virtual-module option at runtime before its public type includes it.
 ;(vi.mock as any)(
-  "@vite-hub/database/drizzle",
+  "@vite-hub/database/runtime/registry",
   () => ({
     databases: {},
     schema: collectionSchema,
@@ -45,7 +45,7 @@ async function createTestDatabase() {
   tempDir = await mkdtemp(join(tmpdir(), "vitehub-drizzle-collection-"))
   const client = createClient({ url: `file:${join(tempDir, "collection.sqlite")}` })
   closeDatabase = () => client.close()
-  const db = drizzle({ client, schema: collectionSchema })
+  const db = drizzle({ client })
   runtimeDatabase = { db, schema: collectionSchema }
   return { db, schema: collectionSchema }
 }
@@ -53,7 +53,7 @@ async function createTestDatabase() {
 describe("table Collection source", () => {
   it("owns stable keyset pagination and applies filters before fetching pages", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
     await db.run(sql`
       create table meals (
         id text primary key,
@@ -70,6 +70,7 @@ describe("table Collection source", () => {
     ])
 
     const meals = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -103,6 +104,7 @@ describe("table Collection source", () => {
     })
 
     const publishedMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -124,6 +126,7 @@ describe("table Collection source", () => {
     await expect(meals.page({ query: {}, signal: controller.signal })).rejects.toThrow("collection request stopped")
 
     const dinners = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -147,7 +150,7 @@ describe("table Collection source", () => {
 
   it("forwards authorize from a table Collection to its route", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
     const { defineCollectionHandler } = await import("../src/source/server.ts")
     const { H3 } = await import("h3")
     const authorize = vi.fn(() => false)
@@ -176,10 +179,11 @@ describe("table Collection source", () => {
 
   it("rejects an unstable tie-breaker", async () => {
     const { db, schema } = await createTestDatabase()
-    const { defineCollection, table } = await import("../src/source.ts")
+    const [{ defineCollection }, { table }] = await Promise.all([import("../src/source.ts"), import("../src/source/drizzle.ts")])
 
     expect(() =>
       defineCollection({
+        route: false,
         source: table({
           db,
           orderBy: {

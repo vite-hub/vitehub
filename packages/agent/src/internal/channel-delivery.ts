@@ -1,6 +1,4 @@
-import type { StateAdapter } from "chat"
-
-import { isRuntimeBigInt, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
+import type { Lock, StateAdapter } from "chat"
 
 import type {
   AgentChannelDelivery,
@@ -12,10 +10,15 @@ import type {
 } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
+export { agentChannelDeliveryOwnershipVerifier, withAgentChannelDeliveryOwnershipVerifier } from "./channel-delivery-ownership.ts"
+
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
+// Finding the deliveries a trim removes reads the whole index, so the index trims at most once per this interval.
+const indexTrimIntervalMs = 60_000
 const indexKey = "deliveries:index"
+const indexTrimLeaseKey = "deliveries:index:trim"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 let workflowOwnershipResolver: AgentChannelDeliveryWorkflowOwnershipResolver | undefined
@@ -26,21 +29,20 @@ interface StoredAgentChannelDelivery extends AgentChannelDelivery {
 }
 
 const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
-const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
   return Boolean(
     value &&
-    isRuntimeObject(value) &&
+    typeof value === "object" && value !== null &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).channelId) || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
+    (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined) &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).deliveryId) &&
+    typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string" &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
+    typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string" &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).stateScope) || (value as AgentChannelDeliveryWorkflowBinding).stateScope === undefined) &&
+    (typeof (value as AgentChannelDeliveryWorkflowBinding).stateScope === "string" || (value as AgentChannelDeliveryWorkflowBinding).stateScope === undefined) &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
   )
@@ -121,18 +123,18 @@ function token(): string {
 }
 
 export function agentChannelDeliverySourceValue(value: unknown): string | undefined {
-  return isRuntimeString(value) && value ? value : isRuntimeNumber(value) || isRuntimeBigInt(value) ? String(value) : undefined
+  return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
 }
 
 export function agentChannelDeliverySourceId(provider: string, payload: unknown): string | undefined {
-  if (!payload || !isRuntimeObject(payload) || Array.isArray(payload)) return
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const record = payload as Record<string, unknown>
   const activity =
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    record.activity && isRuntimeObject(record.activity) && !Array.isArray(record.activity) ? (record.activity as Record<string, unknown>) : undefined
+    record.activity && typeof record.activity === "object" && !Array.isArray(record.activity) ? (record.activity as Record<string, unknown>) : undefined
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-  const event = record.event && isRuntimeObject(record.event) && !Array.isArray(record.event) ? (record.event as Record<string, unknown>) : undefined
+  const event = record.event && typeof record.event === "object" && !Array.isArray(record.event) ? (record.event as Record<string, unknown>) : undefined
   if (provider === "teams" && record.type === "messageUpdate") {
     // An edit keeps the id of the message. Its timestamp tells edits apart and repeats when Teams redelivers one.
     const id = agentChannelDeliverySourceValue(record.id)
@@ -149,35 +151,60 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
 }
 
 export function agentChannelDeliveryMessageIdentity(provider: string, payload: unknown): { messageId: string; threadId: string } | undefined {
-  if (!payload || !isRuntimeObject(payload) || Array.isArray(payload)) return
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const record = payload as Record<string, unknown>
   if (provider === "telegram") {
     const message =
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-      record.message && isRuntimeObject(record.message) && !Array.isArray(record.message) ? (record.message as Record<string, unknown>) : undefined
+      record.message && typeof record.message === "object" && !Array.isArray(record.message) ? (record.message as Record<string, unknown>) : undefined
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    const chat = message?.chat && isRuntimeObject(message.chat) && !Array.isArray(message.chat) ? (message.chat as Record<string, unknown>) : undefined
+    const chat = message?.chat && typeof message.chat === "object" && message.chat !== null && !Array.isArray(message.chat) ? (message.chat as Record<string, unknown>) : undefined
     const messageId = agentChannelDeliverySourceValue(message?.message_id)
     const chatId = agentChannelDeliverySourceValue(chat?.id)
     if (messageId && chatId) return { messageId, threadId: `telegram:${chatId}` }
   }
 }
 
-function stablePayload(value: unknown): string {
-  if (!value || !isRuntimeObject(value)) return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
+const englishHostKeyOrder = new Intl.Collator("en-US")
+
+function comparePayloadKeys(left: string, right: string): number {
+  return englishHostKeyOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0)
+}
+
+function compareHostLocaleKeys(left: string, right: string): number {
+  return left.localeCompare(right)
+}
+
+function stablePayload(value: unknown, compare: (left: string, right: string) => number): string {
+  if (!value || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(entry => stablePayload(entry, compare)).join(",")}]`
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry)}`)
+    .sort(([left], [right]) => compare(left, right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry, compare)}`)
     .join(",")}}`
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 export async function agentChannelDeliveryPayloadFingerprint(payload: unknown): Promise<string | undefined> {
   if (payload === undefined) return
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(stablePayload(payload)))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+  return await sha256Hex(stablePayload(payload, comparePayloadKeys))
+}
+
+/**
+ * The payload fingerprint, then the fingerprint that earlier releases stored on this host when its locale orders the
+ * payload keys differently. Bind and resume with both so a delivery admitted before an upgrade settles after it.
+ */
+export async function agentChannelDeliveryPayloadFingerprints(payload: unknown): Promise<string[]> {
+  if (payload === undefined) return []
+  const fixed = stablePayload(payload, comparePayloadKeys)
+  const hostLocale = stablePayload(payload, compareHostLocaleKeys)
+  return hostLocale === fixed ? [await sha256Hex(fixed)] : await Promise.all([sha256Hex(fixed), sha256Hex(hostLocale)])
 }
 
 function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): void {
@@ -194,11 +221,47 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
-async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<string[]> {
+  if (!(await state.setIfNotExists(indexTrimLeaseKey, true, indexTrimIntervalMs))) {
+    await state.appendToList(indexKey, deliveryId, { ttlMs: retentionMs })
+    return []
+  }
+  const before = await state.getList<string>(indexKey)
   await state.appendToList(indexKey, deliveryId, {
     maxLength: maximumDeliveries,
     ttlMs: retentionMs,
   })
+  // Below the limit, the append trims nothing.
+  if (before.length < maximumDeliveries) return []
+  // No read can reach a delivery that leaves the index, so delete its records instead of keeping them for the full retention.
+  // An id that is still in the index, such as one admitted again as a duplicate, keeps its records.
+  const kept = new Set(await state.getList<string>(indexKey))
+  return [...new Set(before)].filter(id => !kept.has(id))
+}
+
+async function deleteDeliveryRecords(state: StateAdapter, deliveryIds: string[]): Promise<void> {
+  const locks = new Map<string, Lock>()
+  try {
+    // Sorted order keeps two concurrent trims from each holding a lock the other waits for.
+    for (const deliveryId of [...deliveryIds].sort()) locks.set(deliveryId, await acquireDeliveryLock(state, deliveryId))
+    // Admissions append under these same journal locks. Recheck after acquiring them:
+    // the snapshot that selected these candidates may predate a completed retry.
+    const indexed = new Set(await state.getList<string>(indexKey))
+    for (const [deliveryId, lock] of locks) {
+      // A lock that expired while the trim took later ones no longer covers the recheck, so a retry may have re-admitted this delivery.
+      if (indexed.has(deliveryId) || !(await state.extendLock(lock, 30_000))) continue
+      const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
+      if (delivery) {
+        // A later delivery can own the same source after this record expired, so delete the source only while it points here.
+        const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
+        if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+      }
+      await state.delete(deliveryEventsKey(deliveryId))
+      await state.delete(deliveryRecordKey(deliveryId))
+    }
+  } finally {
+    for (const lock of locks.values()) await state.releaseLock(lock)
+  }
 }
 
 function advanceDeliveryStatus(
@@ -218,6 +281,8 @@ function advanceDeliveryStatus(
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
   if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
+  // An acknowledgement never hides an outcome that a handler recorded before it.
+  if (event.type === "acknowledged") return { retrySignaled, status: current === "received" ? "acknowledged" : current }
   if (
     event.type === "accepted" ||
     event.type === "completed" ||
@@ -274,6 +339,7 @@ async function appendEvent(
   }
   try {
     const lock = await acquireDeliveryLock(state, delivery.id)
+    let trimmed: string[] = []
     let ownershipLost = false
     const renewal = setInterval(() => {
       void state
@@ -320,7 +386,7 @@ async function appendEvent(
       await renew()
       await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
       await renew()
-      if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
+      if (event.type === "received" || event.type === "duplicate") trimmed = await touchDeliveryIndex(state, delivery.id)
     } finally {
       clearInterval(renewal)
       try {
@@ -338,6 +404,8 @@ async function appendEvent(
         )
       }
     }
+    // Never acquire another delivery's journal lock while holding our own.
+    if (trimmed.length) await deleteDeliveryRecords(state, trimmed)
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -420,8 +488,6 @@ export async function openAgentChannelDelivery(
   }
   const created = await state.setIfNotExists(sourceKey(candidate), candidate, retentionMs)
   const delivery = created ? candidate : (await state.get<StoredAgentChannelDelivery>(sourceKey(candidate))) || candidate
-  await state.set(sourceKey(delivery), delivery, retentionMs)
-  await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
   const opened = tracker(state, delivery, !created)
   try {
     await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
@@ -430,6 +496,31 @@ export async function openAgentChannelDelivery(
     throw error
   }
   return opened
+}
+
+const untrackedWebhook = Symbol("vitehub.channel.webhook.untracked")
+
+/**
+ * Marks a webhook registration whose deliveries the route does not record, such as Gmail push notifications.
+ * They carry no message, and the Channel records the status of the work they start.
+ */
+export function untrackedChannelWebhook<T extends object>(registration: T): T {
+  return Object.assign(registration, { [untrackedWebhook]: true })
+}
+
+export function isUntrackedChannelWebhook(registration: object): boolean {
+  return untrackedWebhook in registration
+}
+
+/** The delivery of an untracked webhook. It writes no State. */
+export function untrackedAgentChannelDelivery(input: Omit<AgentChannelDelivery, "id" | "receivedAt">): AgentChannelDeliveryTracker {
+  const delivery: AgentChannelDelivery = { ...input, id: token(), receivedAt: new Date().toISOString() }
+  return {
+    claimed: false,
+    delivery,
+    duplicate: false,
+    event: async eventInput => ({ ...eventInput, at: new Date().toISOString(), deliveryId: delivery.id, id: token() }),
+  }
 }
 
 export async function resumeAgentChannelDelivery(state: StateAdapter, deliveryId: string): Promise<AgentChannelDeliveryTracker | undefined> {
@@ -461,36 +552,26 @@ export async function bindAgentChannelDeliveryPayload(
   state: StateAdapter,
   delivery: AgentChannelDeliveryTracker,
   provider: string,
-  fingerprint: string,
+  fingerprints: readonly string[],
 ): Promise<void> {
-  await state.set(payloadKey(provider, fingerprint), delivery.delivery.id, retentionMs)
+  await Promise.all(fingerprints.map(fingerprint => state.set(payloadKey(provider, fingerprint), delivery.delivery.id, retentionMs)))
 }
 
 export async function resumeAgentChannelDeliveryPayload(
   state: StateAdapter,
   provider: string,
-  fingerprint: string,
+  fingerprints: readonly string[],
 ): Promise<AgentChannelDeliveryTracker | undefined> {
-  const deliveryId = await state.get<string>(payloadKey(provider, fingerprint))
-  return deliveryId ? await resumeAgentChannelDelivery(state, deliveryId) : undefined
+  for (const fingerprint of fingerprints) {
+    const deliveryId = await state.get<string>(payloadKey(provider, fingerprint))
+    if (deliveryId) return await resumeAgentChannelDelivery(state, deliveryId)
+  }
 }
 
 export function agentChannelDeliveryTracker(context: AgentRuntimeContext): AgentChannelDeliveryTracker | undefined {
   const runtimeContext: unknown = context
   // SAFETY: withAgentChannelDelivery installs this private tracker property on Agent runtime contexts.
   return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryTrackerKey]?: AgentChannelDeliveryTracker })[agentChannelDeliveryTrackerKey]
-}
-
-export function agentChannelDeliveryOwnershipVerifier(context: AgentRuntimeContext): (() => Promise<void>) | undefined {
-  const runtimeContext: unknown = context
-  // SAFETY: withAgentChannelDeliveryOwnershipVerifier installs this private verifier property on Agent runtime contexts.
-  return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryOwnershipVerifierKey]?: () => Promise<void> })[
-    agentChannelDeliveryOwnershipVerifierKey
-  ]
-}
-
-export function withAgentChannelDeliveryOwnershipVerifier<T extends AgentRuntimeContext>(context: T, verify: () => Promise<void>): T {
-  return { ...context, [agentChannelDeliveryOwnershipVerifierKey]: verify }
 }
 
 export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context: T, deliveryTracker: AgentChannelDeliveryTracker): T {

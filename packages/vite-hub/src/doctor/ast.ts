@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import type { RuleContext } from "vite-doctor/extension"
+import type { RuleContext, ScriptVisitor } from "vite-doctor/extension"
 
 import { viteHubInventory } from "./inventory.ts"
 
@@ -54,7 +54,7 @@ export function unwrap(node: unknown): unknown {
   return v.is(wrapperSchema, node) ? unwrap(node.expression) : node
 }
 
-// Doctor links parents as `parent` in current releases and as `__doctorParent` in earlier ones.
+// Doctor links parents as a non-enumerable `__doctorParent`, still in 0.1.3. A node can also carry its own `parent`.
 // `buildScopes()` records them too, so a parent is known for every node in an indexed file.
 const parents = new WeakMap<object, AstNode>()
 
@@ -102,8 +102,8 @@ export function booleanValue(node: unknown): boolean | undefined {
 }
 
 /** The static name of a property key: `a`, `"a"`, or `["a"]`. */
-export function propertyName(property: AstNode): string | undefined {
-  if (property.type !== "Property" && property.type !== "PropertyDefinition" && property.type !== "MethodDefinition") return
+export function propertyName(property: unknown): string | undefined {
+  if (!isNode(property) || (property.type !== "Property" && property.type !== "PropertyDefinition" && property.type !== "MethodDefinition")) return
   if (property.computed !== true && isIdentifier(property.key)) return property.key.name
   return stringValue(property.key)
 }
@@ -147,7 +147,7 @@ export function chainRoot(node: unknown): Identifier | undefined {
   if (isNodeType(target, "CallExpression")) return chainRoot(target.callee)
 }
 
-export function moduleSpecifier(node: unknown): { specifier: string, typeOnly: boolean } | undefined {
+function moduleSpecifier(node: unknown): { specifier: string, typeOnly: boolean } | undefined {
   if (!v.is(moduleSourceSchema, node)) return
   const specifiers = node.specifiers ?? []
   return {
@@ -155,6 +155,15 @@ export function moduleSpecifier(node: unknown): { specifier: string, typeOnly: b
     typeOnly: node.importKind === "type" || node.exportKind === "type"
       || (specifiers.length > 0 && specifiers.every(specifier => specifier.importKind === "type" || specifier.exportKind === "type")),
   }
+}
+
+/** Visitors for every node that names a module: an import, a re-export, and `import()`. */
+export function moduleSourceVisitors(visit: (node: AstNode, source: { specifier: string, typeOnly: boolean }) => void): ScriptVisitor {
+  const handler = (node: unknown) => {
+    const source = moduleSpecifier(node)
+    if (source && isNode(node)) visit(node, source)
+  }
+  return { ImportDeclaration: handler, ExportNamedDeclaration: handler, ExportAllDeclaration: handler, ImportExpression: handler }
 }
 
 /**
@@ -318,14 +327,6 @@ export function scopeIndex(ctx: RuleContext): ScopeIndex {
   return index
 }
 
-/** Auto-imports that `vite-hub/nuxt` registers for Nitro server code. */
-const nuxtServerAutoImports = new Map<string, ImportOrigin>([
-  ["kv", { source: "vite-hub/kv", name: "kv" }],
-  ["blob", { source: "vite-hub/blob", name: "blob" }],
-  ["db", { source: "vite-hub/database/drizzle", name: "db" }],
-  ["schema", { source: "vite-hub/database/drizzle", name: "schema" }],
-])
-
 export function isServerFile(path: string): boolean {
   return /(?:^|\/)server\//.test(path)
 }
@@ -355,7 +356,9 @@ export function resolver(ctx: RuleContext): Resolver {
   const cached = root ? resolvers.get(root) : undefined
   if (cached && cached.ctx.file.path === ctx.file.path) return cached
   const scopes = scopeIndex(ctx)
-  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath) ? nuxtServerAutoImports : new Map<string, ImportOrigin>()
+  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath)
+    ? viteHubInventory(ctx).nuxtServerAutoImports
+    : undefined
 
   function binding(node: unknown) {
     const target = unwrap(node)
@@ -365,7 +368,7 @@ export function resolver(ctx: RuleContext): Resolver {
   function originOf(node: Identifier, seen: Set<Binding>): { origin: ImportOrigin, rest: string[] } | undefined {
     const found = scopes.lookup(node, node.name)
     if (!found) {
-      const auto = autoImports.get(node.name)
+      const auto = autoImports && Object.hasOwn(autoImports, node.name) ? autoImports[node.name] : undefined
       return auto ? { origin: auto, rest: [] } : undefined
     }
     if (found.origin) return { origin: found.origin, rest: [] }
@@ -419,7 +422,7 @@ export function isExport(reference: ViteHubReference | undefined, modules: reado
   return typeof name === "string" ? reference.name === name : name.includes(reference.name)
 }
 
-/** Visits every script node once, depth first. Use it inside `ScriptNode` only for the Program node. */
+/** Visits every script node once, depth first. Use it inside a `Program` visitor only. */
 export function walkScript(root: unknown, visit: (node: AstNode) => void): void {
   if (!isNode(root)) return
   visit(root)

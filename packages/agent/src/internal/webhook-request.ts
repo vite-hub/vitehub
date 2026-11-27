@@ -1,39 +1,32 @@
-interface AgentWebhookNodeRequest {
-  aborted?: boolean
-  once: (event: "aborted", listener: () => void) => unknown
-}
-
-interface AgentWebhookNodeResponse {
-  once: (event: "close", listener: () => void) => unknown
-  writableEnded?: boolean
-}
+import { getStandardContext, installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 export interface AgentWebhookRequestInput {
   body?: RequestInit["body"]
+  /** The Request that this one copies. The copy keeps its Standard Context. */
+  from?: Request
   headers?: RequestInit["headers"]
   method: string
-  node?: {
-    req?: AgentWebhookNodeRequest
-    res?: AgentWebhookNodeResponse
-  }
   signal?: AbortSignal
   url: string | URL
 }
 
 export function createAgentWebhookRequest(input: AgentWebhookRequestInput): Request {
-  const controller = new AbortController()
-  const abort = () => controller.abort(new DOMException("Client disconnected.", "AbortError"))
-  if (input.node?.req?.aborted) abort()
-  else input.node?.req?.once("aborted", abort)
-  input.node?.res?.once("close", () => {
-    if (!input.node?.res?.writableEnded) abort()
-  })
   const init: RequestInit & { duplex?: "half" } = {
     body: input.body,
     headers: input.headers,
     method: input.method,
-    signal: input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal,
+    signal: input.signal,
   }
   if (input.body != null) init.duplex = "half"
-  return new Request(input.url, init)
+  const request = new Request(input.url, init)
+  return input.from ? keepStandardContext(input.from, request) : request
+}
+
+/**
+ * Gives `copy` the Standard Context of `request`. Code that reads the copy, such as `authenticated()`, then prepares
+ * response headers for the response of the host, and not for a copy that no host sends.
+ */
+export function keepStandardContext(request: Request, copy: Request): Request {
+  installRequestStandardContext(copy, getStandardContext(request))
+  return copy
 }

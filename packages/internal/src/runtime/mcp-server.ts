@@ -1,0 +1,687 @@
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { forwardedRequestOrigin } from "./request-origin.ts"
+
+import type { ViteHubMcpToolResult } from "./mcp-tools.ts"
+
+/**
+ * The MCP server of ViteHub: the Console MCP at `/_vitehub/mcp` and the app MCP of `vite-hub/mcp` answer through it.
+ * It has no MCP library and keeps no session state.
+ */
+
+/**
+ * MCP revisions that this server answers, newest first. It speaks Streamable HTTP with JSON answers, and with an SSE
+ * answer only for a tool call that elicits.
+ */
+export const mcpProtocolVersions: readonly string[] = ["2025-11-25", "2025-06-18"]
+
+/** One block of a tool result, such as `{ type: "text", text }`. */
+export type McpContentBlock = { type: "text", text: string } | { type: string, [key: string]: unknown }
+
+/**
+ * Metadata for the client, not the model, such as `ui` of MCP Apps or the `openai/` keys of the OpenAI Apps SDK. The
+ * server sends it as it is.
+ */
+export type McpMeta = Record<string, unknown>
+
+/** The result of `tools/call`. */
+export interface McpToolResult {
+  content: McpContentBlock[]
+  structuredContent?: Record<string, unknown>
+  isError: boolean
+  /** Data for the client and its UI that the model does not read. */
+  _meta?: McpMeta
+}
+
+type ToolResultContent = ({ type: "text", text: string } | { type: "image", data: string, mimeType: string })[]
+
+/** The MCP result of a `ViteHubMcpTool` call: a text block, then one image block for each image. */
+export function mcpToolResult(result: ViteHubMcpToolResult): { content: ToolResultContent, structuredContent?: Record<string, unknown>, isError: boolean } {
+  const content: ToolResultContent = [{ type: "text", text: result.text }]
+  for (const image of result.images ?? []) {
+    content.push({ type: "image", data: image.data, mimeType: image.mimeType })
+  }
+  return {
+    content,
+    ...(result.structured ? { structuredContent: result.structured } : {}),
+    isError: result.isError === true,
+  }
+}
+
+/** The MCP tool annotations that clients read before a call. */
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+}
+
+/** The params of an `elicitation/create` request in form mode, such as `toElicitation()` of `@vite-hub/forms` builds. */
+export interface McpFormElicitation {
+  mode: "form"
+  message: string
+  requestedSchema: object
+}
+
+/** The answer of the client to `elicitation/create`. */
+export type McpElicitationResult
+  = | { action: "accept", content?: Record<string, unknown> }
+    | { action: "decline" | "cancel", content?: undefined }
+
+/** What a tool handler can do during one `tools/call`, besides returning the result. */
+export interface McpToolCallContext {
+  /** The client declared the `elicitation` capability for form mode in `initialize`. */
+  canElicit: boolean
+  /**
+   * Sends `elicitation/create` to the client and waits for the person. The answer to the `tools/call` becomes an SSE
+   * stream. The person has 10 minutes to answer. After that, or when the client closes the stream, the answer is
+   * `cancel`. Cancelling the tool call also cancels its prompts. The waiting call lives in the memory of this process,
+   * so the client must send its answer to the same process.
+   */
+  elicit(params: McpFormElicitation): Promise<McpElicitationResult>
+}
+
+/**
+ * How a tool may be called, as the OpenAI Apps SDK and SEP-1488 read it: `noauth` without a token, `oauth2` with an
+ * access token that has the `scopes`.
+ */
+export type McpSecurityScheme = { type: "noauth" } | { type: "oauth2", scopes?: readonly string[] }
+
+/** A tool as `tools/list` shows it, with the handler that `tools/call` runs. It has the shape of an okmcp `defineTool()`. */
+export interface McpTool {
+  name: string
+  title?: string
+  description: string
+  annotations?: McpToolAnnotations
+  /** The JSON Schema of the arguments, an object schema. */
+  inputSchema: object
+  /**
+   * Checks the arguments before the handler runs and returns the problems, or nothing when they are valid. Since
+   * 2025-11-25 a problem is a tool error, which the Agent reads. Older clients get JSON-RPC `-32602`. A tool without it
+   * checks its input in the handler.
+   */
+  validate?: (input: Record<string, unknown>) => string | undefined | Promise<string | undefined>
+  /** The largest `tools/call` request for this tool, in bytes. Without it, the server limit applies. */
+  maxRequestBytes?: number
+  /** The OAuth scopes that a call needs. A caller without them does not see the tool. */
+  scopes?: readonly string[]
+  /** What `tools/list` shows in the `_meta` of the tool, such as `{ ui: { resourceUri } }` of MCP Apps. */
+  _meta?: McpMeta
+  /** How the tool may be called. `tools/list` shows them on the tool. */
+  securitySchemes?: readonly McpSecurityScheme[]
+  handler(input: Record<string, unknown>, call: McpToolCallContext): Promise<McpToolResult>
+}
+
+/** An icon that clients show for the server. `src` is an `https:` or `data:` URI. */
+export interface McpIcon {
+  src: string
+  mimeType?: string
+  /** Sizes such as `"48x48"`, or `"any"` for a scalable image. */
+  sizes?: string[]
+  theme?: "light" | "dark"
+}
+
+/** The `serverInfo` of `initialize`: who the server is. */
+export interface McpServerInfo {
+  name: string
+  title: string
+  version: string
+  description?: string
+  websiteUrl?: string
+  icons?: McpIcon[]
+}
+
+/** One argument of a prompt as `prompts/list` shows it. Prompt arguments are strings. */
+export interface McpPromptArgument {
+  name: string
+  title?: string
+  description?: string
+  required?: boolean
+}
+
+/** One message of a prompt. */
+export interface McpPromptMessage {
+  role: "user" | "assistant"
+  content: McpContentBlock
+}
+
+/** The result of `prompts/get`. */
+export interface McpPromptResult {
+  description?: string
+  messages: McpPromptMessage[]
+}
+
+/** A prompt as `prompts/list` shows it, with the function that `prompts/get` runs. */
+export interface McpPrompt {
+  name: string
+  title?: string
+  description?: string
+  arguments?: McpPromptArgument[]
+  /** Throw `INTERNAL_MCP_ARGUMENTS_INVALID` or another MCP method code to answer with its JSON-RPC error, such as `-32602`. */
+  get(input: Record<string, string>): Promise<McpPromptResult>
+}
+
+/** The contents of one resource in `resources/read`: text, or base64 bytes in `blob`. */
+export type McpResourceContents = { uri: string, mimeType?: string, text: string, _meta?: McpMeta } | { uri: string, mimeType?: string, blob: string, _meta?: McpMeta }
+
+/** A resource as `resources/list` shows it. */
+export interface McpListedResource {
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+  _meta?: McpMeta
+}
+
+/**
+ * A resource with a fixed `uri`, or a family of resources with a `uriTemplate`. `resources/read` reads the first
+ * resource with that `uri`, else the first template that matches.
+ */
+export interface McpResource {
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  /** What `resources/list` and `resources/templates/list` show in the `_meta` of the resource. */
+  _meta?: McpMeta
+  /** The URI of one resource. */
+  uri?: string
+  /** An RFC 6570 URI template. `{name}` matches one path segment, and `{+name}` also matches `/`. */
+  uriTemplate?: string
+  /** The resources of a template that `resources/list` shows. */
+  list?: () => Promise<McpListedResource[]>
+  /**
+   * Returns the contents, or `undefined` when no such resource exists. `variables` are the values of the template.
+   * Throw an MCP method code, such as `INTERNAL_MCP_RESOURCE_NOT_FOUND`, to answer with its JSON-RPC error.
+   */
+  read(uri: string, variables: Record<string, string>): Promise<McpResourceContents[] | undefined>
+}
+
+/** The JSON-RPC error code of each code that a prompt or resource throws to answer with that JSON-RPC error. */
+const mcpMethodRpcCodes: Readonly<Record<string, number>> = {
+  INTERNAL_MCP_ARGUMENTS_INVALID: -32602,
+  INTERNAL_MCP_METHOD_FAILED: -32603,
+  INTERNAL_MCP_RESOURCE_NOT_FOUND: -32002,
+}
+
+/** `INTERNAL_MCP_ARGUMENTS_INVALID`: a prompt or resource got arguments it does not accept. Answers `-32602`. */
+export function mcpArgumentsInvalid(detail: string, cause?: unknown): Error {
+  return internalErrorDiagnostics.INTERNAL_MCP_ARGUMENTS_INVALID(cause === undefined ? { detail } : { cause, detail })
+}
+
+/** `INTERNAL_MCP_METHOD_FAILED`: a prompt or resource handler threw. Answers `-32603`. */
+export function mcpMethodFailed(name: string, cause: unknown): Error {
+  return internalErrorDiagnostics.INTERNAL_MCP_METHOD_FAILED({ cause, name })
+}
+
+/** The JSON-RPC error code of an MCP method error, or `undefined` for another error. */
+export function mcpMethodRpcCode(error: unknown): number | undefined {
+  const code: unknown = error instanceof Error ? Reflect.get(error, "code") : undefined
+  return typeof code === "string" && Object.hasOwn(mcpMethodRpcCodes, code) ? mcpMethodRpcCodes[code] : undefined
+}
+
+/** What one request may see: the server identity and the tools, prompts, and resources of the caller. */
+export interface McpServer {
+  serverInfo: McpServerInfo
+  instructions: string
+  tools: readonly McpTool[]
+  /** With prompts, `initialize` advertises the `prompts` capability. */
+  prompts?: readonly McpPrompt[]
+  /** With resources, `initialize` advertises the `resources` capability. */
+  resources?: readonly McpResource[]
+  /** The scopes of the caller's access token. Without them, as for a session, no scope check applies. */
+  scopes?: readonly string[]
+  /** The `WWW-Authenticate` value of a `403` for a call that lacks `scopes`, so the client asks for them. */
+  challenge?: (scopes: readonly string[]) => Promise<string>
+  /**
+   * Who sends the request, such as the user id and the OAuth client id. The answer to `elicitation/create` must come
+   * from the same principal as the `tools/call` that asked.
+   */
+  principal?: string
+}
+
+type JsonRpcId = string | number | null
+
+const maximumBodyBytes = 2 * 1_024 * 1_024
+const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
+const tooLargeBody: unique symbol = Symbol("too large")
+
+/** Reads the body as text and stops after `limit` bytes, since a client can leave out or lie about content-length. */
+async function readText(body: ReadableStream<Uint8Array>, limit: number): Promise<string | typeof tooLargeBody> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  let bytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) return text + decoder.decode()
+      bytes += chunk.value.byteLength
+      if (bytes > limit) {
+        await reader.cancel().catch(() => undefined)
+        return tooLargeBody
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined
+}
+
+function reply(id: JsonRpcId, result: unknown): Response {
+  return Response.json({ jsonrpc: "2.0", id, result }, { headers })
+}
+
+function rpcError(id: JsonRpcId, code: number, message: string, status = 200, data?: unknown): Response {
+  return Response.json({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } }, { headers, status })
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/** A literal of a template as a client expands it, percent-encoded, or as written. */
+function literalPattern(part: string): string {
+  const encoded = part.includes("%") ? part : encodeURI(part)
+  return encoded === part ? escapeRegExp(part) : `(?:${escapeRegExp(encoded)}|${escapeRegExp(part)})`
+}
+
+/**
+ * Matches `uri` against an RFC 6570 template and returns the values of its variables. `{name}` matches one path
+ * segment, and `{+name}` also matches `/`. A value may be empty. Other operators match nothing.
+ */
+export function matchMcpUriTemplate(template: string, uri: string): Record<string, string> | undefined {
+  const names: string[] = []
+  const pattern = template.split(/(\{[^}]*\})/).map((part) => {
+    const variable = /^\{(\+?)([\w.]+)\}$/.exec(part)
+    if (!variable) return literalPattern(part)
+    names.push(variable[2]!)
+    return variable[1] ? "(.*)" : "([^/?#]*)"
+  }).join("")
+  const match = new RegExp(`^${pattern}$`).exec(uri)
+  if (!match) return undefined
+  try {
+    return Object.fromEntries(names.map((name, index) => [name, decodeURIComponent(match[index + 1]!)]))
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function readResource(server: McpServer, uri: string): Promise<McpResourceContents[] | undefined> {
+  const resources = server.resources ?? []
+  const fixed = resources.find(resource => resource.uri === uri)
+  if (fixed) return await fixed.read(uri, {})
+  for (const resource of resources) {
+    const variables = resource.uriTemplate === undefined ? undefined : matchMcpUriTemplate(resource.uriTemplate, uri)
+    if (variables) return await resource.read(uri, variables)
+  }
+  return undefined
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  const entries = record(value)
+  if (!entries || !Object.values(entries).every(entry => typeof entry === "string")) return undefined
+  // SAFETY: Every value is a string, checked above.
+  return entries as Record<string, string>
+}
+
+/** Answers a prompt or resource method, and turns a thrown MCP method code into its JSON-RPC error. */
+async function answer(id: JsonRpcId, run: () => Promise<unknown>): Promise<Response> {
+  try {
+    return reply(id, await run())
+  }
+  catch (error) {
+    const rpcCode = mcpMethodRpcCode(error)
+    if (rpcCode !== undefined && error instanceof Error) return rpcError(id, rpcCode, error.message, 200, Reflect.get(error, "data"))
+    console.error("[vitehub] MCP request failed:", error)
+    return rpcError(id, -32603, "The request failed on the server.")
+  }
+}
+
+function missingScopes(server: McpServer, tool: McpTool): string[] {
+  const granted = server.scopes
+  return granted ? (tool.scopes ?? []).filter(scope => !granted.includes(scope)) : []
+}
+
+const elicitationSession = "elicit-form."
+const elicitationTimeoutMs = 10 * 60_000
+const elicitationSessionPattern = /^elicit-form\.([\da-f-]{36})\.([A-Za-z0-9+/]{43}=)$/
+let sessionKey: ReturnType<typeof generateElicitationKey> | undefined
+
+function generateElicitationKey() {
+  return crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
+}
+
+function sessionBinding(request: Request, server: McpServer): string {
+  return JSON.stringify([new URL(request.url).pathname, forwardedRequestOrigin(request), server.principal])
+}
+
+function sessionData(binding: string, nonce: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${binding}\n${nonce}`)
+}
+
+async function issueElicitationSession(binding: string): Promise<string> {
+  const nonce = crypto.randomUUID()
+  const signature = await crypto.subtle.sign("HMAC", await (sessionKey ??= generateElicitationKey()), sessionData(binding, nonce))
+  return `${elicitationSession}${nonce}.${btoa(String.fromCharCode(...new Uint8Array(signature)))}`
+}
+
+async function verifyElicitationSession(binding: string, session: string): Promise<boolean> {
+  const [, nonce, signature] = elicitationSessionPattern.exec(session) ?? []
+  if (!nonce || !signature || !sessionKey) return false
+  const bytes = Uint8Array.from(atob(signature), char => char.charCodeAt(0))
+  return crypto.subtle.verify("HMAC", await sessionKey, bytes, sessionData(binding, nonce))
+}
+
+function declaresFormElicitation(params: Record<string, unknown>): boolean {
+  const elicitation = record(record(params.capabilities)?.elicitation)
+  return elicitation !== undefined && (Object.keys(elicitation).length === 0 || "form" in elicitation)
+}
+
+const waitingElicitations = new Map<string, { binding: string, session: string, settle: (answer: Record<string, unknown>) => void }>()
+const elicitingCalls = new Map<string, () => void>()
+const cancelElicitation = { result: { action: "cancel" } }
+
+function toolCallKey(binding: string, session: string, id: string | number): string {
+  return JSON.stringify([binding, session, id])
+}
+
+function readElicitationAnswer(message: Record<string, unknown>): McpElicitationResult | Error {
+  const error = record(message.error)
+  if (error) return new Error(`The MCP client answered elicitation/create with error ${String(error.code)}: ${String(error.message)}`)
+  const result = record(message.result)
+  const action = result?.action
+  const content = record(result?.content)
+  if (action === "accept") return content ? { action, content } : { action }
+  if (action === "decline" || action === "cancel") return { action }
+  return new Error("The MCP client answered elicitation/create without an accept, decline, or cancel action.")
+}
+
+function waitForElicitationAnswer(requestId: string, binding: string, session: string): Promise<McpElicitationResult> {
+  return new Promise((resolve, reject) => {
+    const settle = (message: Record<string, unknown>) => {
+      clearTimeout(timer)
+      waitingElicitations.delete(requestId)
+      const answer = readElicitationAnswer(message)
+      if (answer instanceof Error) reject(answer)
+      else resolve(answer)
+    }
+    const timer = setTimeout(() => settle(cancelElicitation), elicitationTimeoutMs)
+    waitingElicitations.set(requestId, { binding, session, settle })
+  })
+}
+
+function answerElicitation(request: Request, server: McpServer, id: JsonRpcId, message: Record<string, unknown>): Response {
+  const waiting = typeof id === "string" ? waitingElicitations.get(id) : undefined
+  if (!waiting || waiting.session !== request.headers.get("mcp-session-id") || waiting.binding !== sessionBinding(request, server)) {
+    return rpcError(null, -32600, "No tool call waits for this answer. It timed out, the client closed the call, or another server instance has it.", 400)
+  }
+  waiting.settle(message)
+  return new Response(null, { headers, status: 202 })
+}
+
+async function callTool(request: Request, server: McpServer, tool: McpTool, input: Record<string, unknown>, id: JsonRpcId): Promise<Response> {
+  const session = request.headers.get("mcp-session-id")
+  if (!session?.startsWith(elicitationSession) || id === null) {
+    return reply(id, await tool.handler(input, { canElicit: false, elicit: async () => ({ action: "cancel" }) }))
+  }
+  const binding = sessionBinding(request, server)
+  const key = toolCallKey(binding, session, id)
+  if (elicitingCalls.has(key)) return rpcError(id, -32600, "This tool call id is already in use.")
+  let stream: ReturnType<typeof openStream> | undefined
+  let opened: () => void = () => undefined
+  const streaming = new Promise<void>((resolve) => {
+    opened = resolve
+  })
+  const asked = new Set<string>()
+  let finished = false
+  function finish(closeStream = true) {
+    if (finished) return
+    finished = true
+    elicitingCalls.delete(key)
+    for (const requestId of asked) waitingElicitations.get(requestId)?.settle(cancelElicitation)
+    if (closeStream) stream?.close()
+  }
+  const openStream = () => {
+    const encoder = new TextEncoder()
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value
+      },
+      cancel() {
+        finish(false)
+      },
+    })
+    opened()
+    return {
+      body,
+      send(message: string) {
+        controller?.enqueue(encoder.encode(`event: message\ndata: ${message}\n\n`))
+      },
+      close() {
+        controller?.close()
+      },
+    }
+  }
+  elicitingCalls.set(key, () => finish())
+  const result = (async () => {
+    const canElicit = await verifyElicitationSession(binding, session)
+    return await tool.handler(input, {
+      canElicit,
+      async elicit(params) {
+        if (finished || !canElicit) return { action: "cancel" }
+        const requestId = crypto.randomUUID()
+        const message = JSON.stringify({ jsonrpc: "2.0", id: requestId, method: "elicitation/create", params })
+        stream ??= openStream()
+        stream.send(message)
+        asked.add(requestId)
+        try {
+          return await waitForElicitationAnswer(requestId, binding, session)
+        }
+        finally {
+          asked.delete(requestId)
+        }
+      },
+    })
+  })()
+  await Promise.race([result.catch(() => undefined), streaming])
+  if (!stream) {
+    try {
+      return reply(id, await result)
+    }
+    finally {
+      finish()
+    }
+  }
+  const open = stream
+  void (async () => {
+    try {
+      const value = await result
+      if (!finished) open.send(JSON.stringify({ jsonrpc: "2.0", id, result: value }))
+    }
+    catch (error) {
+      console.error("[vitehub] MCP request failed:", error)
+      if (!finished) open.send(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "The request failed on the server." } }))
+    }
+    finally {
+      finish()
+    }
+  })()
+  return new Response(open.body, { headers: { ...headers, "content-type": "text/event-stream" } })
+}
+
+/**
+ * Answer one MCP request: JSON-RPC parsing, revision negotiation, `initialize`, `ping`, the `tools/*` methods, and the
+ * `prompts/*` and `resources/*` methods when the server has prompts or resources.
+ * It holds no session state. Every POST carries one message and gets one JSON answer, except a `tools/call` whose
+ * handler elicits, which gets an SSE stream. The client answers `elicitation/create` with its own POST.
+ */
+export async function serveMcp(request: Request, server: McpServer): Promise<Response> {
+  if (request.method !== "POST") {
+    const response = rpcError(null, -32600, `${server.serverInfo.title} accepts JSON-RPC requests with POST. It has no event stream.`, 405)
+    response.headers.set("allow", "POST")
+    return response
+  }
+  // Browsers send Origin. A page on another origin must not drive the tools with the person's cookie.
+  const origin = request.headers.get("origin")
+  if (origin && origin !== forwardedRequestOrigin(request)) return rpcError(null, -32600, `This origin may not call ${server.serverInfo.title}.`, 403)
+  // Read no more than the largest tool allows. The limit of the called tool is checked before it runs.
+  const readLimit = Math.max(maximumBodyBytes, ...server.tools.map(tool => tool.maxRequestBytes ?? 0))
+  const tooLarge = (limit: number) => rpcError(null, -32600, `The request is larger than ${limit} bytes.`, 413)
+  let message: Record<string, unknown> | undefined
+  let bytes = 0
+  try {
+    const text = request.body ? await readText(request.body, readLimit) : ""
+    if (text === tooLargeBody) return tooLarge(readLimit)
+    bytes = new TextEncoder().encode(text).byteLength
+    message = record(JSON.parse(text))
+  }
+  catch {
+    return rpcError(null, -32700, "The body is not one JSON-RPC message.", 400)
+  }
+  if (!message || message.jsonrpc !== "2.0") return rpcError(null, -32600, "The body is not one JSON-RPC message.", 400)
+  // MCP request ids are strings or numbers, never null. A message without an id is a notification.
+  const raw = message.id
+  const id: JsonRpcId = typeof raw === "string" || (typeof raw === "number" && Number.isFinite(raw)) ? raw : null
+  if ("id" in message && id === null) return rpcError(null, -32600, "The request id must be a string or a number.", 400)
+  if (!("method" in message) && ("result" in message || "error" in message)) return answerElicitation(request, server, id, message)
+  const method = message.method
+  if (typeof method !== "string" || !method) return rpcError(id, -32600, "A request needs a method, such as tools/list.", 400)
+  const version = request.headers.get("mcp-protocol-version")
+  if (method !== "initialize" && version !== null && !mcpProtocolVersions.includes(version)) {
+    return rpcError(id, -32600, `Unsupported MCP-Protocol-Version ${JSON.stringify(version)}. This server speaks ${mcpProtocolVersions.join(", ")}.`, 400)
+  }
+  const params = record(message.params) ?? {}
+  if (!("id" in message)) {
+    if (method === "notifications/cancelled") {
+      const session = request.headers.get("mcp-session-id")
+      const requestId = params.requestId
+      if (session?.startsWith(elicitationSession) && (typeof requestId === "string" || typeof requestId === "number")) {
+        elicitingCalls.get(toolCallKey(sessionBinding(request, server), session, requestId))?.()
+      }
+    }
+    return new Response(null, { headers, status: 202 })
+  }
+  const called = method === "tools/call" ? server.tools.find(candidate => candidate.name === params.name) : undefined
+  const limit = called?.maxRequestBytes ?? maximumBodyBytes
+  if (bytes > limit) return tooLarge(limit)
+  const names = new Set(server.tools.map(tool => tool.name))
+  if (names.size !== server.tools.length) return rpcError(id, -32603, "Two tools of this server have the same name.", 500)
+  const prompts = server.prompts ?? []
+  const resources = server.resources ?? []
+
+  if (prompts.length && method === "prompts/list") {
+    return reply(id, {
+      prompts: prompts.map(prompt => ({
+        name: prompt.name,
+        ...(prompt.title ? { title: prompt.title } : {}),
+        ...(prompt.description ? { description: prompt.description } : {}),
+        ...(prompt.arguments?.length ? { arguments: prompt.arguments } : {}),
+      })),
+    })
+  }
+  if (prompts.length && method === "prompts/get") {
+    const prompt = prompts.find(candidate => candidate.name === params.name)
+    if (!prompt) return rpcError(id, -32602, `Unknown prompt: ${String(params.name)}. Call prompts/list for the prompts of this server.`)
+    const input = params.arguments === undefined ? {} : stringRecord(params.arguments)
+    if (!input) return rpcError(id, -32602, `Invalid arguments for ${prompt.name}: expected an object of strings.`)
+    return await answer(id, () => prompt.get(input))
+  }
+  if (resources.length && method === "resources/list") {
+    return await answer(id, async () => {
+      const listed = await Promise.all(resources.map(async (resource): Promise<McpListedResource[]> => {
+        if (resource.uri !== undefined) {
+          return [{
+            uri: resource.uri,
+            name: resource.name,
+            ...(resource.title ? { title: resource.title } : {}),
+            ...(resource.description ? { description: resource.description } : {}),
+            ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+            ...(resource._meta ? { _meta: resource._meta } : {}),
+          }]
+        }
+        return await resource.list?.() ?? []
+      }))
+      return { resources: listed.flat() }
+    })
+  }
+  if (resources.length && method === "resources/templates/list") {
+    return reply(id, {
+      resourceTemplates: resources.filter(resource => resource.uriTemplate !== undefined).map(resource => ({
+        uriTemplate: resource.uriTemplate,
+        name: resource.name,
+        ...(resource.title ? { title: resource.title } : {}),
+        ...(resource.description ? { description: resource.description } : {}),
+        ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+        ...(resource._meta ? { _meta: resource._meta } : {}),
+      })),
+    })
+  }
+  if (resources.length && method === "resources/read") {
+    const uri = params.uri
+    if (typeof uri !== "string" || !uri) return rpcError(id, -32602, "resources/read needs a uri.")
+    return await answer(id, async () => {
+      const contents = await readResource(server, uri)
+      if (!contents) throw Object.assign(internalErrorDiagnostics.INTERNAL_MCP_RESOURCE_NOT_FOUND({ uri }), { data: { uri } })
+      return { contents }
+    })
+  }
+
+  switch (method) {
+    case "initialize": {
+      const requested = params.protocolVersion
+      const response = reply(id, {
+        protocolVersion: typeof requested === "string" && mcpProtocolVersions.includes(requested) ? requested : mcpProtocolVersions[0],
+        capabilities: {
+          tools: { listChanged: false },
+          ...(prompts.length ? { prompts: { listChanged: false } } : {}),
+          ...(resources.length ? { resources: { subscribe: false, listChanged: false } } : {}),
+        },
+        serverInfo: server.serverInfo,
+        instructions: server.instructions,
+      })
+      if (declaresFormElicitation(params)) response.headers.set("mcp-session-id", await issueElicitationSession(sessionBinding(request, server)))
+      return response
+    }
+    case "ping":
+      return reply(id, {})
+    case "tools/list":
+      return reply(id, {
+        tools: server.tools.filter(tool => !missingScopes(server, tool).length).map(tool => ({
+          name: tool.name,
+          ...(tool.title ? { title: tool.title } : {}),
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
+          ...(tool._meta ? { _meta: tool._meta } : {}),
+          ...(tool.securitySchemes ? { securitySchemes: tool.securitySchemes } : {}),
+        })),
+      })
+    case "tools/call": {
+      const tool = called
+      if (!tool) return rpcError(id, -32602, `Unknown tool: ${String(params.name)}. Call tools/list for the tools this user may use.`)
+      const missing = missingScopes(server, tool)
+      if (missing.length) {
+        const response = rpcError(id, -32001, `This access token lacks the ${missing.join(" ")} scope that ${tool.name} needs. Sign in again and approve it.`, 403)
+        if (server.challenge) response.headers.set("www-authenticate", await server.challenge(missing))
+        return response
+      }
+      const input = params.arguments === undefined ? {} : record(params.arguments)
+      if (!input) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: expected an object.`)
+      const invalid = await tool.validate?.(input)
+      // Since 2025-11-25 (SEP-1303), a bad argument is a tool error, so the Agent reads it and calls again.
+      if (invalid) return version === "2025-11-25" ? reply(id, { content: [{ type: "text", text: invalid }], isError: true }) : rpcError(id, -32602, invalid)
+      return await callTool(request, server, tool, input, id)
+    }
+    default:
+      return rpcError(id, -32601, `${server.serverInfo.title} has no method ${method}.`)
+  }
+}

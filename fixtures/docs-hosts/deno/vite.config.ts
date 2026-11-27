@@ -1,18 +1,16 @@
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'deno',
+      host: 'deno',
       agent: true,
       console: false,
-      workflow: false,
+      schedule: true,
       kv: {
         driver: 'deno-kv',
       },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })

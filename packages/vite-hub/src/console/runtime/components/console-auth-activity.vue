@@ -9,7 +9,7 @@ import ConsoleAuthEventSetup from "./console-auth-event-setup.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 
-const props = defineProps<{ base: string; enabled: boolean; revision: number }>();
+const props = defineProps<{ enabled: boolean; revision: number }>();
 const route = useRoute();
 const router = useRouter();
 const groups = [
@@ -43,7 +43,6 @@ async function load() {
   error.value = undefined;
   try {
     const result = await readAuthConsole(
-      props.base,
       "activity",
       {
         activity: {
@@ -99,13 +98,12 @@ onBeforeUnmount(() => controller?.abort());
 <template>
   <ConsoleAuthEventSetup v-if="!enabled" class="overflow-y-auto" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
-    <ConsolePageToolbar width="6xl">
+    <ConsolePageToolbar width="page">
       <form class="contents" @submit.prevent="filter(group, userInput)">
         <USelect
           :model-value="group"
           :items="groups"
           aria-label="Event type group"
-          size="sm"
           class="w-40"
           @update:model-value="filter(String($event), userId)"
         />
@@ -113,25 +111,22 @@ onBeforeUnmount(() => controller?.abort());
           v-model="userInput"
           aria-label="Filter by subject user ID"
           placeholder="Subject user ID"
-          size="sm"
           class="min-w-40 flex-1 sm:max-w-64"
         />
-        <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
+        <UButton type="submit" variant="ghost">Apply</UButton>
         <UButton
           v-if="userId || group !== 'all'"
-          color="neutral"
           variant="ghost"
-          size="sm"
           @click="filter('all', '')"
           >Clear filters</UButton
         >
       </form>
     </ConsolePageToolbar>
     <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-      <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
+      <div class="vitehub-console-page flex flex-col gap-3">
       <ConsoleState v-if="error" :error="error" title="Could not load activity" :retry="load" />
       <p v-else-if="loading" role="status" class="text-sm text-muted">Loading activity…</p>
-      <div v-else-if="data" class="overflow-hidden rounded-md border border-default">
+      <div v-else-if="data" class="overflow-hidden rounded-lg border border-default">
         <ConsoleAuthEventList :events="data.events" />
         <p v-if="!data.events.length" class="p-8 text-center text-sm text-muted">
           {{
@@ -147,14 +142,12 @@ onBeforeUnmount(() => controller?.abort());
       <span class="tabular-nums">{{ cursors[0] === undefined ? `Page ${page + 1} · ` : "" }}Newest first</span>
       <div class="flex gap-1">
         <UButton
-          color="neutral"
           variant="ghost"
           size="xs"
           :disabled="loading || !cursor"
           @click="previous"
           >Previous</UButton
         ><UButton
-          color="neutral"
           variant="ghost"
           size="xs"
           :disabled="loading || Boolean(error) || !data?.nextCursor"

@@ -1,7 +1,5 @@
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
-
-export type { DeploymentPreset }
-export { detectPreset } from "@vite-hub/internal/deployment"
+export type { ViteHubHost } from "@vite-hub/internal/deployment"
+export { detectHost } from "@vite-hub/internal/deployment"
 
 /**
  * Adds the `module` export condition to a Cloudflare build. Vite resolves server code with it, and Nitro does not.

@@ -3,6 +3,7 @@ import { createCommentsClient } from "@vite-hub/comments/client";
 import { type CommentAttachmentLink, type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
+import { consoleDiagnostic } from "../diagnostics";
 
 import type { CommentThread as CommentThreadModel } from "@vite-hub/comments/client";
 
@@ -132,9 +133,9 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const listed = isConsoleCommentThread(props.initial) && props.initial.id === id ? props.initial : undefined;
-    const found = listed ?? (await client.get({ id }));
+    const found = listed ?? (await client.get({ threadId: id }));
     if (current.signal.aborted) return;
-    if (!found) throw new Error("This thread was deleted, or you may not read it.");
+    if (!found) throw consoleDiagnostic("CONSOLE_NOT_FOUND", "This thread was deleted, or you may not read it.");
     thread.value = found;
     const currentSession = await readConsoleCommentSession(found.subject, current.signal, found.id);
     if (current.signal.aborted) return;
@@ -254,7 +255,7 @@ async function reopen(): Promise<void> {
       <div ref="root" class="console-comment-thread flex h-full min-h-0 flex-col">
         <div v-if="error || !thread" class="flex items-center justify-between gap-2 border-b border-default py-1.5 ps-3 pe-2">
           <span class="font-semibold text-highlighted">{{ title }}</span>
-          <UButton aria-label="Close" color="neutral" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
+          <UButton aria-label="Close" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
         </div>
         <ConsoleState v-if="error" :error="error" title="Couldn't load the thread" :retry="load" />
         <p v-else-if="!thread" role="status" class="p-4 text-sm text-muted">Loading the thread…</p>
@@ -276,7 +277,7 @@ async function reopen(): Promise<void> {
         >
           <template #actions>
             <UTooltip v-if="link" text="Open page">
-              <UButton aria-label="Open page" color="neutral" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
+              <UButton aria-label="Open page" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
             </UTooltip>
           </template>
           <template #anchor="{ thread: current }">
@@ -288,7 +289,7 @@ async function reopen(): Promise<void> {
         </CommentThread>
         <p v-if="attachmentError" role="alert" class="border-t border-default px-3 py-2 text-xs text-muted">
           Some attachments could not be loaded.
-          <UButton label="Retry" size="xs" variant="link" @click="loadAttachments" />
+          <UButton label="Retry" size="xs" variant="ghost" @click="loadAttachments" />
         </p>
         <p v-if="thread && !loading && !canWrite && !sessionError" class="border-t border-default px-3 py-2 text-xs text-muted">
           You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.

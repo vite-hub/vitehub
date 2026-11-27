@@ -12,7 +12,7 @@ import {
 
 function requestWithLogger() {
   const set = vi.fn()
-  return { event: { req: { context: { log: { set } } } }, set }
+  return { event: { req: { context: { log: { set, warn: vi.fn(), error: vi.fn() } } } }, set }
 }
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -80,7 +80,7 @@ describe("database request stats", () => {
   })
 
   it("counts each libSQL query that Drizzle runs", async () => {
-    const db = createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, drizzle: {}, name: "test" }, {}, {
+    const db = createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, name: "test" }, {}, {
       libsql: localLibsql,
       missingConnection: "a connection",
       requireRemoteUrl: false,

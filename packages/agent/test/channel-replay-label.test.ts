@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { handleChannelReplayRequest, replayChannel } from "../src/channel-replay.ts"
 import { defineAgent, resolveAgentTriggerInvocation } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
@@ -12,10 +12,10 @@ function fixture() {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const agent = defineAgent({
     name: "support", runtime: false, invocations, driver: { run: () => "Synthetic answer" },
-    channels: { mailbox: defineChannel("mailbox", {
+    channels: { mailbox: channelAdapter("mailbox", {
       messages: false,
-      history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
-      webhooks: { secretHeader: "x-signature", secretToken: "secret", signature: "github-sha256" },
+      history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
+      webhooks: { secretHeader: "x-signature", secret: () => "secret", signature: "github" },
       triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string(), thread: v.string() }), invoke }) },
     }) },
   })
@@ -33,6 +33,8 @@ describe("trusted Channel replay metadata", () => {
       expect(response.status).toBe(200)
       const result = await response.json() as { items: { id: string }[] }
       expect(result).toMatchObject({ processed: 1, failed: 0 })
+      // Agent output can quote the item, so the route answers with IDs and statuses only.
+      expect(Object.hasOwn(result.items[0]!, "output")).toBe(false)
       const record = await invocations.getByRunId(result.items[0].id, "support")
       expect(record?.status).toBe("completed")
       expect(record?.annotations).toMatchObject({ authored: "kept", "vitehub.channel.key": "m1", "vitehub.channel.thread": "t1" })
@@ -68,8 +70,8 @@ describe("trusted Channel replay metadata", () => {
     const key = vi.fn(() => "m1")
     const thread = vi.fn(() => "t1")
     const agent = defineAgent({ runtime: false, driver: { run: () => "answer" }, channels: {
-      mailbox: defineChannel("mailbox", { messages: false,
-        history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key, thread, trigger: "received" },
+      mailbox: channelAdapter("mailbox", { messages: false,
+        history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key, thread, trigger: "received" },
         triggers: {
           received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "received" } }) }),
           deleted: defineChannelTrigger({ invoke: () => ({ input: { prompt: "deleted" } }) }),

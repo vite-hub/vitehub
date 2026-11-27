@@ -22,6 +22,16 @@ export function envActor(actor: string): EnvActor {
   return mapped
 }
 
+/**
+ * Check the actor of a decision, such as an approval, a revoke, or a new key. The runtime records it,
+ * so it must come from the caller. A JavaScript caller that omits it gets a diagnostic, not a default.
+ */
+export function decisionActor(actor: unknown): string {
+  if (typeof actor !== "string" || !actor) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "missing" })
+  envActor(actor)
+  return actor
+}
+
 /** Resolve the caller. An Agent actor comes only from an Env context that the Agent runtime created. */
 export function callerActor(options: Pick<UseConnectionOptions, "access" | "actor">): string {
   if (options.access) {
@@ -45,7 +55,6 @@ export function callerInheritedActors(options: Pick<UseConnectionOptions, "acces
   return options.access ? envAccessAgentParents(options.access).map(name => `agent:${name}`) : []
 }
 
-/** The rule of an actor. An `agent:` actor without its own rule uses the rule of the nearest Agent it extends. */
 function accessRule(access: Readonly<Record<string, ConnectionAccessRule | ConnectionAccessPreset>>, actor: string, inherited: readonly string[] = []): ConnectionAccessRule | ConnectionAccessPreset | undefined {
   const candidates = actor.startsWith("agent:") ? [actor, ...inherited.filter(parent => parent.startsWith("agent:"))] : [actor]
   const match = candidates.find(candidate => Object.hasOwn(access, candidate))
@@ -84,7 +93,6 @@ export function decide(input: {
   }
   const rule = accessRule(access, input.actor, input.inherited)
   if (!rule) return "deny"
-  // MCP posts every protocol message and cannot wait for an approval, so the preset never asks for one.
   if (rule === "mcp") return input.mcp ? "allow" : "deny"
   if (!input.write) return rule.read ? "allow" : "deny"
   if (!allowsWrite(rule, input.action, input.highRisk)) return "deny"

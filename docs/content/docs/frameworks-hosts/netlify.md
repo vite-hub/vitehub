@@ -6,7 +6,7 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-netlify
 ---
 
-The `netlify` preset deploys your app to Netlify. Support depends on the
+The `netlify` host deploys your app to Netlify. Support depends on the
 package. ViteHub has Netlify output for Blob, generated Agent HTTP routes, and
 static Schedule wake functions. Other primitives need an explicit remote
 provider or are not available.
@@ -23,7 +23,7 @@ provider or are not available.
 The Agent function goes to `.netlify/v1/functions`, and its source wrapper to `.vitehub/agent/netlify-function.mjs`. Both are Provider Output (generated host files), not public imports.
 In Nuxt, the wrapper follows Nuxt's build directory, normally `.nuxt/vitehub/agent/netlify-function.mjs`. The deployed function path does not change.
 
-## Configure the preset
+## Configure the host
 
 Each package writes only its own Netlify output. This example adds the
 Schedule integration with `providerOutput: 'standalone'`, so each static
@@ -37,17 +37,13 @@ pnpm add @vite-hub/schedule
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
-
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'netlify',
+    host: 'netlify',
     agent: { invocations: false },
     blob: true,
-  },
-  vite: {
-    plugins: [hubSchedule({ providerOutput: 'standalone' })],
+    schedule: { providerOutput: 'standalone' },
   },
 })
 ```
@@ -55,7 +51,6 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
@@ -63,12 +58,12 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'netlify',
+      host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
     nitro(),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
@@ -76,25 +71,24 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'netlify',
+      host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
 :::
 ::
 
-The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition becomes a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+The `netlify` host selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition becomes a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
 
 The standalone Agent function does not install an app-wide Invocation journal. Set `agent.invocations: false` and configure `invocations` on each Agent Definition when records are needed. An omitted or configured app-wide journal fails with `VITE_HUB_R0132`.
 
@@ -102,12 +96,7 @@ The standalone Agent function does not install an app-wide Invocation journal. S
 
 The build writes generated functions and wrappers to Netlify's directories.
 
-The server function comes from Nitro's `netlify` preset, and ViteHub follows Nitro's output directory:
-
-- Nitro 3.0.261029-rc and later write `.netlify/v1/functions/server`. Netlify finds it without `netlify.toml` function settings or redirects.
-- Earlier Nitro betas write `.netlify/functions-internal/server`. ViteHub adds `.netlify/functions/server.mjs` so Netlify finds it.
-
-Either way, `.netlify/deployment.json` records the server entry.
+The server function comes from Nitro's `netlify` preset, which writes `.netlify/v1/functions/server`. Netlify finds it without `netlify.toml` function settings or redirects. `.netlify/deployment.json` records the server entry.
 
 ```bash [Terminal]
 pnpm build
@@ -119,14 +108,14 @@ In Nuxt, inspect the wrapper with `find .nuxt/vitehub/agent -maxdepth 2 -type f 
 
 ## Features without a Netlify provider
 
-- **Queue, Rate Limit, Sandbox, Workflow:** ViteHub picks no Netlify provider. `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. Workflow stays off when only `agent` turns it on. An explicit `workflow` option needs `workflow.provider`. Pick an external provider only when it works from the Netlify runtime.
+- **Queue, Rate Limit, Sandbox, Workflow:** ViteHub picks no Netlify driver. `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. Workflow stays off when only `agent` turns it on. An explicit `workflow` option needs `workflow.driver`. Pick an external driver only when it works from the Netlify runtime.
 - **Provisioning:** The ViteHub Provision CLI does not create Netlify resources. It accepts only Cloudflare and Vercel plans. Netlify Blobs stores need no provisioning; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 - **KV:** There is no Netlify KV output. Set a remote KV driver for deployed state. Do not rely on the local `fs-lite` fallback in a serverless deployment.
 - **Workspace:** There is no Netlify hosted store. Set a durable remote Workspace store. The local filesystem fallback does not persist safely across serverless instances.
 
 ## Production proof
 
-Pull-request CI tests the Netlify output through Netlify CLI. ViteHub does not publish a deployed Netlify Live Smoke test. Check the generated functions on your Netlify site before you call your setup production-ready.
+Netlify is [Experimental](/docs/frameworks-hosts/support-matrix#test-status). CI on `main` builds one Agent app and sends one chat request to it through Netlify CLI. No CI run calls a primitive on Netlify, and there is no live Netlify test. Check the generated functions on your Netlify site before you call your setup production-ready.
 
 ## Next steps
 

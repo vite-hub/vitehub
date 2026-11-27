@@ -27,6 +27,7 @@ export type ContentSessionsTable = SQLiteTableWithColumns<{
     lastInputAt: SessionColumn<number, false>
   }
   dialect: "sqlite"
+  isAlias: false
   name: "vitehub_content_sessions"
   schema: undefined
 }>
@@ -36,7 +37,6 @@ export type ContentSessionsTable = SQLiteTableWithColumns<{
  * Times are milliseconds since the epoch from the Database clock, so every host agrees on expiry.
  */
 // SAFETY: ContentSessionsTable mirrors the columns constructed here.
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 const contentSessions = sqliteTable("vitehub_content_sessions", {
   workspace: text("workspace").notNull(),
   collection: text("collection").notNull(),

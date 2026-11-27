@@ -1,10 +1,11 @@
-import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { invariant } from "@vite-hub/internal/invariant"
+
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 // Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
 // and then `vite dev` resolves the import eagerly and fails when the app disables Blob or Database.
 const blobSpecifier = "@vite-hub/blob"
-const databaseSpecifier = "@vite-hub/database/drizzle"
+const databaseSpecifier = "@vite-hub/database/runtime/registry"
 
 type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")
@@ -20,13 +21,13 @@ export interface AgentWorkflowCapabilityLoaders {
   db?: () => Promise<unknown> | unknown
 }
 
-let workflowRuntimeLoaders: AgentWorkflowRuntimeLoaders = {
+let workflowRuntimeLoaders: AgentWorkflowRuntimeLoaders | false = {
   state: () => import(/* @vite-ignore */ workflowRuntimeStateSpecifier),
   workflow: () => import(/* @vite-ignore */ workflowSpecifier),
 }
 let workflowCapabilityLoaders: AgentWorkflowCapabilityLoaders = {}
 
-export function setAgentWorkflowRuntimeLoaders(loaders: AgentWorkflowRuntimeLoaders): void {
+export function setAgentWorkflowRuntimeLoaders(loaders: AgentWorkflowRuntimeLoaders | false): void {
   workflowRuntimeLoaders = loaders
 }
 
@@ -55,11 +56,42 @@ export async function loadConfiguredAgentWorkflowCapabilities(
 }
 
 export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
-  return workflowRuntimeLoaders.workflow()
+  return requireAgentWorkflowLoaders().workflow()
 }
 
 export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule> {
-  return workflowRuntimeLoaders.state()
+  return requireAgentWorkflowLoaders().state()
+}
+
+function requireAgentWorkflowLoaders(): AgentWorkflowRuntimeLoaders {
+  if (workflowRuntimeLoaders === false) {
+    throw new Error("[vitehub] This Agent requires Workflow. Set `workflow: true` in your ViteHub config or remove the `agentWorkflow()` runtime binding.")
+  }
+  return workflowRuntimeLoaders
+}
+
+/**
+ * Loads Workflow state only when the host has not disabled Workflow and the optional peer is installed.
+ */
+export async function loadInstalledAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule | undefined> {
+  if (workflowRuntimeLoaders === false) return undefined
+  try {
+    return await workflowRuntimeLoaders.state()
+  }
+  catch (error) {
+    if (isMissingWorkflowPackage(error)) return undefined
+    throw error
+  }
+}
+
+// Node quotes the missing specifier: "Cannot find package '@vite-hub/workflow' imported from ...".
+// A missing dependency of `@vite-hub/workflow` quotes that dependency instead, so it still fails.
+const missingWorkflowPackage = /'@vite-hub\/workflow(?:\/[^']*)?'/u
+
+function isMissingWorkflowPackage(error: unknown): boolean {
+  return error instanceof Error
+    && (error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
+    && missingWorkflowPackage.test(error.message)
 }
 
 export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
@@ -70,7 +102,7 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   const load = workflowCapabilityLoaders.console
-  if (!load) throw agentDiagnostics.AGENT_R0603({ message: "[vitehub] The Console Workflow capability requires a generated runtime loader." })
+  invariant(load, "the generated Workflow host sets a Console capability loader before the Console Workflow capability loads")
   return await load()
 }
 

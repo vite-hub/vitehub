@@ -7,6 +7,7 @@ import { executeSandboxTaskDefinition } from "../../src/task/runtime/execute.ts"
 import { createHandlerError, extractSandboxTaskOutputFromExecution, readExecOutputWithRecovery, tryParseSandboxTaskOutput } from "../../src/task/runtime/output-recovery.ts"
 import { toSandboxTaskError } from "../../src/task/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../../src/task/runtime/binary-sidecars.ts"
+import { sandboxErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
 import type { TaskSandbox } from "../../src/task/runtime/task-sandbox.ts"
 
@@ -103,6 +104,31 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxTaskOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
+it("enforces max output bytes for marker-delivered stream output", async () => {
+  // SAFETY: Output that arrives on a stream is checked before any Sandbox call.
+  const sandbox = { provider: "vercel" } as unknown as TaskSandbox
+  const output = JSON.stringify({ ok: true, result: "too large" })
+  const bytes = new TextEncoder().encode(output).byteLength
+  const read = async (maxOutputBytes: number) => await readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { stdout: `__VITEHUB_OUTPUT__${output}` },
+    maxOutputBytes,
+  )
+
+  await expect(read(bytes)).resolves.toBe(output)
+  await expect(read(bytes - 1)).rejects.toMatchObject({
+    code: "SANDBOX_TASK_TRANSFER_LIMIT",
+    details: { label: "result", limit: "maxOutputBytes", maximum: bytes - 1, value: bytes },
+  } satisfies Partial<ViteHubError>)
+})
+
+function cloudflareExecError(cause: Error) {
+  return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox exec failed: ${cause.message}`, cause, retryable: undefined })
+}
+
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
@@ -123,6 +149,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     executionAuthority: unknownExecutionAuthority,
     id: "fake",
     provider: options.provider ?? "vercel",
+    tempDir: "/tmp",
     closesAfterRun: false,
     async close() {},
     async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal }): Promise<SandboxExecResult> {
@@ -303,7 +330,7 @@ describe("executeSandboxTaskDefinition", () => {
         async onExecute({ args, write }) {
           write(args.at(-1)!, new TextEncoder().encode(output))
           if (failure === "transport error")
-            throw Object.assign(new Error("transport unavailable"), { code: "SANDBOX_TASK_TRANSPORT_ERROR", provider: "cloudflare" })
+            throw cloudflareExecError(Object.assign(new Error("Network connection lost."), { retryable: true }))
           return { ok: true, stdout: "", stderr: "", code: 0 }
         },
       })
@@ -431,7 +458,7 @@ describe("executeSandboxTaskDefinition", () => {
 
   it("does not cross the handler boundary when Definition staging fails", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     sandbox.files.write = vi.fn(async () => {
       throw new Error("container is starting")
     })
@@ -446,18 +473,18 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toThrow("container is starting")
 
-    expect(onHandlerStart).not.toHaveBeenCalled()
+    expect(onCommandStart).not.toHaveBeenCalled()
   })
 
   it("crosses the handler boundary before user code can fail", async () => {
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     const { sandbox } = createFakeSandbox({
       provider: "cloudflare",
       async onExecute({ args, write }) {
-        expect(onHandlerStart).toHaveBeenCalledOnce()
+        expect(onCommandStart).toHaveBeenCalledOnce()
         write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
           error: { message: "container is starting" },
           ok: false,
@@ -476,13 +503,13 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_HANDLER_ERROR",
       message: "container is starting",
     })
 
-    expect(onHandlerStart).toHaveBeenCalledOnce()
+    expect(onCommandStart).toHaveBeenCalledOnce()
   })
 
   it("bounds handler diagnostics before constructing the public error", () => {
@@ -525,7 +552,7 @@ describe("executeSandboxTaskDefinition", () => {
 
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     let setupAborted = false
     sandbox.mkdir = async (_path, options) => await new Promise<void>((_resolve, reject) => {
       options?.signal?.addEventListener("abort", () => {
@@ -541,12 +568,12 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_TIMEOUT",
       details: { provider: "cloudflare", timeout: 10 },
@@ -555,12 +582,12 @@ describe("executeSandboxTaskDefinition", () => {
     expect(setupAborted).toBe(true)
     expect(execCalls.some(call => call.cmd === "node")).toBe(false)
     expect(execCalls.some(call => call.cmd === "rm")).toBe(true)
-    expect(onHandlerStart).not.toHaveBeenCalled()
+    expect(onCommandStart).not.toHaveBeenCalled()
   })
 
   it("marks execution started only when the handler launcher begins", async () => {
     const { sandbox } = createFakeSandbox()
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
 
     await executeSandboxTaskDefinition(
       sandbox,
@@ -569,15 +596,15 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )
 
-    expect(onHandlerStart).toHaveBeenCalledOnce()
+    expect(onCommandStart).toHaveBeenCalledOnce()
   })
 
   it("imports the generated entry once with the default Node launcher", async () => {
@@ -590,7 +617,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).resolves.toEqual({ ok: true })
@@ -621,7 +648,7 @@ describe("executeSandboxTaskDefinition", () => {
     const entry = await sandbox.readFile(launch.args[2]!)
     expect(entry).toContain("if (typeof exported !== 'function')")
     expect(entry).toContain("const result = await exported(input.payload, input.context)")
-    expect(entry).not.toContain("definition.run")
+    expect(entry).not.toContain("definition.handler")
   })
 
   it("stages and revives nested binary values through Sandbox files", async () => {
@@ -688,6 +715,161 @@ describe("executeSandboxTaskDefinition", () => {
     expect(new Uint8Array(await result.image.arrayBuffer())).toEqual(Uint8Array.from([9, 8, 7]))
     expect(result.nested[0]).toEqual(Uint8Array.from([6, 5, 4]))
     expect(result.markerObject).toEqual(markerObject)
+  })
+
+  it("rejects oversized input envelopes before starting the handler", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-input",
+      { transfer: { maxInputBytes: 32 } },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { image: new Blob(["abc"]), message: "x".repeat(100) },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { label: "payload/context", limit: "maxInputBytes", maximum: 32 },
+    } satisfies Partial<ViteHubError>)
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
+    const written = await sandbox.files.list("/tmp", { recursive: true })
+    expect(written.filter(entry => entry.path.includes(".files"))).toEqual([])
+  })
+
+  it.each([false, true])("accepts one level of payload and context nesting (toJSON: %s)", async (useToJSON) => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        expect(JSON.parse(new TextDecoder().decode(read(args.at(-2)!)))).toEqual({
+          payload: { nested: true }, context: { requestId: "test" },
+        })
+      },
+    })
+    const payload = { nested: true }
+    await executeSandboxTaskDefinition(sandbox, "input-depth", { transfer: { maxDepth: 1 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    }, useToJSON ? { toJSON: () => payload } : payload, { requestId: "test" })
+  })
+
+  it("stages a multipart File with its Blob bytes and media type", async () => {
+    const form = new FormData()
+    form.set("image", new Blob(["abc"], { type: "image/jpeg" }), "image.jpg")
+    const multipart = await new Request("https://example.test/upload", { method: "POST", body: form }).formData()
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        const inputPath = args.at(-2)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)))
+        expect(input.payload.image[SANDBOX_VALUE_MARKER]).toEqual({ id: 0, kind: "blob", tag: "binary", type: "image/jpeg" })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([97, 98, 99]))
+      },
+    })
+    await executeSandboxTaskDefinition(sandbox, "multipart-file", { transfer: { maxSidecarBytes: 3 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    }, { image: multipart.get("image") })
+  })
+
+  it("preserves transfer errors from the generated entry script", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false,
+          error: { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecars limit (2 > 1)." },
+        })))
+        return { code: 1, ok: false, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(sandbox, "bounded-result", undefined, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      message: "Sandbox result exceeds its maxSidecars limit (2 > 1).",
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("passes the Definition transfer limits to the generated entry script", async () => {
+    let entrySource = ""
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        entrySource = new TextDecoder().decode(read(args.at(-3)!))
+      },
+    })
+
+    await executeSandboxTaskDefinition(sandbox, "bounded-entry", { transfer: { maxDepth: 3, maxOutputBytes: 1024 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    })
+
+    expect(entrySource).toContain('const transferLimits = {"maxDepth":3,"maxSidecars":64,"maxSidecarBytes":67108864,"maxOutputBytes":1024}')
+  })
+
+  it("bounds binary sidecar count and result envelopes", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: true, result: "x".repeat(100) })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+    const source = {
+      entry: "definition.mjs",
+      execution: "module" as const,
+      modules: { "definition.mjs": "export default async () => true" },
+    }
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-sidecars",
+      { transfer: { maxSidecars: 1 } },
+      source,
+      { first: new Uint8Array([1]), second: new Uint8Array([2]) },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { limit: "maxSidecars" },
+    } satisfies Partial<ViteHubError>)
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-output",
+      { transfer: { maxOutputBytes: 32 } },
+      source,
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { limit: "maxOutputBytes" },
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("bounds the result sidecars that the host reads", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        const outputPath = args.at(-1)!
+        write(`${outputPath}.files/0`, Uint8Array.from([1, 2]))
+        write(`${outputPath}.files/1`, Uint8Array.from([3, 4]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: [0, 1].map(id => ({ [SANDBOX_VALUE_MARKER]: { id, kind: "uint8array", tag: "binary" } })),
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(sandbox, "bounded-recovery", { transfer: { maxSidecarBytes: 3 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default async () => true" },
+    })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { label: "result", limit: "maxSidecarBytes", maximum: 3, value: 4 },
+    } satisfies Partial<ViteHubError>)
   })
 
   it("preserves Buffer values through binary sidecars", async () => {
@@ -1073,7 +1255,7 @@ describe("executeSandboxTaskDefinition", () => {
     const { sandbox, execCalls, hasFile, mkdirCalls } = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "a".repeat(64),
         files: {
@@ -1112,7 +1294,7 @@ describe("executeSandboxTaskDefinition", () => {
     const { sandbox, execCalls, releaseInstall } = createFakeSandbox({ holdInstall: true })
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "b".repeat(64),
         files: {
@@ -1142,7 +1324,7 @@ describe("executeSandboxTaskDefinition", () => {
     const secondSandbox = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest: "c".repeat(64),
         files: {
@@ -1172,7 +1354,7 @@ describe("executeSandboxTaskDefinition", () => {
     const digest = "d".repeat(64)
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
-      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
       project: {
         digest,
         files: {
@@ -1207,7 +1389,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).resolves.toEqual({ ok: true })
@@ -1216,6 +1398,54 @@ describe("executeSandboxTaskDefinition", () => {
       cmd: "rm",
       args: ["-rf", "--", expect.stringMatching(/^\/tmp\/vitehub-sandbox-task\/release-notes-/)],
     })
+  })
+
+  it("does not wait for output when the handler command hit a cold start", async () => {
+    const coldStart = cloudflareExecError(new Error("The container is starting. Please retry in a moment."))
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "node") throw coldStart
+      return await exec(command, args, options)
+    })
+    const readFile = vi.spyOn(sandbox, "readFile")
+
+    await expect(executeSandboxTaskDefinition(sandbox, "release-notes", undefined, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default { handler() { return { ok: true } } }" },
+    })).rejects.toBe(coldStart)
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("marks the package install as a command before it starts", async () => {
+    const onCommandStart = vi.fn()
+    const { sandbox, execCalls } = createFakeSandbox()
+    const exec = sandbox.exec.bind(sandbox)
+    const startedBefore: Array<{ cmd: string, calls: number }> = []
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      startedBefore.push({ cmd: command, calls: onCommandStart.mock.calls.length })
+      return await exec(command, args, options)
+    })
+
+    await executeSandboxTaskDefinition(sandbox, "release-notes", undefined, {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
+      project: {
+        digest: "c".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64",
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm", cwd: "." },
+        packagePath: ".",
+      },
+    }, undefined, undefined, { onCommandStart })
+
+    expect(startedBefore.find(call => call.cmd === "pnpm")?.calls).toBe(1)
+    expect(execCalls.some(call => call.cmd === "pnpm")).toBe(true)
+    expect(onCommandStart).toHaveBeenCalledTimes(3)
   })
 
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {
@@ -1229,7 +1459,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).rejects.toThrow(execError)
@@ -1252,7 +1482,7 @@ describe("executeSandboxTaskDefinition", () => {
       {
         entry: "definition.mjs",
         modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
+          "definition.mjs": "export default { handler() { return { ok: true } } }",
         },
       },
     )).rejects.toMatchObject({

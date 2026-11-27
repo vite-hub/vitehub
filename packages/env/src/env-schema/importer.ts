@@ -5,13 +5,14 @@ import { fileURLToPath } from "node:url";
 import { schemaContainsEnum } from "../core/values.ts";
 import { descriptorVariable, env } from "../core/declarations.ts";
 import { invalidEnvDeclaration } from "../core/errors.ts";
+import { envErrorDiagnostics } from "../error-diagnostics.ts";
 import { parseEnvSchema } from "./profile.ts";
 
 import type {
   EnvRuntimeConfigOptions,
   EnvValueSchema,
   EnvVariableDeclaration,
-  EnvViteConfigOptions,
+  EnvDeclarations,
 } from "../types.ts";
 import type { EnvSchemaField } from "./profile.ts";
 
@@ -106,7 +107,7 @@ function serverConfig(tree: Map<string, Tree>): EnvRuntimeConfigOptions {
 export function envSchema(
   file: string | URL,
   options: EnvSchemaOptions = {},
-): EnvViteConfigOptions {
+): EnvDeclarations {
   const filename = file instanceof URL ? fileURLToPath(file) : resolve(file);
   const prefix = options.prefix ?? "VITEHUB_";
   if (prefix && (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(prefix) || prefix.length > 128))
@@ -124,6 +125,7 @@ export function envSchema(
     throw invalidEnvDeclaration(
       filename,
       error instanceof Error ? error.message : `${filename}: Invalid environment schema file`,
+      envErrorDiagnostics.ENV_B0006.is(error) ? error : undefined,
     );
   }
   const knownKeys = new Set(fields.map((field) => field.key));
@@ -155,14 +157,10 @@ export function envSchema(
     if (typeof mapped !== "string") fail(field, "Output path must be a string");
     const segments = safePath(mapped, field, publicField);
     const declaration = descriptorVariable(descriptor(field), {
-      ...(field.default !== undefined ? { default: field.default } : {}),
+      ...(field.default !== undefined ? { default: field.default } : { optional: !field.required }),
       mode: publicField ? "build" : "runtime",
-      required: field.required,
       secret: field.sensitive,
-      source: env.source(field.key, {
-        canonical: false,
-        skipEmpty: !field.required && field.type.kind !== "string",
-      }),
+      source: env.source(field.key, { canonical: false }),
     });
     if (publicField) {
       if (publicNames.has(mapped)) fail(field, "Output path collides with another declaration");

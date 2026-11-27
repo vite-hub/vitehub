@@ -6,12 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 import { parse, string } from "valibot"
 
-import { hubAgent } from "../src/vite.ts"
+import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+
+import { agentRuntimeModule, hubAgent } from "../src/vite.ts"
 import { syncWorkspaceDefinition } from "../../workspace/src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../../workspace/src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../../workspace/src/storage/local.ts"
 
 import type { WorkspaceDefinition } from "../../workspace/src/core/types.ts"
+
+vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
+  writeProviderDeploymentOutputs: vi.fn(async () => undefined),
+}))
 
 interface CapturedStateAdapter {
   kind: string
@@ -42,16 +49,20 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
-    ["@vite-hub/agent/server/registry", `export { resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/server/registry.ts"))}`],
-    ["@vite-hub/agent/server/internal", [
+    [agentRuntimeModule("server/registry"), `export { resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/server/registry.ts"))}`],
+    [agentRuntimeModule("server/internal"), [
+      `export { opensLibsqlAgentState } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/agent-state-runtime.ts"))}`,
       `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      `export { resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
       // The generated SQLite-state route builds its webhook warm-up at module load (#2628).
       `export { createAgentWebhookWarmup } from ${JSON.stringify(join(import.meta.dirname, "../src/server/webhook-warmup.ts"))}`,
       // The generated route installs the Channel reader for the Console.
       `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
-      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/h3.ts"))}`,
+      `export { namedChannelHosts } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/named-channels.ts"))}`,
+      `export { withDeclaredAgentWorkspace } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
+      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/internal/h3.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
@@ -87,24 +98,24 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return name",
       "}",
     ].join("\n")],
-    ["@vite-hub/agent/state/sqlite", [
+    [agentRuntimeModule("state"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function createLibsqlAgentState(options) {",
       "  capture.stateAdapter = { kind: 'sqlite', options }",
       "  return capture.stateAdapter",
       "}",
     ].join("\n")],
-    ["@vite-hub/workspace/runtime", [
+    [agentRuntimeModule("internal/workspace/runtime"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
     ].join("\n")],
-    ["@vite-hub/agent/server/workspace", [
+    [agentRuntimeModule("server/workspace"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function setAgentWorkspaceDefinitions(definitions) { capture.workspaceDefinitions = definitions }",
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
     ].join("\n")],
-    ["@vite-hub/workspace/internal/runtime/hosted", "export function installHostedWorkspaceRuntime() {}"],
-    ["@vite-hub/workspace/internal/runtime/hosted-vercel-blob", "export function installHostedVercelBlobWorkspaceRuntime() {}"],
+    [agentRuntimeModule("internal/workspace/internal/runtime/hosted"), "export function installHostedWorkspaceRuntime() {}"],
+    [agentRuntimeModule("internal/workspace/internal/runtime/hosted-vercel-blob"), "export function installHostedVercelBlobWorkspaceRuntime() {}"],
   ])
 }
 
@@ -155,9 +166,9 @@ async function createDeploymentRuntimeFixture(
   await writeFile(join(reviewerRoot, "agent.ts"), [
     "import { defineAgent, defineCapability } from '@vite-hub/agent'",
     "export default defineAgent({",
-    "  capabilities: ({ abortSignal, actor, agentIdentity, event, request, runtime, waitUntil }) => actor.kind === 'inspection' ? [defineCapability({",
+    "  capabilities: ({ abortSignal, agentIdentity, event, invoker, request, runtime, waitUntil }) => invoker.kind === 'inspection' ? [defineCapability({",
     "    id: 'runtime',",
-    "    metadata: { actor: actor.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
+    "    metadata: { invoker: invoker.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
     "  })] : [],",
     "  description: 'reviewer',",
     "  driver: { model: {} },",
@@ -171,7 +182,7 @@ async function createDeploymentRuntimeFixture(
   await writeFile(join(brokenRoot, "agent.ts"), [
     "import { defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
-    "  capabilities: ({ actor }) => { if (actor.kind === 'inspection') throw new Error('private failure') ; return [] },",
+    "  capabilities: ({ invoker }) => { if (invoker.kind === 'inspection') throw new Error('private failure') ; return [] },",
     "  description: 'broken',",
     "  driver: { run: () => 'ok' },",
     "  runtime: false,",
@@ -192,7 +203,7 @@ async function createDeploymentRuntimeFixture(
       hubAgent({
         providers: {
           state: {
-            provider: "sqlite",
+            driver: "sqlite",
             tablePrefix: "catalog_",
             url: "file:catalog.sqlite",
           },
@@ -214,8 +225,12 @@ async function createDeploymentRuntimeFixture(
     resolve: {
       alias: [
         {
-          find: /^@vite-hub\/agent\/runtime\/workflow$/,
+          find: agentRuntimeModule("runtime/workflow"),
           replacement: join(import.meta.dirname, "..", "src", "runtime", "workflow.ts"),
+        },
+        {
+          find: agentRuntimeModule("index"),
+          replacement: join(import.meta.dirname, "..", "src", "index.ts"),
         },
         {
           find: /^@vite-hub\/agent$/,
@@ -271,7 +286,7 @@ async function createDeploymentRuntimeFixture(
       const body = method === "GET" || method === "HEAD" ? undefined : "{}"
       if (adapter === "deno") {
         if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
-        return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
+        return await capture.denoHandler(new Request(`https://example.com/_vitehub/agents/${agent}/${requestedRoute}`, {
           ...(body ? { body } : {}),
           headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
           method,
@@ -279,7 +294,7 @@ async function createDeploymentRuntimeFixture(
       }
       if (adapter === "netlify") {
         return await route.default(
-          new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
+          new Request(`https://example.com/_vitehub/agents/${agent}/${requestedRoute}`, {
             ...(body ? { body } : {}),
             headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
             method,
@@ -292,7 +307,7 @@ async function createDeploymentRuntimeFixture(
           },
         )
       }
-      const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
+      const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/_vitehub/agents/${agent}/${requestedRoute}`)
       const request = new Request(url, {
         ...(body ? { body } : {}),
         headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
@@ -314,19 +329,22 @@ async function createDeploymentRuntimeFixture(
   }
 }
 
+let runtime: DeploymentRuntimeFixture | undefined
+
+beforeEach(() => {
+  vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
+  vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
+})
+
+afterEach(async () => {
+  await runtime?.close()
+  runtime = undefined
+  vi.unstubAllEnvs()
+})
+
 describe("generated Agent deployment catalog", () => {
-  let runtime: DeploymentRuntimeFixture | undefined
-
   beforeEach(async () => {
-    vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
-    vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
     runtime = await createDeploymentRuntimeFixture()
-  })
-
-  afterEach(async () => {
-    await runtime?.close()
-    runtime = undefined
-    vi.unstubAllEnvs()
   })
 
   it("dispatches aliases without router parameters and retains the original body and signature", async () => {
@@ -364,7 +382,7 @@ describe("generated Agent deployment catalog", () => {
       capabilities: [{
         id: "runtime",
         metadata: {
-          actor: "inspection",
+          invoker: "inspection",
           agent: "reviewer",
           hasAbortSignal: true,
           hasEvent: true,
@@ -408,8 +426,8 @@ describe("generated Agent deployment catalog", () => {
     runtime = undefined
 
     for (const route of [
-      "/api/_vitehub/agents/[agent]/chat",
-      "/api/_vitehub/agents/[agent]/webhooks/custom",
+      "/_vitehub/agents/[agent]/chat",
+      "/_vitehub/agents/[agent]/webhooks/custom",
     ]) {
       await expect(createDeploymentRuntimeFixture("nitro", "support", route))
         .rejects.toThrow("Agent inspection route conflicts with the generated route")
@@ -417,7 +435,7 @@ describe("generated Agent deployment catalog", () => {
     await expect(createDeploymentRuntimeFixture(
       "nitro",
       "support",
-      "/api/_vitehub/agents/[agent]/discord/gateway",
+      "/_vitehub/agents/[agent]/discord/gateway",
       true,
     )).rejects.toThrow("Agent inspection route conflicts with the generated route")
 
@@ -560,34 +578,6 @@ describe("generated Agent deployment catalog", () => {
     await expect(runtime.workspace("support-workspace")).resolves.toBeDefined()
   })
 
-  it("executes the same catalog through the Netlify Adapter", async () => {
-    await runtime!.close()
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
-    runtime = await createDeploymentRuntimeFixture("netlify")
-
-    await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
-      agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
-      kind: "chat",
-    })
-    await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
-      agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
-      kind: "webhook",
-      webhook: "channel",
-    })
-    await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
-      capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
-      name: "reviewer",
-    })
-    expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
-    const workspace = await runtime.workspace("support")
-    const sourceRootDir = parse(string(), workspace.sourceRootDir)
-    await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
-      .resolves.toBe("Retained Workspace context.\n")
-    expect(runtime.waitUntilTasks).toHaveLength(2)
-  })
-
   it("executes the same catalog through the Deno Adapter", async () => {
     await runtime!.close()
     runtime = await createDeploymentRuntimeFixture("deno", "team/support")
@@ -610,4 +600,35 @@ describe("generated Agent deployment catalog", () => {
     expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
     expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["team/support"])
   })
+})
+
+it("executes the same catalog through the Netlify Adapter", async () => {
+  vi.stubEnv("VITEHUB_HOST", "netlify")
+  vi.mocked(writeProviderDeploymentOutputs).mockClear()
+  runtime = await createDeploymentRuntimeFixture("netlify")
+
+  expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
+    netlify: { functions: [expect.objectContaining({ functionName: "vitehub-agent" })] },
+  }))
+  await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
+    agent: "support",
+    agentIdentity: { name: "support", workspace: "support" },
+    kind: "chat",
+  })
+  await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+    agent: "support",
+    agentIdentity: { name: "support", workspace: "support" },
+    kind: "webhook",
+    webhook: "channel",
+  })
+  await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
+    capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
+    name: "reviewer",
+  })
+  expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
+  const workspace = await runtime.workspace("support")
+  const sourceRootDir = parse(string(), workspace.sourceRootDir)
+  await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
+    .resolves.toBe("Retained Workspace context.\n")
+  expect(runtime.waitUntilTasks).toHaveLength(2)
 })

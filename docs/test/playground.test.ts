@@ -4,27 +4,30 @@ import { resolve } from "node:path";
 import { decodePlaygroundLink, encodePlaygroundLink } from "@vite-hub/ui/playground";
 import { describe, expect, it } from "vitest";
 
-import { readWorkspaceVersions } from "../modules/tutorials/build";
-import { runnableTutorials } from "../modules/tutorials/list";
-import { buildPlaygroundTemplates, playgroundTemplates, snapshotSources } from "../modules/tutorials/playground";
-import { dependencyKey } from "../modules/tutorials/steps";
-import { isIsolatedPath, isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
+import { readWorkspaceVersions } from "../../packages/docs/src/runnable/build";
+import { buildPlaygroundTemplates, snapshotSources } from "../../packages/docs/src/runnable/playground";
+import { webContainerRoutes } from "../../packages/docs/src/runnable/workspaces";
+import { isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
+import { learnPages, playgroundExamples, playgroundPage, runnableLessons } from "./workspace-pages";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(docsRoot, "..");
 const fixturesDir = resolve(repoRoot, "fixtures/tutorials");
 
+const page = "playground--";
+
 async function templates() {
-  return buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: runnableTutorials });
+  const built = await buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: await runnableLessons(), examples: await playgroundExamples() });
+  return built.map(template => ({ ...template, id: template.id.slice(page.length) }));
 }
 
 describe("playground", () => {
   it("reads each template from its fixture, so the code has one source", async () => {
     const built = await templates();
-    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels"]);
+    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels", "ui"]);
     // The editor and the preview open a file and a route of the template.
     for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
-    for (const template of built) expect(template.preview, template.id).toMatch(/^\/api\//);
+    for (const template of built.filter(item => item.id !== "ui" && item.id !== "channels")) expect(template.preview, template.id).toMatch(/^\/api\//);
     const kv = built.find(template => template.id === "kv")!;
     expect(kv.files["server/api/settings.post.ts"]).toBe(await readFile(resolve(fixturesDir, "server-primitives/server/api/settings.post.ts"), "utf8"));
     expect(kv.files["vite.config.ts"]).toContain("kv:");
@@ -34,46 +37,38 @@ describe("playground", () => {
     // The Channels template opens the simulated Slack page of its Agent, so the preview needs no bot or token.
     const channels = built.find(template => template.id === "channels")!;
     expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
-    expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
+    expect(channels.preview).toBe("/_vitehub/agents/support/webhooks/slack");
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
+    // The ViteHub UI template is a Vue app on the headless parts of @ui-sdk/vue, and its preview is the app page.
+    const ui = built.find(template => template.id === "ui")!;
+    expect(ui.preview).toBe("/");
+    expect(ui.files["src/App.vue"]).toContain("@ui-sdk/vue/dialog");
+    expect(JSON.parse(ui.files["package.json"]!).dependencies["@ui-sdk/vue"]).toMatch(/^\d/);
   });
 
   it("reuses tutorial snapshots only for matching dependencies", async () => {
     const built = await templates();
     const snapshots = Object.fromEntries(built.map(template => [template.id, template.snapshotOf]));
     expect(snapshots).toEqual({
-      "kv": "first-server-primitive",
-      "blob": "playground-blob",
-      "queue": "playground-queue",
-      "cache": "playground-cache",
-      "rate-limit": "playground-rate-limit",
-      "agent": "first-agent",
-      "channels": "first-agent",
+      "kv": "learn-first-server-primitive",
+      "blob": `playground-${page}blob`,
+      "queue": `playground-${page}queue`,
+      "cache": `playground-${page}cache`,
+      "rate-limit": `playground-${page}rate-limit`,
+      "agent": "learn-first-agent",
+      "channels": "learn-first-agent",
+      "ui": `playground-${page}ui`,
     });
     // Each distinct feature install needs its own snapshot.
-    expect(snapshotSources(runnableTutorials, built)).toEqual([
-      ...runnableTutorials,
-      { slug: "playground-blob", page: "/playground", fixture: "playground-blob" },
-      { slug: "playground-queue", page: "/playground", fixture: "playground-queue" },
-      { slug: "playground-cache", page: "/playground", fixture: "playground-cache" },
-      { slug: "playground-rate-limit", page: "/playground", fixture: "playground-rate-limit" },
-    ]);
-    expect(snapshotSources(runnableTutorials, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
+    const lessons = await runnableLessons();
+    const examples = await playgroundExamples();
+    const own = (id: string) => ({ slug: `playground-${page}${id}`, page: "/playground", fixture: resolve(fixturesDir, `playground-${id}`) });
+    const withPage = built.map(template => ({ ...template, id: `${page}${template.id}` }));
+    expect(snapshotSources(lessons, examples, withPage)).toEqual([...lessons, own("blob"), own("queue"), own("cache"), own("rate-limit"), own("ui")]);
   });
 
-  it("compares installs by dependencies only", () => {
-    const manifest = (dependencies: Record<string, string>, extra = {}) => JSON.stringify({ name: "app", dependencies, ...extra });
-    expect(dependencyKey(manifest({ b: "1", a: "2" }))).toBe(dependencyKey(manifest({ a: "2", b: "1" }, { scripts: { dev: "vite" } })));
-    expect(dependencyKey(manifest({ a: "2" }))).not.toBe(dependencyKey(manifest({ a: "3" })));
-    expect(dependencyKey("{")).toBe("invalid");
-  });
-
-  it("isolates /playground besides the tutorials, and nothing below it", () => {
-    expect(isIsolatedPath("/playground")).toBe(true);
-    expect(isIsolatedPath("/learn/first-agent")).toBe(true);
-    expect(isIsolatedPath("/playground/other")).toBe(false);
-    expect(isIsolatedPath("/docs")).toBe(false);
-    // The "Run this tutorial" link hides only on tutorials.
+  it("shows the \"Run this tutorial\" link only on tutorials", () => {
+    expect(isIsolatedTutorialPath("/learn/first-agent")).toBe(true);
     expect(isIsolatedTutorialPath("/playground")).toBe(false);
   });
 
@@ -86,8 +81,14 @@ describe("playground", () => {
   });
 
   it("lists templates whose fixtures exist", async () => {
-    for (const template of playgroundTemplates) {
-      await expect(readFile(resolve(fixturesDir, template.fixture, "package.json"), "utf8")).resolves.toContain("\"dev\"");
+    for (const template of await playgroundExamples()) {
+      await expect(readFile(resolve(template.fixture, "package.json"), "utf8")).resolves.toContain("\"dev\"");
     }
+  });
+
+  it("isolates /playground and every lesson, and offers the Connect accounts", async () => {
+    const pages = [await playgroundPage(), ...await learnPages()];
+    expect(webContainerRoutes(pages)).toEqual(["/playground", "/learn/first-server-primitive", "/learn/first-agent", "/learn/choices"]);
+    expect((await playgroundPage()).workspace.connect).toEqual(["anthropic", "github", "netlify", "openai", "vercel"]);
   });
 });

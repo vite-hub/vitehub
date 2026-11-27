@@ -3,12 +3,6 @@ import type { ConsoleDiagnosticCode } from "../../packages/vite-hub/src/console/
 import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpListKind, ConsoleMcpServerInfo } from "../../packages/vite-hub/src/console/runtime/mcp-client.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
-/**
- * The MCP client section without MCP servers. The app's own `/mcp` (Northwind Ledger) has Maxi and Lucía through
- * OAuth, Lucía's API key, and Sam, who is signed out. ViteHub MCP runs on the Console session, and a remote docs server
- * needs no sign-in. Connect, sign-in, Run as, and disconnect change this state until the playground restarts.
- */
-
 type Person = "lucia" | "maxi" | "sam"
 
 const people: Record<Person, { email: string, name: string }> = {
@@ -31,7 +25,6 @@ const servers = {
     version: "2.3.0",
     websiteUrl: "https://example.com/ledger",
   },
-  vitehub: { capabilities: capabilities(false, false), instructions: "ViteHub MCP gives Agents the server primitives of this app.", name: "vitehub", protocolVersion: "2025-11-25", title: "ViteHub MCP", version: "1" },
 } satisfies Record<string, ConsoleMcpServerInfo>
 
 const accounts: Record<Person, { balance: string, name: string, owner: string }[]> = {
@@ -65,15 +58,7 @@ const ledgerItems: Record<ConsoleMcpListKind, Record<string, unknown>[]> = {
 const itemsByServer: Record<keyof typeof servers, Record<ConsoleMcpListKind, Record<string, unknown>[]>> = {
   docs: { "prompts": [], "resource-templates": [], "resources": [], "tools": [{ annotations: { openWorldHint: true, readOnlyHint: true }, description: "Search the public docs.", inputSchema: { properties: { query: { type: "string" } }, required: ["query"], type: "object" }, name: "search_docs" }] },
   ledger: ledgerItems,
-  vitehub: {
-    "prompts": [],
-    "resource-templates": [],
-    "resources": [],
-    "tools": [
-      { annotations: { readOnlyHint: true }, description: "List keys in a Console KV store.", inputSchema: { properties: { prefix: { type: "string" }, store: { type: "string" } }, type: "object" }, name: "kv_list_keys", title: "List KV keys" },
-      { annotations: { readOnlyHint: true }, description: "List the Database names installed in the Console.", inputSchema: { properties: {}, type: "object" }, name: "database_list_databases", title: "List databases" },
-    ],
-  },
+
 }
 
 interface FixtureConnection extends ConsoleMcpConnection {
@@ -115,7 +100,6 @@ function initial(origin: string): FixtureConnection[] {
     oauth("lucia", 6),
     { auth: "bearer", createdAt: new Date(Date.UTC(2026, 9, 29, 9, 8)).toISOString(), grant: { hint: "4f2a", refreshable: false, scopes: [] }, id: "mcp_lucia_key", label: "Lucía (API key)", person: "lucia", sameOrigin: true, server: servers.ledger, serverId: "ledger", session: "c71e0b52", status: "connected", url: ledger },
     { ...oauth("sam", 10), error: "The server rejected the grant. Sign in again.", grant: { issuer, refreshable: false, scopes: ["openid", "profile", "email"] }, session: undefined, status: "signed-out" },
-    { auth: "console", createdAt: new Date(Date.UTC(2026, 9, 29, 9, 12)).toISOString(), id: "mcp_console", identity: { name: "You", subject: "local" }, label: "You", sameOrigin: true, server: servers.vitehub, serverId: "vitehub", status: "connected", url: `${origin}/_vitehub/mcp` },
     { auth: "none", createdAt: new Date(Date.UTC(2026, 9, 29, 9, 14)).toISOString(), id: "mcp_docs", label: "docs.example.com/mcp", sameOrigin: false, server: servers.docs, serverId: "docs", session: "0d4c2e19", status: "connected", url: "https://docs.example.com/mcp" },
   ]
 }
@@ -129,7 +113,6 @@ function connections(origin: string): FixtureConnection[] {
   return all
 }
 
-/** Restore the starting connections. Tests use it. */
 export function resetMcpClientFixture(): void {
   state.clear()
   nextId = 1
@@ -152,7 +135,6 @@ function answer(connection: FixtureConnection, request: { arguments?: Record<str
     return { content: [{ text: visible.map(account => `${account.name}: ${account.balance}`).join("\n") || "No accounts.", type: "text" }], structuredContent: { accounts: visible } }
   }
   if (request.name === "add_transaction") {
-    // An API key of this server only reads, so the tool reports the error as its result.
     if (connection.auth === "bearer") return { content: [{ text: "This API key can only read. Connect with OAuth to add transactions.", type: "text" }], isError: true }
     if (typeof request.arguments?.amount !== "number") return { error: { code: -32602, message: "Invalid arguments for add_transaction: amount must be a number." } }
     return { content: [{ text: `Added ${request.arguments.amount} EUR to ${String(request.arguments.account)}.`, type: "text" }] }
@@ -163,9 +145,7 @@ function answer(connection: FixtureConnection, request: { arguments?: Record<str
   return { error: { code: -32602, message: `Unknown tool: ${String(request.name)}.` } }
 }
 
-/** Answer one `mcp-client.*` operation. `cookie` may hold `playground-mcp=shared`, the `auth: "app"` case. */
-export function mcpClientFixture(serverUrl: string, payload: { input?: Record<string, unknown>, operation: string }, cookie?: string): ConsoleRpcResult {
-  // The MCP URLs start at the browser-visible origin, without the playground's base path.
+export function mcpClientFixture(serverUrl: string, payload: { input?: Record<string, unknown>, operation: string }): ConsoleRpcResult {
   const origin = new URL(serverUrl).origin
   const input = payload.input ?? {}
   const all = connections(origin)
@@ -174,16 +154,13 @@ export function mcpClientFixture(serverUrl: string, payload: { input?: Record<st
   if (operation === "list") {
     const candidates: ConsoleMcpCandidate[] = [
       { authorizationServer: `${origin}/api/auth`, label: "Northwind Ledger", url: `${origin}/mcp` },
-      { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` },
     ]
-    return { ok: true, value: { connections: all.map(describe), servers: candidates, sharedSession: /(?:^|; )playground-mcp=shared/.test(cookie ?? "") } }
+    return { ok: true, value: { connections: all.map(describe), servers: candidates, sharedSession: false } }
   }
   if (operation === "connect") {
     const url = new URL(String(input.server ?? ""), origin).href
-    const serverId: keyof typeof servers | undefined = url === `${origin}/_vitehub/mcp` ? "vitehub" : url === `${origin}/mcp` ? "ledger" : url.includes("docs.example.com") ? "docs" : undefined
-    if (!serverId) return failure(502, "CONSOLE_MCP_UNREACHABLE", "The server cannot be reached. The playground knows /mcp, /_vitehub/mcp, and https://docs.example.com/mcp.")
-    const existing = serverId === "vitehub" ? all.find(connection => connection.serverId === "vitehub") : undefined
-    if (existing) return { ok: true, value: { connection: describe(existing) } }
+    const serverId: keyof typeof servers | undefined = url === `${origin}/mcp` ? "ledger" : url.includes("docs.example.com") ? "docs" : undefined
+    if (!serverId) return failure(502, "CONSOLE_MCP_UNREACHABLE", "The server cannot be reached. The playground knows /mcp and https://docs.example.com/mcp.")
     const base = { createdAt: new Date().toISOString(), id: `mcp_new_${nextId++}`, sameOrigin: new URL(url).origin === origin, server: servers[serverId], serverId, url }
     if (typeof input.token === "string" && input.token) {
       const connection: FixtureConnection = { ...base, auth: "bearer", grant: { hint: input.token.slice(-4), refreshable: false, scopes: [] }, label: String(input.label ?? "API key"), person: "lucia", status: "connected" }
@@ -191,11 +168,10 @@ export function mcpClientFixture(serverUrl: string, payload: { input?: Record<st
       return { ok: true, value: { connection: describe(connection) } }
     }
     if (serverId !== "ledger") {
-      const connection: FixtureConnection = { ...base, auth: serverId === "vitehub" ? "console" : "none", label: serverId === "vitehub" ? "You" : "docs.example.com/mcp", status: "connected", ...(serverId === "vitehub" ? { identity: { name: "You", subject: "local" } } : {}) }
+      const connection: FixtureConnection = { ...base, auth: "none", label: "docs.example.com/mcp", status: "connected" }
       all.push(connection)
       return { ok: true, value: { connection: describe(connection) } }
     }
-    // The authorization server of the playground signs in at once and sends the browser to the callback page.
     const signInState = `state_${nextId}`
     const connection: FixtureConnection = { ...base, auth: "oauth", label: String(input.label ?? `${new URL(url).host}/mcp`), person: input.prompt === "login" ? "sam" : "maxi", state: signInState, status: "authorizing" }
     all.push(connection)

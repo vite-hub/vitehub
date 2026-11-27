@@ -1,4 +1,5 @@
 import type { Result } from "@vite-hub/runtime"
+import * as v from "valibot"
 
 import type { ConnectionsErrorCode } from "./errors.ts"
 import type { EnvAccessContext } from "@vite-hub/env/bridge"
@@ -6,6 +7,9 @@ import type { EnvDatabase } from "@vite-hub/env/database"
 
 /** Maximum name length that fits the Env Bridge `connection/<name>` key. */
 export const CONNECTION_NAME_MAX_LENGTH = 501
+
+/** A Connection name: 1 to 501 characters, without leading or trailing whitespace. */
+export const connectionNameSchema: v.GenericSchema<string> = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."))
 
 /** Type shape of one provider API method. Generated catalogs describe each method with it. */
 export interface ConnectionMethodSignature {
@@ -81,34 +85,36 @@ export interface ConnectionRequestPolicy {
   timeoutMs?: number
 }
 
-/** An OAuth 2.0 provider with authorization code, PKCE, and refresh token support. */
-export interface ConnectionProvider<TApis extends object = object> {
+interface ConnectionProviderOptions<TApis extends object> {
   readonly id: string
-  readonly authorizationEndpoint: string
-  readonly tokenEndpoint: string
   readonly revocationEndpoint?: string
-  readonly clientId: ConnectionValue
   readonly clientSecret?: ConnectionValue
-  /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
-  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
   readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /**
-   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
-   * and `mcp({ servers: { name: { connection } } })` connects to it.
-   */
-  readonly mcp?: string
-  /** Pacing, retries, and a timeout for provider requests. */
   readonly requests?: ConnectionRequestPolicy
-  /**
-   * Read the account identity from the token response of an authorization code exchange.
-   * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
-   */
   account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
-  /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }
+
+interface ConnectionProviderClient {
+  readonly authorizationEndpoint: string
+  readonly tokenEndpoint: string
+  readonly clientId: ConnectionValue
+  readonly mcp?: string
+  readonly clientName?: never
+}
+
+interface ConnectionProviderDiscovery {
+  readonly authorizationEndpoint?: string
+  readonly tokenEndpoint?: string
+  readonly clientId?: ConnectionValue
+  readonly mcp: string
+  readonly clientName?: string
+}
+
+/** An OAuth 2.0 provider with authorization code, PKCE, and refresh token support. */
+export type ConnectionProvider<TApis extends object = object> = ConnectionProviderOptions<TApis> & (ConnectionProviderClient | ConnectionProviderDiscovery)
 
 type MethodId<TMethods> = keyof TMethods & string
 type Prefixes<TId extends string> = TId extends `${infer THead}.${infer TRest}`
@@ -135,8 +141,11 @@ export type ConnectionActionPattern<TApis> =
  */
 export interface ConnectionAccessRule<TPattern extends string = string> {
   read?: boolean
-  /** Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after approval. */
-  write?: readonly TPattern[] | true | "approve"
+  /**
+   * Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after
+   * approval. `false`, the default, denies every write.
+   */
+  write?: readonly TPattern[] | boolean | "approve"
   /** Require approval for each allowed write. Defaults to `true` for `agent:` actors. */
   approve?: boolean
 }
@@ -189,16 +198,8 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
 }
 
 interface ConnectionDefinitionRules<TApis extends object, TSelection extends ConnectionApiSelection<TApis>> {
-  /** API methods to expose. Omit to expose every method of every provider API. */
+  docs?: string
   api?: TSelection
-  /**
-   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`. A rule is an object or
-   * the `"mcp"` preset, for an actor that only uses the provider's `mcp` endpoint.
-   * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
-   * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
-   * When omitted, server actors may read and
-   * call non-high-risk writes, and Agent writes require approval.
-   */
   access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>> | ConnectionAccessPreset>>
 }
 
@@ -221,67 +222,6 @@ export interface ConnectionApiKeyDefinition<
   scopes?: undefined
 }
 
-/** What a provider `login` receives. It plays the browser for one authorization request. */
-export interface ConnectionLoginContext {
-  /** The authorization URL, with PKCE, `state`, `scope`, and `resource`. Open it like a browser would. */
-  url: string
-  /** Where the provider sends the browser with the code. ViteHub never listens on it. */
-  redirectUri: string
-  /** The value of `credentials`, unsealed. Empty without `credentials`. */
-  credentials: string
-  /**
-   * Fetch as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs
-   * against `url`, and does not follow redirects unless `init.redirect` asks for it.
-   */
-  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
-  /** Aborts the login after 60 seconds. */
-  signal: AbortSignal
-}
-
-/** An OAuth 2.0 provider that signs in without a person. `oauthLogin()` creates it. */
-export interface ConnectionLoginProvider<TApis extends object = object> {
-  readonly kind: "oauth-login"
-  readonly id: string
-  /** The provider's MCP endpoint. Discovery starts at its protected resource metadata unless `issuer` is set. */
-  readonly mcp?: string
-  /** The authorization server issuer. */
-  readonly issuer?: string
-  /** The `resource` of authorization and token requests. Default: `mcp`. */
-  readonly resource?: string
-  /** Other origins that `fetch` may send the token to. API catalog root URLs and the `mcp` endpoint are also allowed. */
-  readonly origins: readonly string[]
-  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
-  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /** A registered public client id. Without it, ViteHub registers a client once per process. */
-  readonly clientId?: ConnectionValue
-  /** `client_name` for client registration. */
-  readonly clientName?: string
-  /** The redirect URI of the client. ViteHub never listens on it. */
-  readonly redirectUri: string
-  /** Extra authorization request parameters. */
-  readonly authorizationParams?: Readonly<Record<string, string>>
-  /** The secret that `login` uses. While it resolves to nothing, the Connection is disconnected. */
-  readonly credentials?: ConnectionApiKeyFallback
-  /** Sign in and approve the request like a browser. Returns the URL that the provider redirects to `redirectUri`. */
-  readonly login: (context: ConnectionLoginContext) => Promise<string>
-  /** Read the account from a token response. Default: the ID token when `scopes` includes `openid`. */
-  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
-  /** Pacing, retries, and a timeout for provider requests. */
-  readonly requests?: ConnectionRequestPolicy
-  /** Type-only method map. It has no runtime value. */
-  readonly "~apis"?: TApis
-}
-
-/** A Connection that signs in by itself through its provider `login`. Tokens stay in memory. */
-export interface ConnectionLoginDefinition<
-  TApis extends object = object,
-  TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> extends ConnectionDefinitionRules<TApis, TSelection> {
-  provider: ConnectionLoginProvider<TApis>
-  /** Scopes to request, for example `["openid", "email"]`. */
-  scopes?: readonly string[]
-}
-
 /** A ChatGPT plan grant. Its credentials are used only by the Agent runtime. */
 export interface ConnectionChatGPTProvider {
   readonly kind: "chatgpt"
@@ -300,12 +240,18 @@ export interface ConnectionChatGPTDefinition {
   access: Readonly<Record<string, { read?: boolean }>>
   api?: never
   scopes?: never
+  /**
+   * Markdown for the person who connects it: what to set up first, which account to choose, what to
+   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
+   * `<name>.md` next to the definition file is used.
+   */
+  docs?: string
 }
 
 export type ConnectionDefinition<
   TApis extends object = object,
   TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection> | ConnectionChatGPTDefinition
+> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionChatGPTDefinition
 
 /**
  * One definition for several Connections of the same kind, such as one per tenant. Each instance is a
@@ -319,8 +265,6 @@ export interface ConnectionInstancesDefinition<
   readonly instances: readonly TInstance[]
   /** The Connection Definition of one instance. It runs once per process, when the instance is first used. */
   definition(instance: TInstance): TDefinition
-  // `api` and `access` belong in `definition`. Declaring them here lets `defineConnection()` report a
-  // wrong `api` or `access` entry of a plain definition at that entry.
   readonly api?: never
   readonly access?: never
 }
@@ -397,8 +341,8 @@ export type ConnectionClient<TApis extends object = object, TSelection = Connect
    */
   fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>
   /**
-   * The Connection status, for example "connected". It never rejects: a Connection that cannot be
-   * inspected, for example because its store cannot open, is "disconnected".
+   * The Connection status, for example "connected". An unknown name, or a store without its key or
+   * database, is "disconnected". Other failures, such as a database that cannot open, reject.
    */
   status: () => Promise<ConnectionStatus>
 } & {
@@ -455,8 +399,12 @@ export interface ConnectionInspection {
   credential: "api-key" | "oauth2" | "chatgpt"
   /** The provider's MCP endpoint, when it declares one. */
   mcp?: string
+  /** Markdown for the person who connects it, from the definition's `docs` or a `<name>.md` next to it. */
+  docs?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
   keySource?: "fallback" | "stored"
+  /** Why the provider `fallback` gave no key, such as `CONNECTIONS_INVALID_PROVIDER`, when it threw during inspection. The Connection is then disconnected. */
+  keyError?: string
   name: string
   provider: string
   refreshedAt?: string

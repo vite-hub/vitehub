@@ -12,7 +12,7 @@ afterEach(() => {
 describe("workspace lifecycle", () => {
   it("delegates hosted store creation through the runtime loader", async () => {
     setWorkspaceHostedStoreLoader((store, workspaceName) => ({
-      async readFile() { return { path: workspaceName, content: store.provider } },
+      async readFile() { return { path: workspaceName, content: store.driver } },
       async writeFile() {},
       async list() { return [] },
       async glob() { return [] },
@@ -27,16 +27,28 @@ describe("workspace lifecycle", () => {
       const store = createWorkspaceStore({
         name: "docs",
         store: {
-          provider: "vercel-blob",
+          driver: "vercel",
           token: "********",
         },
       })
 
-      await expect(store.readFile("README.md")).resolves.toMatchObject({ content: "vercel-blob" })
+      await expect(store.readFile("README.md")).resolves.toMatchObject({ content: "vercel" })
     }
     finally {
       setWorkspaceHostedStoreLoader(undefined)
     }
+  })
+
+  it("creates GitHub workspace stores when the installed hosted loaders do not handle GitHub", async () => {
+    setWorkspaceHostedStoreLoader(() => undefined)
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not found", { status: 404 })))
+
+    const store = createWorkspaceStore({
+      name: "docs",
+      store: { driver: "github", repo: "acme/app", branch: "main", token: "token" },
+    })
+
+    expect(store?.readFile).toEqual(expect.any(Function))
   })
 
   it("creates GitHub workspace stores without a hosted runtime loader", async () => {
@@ -61,8 +73,8 @@ describe("workspace lifecycle", () => {
     const store = createWorkspaceStore({
       name: "docs",
       store: {
-        provider: "github",
-        repository: "acme/app",
+        driver: "github",
+        repo: "acme/app",
         root: ".vitehub/workspaces/<workspace>",
         token: "github-token",
       },
@@ -73,7 +85,7 @@ describe("workspace lifecycle", () => {
 
   it("preserves an existing hosted loader when installing the generic hosted runtime", async () => {
     setWorkspaceHostedStoreLoader((store, workspaceName) => ({
-      async readFile() { return { path: workspaceName, content: `existing:${store.provider}` } },
+      async readFile() { return { path: workspaceName, content: `existing:${store.driver}` } },
       async writeFile() {},
       async list() { return [] },
       async glob() { return [] },
@@ -87,9 +99,9 @@ describe("workspace lifecycle", () => {
     try {
       installHostedWorkspaceRuntime()
       const loader = getWorkspaceHostedStoreLoader()
-      const store = loader?.({ provider: "vercel-blob", token: "********" }, "docs")
+      const store = loader?.({ driver: "vercel", token: "********" }, "docs")
 
-      await expect(store?.readFile("README.md")).resolves.toMatchObject({ content: "existing:vercel-blob" })
+      await expect(store?.readFile("README.md")).resolves.toMatchObject({ content: "existing:vercel" })
     }
     finally {
       setWorkspaceHostedStoreLoader(undefined)

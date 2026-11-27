@@ -19,23 +19,23 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
     const handler = join(root, "welcome.queue.ts")
     await writeFile(handler, [
       `import { defineQueue } from ${JSON.stringify(importBase)}`,
-      'export default defineQueue<{ email: string }>(job => job.payload.email)',
+      'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeQueueTypes(root, [{ handler, name: "welcome" }], importBase)
     await writeFile(join(root, "consumer.ts"), [
-      `import { runQueue, getQueue, dynamicQueue } from ${JSON.stringify(importBase)}`,
-      'const [error, result] = await runQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 5 })',
-      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
+      `import { sendQueue, useQueue, dynamicQueue } from ${JSON.stringify(importBase)}`,
+      'const [error, result] = await sendQueue("welcome", { email: "ada@example.test" }, { delay: "5s" })',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"',
       'else result.status satisfies "queued"',
-      'const queue = await getQueue("welcome")',
+      'const queue = await useQueue("welcome")',
       'await queue.send({ email: "ada@example.test" })',
       '// @ts-expect-error Wrong payload for generated definition.',
-      'await runQueue("welcome", { count: 1 })',
+      'await sendQueue("welcome", { count: 1 })',
       '// @ts-expect-error The named client also knows its payload.',
       'await queue.send({ count: 1 })',
       '// @ts-expect-error Unknown names require operational dispatch.',
-      'await runQueue("missing", { email: "ada@example.test" })',
-      'await dynamicQueue.run("external", { arbitrary: true })',
+      'await sendQueue("missing", { email: "ada@example.test" })',
+      'await dynamicQueue.send("external", { arbitrary: true })',
     ].join("\n"))
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

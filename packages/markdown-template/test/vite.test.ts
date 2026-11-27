@@ -61,9 +61,40 @@ describe("hubMarkdownTemplate", () => {
     expect(parseMarkdownTemplateRequest(id)).toBeUndefined()
   })
 
+  it("filters the resolveId and load hooks to the ids that parseMarkdownTemplateRequest accepts", () => {
+    const plugin = hubMarkdownTemplate()
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id")
+    const resolveIdFilter = idFilter(plugin.resolveId)
+    const loadFilter = idFilter(plugin.load)
+    expect(resolveIdFilter).toBeInstanceOf(RegExp)
+    expect(loadFilter).toBe(resolveIdFilter)
+    for (const id of [
+      "./prompt.template.md",
+      "/app/prompt.template.md",
+      "C:\\app\\prompt.template.md",
+      "/@fs/app/prompt.md?markdown-template",
+      "./prompt.md?markdown-template",
+      "./prompt.template.md?markdown-template",
+      "./prompt.template.md?url",
+      "./prompt.template.md?raw",
+      "./prompt.md",
+      "./prompt.template.mdx",
+      "./prompt.template.md#fragment",
+      "./prompt.md?worker&markdown-template",
+      "./prompt.md?markdown-template&worker",
+      "./prompt.md?markdown-template=true",
+      "./prompt.md?markdown-template#fragment",
+      "./prompt.md?a?markdown-template",
+      "vite-hub/kv",
+      "\0#vitehub/env/server",
+    ]) {
+      expect((resolveIdFilter as RegExp).test(id), id).toBe(parseMarkdownTemplateRequest(id) !== undefined)
+    }
+  })
+
   it("keeps resolved Markdown template module ids stable", async () => {
-    const resolveIdCandidate: unknown = hubMarkdownTemplate().resolveId
-    // SAFETY: hubMarkdownTemplate defines resolveId as this function hook; the test supplies its only used context method.
+    const resolveIdCandidate: unknown = Reflect.get(Object(hubMarkdownTemplate().resolveId), "handler")
+    // SAFETY: hubMarkdownTemplate defines resolveId with this handler; the test supplies its only used context method.
     const resolveId = resolveIdCandidate as (
       this: { resolve: (source: string) => Promise<{ id: string }> },
       source: string,
@@ -177,7 +208,6 @@ describe("hubMarkdownTemplate", () => {
     const root = await createRoot()
     const id = resolvedId.startsWith("/") ? join(root, resolvedId) : resolvedId
     const entry = join(root, "entry.ts")
-    // An existing source file must not override the owning plugin's generated module.
     await writeFile(join(root, "prompt.template.md"), "Wrong disk content", "utf8")
     await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
     const load = vi.fn((source: string) => {

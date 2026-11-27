@@ -1,12 +1,8 @@
 import { parseMarkdown } from "comark"
 import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { htmlPlugins } from "./parser.ts"
+import { htmlPlugins, literalHtmlTags, templatePlugins } from "./parser.ts"
 
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
-
-// Comark's block components run before multiline code spans. Protect component
-// lines that its own code parser identifies as literal, then restore after rendering.
 export async function prepareTemplate(source: string) {
   const prefix = `VITEHUBCODE${crypto.randomUUID().replaceAll("-", "")}`
   const lines: string[] = []
@@ -23,7 +19,7 @@ export async function prepareTemplate(source: string) {
       else visit(node.slice(2) as Node[], literal || (node[0] !== null && literalHtmlTags.has(node[0])))
     }
   }
-  if (lines.length) visit((await parseMarkdown(masked, { autoClose: false, autoUnwrap: false, linkify: false, plugins: htmlPlugins })).nodes)
+  if (lines.length) visit((await parseMarkdown(masked, { autoClose: false, autoUnwrap: false, registerDefaultPlugins: false, plugins: templatePlugins(...htmlPlugins) })).nodes)
   const template = masked.replace(pattern, (token, index: string) => inCode.has(Number(index)) ? token : lines[Number(index)]!)
   validateBranches(template)
   return { template, restore: (rendered: string) => rendered.replace(pattern, (_token, index: string) => lines[Number(index)]!) }
@@ -31,7 +27,7 @@ export async function prepareTemplate(source: string) {
 
 function validateBranches(template: string): void {
   const stack: Array<{ tag: string, sawElse: boolean }> = []
-  for (const line of template.split(/\r?\n/)) {
+  for (const line of template.split(/\r\n|[\r\n]/)) {
     if (/^\s*::\s*$/.test(line)) { stack.pop(); continue }
     const match = line.match(/^\s*::([\w-]+)(?:\{(.*)\})?\s*$/)
     if (!match) continue

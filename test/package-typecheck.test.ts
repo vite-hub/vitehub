@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import ts from "typescript"
 import { describe, expect, it } from "vitest"
 
 import { packageTypecheckCompiler } from "./package-typecheck.mjs"
@@ -11,7 +12,7 @@ import { packageTypecheckCompiler } from "./package-typecheck.mjs"
 describe("package typecheck compiler", () => {
   it.each([
     ["darwin", "arm64"], ["darwin", "x64"],
-    ["linux", "arm64"], ["linux", "x64"], ["win32", "x64"],
+    ["linux", "arm64"], ["linux", "x64"], ["win32", "arm64"], ["win32", "x64"],
   ])("uses tsrs on %s %s", (platform, arch) => {
     expect(packageTypecheckCompiler(platform, arch).href).toBe(
       new URL("./bin/tsrs", import.meta.resolve("tsrs/package.json")).href,
@@ -19,7 +20,7 @@ describe("package typecheck compiler", () => {
   })
 
   it.each([
-    ["win32", "arm64"], ["linux", "arm"], ["freebsd", "x64"],
+    ["linux", "arm"], ["freebsd", "x64"],
   ])("retains an available native compiler on %s %s", (platform, arch) => {
     const manifest = new URL(import.meta.resolve("typescript-native/package.json"))
     expect(packageTypecheckCompiler(platform, arch).href).toBe(new URL("./bin/tsc", manifest).href)
@@ -29,7 +30,7 @@ describe("package typecheck compiler", () => {
 
   it.each([
     ["package launcher", new URL("./package-typecheck.mjs", import.meta.url)],
-    ["fallback compiler", packageTypecheckCompiler("win32", "arm64")],
+    ["fallback compiler", packageTypecheckCompiler("linux", "arm")],
   ])("%s checks the requested project without emitting and reports errors", (_, compiler) => {
     const root = mkdtempSync(join(tmpdir(), "vitehub-typecheck-"))
     try {
@@ -87,5 +88,26 @@ describe("package typecheck compiler", () => {
     finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("package type tests", () => {
+  const packagesDir = fileURLToPath(new URL("../packages/", import.meta.url))
+  const typeTests = readdirSync(packagesDir).flatMap((name) => {
+    const testDir = join(packagesDir, name, "test")
+    if (!existsSync(testDir)) return []
+    return readdirSync(testDir).filter(file => file.endsWith(".test-d.ts")).map(file => [name, join(testDir, file)] as const)
+  })
+
+  it.each(typeTests)("%s typecheck covers %s", (name, file) => {
+    const packageDir = join(packagesDir, name)
+    const { scripts } = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { scripts?: Record<string, string> }
+    const projects = [...(scripts?.typecheck ?? "").matchAll(/-p\s+(\S+)/g)].map(match => join(packageDir, match[1]!))
+    expect(projects, `${name} has no typecheck script`).not.toEqual([])
+    const checked = projects.flatMap((configPath) => {
+      const { config } = ts.readConfigFile(configPath, ts.sys.readFile)
+      return ts.parseJsonConfigFileContent(config, ts.sys, packageDir, undefined, configPath).fileNames
+    })
+    expect(checked).toContain(file.replaceAll("\\", "/"))
   })
 })

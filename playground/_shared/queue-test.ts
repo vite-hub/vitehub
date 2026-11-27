@@ -69,18 +69,42 @@ export function resolveTrustedMarkerCallbackUrl(requestUrl: URL, callbackUrl: st
   return resolved.toString()
 }
 
-export async function reportQueueMarker(marker: string | undefined, callbackUrl: string | undefined) {
+export type QueueMarkerStage = "received" | "done" | "failed" | "marker-write"
+
+export const queueMarkerStages: readonly QueueMarkerStage[] = ["received", "done", "failed", "marker-write"]
+
+export function getQueueMarkerKey(marker: string, stage: QueueMarkerStage) {
+  return stage === "done" ? `queue-e2e:${marker}` : `queue-e2e:${marker}:${stage}`
+}
+
+export function getQueueMarkerValue(stage: QueueMarkerStage, error?: string) {
+  return stage === "failed" || stage === "marker-write" ? error || "unknown error" : true
+}
+
+export async function reportQueueMarker(marker: string | undefined, callbackUrl: string | undefined, stage: QueueMarkerStage = "done", error?: string) {
   if (!marker || !callbackUrl) {
     return
   }
 
   const response = await fetch(callbackUrl, {
-    body: JSON.stringify({ marker }),
+    body: JSON.stringify({ error, marker, stage }),
     headers: { "content-type": "application/json" },
     method: "POST",
   })
 
   if (!response.ok) {
-    throw new Error(`Marker callback failed with ${response.status}.`)
+    throw new Error(`Marker callback for stage "${stage}" failed with ${response.status}.`)
+  }
+}
+
+export async function reportQueueDelivery(payload: { callbackUrl?: string, marker?: string }) {
+  try {
+    await reportQueueMarker(payload.marker, payload.callbackUrl, "received")
+    await reportQueueMarker(payload.marker, payload.callbackUrl, "done")
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await reportQueueMarker(payload.marker, payload.callbackUrl, "marker-write", message.slice(0, 500)).catch(() => {})
+    throw error
   }
 }

@@ -1,17 +1,15 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 const exportNames: Record<string, string> = {
-  "./internal/cloudflare": "./_internal/cloudflare",
-  "./internal/host-toolchain": "./_internal/toolchain",
-  "./internal/vercel": "./_internal/vercel",
+  "./internal/host-toolchain": "./internal/toolchain",
   "./task/index": "./task",
 }
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: [
@@ -35,12 +33,14 @@ export default defineConfig({
       "src/task/runtime/empty-registry.ts",
       "src/task/runtime/provider-loader.ts",
       "src/task/runtime/providers/cloudflare.ts",
+      "src/task/runtime/providers/local.ts",
       "src/task/runtime/providers/vercel.ts",
       "src/task/runtime/state.ts",
     ],
     exports: {
       exclude: [
         "task/runtime/providers/cloudflare",
+        "task/runtime/providers/local",
         "task/runtime/providers/vercel",
       ],
       customExports(exports) {
@@ -48,17 +48,13 @@ export default defineConfig({
         const taskExport = renamed["./task"]
         return normalizePackageExports({
           ...renamed,
-          ...(taskExport ? { "./_internal/task/runtime": taskExport } : {}),
-          "./_internal/task/runtime/providers/cloudflare": "./dist/task/runtime/providers/cloudflare.js",
-          "./_internal/task/runtime/providers/vercel": "./dist/task/runtime/providers/vercel.js",
+          ...(taskExport ? { "./internal/task/runtime": taskExport } : {}),
+          "./internal/task/runtime/providers/cloudflare": "./dist/task/runtime/providers/cloudflare.js",
+          "./internal/task/runtime/providers/local": "./dist/task/runtime/providers/local.js",
+          "./internal/task/runtime/providers/vercel": "./dist/task/runtime/providers/vercel.js",
         })
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

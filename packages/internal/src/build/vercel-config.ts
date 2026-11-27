@@ -1,6 +1,12 @@
+import { resolve } from "node:path"
+
 interface VercelConfigJson {
   routes: Array<{ handle: string } | { dest: string, src: string }>
   version: 3
+}
+
+export function createDefaultVercelOutputRoot(rootDir: string): string {
+  return resolve(rootDir, ".vercel", "output")
 }
 
 export function createVercelConfigJson(): VercelConfigJson {
@@ -16,7 +22,7 @@ export function createVercelConfigJson(): VercelConfigJson {
 interface NodeFunctionConfig {
   handler: "index.mjs"
   launcherType: "Nodejs"
-  runtime: "nodejs22.x"
+  runtime: "nodejs24.x"
   shouldAddHelpers: false
   supportsResponseStreaming: true
 }
@@ -25,7 +31,7 @@ export function createNodeFunctionConfig(extra: object = {}): NodeFunctionConfig
   return {
     handler: "index.mjs",
     launcherType: "Nodejs",
-    runtime: "nodejs22.x",
+    runtime: "nodejs24.x",
     shouldAddHelpers: false,
     supportsResponseStreaming: true,
     ...extra,

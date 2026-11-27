@@ -42,7 +42,7 @@ const messages = [
         </span>
         <UButton
           label="Jump to latest"
-          icon="i-ph-arrow-down-light"
+          icon="i-lucide-arrow-down"
           :disabled="atEnd"
           color="neutral"
           variant="outline"

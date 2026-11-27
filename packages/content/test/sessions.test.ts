@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
+import { drizzle as drizzlePostgresProxy } from "drizzle-orm/pg-proxy"
 import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -12,7 +13,7 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { pullWorkspaces, pushWorkspaces } from "@vite-hub/workspace/checkout"
-import { workspaceOperations } from "@vite-hub/workspace/operations"
+import { workspaceOperations } from "../../workspace/src/operations.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
@@ -39,7 +40,7 @@ async function setup(options: { table?: boolean, lease?: boolean } = {}) {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
+  const database = drizzle({ client })
   await migrate(database, history)
   if (options.table !== false) await migrate(database, sessionsTable)
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
@@ -226,7 +227,7 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     await expect(posts.save("hello", { data: { title: "Override" } }, { lease: "override", ifDigest: own.digest })).resolves.toMatchObject({ data: { title: "Override" } })
     // Other documents are not leased.
     await expect(posts.save("other", { data: { title: "Other" } })).resolves.toMatchObject({ id: "other" })
-    await expect(rejection(posts.save("hello", { data: { title: "x" } }, { lease: "skip" as never }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(rejection(posts.save("hello", { data: { title: "x" } }, { lease: "skip" as never }))).resolves.toMatchObject({ code: "CONTENT_WRITE_LEASE_INVALID" })
   })
 
   it("lets several sessions edit a collection with editing: { lease: false }", async () => {
@@ -255,11 +256,11 @@ describe("Content sessions", { timeout: 30_000 }, () => {
 
   it("validates sessions input", async () => {
     const { content } = await setup()
-    await expect(rejection(content.sessions.report("posts", "hello", { session: "short", user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: { id: "" }, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "write" as never }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("missing" as never, "hello", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "../escape", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: "short", user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_SESSION_TOKEN_INVALID" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: { id: "" }, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_SESSION_USER_INVALID" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "write" as never }))).resolves.toMatchObject({ code: "CONTENT_SESSION_KIND_INVALID" })
+    await expect(rejection(content.sessions.report("missing" as never, "hello", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_COLLECTION_UNKNOWN" })
+    await expect(rejection(content.sessions.report("posts", "../escape", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_DOCUMENT_ID_INVALID" })
   })
 
   it("refuses other Workspace writes to the draft of a leased document, and lets Content's own writes through", async () => {
@@ -369,5 +370,20 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     await expect(rejection(content.sessions.list())).resolves.toMatchObject({ code: "CONTENT_R0012" })
     await expect(posts.save("hello", { data: { title: "Hello" } }, { session: tabA })).resolves.toMatchObject({ id: "hello" })
     await expect(posts.save("hello", { data: { title: "Hello again" } })).resolves.toMatchObject({ data: { title: "Hello again" } })
+  })
+
+  it("names the fix when the Workspace keeps its history in Postgres", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-content-sessions-"))
+    cleanup.push(() => rm(root, { recursive: true, force: true }))
+    const workspace = `sessions-${++workspaces}`
+    const database = drizzlePostgresProxy(async () => ({ rows: [] }))
+    registerWorkspace(workspace, { store: createBlobDatabaseWorkspaceStore({ blob: createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") })), database, workspace }) })
+    const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+
+    const error = await rejection(content.sessions.list())
+
+    expect(error).toMatchObject({ code: "CONTENT_R0012" })
+    expect(String(Reflect.get(Object(error), "message"))).toContain("keeps its history in Postgres")
   })
 })

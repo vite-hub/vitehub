@@ -1,5 +1,3 @@
-import { isRuntimeNumber } from "../../src/internal/runtime-value.ts"
-
 import type { Lock } from "chat"
 import type { ViteHubAgentStateDurableObjectNamespace, ViteHubAgentStateDurableObjectStub } from "../../src/state/providers/cloudflare.ts"
 
@@ -14,9 +12,20 @@ export function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableOb
     acquireLock(threadId, ttlMs) {
       const current = locks.get(threadId)
       if (current && current.expiresAt > Date.now()) return null
-      const lock = { expiresAt: Date.now() + ttlMs, threadId, token: `lock-${threadId}` }
+      const lock = { expiresAt: Date.now() + ttlMs, threadId, token: `${threadId}:${crypto.randomUUID()}` }
       locks.set(threadId, lock)
       return lock
+    },
+    acquireLockWith(threadId, ttlMs, mutations, keys) {
+      const lock = stub.acquireLock(threadId, ttlMs) as Lock | null
+      if (!lock) return { lock, values: [] }
+      stub.cacheMutateWithLock(threadId, lock.token, mutations)
+      return { lock, values: keys.map(key => values.get(key) || null) }
+    },
+    releaseLockWith(threadId, token, mutations, keys) {
+      const committed = stub.cacheMutateWithLock(threadId, token, mutations) as boolean
+      stub.releaseLock(threadId, token)
+      return { committed, values: keys.map(key => values.get(key) || null) }
     },
     cacheMutateWithLock(threadId, token, mutations) {
       const held = locks.get(threadId)
@@ -69,7 +78,7 @@ export function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableOb
     },
     listAppend(key, value, maxLength) {
       const next = [...(lists.get(key) || []), value]
-      lists.set(key, isRuntimeNumber(maxLength) ? next.slice(-maxLength) : next)
+      lists.set(key, typeof maxLength === "number" ? next.slice(-maxLength) : next)
     },
     listGet(key) {
       return lists.get(key) || []

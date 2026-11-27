@@ -13,6 +13,8 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
  * A real id replaces an all-zero placeholder. Unresolved primary IDs are left out for provisioning; preview IDs stay
  * to prevent remote development from falling back to production. ViteHub stages its migrations
  * in its own directory, so a project `migrations_dir` or `migrations_pattern` is dropped when ViteHub sets one.
+ * The merge by binding name can go when Nitro releases https://github.com/nitrojs/nitro/pull/5146
+ * (https://github.com/nitrojs/nitro/issues/5145). The placeholder and migrations rules stay.
  */
 const d1EntrySpec: WranglerEntrySpec = {
   path: ["d1_databases"],
@@ -30,7 +32,7 @@ export async function collapseGeneratedWranglerD1Bindings(serverDir: string, war
     specs: [d1EntrySpec],
   })
   for (const binding of await nuxtHubHistoryBindings(serverDir)) {
-    warn(`[vitehub] The D1 binding "${binding}" uses NuxtHub's \`_hub_migrations\` table as its Wrangler migration history. NuxtHub records other names than Wrangler, so Wrangler treats every ViteHub migration as new. Before you apply the first ViteHub migration, remove \`migrations_table\` from the project's Wrangler config, or \`cloudflare.migrationsTable\` from the Database Definition, wherever it is set. Keep it only when ViteHub migrations were already applied with it. Read https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#baseline-an-existing-cloudflare-d1-database`)
+    warn(`[vitehub] The D1 binding "${binding}" uses NuxtHub's \`_hub_migrations\` table as its Wrangler migration history. NuxtHub records other names than Wrangler, so Wrangler treats every ViteHub migration as new. Before you apply the first ViteHub migration, remove \`migrations_table\` from the project's Wrangler config, or \`cloudflare.migrationsTable\` from the Database Definition, wherever it is set. Keep it only when ViteHub migrations were already applied with it. Read https://vitehub.dev/docs/compare/nuxthub#baseline-an-existing-cloudflare-d1-database`)
   }
 }
 

@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts";
+import { assertWorkspaceDigest, isWorkspaceConflict, workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { createWorkspaceGlobMatcher } from "../../core/glob.ts";
 import {
   contentStreamToBytes,
@@ -11,9 +11,11 @@ import {
   normalizeWorkspacePath,
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
-import { workspaceStoreTarget } from "../../storage/target.ts";
-import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
+import { workspaceStoreDiscard } from "../../storage/discard.ts";
+import { provideWorkspaceStoreTarget } from "../../storage/target.ts";
+import { provideWorkspaceRevisionMaterializer, type WorkspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
+  assertNoGitHubRepositoryKey,
   commitGitHubChanges,
   connectGitHubRepository,
   githubBranchMovedConflict,
@@ -28,12 +30,13 @@ import {
   resolveGitHubRefsOption,
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
-  resolveGitHubTokenOption,
+  resolveGitHubCredential,
   type GitFileMode,
+  type GitHubBranchState,
   type GitHubRepository,
   type GitHubTreeEntry,
 } from "./shared.ts";
-import { createGitHubWorkspaceHistory } from "./history.ts";
+import { createGitHubWorkspaceHistory, githubHeadCacheMs } from "./history.ts";
 
 import type {
   DiffOptions,
@@ -208,12 +211,12 @@ async function waitForGitHubOperation<T>(read: Promise<T>, signal?: AbortSignal)
 }
 
 class GitHubWorkspaceStore implements WorkspaceStore {
+  #sessionArchive: { revision: string; read: Promise<Uint8Array> } | undefined;
   #baseline: WorkspaceSnapshot | undefined;
-  #archive: { bytes: Uint8Array; revision: string } | undefined;
-  #archiveReads = new Map<string, Promise<Uint8Array>>();
   #baselineRefSha: string | undefined;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
+  #loadedAt = 0;
   #mutationQueue: Promise<void> = Promise.resolve();
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
@@ -224,7 +227,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   constructor(
     private options: GitHubWorkspaceStoreOptions,
     private workspaceName: string,
-  ) {}
+  ) {
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget());
+    provideWorkspaceRevisionMaterializer(this, this.#revisionMaterializer);
+  }
 
   /**
    * The repository, branch, root, and token resolve on first use. The Store is created when the Workspace Definition
@@ -236,10 +242,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         "a repository",
         resolveGitHubRepositoryOption(this.options),
       );
-      const token = requireGitHubOption("a token", resolveGitHubTokenOption(this.options));
       return {
         branch: resolveGitHubBranchOption(this.options),
-        client: connectGitHubRepository(repository, token),
+        client: connectGitHubRepository(repository, resolveGitHubCredential(this.options)),
         repository,
         root: resolveGitHubRootOption(this.options, this.workspaceName),
       };
@@ -261,7 +266,15 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     }));
   }
 
-  [workspaceStoreTarget]() {
+  /** Drops the staged writes. The next call loads the branch again, as the first call does. */
+  async [workspaceStoreDiscard](): Promise<void> {
+    await this.#mutate(async () => {
+      this.#dirty = false;
+      this.#ready = undefined;
+    });
+  }
+
+  #storeTarget() {
     return {
       provider: "github" as const,
       branch: this.#branch,
@@ -270,7 +283,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     };
   }
 
-  [workspaceRevisionMaterializer] = {
+  #revisionMaterializer: WorkspaceRevisionMaterializer = {
     currentRevision: async (options?: { abortSignal?: AbortSignal; refresh?: boolean }) => {
       await waitForGitHubOperation(
         this.#mutate(async () => await this.#ensure({ refresh: options?.refresh !== false })),
@@ -288,22 +301,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       const files = [...this.#remoteFiles.keys()].filter(path =>
         !isReservedWorkspacePath(path) && (!paths || paths.some(root => path === root || path.startsWith(`${root}/`))),
       ).length;
-      if (!this.#dirty && paths === undefined && this.#archive?.revision !== revision) {
-        let read = this.#archiveReads.get(revision);
-        if (!read) {
-          read = readGitHubArchive(this.#client, revision);
-          this.#archiveReads.set(revision, read);
-          void read.finally(() => {
-            if (this.#archiveReads.get(revision) === read) this.#archiveReads.delete(revision);
-          }).catch(() => {});
-        }
-        this.#archive = {
-          bytes: await waitForGitHubOperation(read, options?.abortSignal),
-          revision,
-        };
-      }
+      const archive = !this.#dirty && paths === undefined
+        ? await waitForGitHubOperation(this.#readSessionArchive(revision), options?.abortSignal)
+        : undefined;
       return {
-        ...(!this.#dirty && paths === undefined ? { archive: this.#archive!.bytes } : {}),
+        ...(!this.#dirty && archive ? { archive: archive.slice() } : {}),
         files,
         paths,
         revision,
@@ -312,16 +314,26 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     },
   };
 
+  #readSessionArchive(revision: string) {
+    if (this.#sessionArchive?.revision === revision) return this.#sessionArchive.read;
+    const entry = { revision, read: readGitHubArchive(this.#client, revision) };
+    this.#sessionArchive = entry;
+    void entry.read.catch(() => {
+      if (this.#sessionArchive === entry) this.#sessionArchive = undefined;
+    });
+    return entry.read;
+  }
+
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: false });
+    await this.#mutate(async () => await this.#ensure({ refresh: "expired" }));
     return await this.#readWorkspaceFile(normalized);
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     await this.#mutate(async () => {
       const normalized = normalizeSafeWorkspacePath(path);
-      await this.#ensure({ refresh: false });
+      await this.#ensure({ refresh: "expired" });
       await this.#writeFile(normalized, file);
     });
   }
@@ -423,7 +435,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     await this.#mutate(async () => {
       const normalized = normalizeSafeWorkspacePath(path);
-      await this.#ensure({ refresh: false });
+      await this.#ensure({ refresh: "expired" });
       const file = this.#files.get(normalized);
       if (options.ifDigest !== undefined) assertWorkspaceDigest(path, options.ifDigest, file ? (await this.#fileEntry(file)).digest : undefined)
       const removedFile = Boolean(file && !isReservedWorkspacePath(normalized));
@@ -455,84 +467,99 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
     await this.#mutate(async () => {
       await this.#ensure({ refresh: false });
-      const remote = await readGitHubBranchState({
-        branch: this.#branch,
-        repository: this.#client,
-        root: this.#root,
-      });
-      const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
-      const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
-      const remoteAttributes = new Map<string, { mediaType?: string; metadata?: Record<string, unknown> }>();
-      await Promise.all([...remoteMetadataFiles].map(async ([path, entry]) => {
-        const bytes = await readGitHubFile(this.#client, entry, remote.refSha);
-        remoteAttributes.set(filePathFromMetadataPath(path), parseFileAttributes(bytes));
-      }));
-      const takeRemote = options.takeRemote || [];
-      const shouldTakeRemote = (path: string) => takeRemote.some(
-        root => path === root || path.startsWith(`${root}/`),
-      );
-      const local = new Map(this.#files);
-      const previousRemoteFiles = this.#remoteFiles;
-      const previousRemoteMetadataFiles = this.#remoteMetadataFiles;
-      const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
-      if (remote.refSha === this.#baselineRefSha) {
-        for (const path of changed) {
-          if (!shouldTakeRemote(path)) continue;
-          const file = remoteFiles.get(path);
-          if (file) this.#files.set(path, githubRemoteFile(path, file, remoteAttributes.get(path)));
-          else this.#files.delete(path);
-        }
-        this.#dirty = await this.#hasRemoteChanges();
-        return;
-      }
-
-      for (const path of changed) {
-        if (await this.#matchesRemote(
-          local.get(path),
-          previousRemoteFiles.get(path),
-          previousRemoteMetadataFiles.get(fileMetadataPath(path)),
-        )) {
-          changed.delete(path);
-          continue;
-        }
-        const previous = previousRemoteFiles.get(path);
-        const current = remoteFiles.get(path);
-        const previousMetadata = previousRemoteMetadataFiles.get(fileMetadataPath(path));
-        const currentMetadata = remoteMetadataFiles.get(fileMetadataPath(path));
-        if (
-          (!sameGitHubTreeEntry(previous, current) || !sameGitHubTreeEntry(previousMetadata, currentMetadata)) &&
-          !shouldTakeRemote(path) &&
-          !await this.#matchesRemote(local.get(path), current, currentMetadata)
-        ) {
-          throw workspaceConflict(
-            `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${path} changed locally and remotely.`,
-          );
-        }
-      }
-
-      this.#baselineRefSha = remote.refSha;
-      this.#remoteFiles = remoteFiles;
-      this.#remoteMetadataFiles = remoteMetadataFiles;
-      this.#files = new Map(
-        [...remoteFiles].map(([path, entry]) => [path, githubRemoteFile(path, entry, remoteAttributes.get(path))]),
-      );
-      this.#baseline = await createSnapshotFromEntries(
-        await this.#listEntries("", { recursive: true }, false),
-        "github-workspace-store-rebase",
-      );
-
-      for (const path of changed) {
-        if (shouldTakeRemote(path)) continue;
-        const file = local.get(path);
-        if (file) this.#files.set(path, file);
-        else this.#files.delete(path);
-      }
-      this.#dirty = await this.#hasRemoteChanges();
+      await this.#rebase(options);
     });
   }
 
-  async #snapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
-    await this.#ensure({ refresh: false });
+  /** Move the staged writes onto the current branch head. A path that changed on both sides fails with its name in `details.paths`. */
+  async #rebase(options: WorkspaceRebaseOptions, loaded?: GitHubBranchState): Promise<void> {
+    const remote = loaded ?? await readGitHubBranchState({
+      branch: this.#branch,
+      repository: this.#client,
+      root: this.#root,
+    });
+    const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
+    const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
+    const remoteAttributes = new Map<string, { mediaType?: string; metadata?: Record<string, unknown> }>();
+    await Promise.all([...remoteMetadataFiles].map(async ([path, entry]) => {
+      const bytes = await readGitHubFile(this.#client, entry, remote.refSha);
+      remoteAttributes.set(filePathFromMetadataPath(path), parseFileAttributes(bytes));
+    }));
+    const takeRemote = options.takeRemote || [];
+    const shouldTakeRemote = (path: string) => takeRemote.some(
+      root => path === root || path.startsWith(`${root}/`),
+    );
+    const local = new Map(this.#files);
+    const previousRemoteFiles = this.#remoteFiles;
+    const previousRemoteMetadataFiles = this.#remoteMetadataFiles;
+    const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
+    if (remote.refSha === this.#baselineRefSha) {
+      for (const path of changed) {
+        if (!shouldTakeRemote(path)) continue;
+        const file = remoteFiles.get(path);
+        if (file) this.#files.set(path, githubRemoteFile(path, file, remoteAttributes.get(path)));
+        else this.#files.delete(path);
+      }
+      this.#dirty = await this.#hasRemoteChanges();
+      return;
+    }
+
+    const conflicts: string[] = [];
+    for (const path of changed) {
+      if (await this.#matchesRemote(
+        local.get(path),
+        previousRemoteFiles.get(path),
+        previousRemoteMetadataFiles.get(fileMetadataPath(path)),
+      )) {
+        changed.delete(path);
+        continue;
+      }
+      const previous = previousRemoteFiles.get(path);
+      const current = remoteFiles.get(path);
+      const previousMetadata = previousRemoteMetadataFiles.get(fileMetadataPath(path));
+      const currentMetadata = remoteMetadataFiles.get(fileMetadataPath(path));
+      if (
+        (!sameGitHubTreeEntry(previous, current) || !sameGitHubTreeEntry(previousMetadata, currentMetadata)) &&
+        !shouldTakeRemote(path) &&
+        !await this.#matchesRemote(local.get(path), current, currentMetadata)
+      ) conflicts.push(path);
+    }
+    if (conflicts.length) {
+      conflicts.sort();
+      throw workspaceConflict(
+        `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${conflicts.join(", ")} changed locally and remotely.`,
+        { details: { branch: this.#branch, paths: conflicts, repository: this.#repository } },
+      );
+    }
+
+    this.#baselineRefSha = remote.refSha;
+    this.#loadedAt = Date.now();
+    this.#remoteFiles = remoteFiles;
+    this.#remoteMetadataFiles = remoteMetadataFiles;
+    this.#files = new Map(
+      [...remoteFiles].map(([path, entry]) => [path, githubRemoteFile(path, entry, remoteAttributes.get(path))]),
+    );
+    this.#baseline = await createSnapshotFromEntries(
+      await this.#listEntries("", { recursive: true }, false),
+      "github-workspace-store-rebase",
+    );
+
+    for (const path of changed) {
+      if (shouldTakeRemote(path)) continue;
+      const file = local.get(path);
+      if (file) this.#files.set(path, file);
+      else this.#files.delete(path);
+    }
+    this.#dirty = await this.#hasRemoteChanges();
+  }
+
+  /**
+   * Commit the staged writes. When the branch moved since the Store loaded, for example because another isolate
+   * committed, the Store moves the staged writes onto the new head and commits once more. A path that changed on
+   * both sides, or a second move, fails with `WORKSPACE_CONFLICT`.
+   */
+  async #snapshot(options: SnapshotOptions, retry = true): Promise<WorkspaceSnapshot> {
+    await this.#ensure({ refresh: "expired" });
     const snapshot = await createSnapshotFromEntries(
       await this.#listEntries("", { recursive: true }),
       options.name,
@@ -549,6 +576,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       root: this.#root,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
+      if (retry) {
+        await this.#rebase({}, remote);
+        return await this.#snapshot(options, false);
+      }
       throw githubBranchMovedConflict({
         actualHead: remote.refSha,
         branch: this.#branch,
@@ -593,19 +624,29 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       const bytes = fileAttributesBytes(file);
       if (bytes) files.push({ bytes, fullPath: joinGitPath(this.#root, fileMetadataPath(file.path)), mode: "100644" });
     }
-    const commitSha = await commitGitHubChanges({
-      branch: this.#branch,
-      branchExists: remote.branchExists,
-      deletePaths,
-      files,
-      message: options.name || "chore: update workspace snapshot",
-      parentSha: this.#baselineRefSha,
-      remoteModes: new Map([...this.#remoteFiles.values()].map(entry => [entry.path, entry.mode])),
-      repository: this.#client,
-    });
+    let commitSha: string;
+    try {
+      commitSha = await commitGitHubChanges({
+        branch: this.#branch,
+        branchExists: remote.branchExists,
+        deletePaths,
+        files,
+        message: options.name || "chore: update workspace snapshot",
+        ...(options.author ? { author: options.author } : {}),
+        parentSha: this.#baselineRefSha,
+        remoteModes: new Map([...this.#remoteFiles.values()].map(entry => [entry.path, entry.mode])),
+        repository: this.#client,
+      });
+    }
+    catch (error) {
+      if (!retry || !isWorkspaceConflict(error)) throw error;
+      await this.#rebase({});
+      return await this.#snapshot(options, false);
+    }
 
     this.#dirty = false;
     this.#baselineRefSha = commitSha;
+    this.#loadedAt = Date.now();
     this.#remoteFiles = this.#toRemoteFiles();
     this.#remoteMetadataFiles = await this.#toRemoteMetadataFiles();
     this.#baseline = { ...snapshot, id: commitSha };
@@ -634,7 +675,8 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return await this.#mutate(async () => {
       await this.#ensure({ refresh: true });
       const file = await this.#readWorkspaceFile(this.#metaPath(key));
-      if (!file) return undefined;
+      // Earlier versions wrote `undefined` as an empty file.
+      if (!file?.bytes.byteLength) return undefined;
       return JSON.parse(new TextDecoder().decode(file.bytes));
     });
   }
@@ -642,9 +684,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async setMeta(key: string, value: unknown): Promise<void> {
     await this.#mutate(async () => {
       const path = this.#metaPath(key);
-      const content = JSON.stringify(value);
-      const bytes = new TextEncoder().encode(content);
-      await this.#ensure({ refresh: false });
+      await this.#ensure({ refresh: "expired" });
+      // `undefined` removes the key, as JSON has no value for it.
+      if (value === undefined) {
+        if (this.#files.delete(path)) this.#dirty = true;
+        return;
+      }
+      const bytes = new TextEncoder().encode(JSON.stringify(value));
       this.#files.set(path, {
         bytes,
         gitSha: await gitBlobSha(bytes),
@@ -655,11 +701,22 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  async #ensure(options: { refresh: boolean }): Promise<void> {
+  /**
+   * Load the branch once. Without staged writes, `refresh: true` reads the head again, and `"expired"` reads it again
+   * when the Store loaded it more than `githubHeadCacheMs` ago. A Store that one isolate keeps for many requests so
+   * sees commits from other writers before it stages new writes.
+   */
+  async #ensure(options: { refresh: boolean | "expired" }): Promise<void> {
     const wasReady = !!this.#ready;
-    this.#ready ||= this.#load();
+    // A failed load, such as a GitHub API error, lets the next call try again.
+    this.#ready ||= this.#load().catch((error: unknown) => {
+      this.#ready = undefined;
+      throw error;
+    });
     await this.#ready;
-    if (wasReady && options.refresh && !this.#dirty) await this.#load();
+    if (!wasReady || this.#dirty || !options.refresh) return;
+    if (options.refresh === "expired" && Date.now() - this.#loadedAt < githubHeadCacheMs) return;
+    await this.#load();
   }
 
   async #matchesRemote(
@@ -693,6 +750,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       root: this.#root,
     });
     this.#baselineRefSha = remote.refSha;
+    this.#loadedAt = Date.now();
     const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
     const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
     const attributes = new Map<string, { mediaType?: string; metadata?: Record<string, unknown> }>();
@@ -856,5 +914,6 @@ export function createGitHubWorkspaceStore(
   options: GitHubWorkspaceStoreOptions,
   workspaceName: string,
 ): WorkspaceStore {
+  assertNoGitHubRepositoryKey(options);
   return new GitHubWorkspaceStore(options, workspaceName);
 }

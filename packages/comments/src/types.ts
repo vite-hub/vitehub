@@ -3,6 +3,7 @@ import type { ViteHubContext } from "@vite-hub/runtime"
 import type { CommentsDefinition, CommentsUser } from "./operations-core/define.ts"
 import type {
   CommentAnchor,
+  CommentActor,
   CommentContext,
   CommentListCursor,
   CommentMetadata,
@@ -24,6 +25,7 @@ export type {
   CommentsDefinition,
   CommentsGitHubAccess,
   CommentsPeople,
+  CommentsRateLimit,
   CommentsReadAttachmentContext,
   CommentsStoreAttachmentContext,
   CommentSubjectDefinition,
@@ -63,8 +65,9 @@ export interface CommentsForgeOptions {
 }
 
 /**
- * The request event of a Comments call. Read the request, its cookies, and the platform bindings from
- * `event["~standard"]`. `context` is the H3 event context, when the call came through an H3 route.
+ * The request event of a Comments call: the Request of the Comments API, or the server event of an operation call.
+ * Read the request, its cookies, and the platform bindings from `event["~standard"]`. `context` is the H3 event
+ * context, when the call came through an H3 event.
  */
 export type CommentsRequestEvent = ViteHubContext<{ context?: Record<string, unknown> }>
 
@@ -72,13 +75,106 @@ export interface CommentsIdentifyContext {
   event: CommentsRequestEvent
 }
 
+export interface CommentsPageContext {
+  /** The page URL: the origin of the request and the normalized path, without query and hash. */
+  url: URL
+  event: CommentsRequestEvent
+}
+
+/** The subject of a page, and the version of the subject that new threads start on. */
+export interface CommentsPageSubject extends CommentSubject {
+  revision?: number
+}
+
+/** What `send.address` gets: the member who presses Send, and the subject of their page. */
+export interface CommentSendAddressContext {
+  user: CommentsUser
+  subject: CommentSubject
+}
+
+/** What `send.payload` gets: one send, before Comments delivers it. */
+export interface CommentSendPayloadContext {
+  /** The id of the send, as `send` of the delivered body. */
+  send: string
+  /** The member who pressed Send. */
+  user: CommentsUser
+  /** The subject of the page that the member sent from. */
+  subject: CommentSubject
+  /** The threads of the send. `asks` and `quotes` split their ids. */
+  threads: readonly CommentThread[]
+  asks: readonly string[]
+  quotes: readonly string[]
+}
+
+/** What `send.prompt` gets: the values of one setup code, and the default prompt. */
+export interface CommentSendPromptContext {
+  /** The member who pressed Send. */
+  user: CommentsUser
+  /** The subject of the page that the member pairs from. */
+  subject: CommentSubject
+  /** The public origin of the app, such as `https://joyandmaxi.com`. */
+  origin: string
+  /** The URL that the agent posts the code to: `{ code, url, thread }` for a T3 task, or `{ code, inbox }` for an inbox. */
+  pairUrl: string
+  /** The setup code. It works once, for 10 minutes. */
+  code: string
+  /** The secret that signs each delivery to a T3 webhook task. */
+  secret: string
+  /** Whether each send carries a read token. `false` when `grant` is `false`. */
+  grant: boolean
+  /** The default prompt: the steps that connect a T3 Code thread. */
+  prompt: string
+}
+
+/** A JSON value, as the delivered body holds it. */
+export type CommentSendData = string | number | boolean | null | CommentSendData[] | { [key: string]: CommentSendData }
+
+/**
+ * Send: a member hands the threads that wait for an answer to their own agent, such as a T3 Code thread. Each member
+ * pairs their agent once, in the comment pill.
+ */
+export interface CommentSendOptions {
+  /** Adds `data` to the delivered body, such as the id of a document that your own MCP reads. Default: `null`. */
+  payload?: (context: CommentSendPayloadContext) => CommentSendData | Promise<CommentSendData>
+  /**
+   * The address of the agent that should get a send from this subject, such as the T3 thread link that wrote the
+   * document. A member who paired an agent from that thread sends there; otherwise to the agent they paired last.
+   * Default: none, so every send goes to the agent the member paired last.
+   */
+  address?: (context: CommentSendAddressContext) => string | null | undefined | Promise<string | null | undefined>
+  /**
+   * `false` sends no read token: the agent reads the threads through your own MCP server, as the member. Default: each
+   * send carries a token that reads its threads, as the member, for 24 hours.
+   */
+  grant?: false
+  /** The hosts that a paired agent URL may use. Default: `["relay.t3.codes"]`, the T3 Code relay. */
+  hosts?: readonly string[]
+  /**
+   * The setup prompt that Send copies, such as to add the steps of a Claude Code or Codex inbox, or to name the tools of
+   * your own MCP server. Default: `context.prompt`, the steps that connect a T3 Code thread.
+   */
+  prompt?: (context: CommentSendPromptContext) => string | Promise<string>
+}
+
 export interface DefineCommentsOptions extends CommentsDefinition {
+  /**
+   * `true` turns on **Send** in the comment pill, for signed-in people who may write. It needs Webhooks and a SQLite
+   * Database: ViteHub adds the `vitehub_comment_sends` tables and the member endpoints of Webhooks. See
+   * https://vitehub.dev/docs/comments/send
+   */
+  send?: boolean | CommentSendOptions
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: CommentsIdentifyContext) => CommentsUser | null | undefined | Promise<CommentsUser | null | undefined>
   /** Name of the Database that stores comments. Defaults to the `default` Database, or the only one. */
   database?: string
   /** Posts threads to the pull request that the page previews. */
   forge?: CommentsForgeOptions
+  /**
+   * The subject that the overlay comments on for a page, such as `{ kind: "drop", id, revision }`. The server decides:
+   * the overlay reads the subject from `/session`, and a new thread from the overlay must be on it. `authorize` still
+   * runs on the subject. Return `null` or `undefined` for the default, `{ kind: "page", id: url.pathname }`.
+   */
+  page?: (context: CommentsPageContext) => CommentsPageSubject | null | undefined | Promise<CommentsPageSubject | null | undefined>
 }
 
 export interface ListCommentThreadsOptions {
@@ -109,6 +205,8 @@ export interface CreateCommentThreadInput {
   metadata?: CommentMetadata
   /** The version of the subject, such as a document version. */
   revision?: number
+  /** A retry key. A second create with the same key and author in the same scope returns the first thread. */
+  requestId?: string
   body: string
   author: CommentUser
   /** Ids of the people that `body` names with `@`. */
@@ -125,8 +223,20 @@ export interface EditCommentInput {
 export interface ReplyInput {
   body: string
   author: CommentUser
+  /** The agent replying on behalf of the author. */
+  actor?: CommentActor
   mentions?: string[]
   attachments?: string[]
+  /** A retry key. A second reply with the same key and author in the same thread returns the first message. */
+  requestId?: string
+}
+
+export interface FindCommentThreadInput {
+  /** The subject that the create named. Or set `page`. */
+  subject?: CommentSubject
+  /** An app path, for a thread on a page. */
+  page?: string
+  requestId: string
 }
 
 export interface ReplyOptions {
@@ -148,3 +258,4 @@ export type CommentsErrorCode =
   | "COMMENTS_FIELD_FORBIDDEN"
   | "COMMENTS_FIELD_CONFLICT"
   | "COMMENTS_FIELD_LOCKED"
+  | "COMMENTS_SEND_OFF"

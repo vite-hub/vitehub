@@ -1,5 +1,5 @@
-import { consoleInvocationsFallbackKey, markConsoleFixtureInvocations, resolveConsoleInvocations } from "../../internal.ts"
-import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
+import { markConsoleSuppliedInvocations, resolveConsoleInvocations, resolveConsoleSuppliedInvocations } from "../../internal.ts"
+import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, installAgentInvocationsOverride, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"
@@ -70,7 +70,7 @@ function resolveConsoleAgentDefinition(
 }
 
 function explicitAgentInvocations(agent: AgentInput | undefined): AgentInvocations | undefined {
-  if (!agent || Reflect.get(agent, consoleInvocationsFallbackKey) === true) return undefined
+  if (!agent || Reflect.get(agent, agentInvocationsFallbackKey) === true) return undefined
   const assigned = consoleAssignedInvocations.get(agent)
   const invocations = agent.invocations
   if (invocations === undefined || invocations === assigned) return undefined
@@ -80,7 +80,7 @@ function explicitAgentInvocations(agent: AgentInput | undefined): AgentInvocatio
 
 /** The app-wide `agent.invocations` journal of an Agent Definition that does not set its own journal. */
 function defaultAgentInvocations(agent: AgentInput | undefined): AgentInvocations | undefined {
-  if (!agent || Reflect.get(agent, consoleInvocationsFallbackKey) !== true || Reflect.get(agent, agentInvocationsDisabledKey) === true) return undefined
+  if (!agent || Reflect.get(agent, agentInvocationsFallbackKey) !== true || Reflect.get(agent, agentInvocationsDisabledKey) === true) return undefined
   return resolveDefaultAgentInvocations()
 }
 
@@ -89,8 +89,9 @@ function resolveConsoleAgentInvocations(
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
   if (installation.invocations) {
-    // A journal that the Console supplies, as in fixture mode, replaces the app-wide journal of discovered Agents.
-    markConsoleFixtureInvocations(installation.invocations)
+    // A journal that the Console supplies replaces the app-wide journal of discovered Agents.
+    markConsoleSuppliedInvocations(installation.invocations)
+    installAgentInvocationsOverride(resolveConsoleSuppliedInvocations)
     return installation.invocations
   }
   const configured = [...new Set(definitions.flatMap(({ agent }) => {
@@ -122,7 +123,7 @@ export function installConsoleAgentDefinitions(
   const definitions = entries.map(resolveConsoleAgentDefinition)
   const invocations = resolveConsoleAgentInvocations(definitions, installation)
   const names = definitions.map(({ agent, fallbackName }) => {
-    if (agent && Reflect.get(agent, consoleInvocationsFallbackKey) !== true) {
+    if (agent && Reflect.get(agent, agentInvocationsFallbackKey) !== true) {
       const assigned = consoleAssignedInvocations.get(agent)
       if (agent.invocations === undefined || agent.invocations === assigned) {
         agent.invocations = invocations

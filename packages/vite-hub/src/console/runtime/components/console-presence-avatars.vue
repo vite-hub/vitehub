@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleInitials, consoleLiveLabel } from "../client/presence";
+import { consoleInitials } from "../client/format";
+import { consoleLiveLabel } from "../client/presence";
 
 import type { ConsoleDocumentSession, ConsoleDocumentSessionUser } from "../client/documents";
 
@@ -55,7 +56,7 @@ const label = computed(() => people.value.map(describe).join(", "));
   <span v-if="people.length" class="flex shrink-0 items-center" role="img" :aria-label="label">
     <UTooltip v-for="(session, index) in shown" :key="session.user.id" :text="describe(session)" :content="{ side: 'bottom' }">
       <span
-        class="relative inline-flex rounded-full ring-2 ring-(--ui-bg)"
+        class="relative inline-flex rounded-full ring-2 ring-(--background)"
         :class="[index ? '-ms-1.5' : '', session.kind === 'view' ? 'opacity-60' : '']"
         :style="{ zIndex: shown.length - index }"
       >
@@ -65,7 +66,7 @@ const label = computed(() => people.value.map(describe).join(", "));
     </UTooltip>
     <UTooltip v-if="hidden.length" :text="hidden.map(describe).join(', ')" :content="{ side: 'bottom' }">
       <span
-        class="relative -ms-1.5 inline-flex items-center justify-center rounded-full bg-elevated px-1.5 text-xs/none font-medium text-muted tabular-nums ring-2 ring-(--ui-bg)"
+        class="relative -ms-1.5 inline-flex items-center justify-center rounded-full bg-elevated px-1.5 text-xs/none font-medium text-muted tabular-nums ring-2 ring-(--background)"
         :class="variant === 'row' ? 'h-5 min-w-5' : 'h-6 min-w-6'"
       >+{{ hidden.length }}</span>
     </UTooltip>

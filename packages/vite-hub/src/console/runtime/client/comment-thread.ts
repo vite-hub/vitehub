@@ -1,4 +1,5 @@
-import { requestConsoleOperation } from "./request"
+import { ConsoleRequestError, requestConsoleOperation } from "./request"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { CommentsTransport, CommentSubject, CommentThread, CommentUser } from "@vite-hub/comments/client"
 
@@ -13,7 +14,15 @@ export function consoleCommentsTransport(threadId?: () => string | undefined): C
     create: input => call("create", input),
     delete: input => call("delete", input),
     edit: input => call("edit", input),
-    get: input => call("get", input),
+    get: async (input) => {
+      try {
+        return await call<CommentThread | null>("get", input)
+      }
+      catch (error) {
+        if (!("threadId" in input) || !(error instanceof ConsoleRequestError) || error.code !== "INTERNAL_R0022") throw error
+        return call("get", { id: input.threadId })
+      }
+    },
     list: query => call("list", query),
     reopen: input => call("reopen", input),
     reply: input => call("reply", input),
@@ -36,10 +45,6 @@ export interface ConsoleCommentSession {
   canWrite: boolean
   capabilities: { reply: boolean, resolve: boolean, deleteThread: boolean, edit: string[], delete: string[] }
   user: CommentUser | undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 /** Ask `comments.session` for the Console identity and, with `threadId`, action-specific capabilities. */

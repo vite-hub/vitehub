@@ -23,31 +23,30 @@ A user, Agent, or service gets only the permissions you grant for each key. Env 
 ### Install
 
 ```bash [Terminal]
-pnpm add vite-hub drizzle-orm
+pnpm add vite-hub drizzle-orm@1.0.0-rc.6
 ```
 
 The SQLite adapter needs `drizzle-orm`. If you use the owner package, install `@vite-hub/env` and import from `@vite-hub/env/<subpath>`.
 
 ### Configure
 
-Write a factory that builds the bridge from your database, encryption key, and session reader, in your app code.
+Write a factory that builds the bridge from your database, encryption keys, and session reader, in your app code.
 
 ```ts [server/env/create-credentials.ts]
-import { createEnvAuthenticator } from 'vite-hub/env/auth'
-import { createEnvBridge } from 'vite-hub/env/bridge'
+import { createEnvAuthenticator, createEnvBridge } from 'vite-hub/env/bridge'
 import { createDatabaseEnvStore } from 'vite-hub/env/database'
-import type { EnvHumanSession } from 'vite-hub/env/auth'
+import type { EnvHumanSession } from 'vite-hub/env/bridge'
 import type { EnvDatabase } from 'vite-hub/env/database'
 
 export function createCredentials(options: {
   db: EnvDatabase
-  encryptionKey: Uint8Array
+  encryptionKeys: readonly Uint8Array[]
   getSession(input: { headers: Headers }): Promise<EnvHumanSession | null>
   isAdmin(session: EnvHumanSession): boolean | Promise<boolean>
 }) {
   const store = createDatabaseEnvStore({
     db: options.db,
-    encryptionKey: options.encryptionKey,
+    encryptionKeys: options.encryptionKeys,
     namespace: 'application',
     previews: true,
   })
@@ -69,7 +68,7 @@ export function createCredentials(options: {
 }
 ```
 
-Call the factory once per runtime. Export its `provider` as the default export of your provider module, here `server/env/credentials.ts`. For ViteHub Auth, pass a wrapper around `auth.api.getSession({ headers })`. Write your own `isAdmin`: being signed in does not make a user an admin.
+Call the factory once per runtime. Export its `provider` as the default export of your provider module, here `server/env/credentials.ts`. For ViteHub Auth, pass a wrapper around `useAuth().api.getSession({ headers })` from `vite-hub/auth/server`. Write your own `isAdmin`: being signed in does not make a user an admin.
 
 Register the provider module and declare the key you use.
 
@@ -81,7 +80,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -106,18 +104,17 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  }), nitro()],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 ::::
@@ -130,18 +127,17 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
     console: { auth: false },
-    env: { providers: { credentials: './server/env/credentials.ts' } },
-  })],
-  env: {
-    server: {
-      githubToken: env({
-        secret: true,
-        source: env.provider('credentials', 'github/token'),
-      }),
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
     },
-  },
+  })],
 })
 ```
 ::::
@@ -149,7 +145,7 @@ export default defineConfig({
 
 ### Start using it
 
-An admin stores the first value and grants `use` to the service, from trusted server code or the Console.
+An admin stores the first value and grants `use` to the service, from trusted server code.
 
 ```ts fragment
 // owner is the administrator context that authenticate(request) returns.
@@ -168,7 +164,7 @@ await bridge.grant(owner, {
 Server code then reads it through Server Env.
 
 ```ts
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 const env = await loadServerEnv()
 const token = env.githubToken.unseal()
@@ -182,11 +178,11 @@ const token = env.githubToken.unseal()
 | --- | --- |
 | `createEnvBridge` from `vite-hub/env/bridge` | Build a bridge from a secret store, an access store, and the runtime actor. |
 | `createDatabaseEnvStore` from `vite-hub/env/database` | Store encrypted values, grants, and activity in a SQLite Drizzle database. |
-| `createEnvAuthenticator` from `vite-hub/env/auth` | Turn a Better Auth session or a verified Agent session into an `EnvAccessContext`. The only source of user, Agent token, and admin contexts. |
-| `createEnvBridgeHandler` from `vite-hub/env/http` | Serve management requests on a route. The Console uses it through generated Server Env. |
-| `importSealKey`, `seal`, `unseal`, `sealKeyId` from `vite-hub/env/seal` or `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages. |
+| `createEnvAuthenticator` from `vite-hub/env/bridge` | Turn a request into an `EnvAccessContext` from a Better Auth session or a verified Agent session. It is the only way to get a user, Agent token, or administrator context. |
+| `createEnvBridgeHandler` from `vite-hub/env/bridge` | Handle management requests on a server route. The Console uses it through the generated Server Env module. |
+| `importSealKey`, `sealWithKey`, `unsealWithKey`, `sealKeyId` from `vite-hub/env/seal` or `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages. |
 
-Types, such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `EnvSecretStore`, and `EnvAccessStore` come from `vite-hub/env/bridge`. Each `vite-hub/env/<subpath>` also exists as `@vite-hub/env/<subpath>`.
+Types such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `EnvSecretStore`, and `EnvAccessStore` come from `vite-hub/env/bridge`. `vite-hub/env/database` is a separate entry because it loads the optional `drizzle-orm` peer. Each `vite-hub/env/<subpath>` import is also available as `@vite-hub/env/<subpath>`.
 
 ## Bridge options
 
@@ -203,11 +199,11 @@ Types, such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `db` | `EnvDatabase` | Required | A SQLite Drizzle instance, or a compatible ViteHub Database. |
-| `encryptionKey` | `Uint8Array` | Required | A 32-byte key. Other lengths fail with `ENV_BRIDGE_INVALID`. |
+| `encryptionKeys` | `readonly Uint8Array[]` | Required | The keyring: the current 32-byte key first, then previous keys that still decrypt older values. An empty list or another key length fails with `ENV_BRIDGE_INVALID`. |
 | `namespace` | `string` | `'default'` | Keeps the credentials of several bridges apart in one database. |
 | `previews` | `boolean` | `false` | Stores a masked preview for token-shaped values. |
 
-The store also returns `revisionCondition(key, revision)`, a SQL condition that updates related records only while that secret revision is current. A `null` revision means the secret must not exist.
+The store also returns `revisionCondition(key, revision)`, a SQL condition that updates related records only while that secret revision is current. A `null` revision means the secret must not exist. `rotate()` re-encrypts each value that a previous key sealed with the current key and returns `{ rotated, skipped }`. Revisions stay the same. To rotate, pass `[newKey, oldKey]`, call `await store.rotate()`, then pass `[newKey]`.
 
 ## Providers
 
@@ -246,7 +242,7 @@ A grant covers one actor kind (`user`, `agent`, or `service`), one actor ID, and
 - A revoke applies from the next permission check. It cannot take back a secret that an operation already read.
 - Never accept actor IDs, admin flags, or token scopes from a request body.
 
-In the Console, select **Manage credential** in the provider details. Preview works alone. Replace also needs `inspect`, because the Console needs the revision. Provider management auth adds to Console access protection.
+Env management in the Console (**Manage credential**, Access, and Activity) needed the Console that the app served, which is removed. Preview works alone. Replace also needs `inspect`, because a replace needs the revision.
 
 ## Distinguish retrieval from actual use
 
@@ -269,7 +265,7 @@ Admins read `bridge.activity(context, key, before?)`: up to 100 events per page,
 
 ## Export persisted events to evlog
 
-`emit` sends each saved event to your evlog drain. It does not retry. A failed export does not remove the record or undo the operation.
+`emit` sends each saved event to your evlog drain. It does not retry. A failed export logs a warning with the event ID. It does not remove the record or undo the operation.
 
 ```ts fragment
 import { createLogger } from 'evlog'
@@ -318,9 +314,10 @@ Add [`@better-auth/agent-auth`](https://www.better-auth.com/docs/plugins/agent-a
 Pass that reader to `createEnvAuthenticator`, and map capabilities and their constraints to exact store keys. This example supports one fixed capability and rejects grants with constraints:
 
 ```ts fragment
-import { createEnvAuthenticator } from 'vite-hub/env/auth'
+import { useAuth } from 'vite-hub/auth/server'
+import { createEnvAuthenticator } from 'vite-hub/env/bridge'
 import type { AgentSession } from '@better-auth/agent-auth'
-import type { EnvAgentScope } from 'vite-hub/env/auth'
+import type { EnvAgentScope } from 'vite-hub/env/bridge'
 
 function agentScope(session: AgentSession): EnvAgentScope {
   const allowed = session.agent.capabilityGrants.some(grant =>
@@ -332,10 +329,10 @@ function agentScope(session: AgentSession): EnvAgentScope {
 }
 
 const authenticate = createEnvAuthenticator({
-  getSession: ({ headers }) => auth.api.getSession({ headers }),
+  getSession: ({ headers }) => useAuth().api.getSession({ headers }),
   isAdmin: session => session.user.id === ownerUserId,
   agents: {
-    getSession: ({ headers }) => auth.api.getAgentSession({ headers }),
+    getSession: ({ headers }) => useAuth().api.getAgentSession({ headers }),
     scope: agentScope,
   },
 })
@@ -366,4 +363,4 @@ A context that your code builds now fails with `ENV_BRIDGE_UNTRUSTED`.
 
 - Declare provider-backed values with [Env](/docs/env/server-api#read-external-env-storage).
 - Call third-party APIs for connected accounts with [Connections](/docs/connections).
-- Protect management with [Auth](/docs/auth) and the [Console](/docs/development/console#protect-the-console-route).
+- Protect management with [Auth](/docs/auth) and the [Console](/docs/console/access#who-can-call-the-endpoint).

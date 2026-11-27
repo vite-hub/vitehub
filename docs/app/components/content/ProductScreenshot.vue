@@ -25,7 +25,7 @@ defineProps<{
   margin: 0;
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
 }
 
@@ -35,6 +35,7 @@ defineProps<{
   height: auto;
 }
 
+/* Not `:global(.dark)`: Vue compiles `:global(.dark) .x` to a bare `.dark` rule (https://github.com/vuejs/core/issues/12404). */
 .vh-screenshot-image.is-dark,
 :root.dark .vh-screenshot-image.is-light {
   display: none;

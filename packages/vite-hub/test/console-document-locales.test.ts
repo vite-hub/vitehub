@@ -62,7 +62,7 @@ function sent(): Array<[unknown, unknown]> {
 
 describe("Console documents client with a locale", () => {
   it("reads and writes one document in its locale, and leaves lists and schedules alone", async () => {
-    const client = createConsoleDocumentsClient("/api/_vitehub/console/documents", "content", "es")
+    const client = createConsoleDocumentsClient("/_vitehub/console/documents", "content", "es")
     await client.get("docs", "guide")
     await client.get("docs", "guide", "published")
     await client.raw("docs", "guide")
@@ -90,7 +90,7 @@ describe("Console documents client with a locale", () => {
   })
 
   it("sends no locale without one", async () => {
-    const client = createConsoleDocumentsClient("/api/_vitehub/console/documents", "content")
+    const client = createConsoleDocumentsClient("/_vitehub/console/documents", "content")
     await client.get("docs", "guide")
     await client.publish("docs", [{ digest: "digest", id: "guide" }])
     expect(sent()).toEqual([
@@ -190,13 +190,13 @@ describe("Editing a translation", () => {
     wrapper.unmount()
   })
 
-  it.each(["", "https://app.example.com"])("keeps preview controls on the source locale for project origin %j", async (origin) => {
+  it.each(["", "https://app.example.com"])("keeps preview controls on the source locale, and only for a same-origin project, for project origin %j", async (origin) => {
     setConsoleProject({ origin, base: "" })
     const original = mountEditor(source)
     await flushPromises()
-    const label = origin ? "Preview: open in the app" : "Preview the page"
-    const preview = original.wrapper.get(`button[aria-label='${label}']`)
-    if (origin) expect(preview.attributes("to")).toBe(`${origin}/_vitehub/content/docs/guide?preview`)
+    // The preview frame shows pages of the Console origin, so a Console on another origin offers no preview.
+    expect(original.wrapper.find("button[aria-label='Preview the page']").exists()).toBe(!origin)
+    expect(original.wrapper.find("button[aria-label='Preview: open in the app']").exists()).toBe(false)
     original.wrapper.unmount()
 
     const translated = mountEditor({ ...source, locale: "es", path: "docs/es/guide.json", translations: { es: "current" } }, "es")

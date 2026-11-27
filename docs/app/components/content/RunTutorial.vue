@@ -21,7 +21,7 @@ const runnable = computed(() => isIsolatedTutorialPath(route.path));
   align-items: baseline;
   gap: 0.5rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   padding: 0.75rem 1rem;
   font-size: 0.875rem;
 }

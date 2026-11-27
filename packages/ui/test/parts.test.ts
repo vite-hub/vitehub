@@ -158,7 +158,7 @@ describe("shadcn/ui parts", () => {
           h(AttachmentTrigger, { "aria-label": "Open report.pdf" }),
           h(AttachmentMedia, { variant: "image" }, () => h("img", { alt: "", src: "/report.png" })),
           h(AttachmentContent, () => h(AttachmentTitle, () => "report.pdf")),
-          h(AttachmentAction, { "aria-label": "Remove report.pdf", icon: "i-ph-x-light" }),
+          h(AttachmentAction, { "aria-label": "Remove report.pdf", icon: "i-lucide-x" }),
         ]),
       { global: { components: { UButton: ButtonStub } } },
     );
@@ -223,10 +223,12 @@ describe("shadcn/ui parts", () => {
     const stylesheet = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     const unlayered = unlayeredRules(stylesheet);
     // Outside a layer stay only the theme tokens and the rules that restyle Nuxt UI components, whose utility classes
-    // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, and the rail.
-    const restylesNuxtUI = /^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-/;
+    // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, the rail, the
+    // Remove badge of a picture in a comment box, and the Nuxt UI slots of the workspace examples menu.
+    const restylesNuxtUI = /^\.vh-ws-examples-menu \[data-slot="(group|label|item|itemWrapper|itemTrailing)"\]|^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^(\.vh-agent-session )?\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-|^\[data-slot="comment-composer"\] \[data-slot="attachment"\]:has\(> \[data-slot="attachment-media"\]\[data-variant="image"\]\) \[data-slot="attachment-actions"\] > button/;
     for (const { body, prelude } of unlayered) {
       if (prelude === ":root" || prelude.startsWith(":where(:root,")) continue;
+      if (prelude === '[data-slot="comment-image-stack-remove"]') continue;
       if (prelude.startsWith("@")) expect(body, prelude).toMatch(/vh-primitive-/);
       else expect(prelude).toMatch(restylesNuxtUI);
     }

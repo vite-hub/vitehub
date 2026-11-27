@@ -1,13 +1,13 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { parseAst } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 
-import { files } from "../../src/files.ts"
-import { glob } from "../../src/glob.ts"
+import { files, glob } from "../../src/index.ts"
 import { BUNDLED_GLOB_ID, collectBundledGlob, findGlobCalls, loadBundledGlob, renderBundledGlob, rewriteGlobCalls } from "../../src/internal/bundle-glob.ts"
 import { resolveGlobInput } from "../../src/sources/glob.ts"
 import { hubSource } from "../../src/vite.ts"
@@ -31,6 +31,7 @@ async function project() {
   await writeFile(join(docs, ".hidden.md"), "# Hidden\n")
   await writeFile(join(docs, "node_modules/pkg/readme.md"), "# Dependency\n")
   await writeFile(join(docs, "logo.png"), new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0, 255]))
+  await writeFile(join(docs, "bom.txt"), "\uFEFFbyte order mark\n")
   const outside = await mkdtemp(join(tmpdir(), "vitehub-source-glob-bundle-outside-"))
   tempDirs.push(outside)
   await writeFile(join(outside, "secret.md"), "secret")
@@ -38,9 +39,8 @@ async function project() {
   return root
 }
 
-const parse = (code: string) => parseAst(code) as unknown as Parameters<typeof findGlobCalls>[0]
+const parse = (code: string, options?: Parameters<typeof parseAst>[1]) => parseAst(code, options) as unknown as Parameters<typeof findGlobCalls>[0]
 
-/** Every item a Source serves, as glob() and the bundle should agree on them. */
 async function served(source: FileSource<string>, rootDir: string) {
   const ctx = { rootDir }
   const items = []
@@ -91,16 +91,23 @@ describe("glob() bundled by the build", () => {
 
   it("generates a module that loads the same bytes, text and binary", async () => {
     const root = await project()
-    const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source/files", input: "content/docs/**/*" }))
+    const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source", input: "content/docs/**/*" }))
     const { code, watched } = await loadBundledGlob(id, root)
-    expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source/files"`)
-    expect(code).toContain(`"index.md": text("# Home\\n")`)
-    expect(code).toMatch(/"logo\.png": bytes\("[\w+/=]+"\)/)
+    expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source"`)
+    expect(code).toMatch(/"index\.md": file\(\d+, \d+\)/)
+    expect(code).toMatch(/"logo\.png": file\(\d+, \d+\)/)
+    expect(code).not.toContain("# Home")
     expect(watched).toContain(join(root, "content/docs/index.md"))
 
     const body = code.split("\n").slice(1).join("\n").replace("export default ", "return ")
+    const fromDisk = await served(glob("content/docs/**/*"), root)
     const source = new Function("files", body)(files) as FileSource<string>
-    expect(await served(source, "/no-file-system")).toEqual(await served(glob("content/docs/**/*"), root))
+    expect(await served(source, "/no-file-system")).toEqual(fromDisk)
+    const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
+    const withoutZlib = new Function("files", body)(files) as FileSource<string>
+    expect(await served(withoutZlib, "/no-file-system")).toEqual(fromDisk)
+    expect(getBuiltinModule).toHaveBeenCalledWith("node:zlib")
+    vi.restoreAllMocks()
   })
 })
 
@@ -110,9 +117,41 @@ describe("glob() calls in a module", () => {
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
     const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: true } }, { command: "build", mode: "production" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("reports a glob() with options that are not literals as a hint with its place", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string) => unknown }).handler
+    const warn = vi.fn()
+    const environment = { config: { consumer: "server", command: "build", root, logger: { warn } } }
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    transform.call({ parse, environment }, code, join(root, "server/content.ts"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
+  })
+
+  it("reports the hint in a legacy SSR build without an environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-legacy-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ build: { ssr: true } }, { command: "build", mode: "production" })
+    const warn = vi.fn()
+    const rollupWarn = vi.fn()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", logger: { warn }, plugins: [], base: "/", build: { ssr: true } })
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    transform.call({ parse, warn: rollupWarn }, code, join(root, "server/content.ts"), { ssr: true })
+    expect(rollupWarn).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
   })
 
   it("keeps legacy SSR build state when Nitro config runs afterward", async () => {
@@ -121,9 +160,50 @@ describe("glob() calls in a module", () => {
     const config = plugin.config as (config: { build: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: true } }, { command: "build", mode: "production" })
     await config({ build: { ssr: false }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "serve", mode: "development" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("rewrites literal calls in Nitro's own build, which Nuxt 4.7 runs after its Vite builds", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build?: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "build", mode: "production" })
+    await config({}, { command: "build", mode: "production" })
+    const code = `import { glob } from "vite-hub/source"\nexport default async function (): Promise<ReturnType<typeof glob>> { return glob("docs/**/*.md") }`
+    const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
+    expect(output?.code).toContain(`import __vitehubGlob0 from`)
+    expect(output?.code).toContain(": Promise<ReturnType<typeof glob>>")
+  })
+
+  it("reports Nitro transform hints in the active report without a Vite build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-nitro-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: unknown, env: { command: "build", mode: string }) => unknown
+    const warn = vi.fn()
+    const deferHint = vi.fn()
+    const replayConfig = { root, logger: { warn }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true, [VITEHUB_NUXT_HINTS]: deferHint }
+    await config(replayConfig, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(replayConfig)
+    startViteHubHints({ root, command: "build" })
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    expect(transform.call({ parse }, code, join(root, "server/content.ts"), { ssr: true })).toBeUndefined()
+    expect(deferHint).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
+  })
+
+  it("leaves Nitro's own development transforms unchanged", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "serve", mode: "development" })
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
+    expect(transform.call({ parse }, code, "/project/server/content.ts", { ssr: true })).toBeUndefined()
   })
 
   it("leaves legacy SSR development transforms unchanged", async () => {
@@ -131,13 +211,13 @@ describe("glob() calls in a module", () => {
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
     const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: false } }, { command: "serve", mode: "development" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     expect(transform.call({ parse }, code, "/project/server/content.ts", { ssr: true })).toBeUndefined()
   })
 
   it("finds calls by the names glob was imported under, with literal options", () => {
     const calls = findGlobCalls(parse(`
-      import { glob, glob as g } from "vite-hub/source/glob"
+      import { glob, glob as g } from "vite-hub/source"
       import { glob as other } from "./not-vitehub"
       const dir = "docs"
       export const a = glob("content/docs/**/*.md")
@@ -146,18 +226,18 @@ describe("glob() calls in a module", () => {
       export const d = other("x/**")
     `))
     expect(calls.map(call => [call.input, call.filesModule])).toEqual([
-      ["content/docs/**/*.md", "vite-hub/source/files"],
-      [{ cwd: "docs", include: ["**/*.md"], dot: true }, "vite-hub/source/files"],
-      [undefined, "vite-hub/source/files"],
+      ["content/docs/**/*.md", "vite-hub/source"],
+      [{ cwd: "docs", include: ["**/*.md"], dot: true }, "vite-hub/source"],
+      [undefined, "vite-hub/source"],
     ])
   })
 
   it("swaps calls with literal options for their bundled module and leaves the others", () => {
-    const code = `import { glob } from "@vite-hub/source/glob"\nconst dir = "docs"\nexport const a = glob("docs/**/*.md")\nexport const b = glob({ cwd: dir, include: "*" })\n`
+    const code = `import { glob } from "@vite-hub/source"\nconst dir = "docs"\nexport const a = glob("docs/**/*.md")\nexport const b = glob({ cwd: dir, include: "*" })\n`
     const output = rewriteGlobCalls(code, findGlobCalls(parse(code)))
     expect(output).toContain(`export const a = __vitehubGlob0\n`)
     expect(output).toContain(`export const b = glob({ cwd: dir, include: "*" })`)
-    expect(output.split("\n")[0]).toBe(`import __vitehubGlob0 from ${JSON.stringify(BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "@vite-hub/source/files", input: "docs/**/*.md" })))};`)
+    expect(output.split("\n")[0]).toBe(`import __vitehubGlob0 from ${JSON.stringify(BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "@vite-hub/source", input: "docs/**/*.md" })))};`)
   })
 
   it("ignores modules that do not import glob from ViteHub", () => {
@@ -172,7 +252,7 @@ describe("files()", () => {
 })
 
 it("renders an empty match as an empty Source", async () => {
-  const code = renderBundledGlob("vite-hub/source/files", {})
+  const code = renderBundledGlob("vite-hub/source", {})
   const body = code.split("\n").slice(1).join("\n").replace("export default ", "return ")
   const source = new Function("files", body)(files) as FileSource<string>
   await expect(source.getKeys({ rootDir: "/" })).resolves.toEqual([])

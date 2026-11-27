@@ -1,11 +1,13 @@
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { EnvDatabase } from "@vite-hub/env/database"
+
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AuthAccessAuthorize } from "./types.ts"
 
 export const authEventTypes = [
   "user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed",
-  "session.revoked", "user.banned", "user.unbanned", "user.role_changed",
+  "session.revoked", "session.expired", "user.banned", "user.unbanned", "user.role_changed",
   "user.updated", "user.removed", "impersonation.started", "impersonation.stopped",
   "oauth.consent_granted", "oauth.consent_revoked", "organization.member_added",
   "organization.member_removed", "organization.member_role_changed",
@@ -68,10 +70,16 @@ export interface AuthEventsConfiguration {
   store: AuthEventStore
   /** Enable the CLI read endpoint. A session and an explicit true result are required. A Response is sent as the rejection. */
   authorize?: AuthAccessAuthorize
+  /**
+   * Runs for each event after the store records it, for example to send it to another service. With a host `waitUntil()`, it
+   * runs after the response. A failure is logged as `AUTH_EVENT_CALLBACK_FAILED` and never fails the auth request.
+   */
+  onEvent?: (event: AuthEvent) => void | Promise<void>
 }
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(256))
 const timestamp = v.pipe(v.string(), v.isoTimestamp())
+const queryTimestamp = v.pipe(timestamp, v.check(value => Number.isFinite(Date.parse(value))))
 const actor = v.custom<AuthEventActor>(value => typeof value === "string" && value.length <= 512 && /^(system|user:.+)$/.test(value))
 const metadata = v.object({
   method: v.optional(v.pipe(text, v.regex(/^[a-zA-Z0-9_.:-]+$/))),
@@ -82,24 +90,24 @@ const metadata = v.object({
 })
 const eventSchema = v.object({ id: text, type: v.picklist(authEventTypes), time: timestamp, actor, userId: v.nullable(text), metadata })
 const rowSchema = v.object({ payload: v.string() })
-const cursorSchema = v.tuple([timestamp, text])
+const cursorSchema = v.tuple([queryTimestamp, text])
 const listSchema = v.object({
   type: v.optional(v.union([v.picklist(authEventTypes), v.pipe(v.array(v.picklist(authEventTypes)), v.minLength(1), v.maxLength(authEventTypes.length))])), userId: v.optional(text), actor: v.optional(actor),
-  from: v.optional(timestamp), to: v.optional(timestamp), cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
+  from: v.optional(queryTimestamp), to: v.optional(queryTimestamp), cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
 })
 
 export function parseAuthEventList(input: unknown): { query: AuthEventListInput, before: [string, string] | undefined } {
   const query = v.parse(listSchema, input)
   const before = query.cursor ? v.parse(cursorSchema, JSON.parse(decodeURIComponent(query.cursor))) : undefined
-  if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new TypeError("Auth event from must be before to.")
+  if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "order" })
   return { query, before }
 }
 
 export function parseAuthEventWindow(window: { from: string, to: string }): { from: string, to: string } {
   const from = new Date(v.parse(timestamp, window.from)).toISOString()
   const to = new Date(v.parse(timestamp, window.to)).toISOString()
-  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
+  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "window" })
   return { from, to }
 }
 
@@ -113,7 +121,7 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
   const { db } = options
   const retention = options.retention === false ? false : { ...defaultAuthEventRetention, ...options.retention }
   if (retention && Object.values(retention).some(value => !Number.isSafeInteger(value) || value < 1)) {
-    throw new TypeError("Auth event retention limits must be positive integers.")
+    throw authErrorDiagnostics.AUTH_EVENT_RETENTION_INVALID()
   }
   let ready: Promise<void> | undefined
   const initialize = () => ready ??= (async () => {

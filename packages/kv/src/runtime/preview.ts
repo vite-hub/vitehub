@@ -1,3 +1,5 @@
+import { isUint8Array, kvValueType } from "./inspect-value.ts"
+
 const maximumValueBytes = 256 * 1_024
 
 export interface KVPreview {
@@ -7,13 +9,6 @@ export interface KVPreview {
   truncated?: true
   type: string
   value: string
-}
-
-function valueType(value: unknown): string {
-  if (value === null) return "null"
-  if (Array.isArray(value)) return "array"
-  if (value instanceof Uint8Array) return "bytes"
-  return typeof value
 }
 
 function truncateValue(value: string): { truncated: boolean; value: string } {
@@ -31,8 +26,9 @@ function truncateValue(value: string): { truncated: boolean; value: string } {
   return { truncated: false, value }
 }
 
-function boundedJSONStringify(value: unknown): { editable: boolean; truncated: boolean; value?: string } {
+function boundedJSONStringify(value: unknown): { editable: boolean; truncated: boolean; value?: string } | undefined {
   let editable = true
+  let unsupported = false
   let bytes = 0
   let rendered = ""
   let truncated = false
@@ -78,7 +74,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      throw new TypeError("Cannot serialize bigint as JSON.")
+      unsupported = true
+      return false
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
@@ -101,7 +98,10 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       return serialize(boxed, depth, arrayValue, key)
     }
-    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    if (ancestors.has(object)) {
+      unsupported = true
+      return false
+    }
     if (seen.has(object)) editable = false
     seen.add(object)
     ancestors.add(object)
@@ -143,12 +143,13 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
   }
 
   const serialized = serialize(value, 0, false, "")
+  if (unsupported) return undefined
   return { editable, truncated, value: serialized || truncated ? rendered : undefined }
 }
 
 /** A stored value as text of at most 256 KiB, for a page that shows it. Bytes become hex. */
 export function previewKVValue(value: unknown): KVPreview {
-  const type = valueType(value)
+  const type = kvValueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
   let truncated = false
@@ -158,20 +159,20 @@ export function previewKVValue(value: unknown): KVPreview {
     format = "text"
     rendered = value
   }
-  else if (value instanceof Uint8Array) {
+  else if (isUint8Array(value)) {
     format = "text"
     const maximumBytes = maximumValueBytes / 2
     truncated = value.byteLength > maximumBytes
     rendered = Array.from(value.subarray(0, maximumBytes), byte => byte.toString(16).padStart(2, "0")).join("")
   }
   else {
-    try {
-      const result = boundedJSONStringify(value)
+    const result = boundedJSONStringify(value)
+    if (result) {
       rendered = result.value ?? String(value)
       truncated = result.truncated
       editable = result.editable
     }
-    catch {
+    else {
       format = "text"
       rendered = String(value)
     }

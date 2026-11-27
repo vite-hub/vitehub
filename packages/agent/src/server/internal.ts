@@ -1,5 +1,5 @@
 // The Console status route and the generated Nitro dev handler of `vitehub agent invocations cancel` still use these.
-export { createError, defineEventHandler } from "h3"
+export { createError, defineEventHandler } from "nitro/h3"
 
 export {
   createAgentHealthHandler,
@@ -10,6 +10,7 @@ export type { AgentHealthHandlerOptions, AgentHealthReport, AgentHealthStatus } 
 export {
   createChannelChatRouteHandler,
   createChannelWebhookRouteHandler,
+  createDiscordGatewayHandler,
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
   drainInlineChatInvocations,
@@ -19,7 +20,7 @@ export {
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./route-handlers.ts"
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-export { getStandardContext } from "@vite-hub/runtime/h3"
+export { getStandardContext } from "@vite-hub/runtime/internal/h3"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { d1AgentInvocationRetention } from "../invocations/d1-retention.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
@@ -27,18 +28,20 @@ export type { ChannelReplayRequestOptions } from "../channel-replay.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
 export { webhookQueueShutdown } from "../internal/webhook-queue.ts"
 export { registerChannelTaskQueueStarter } from "../channel-tasks.ts"
-export { onShutdown } from "@vite-hub/runtime/shutdown"
+export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
+export { hasDiscordGatewayChannel } from "./discord-gateway-channel.ts"
+export { runDiscordGatewayListeners } from "./discord-gateway-listeners.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
 export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from "../internal/discovered-agent-name.ts"
 export { resolvePublicUrl } from "@vite-hub/runtime"
-export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
+export { markDiscoveredWorkspaceAgentDefinitionRegistered, resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions, withDeclaredAgentWorkspace } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
-export { ChannelUnknownError, installChannelsConsoleHost } from "../channels-console-host.ts"
+export { installChannelsConsoleHost } from "../channels-console-host.ts"
 export { channelConversationArchive } from "../internal/channel-conversation.ts"
 export type { AgentChannelConversation, AgentChannelInfo, AgentChannelRetention } from "./routes.ts"
 
@@ -70,8 +73,8 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 // The root entry installs the internal Agent runners that this entry exports.
 import "../index.ts"
 export { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
+export { opensLibsqlAgentState } from "../internal/agent-state-runtime.ts"
 export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
-import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
 
@@ -79,3 +82,4 @@ type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R08
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {
   return agentDiagnostics[code]({ message })
 }
+export { agentChannelNames, namedChannelHosts, registerAgentChannels } from "../internal/named-channels.ts"

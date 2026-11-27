@@ -22,7 +22,7 @@ const devTokenExitKey: unique symbol = Symbol.for("vitehub.devTokens.exit")
 const processScope = globalThis as typeof globalThis & { [devTokenEntriesKey]?: Map<string, ViteHubDevTokenEntry>, [devTokenExitKey]?: true }
 const devTokenEntries = (): Map<string, ViteHubDevTokenEntry> => processScope[devTokenEntriesKey] ??= new Map()
 
-// Nuxt 4's second Vite server has no HTTP server to close, so its registration may outlive the first one's.
+// A second Vite server has no HTTP server to close, so its registration may outlive the first one's.
 function removeLeftoverTokensAtExit(): void {
   const fs = globalThis.process?.getBuiltinModule?.("node:fs")
   const path = globalThis.process?.getBuiltinModule?.("node:path")
@@ -38,7 +38,7 @@ function removeLeftoverTokensAtExit(): void {
 
 /**
  * Creates the private token of one dev server. The same project, namespace, and server id in one process share a
- * token, because Nuxt 4 runs a Vite plugin in two Vite servers. The file stays until every registration is removed.
+ * token, because a Nuxt app runs a Vite plugin in two Vite servers. The file stays until every registration is removed.
  * A token file that another process created is never reused: it throws `EEXIST`.
  */
 export async function createViteHubDevToken(rootDir: string, namespace: string, serverId: string = globalThis.crypto.randomUUID()): Promise<{ serverId: string, token: string }> {

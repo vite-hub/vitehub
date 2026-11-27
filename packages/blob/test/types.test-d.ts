@@ -1,10 +1,10 @@
-import type { UserConfig } from "vite"
 import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#vitehub/blob/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
-import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobPutOptions, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import type { H3Event } from "h3"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -21,21 +21,19 @@ describe("types", () => {
     const config = {
       store: {
         binding: "BLOB",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       },
     } satisfies ResolvedBlobModuleOptions
 
     expectTypeOf(config.store.binding).toEqualTypeOf<string>()
   })
 
-  it("augments vite user config with blob options", () => {
-    const config: UserConfig = {
-      blob: {
-        driver: "fs",
-      },
+  it("types blob options", () => {
+    const options: BlobOptions = {
+      driver: "fs",
     }
 
-    expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<BlobOptions>()
   })
 
   it("accepts static headers for generated serving routes", () => {
@@ -46,8 +44,9 @@ describe("types", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        access: "public",
       },
-    } satisfies BlobModuleOptions
+    } satisfies BlobOptions
 
     expectTypeOf(config.serve.headers).toEqualTypeOf<{
       "Cache-Control": string
@@ -55,29 +54,55 @@ describe("types", () => {
     }>()
   })
 
+  it("requires the serve route to say who may read the files", () => {
+    // @ts-expect-error `serve: true` made every object public. Choose `access: "public"` or `authorize: true`.
+    const shorthand: BlobOptions = { driver: "fs", serve: true }
+    // @ts-expect-error A serve route without `access` or `authorize` would be public.
+    const implicit: BlobOptions = { driver: "fs", serve: { route: "/files" } }
+    // @ts-expect-error A route is public or authorized, not both.
+    const both: BlobOptions = { driver: "fs", serve: { authorize: true, access: "public" } }
+    // @ts-expect-error `anonymous` applies to an authorized route only.
+    const anonymousPublic: BlobOptions = { driver: "fs", serve: { anonymous: true, access: "public" } }
+    // @ts-expect-error `authorize: false` reads as "deny". Set `access: "public"` for a public route.
+    const authorizeFalse: BlobOptions = { driver: "fs", serve: { authorize: false } }
+    // @ts-expect-error A serve route is public or authorized. Use `authorize: true` for private files.
+    const privateRoute: BlobOptions = { driver: "fs", serve: { access: "private" } }
+    expectTypeOf([shorthand, implicit, both, anonymousPublic, authorizeFalse, privateRoute]).toMatchTypeOf<BlobOptions[]>()
+    // @ts-expect-error One object cannot be private on its own.
+    const putOptions: BlobPutOptions = { access: "private" }
+    expectTypeOf(putOptions).toMatchTypeOf<BlobPutOptions>()
+  })
+
   it("accepts a boolean serve authorization and types the server module callback", () => {
     const config = {
       driver: "fs",
       serve: { authorize: true, route: "/photos" },
-    } satisfies BlobModuleOptions
-    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+    } satisfies BlobOptions
+    expectTypeOf(config).toMatchTypeOf<BlobOptions>()
 
     // @ts-expect-error Vite config cannot carry the callback. Export it from server/blob.ts.
-    const callbackConfig: BlobModuleOptions = { driver: "fs", serve: { authorize: () => true } }
-    expectTypeOf(callbackConfig).toMatchTypeOf<BlobModuleOptions>()
+    const callbackConfig: BlobOptions = { driver: "fs", serve: { authorize: () => true } }
+    expectTypeOf(callbackConfig).toMatchTypeOf<BlobOptions>()
 
     const authorize: BlobServeAuthorize = ({ request, user }) =>
       new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
     expectTypeOf(authorize).parameter(0).toHaveProperty("session").toEqualTypeOf<Record<string, unknown>>()
     expectTypeOf(authorize).returns.toMatchTypeOf<boolean | Response | Promise<boolean | Response>>()
+
+    // The H3 event of the route reaches helpers of the app that take it.
+    const canRead = (event: H3Event, pathname: string) => event.context.params?._ === pathname
+    const withEvent: BlobServeAuthorize = ({ event, user }) => canRead(event, `${user.id}/meal.jpg`)
+    expectTypeOf(withEvent).parameter(0).toHaveProperty("event").toEqualTypeOf<H3Event>()
+    const anonymous: BlobServeAnonymousAuthorize = ({ event }) => canRead(event, "public/meal.jpg")
+    expectTypeOf(anonymous).toBeFunction()
   })
 
   it("types the anonymous serve callback with a nullable user", () => {
     const config = {
       driver: "fs",
       serve: { anonymous: true, authorize: true, route: "/f" },
-    } satisfies BlobModuleOptions
-    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+    } satisfies BlobOptions
+    expectTypeOf(config).toMatchTypeOf<BlobOptions>()
 
     // @ts-expect-error A signed-out caller has no user.
     const unchecked: BlobServeAnonymousAuthorize = ({ user }) => user.id === "u1"
@@ -88,13 +113,11 @@ describe("types", () => {
   })
 
   it("allows MinIO to resolve common Docker env defaults", () => {
-    const config: UserConfig = {
-      blob: {
-        driver: "minio",
-      },
+    const options: BlobOptions = {
+      driver: "minio",
     }
 
-    expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<BlobOptions>()
   })
 
   it("exposes the intended Blob runtime surface", () => {
@@ -102,7 +125,8 @@ describe("types", () => {
     expectTypeOf(blob.head).returns.toEqualTypeOf<Promise<Result<BlobObject | null, BlobErrorCode>>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
-    expectTypeOf(blob.serve).returns.toEqualTypeOf<Promise<Result<ReadableStream | null, BlobErrorCode>>>()
+    expectTypeOf(blob.serve).returns.toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(blob.serve).parameter(0).toEqualTypeOf<Request>()
     expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<Result<{
       headers: Record<string, string>
       method: "GET" | "PUT"
@@ -119,7 +143,7 @@ describe("types", () => {
   it("narrows Blob results by the error element", async () => {
     const [error, value] = await blob.put("proof.txt", "value")
     if (error) {
-      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
+      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }
@@ -184,8 +208,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no put().
     void reader.put("report.pdf", "text")
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("report.pdf")
     // @ts-expect-error A read-only handle has no handleUpload().
     void reader.handleUpload
     // @ts-expect-error A read-only handle has no createMultipartUpload().

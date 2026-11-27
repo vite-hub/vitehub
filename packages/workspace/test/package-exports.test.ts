@@ -6,17 +6,14 @@ import { describe, expect, it } from "vitest"
 const workspaceRoot = fileURLToPath(new URL("..", import.meta.url))
 
 describe("workspace package exports", () => {
-  it("keeps generated registries private and removes unused public subpaths", () => {
+  it("keeps generated registries private", () => {
     const script = `
-      const removed = [
-        "@vite-hub/workspace/cli",
+      const registries = [
         "@vite-hub/workspace/internal/runtime/empty-assets-registry",
         "@vite-hub/workspace/internal/runtime/empty-registry",
-        "@vite-hub/workspace/internal/stores/cloudflare-artifacts",
-        "@vite-hub/workspace/internal/stores/vercel-blob",
       ]
 
-      for (const specifier of removed) {
+      for (const specifier of registries) {
         let error
         try {
           await import(specifier)

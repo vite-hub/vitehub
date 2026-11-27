@@ -9,7 +9,7 @@ import type { NuxtConfig } from "nuxt/schema"
 import type { DocsSearchSection } from "../src/types.ts"
 
 const files: Record<string, string> = {
-  "index.md": "---\ntitle: Lumen\nlayout: home\ncredits: Built on [Comark](https://comark.dev).\n---\nRead [Annotate](/docs/annotate).\n",
+  "index.md": "---\ntitle: Lumen\nlayout: home\ncredits: Built on [Comark](https://comark.dev).\n---\n::lumen-hero\n# Smaller images\n::\n\n## What you get\n\n- One binary\n\nRead [Annotate](/docs/annotate).\n",
   "docs/index.md": "---\ntitle: All docs\nlayout: landing\neyebrow: Catalog label\n---\nAll docs.\n",
   "about.md": "---\ntitle: About\neyebrow: About label\n---\nAbout.\n",
   "docs/annotate/index.md": [
@@ -38,12 +38,14 @@ it("shows the eyebrow and tagline, ends the page with its credits, and searches 
       await writeFile(join(root, "content", file), text)
     }
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    await mkdir(join(root, "app/components/content"), { recursive: true })
+    await writeFile(join(root, "app/components/content/LumenHero.vue"), "<template><section class=\"lumen-hero\"><slot /></section></template>\n")
     const config: NuxtConfig = {
       dev: false,
       devtools: { enabled: false },
       modules: [[docs, { mcp: false, ogImage: false, linkChecker: false, site: { name: "Lumen", url: "https://lumen.example.com" } }]],
     }
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true, nitro: { static: true } }), ready: true })
     await build(nuxt)
     const output = (path: string) => readFile(join(root, ".output/public", path), "utf8")
     const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
@@ -68,8 +70,16 @@ it("shows the eyebrow and tagline, ends the page with its credits, and searches 
     expect(text(/<[^>]+data-slot="description"[^>]*>([\s\S]*?)<\/(?:div|p)>/.exec(plain)?.[1] ?? "")).toBe("A page without a tagline.")
     expect(plain).not.toContain("<footer class=\"vh-docs-credits")
 
-    // A home page is only its own blocks, and its credits follow them.
-    expect(text(/<footer class="vh-docs-credits[\s\S]*?<\/footer>/.exec(await output("index.html"))?.[0] ?? "")).toBe("Built on Comark .")
+    // A home page draws the app's blocks at full width, the Markdown after them in the docs prose column, then its credits.
+    const home = await output("index.html")
+    const [hero, prose, heading, footer] = ['<section class="lumen-hero"', '<div class="docs-content vh-docs-home-prose"', "What you get", '<footer class="vh-docs-credits'].map(part => home.indexOf(part))
+    expect(hero).toBeGreaterThan(-1)
+    expect(prose).toBeGreaterThan(hero)
+    expect(home.indexOf("</section>", hero)).toBeLessThan(prose)
+    expect(heading).toBeGreaterThan(prose)
+    expect(home.indexOf("One binary")).toBeGreaterThan(heading)
+    expect(footer).toBeGreaterThan(home.indexOf("One binary"))
+    expect(text(/<footer class="vh-docs-credits[\s\S]*?<\/footer>/.exec(home)?.[0] ?? "")).toBe("Built on Comark .")
 
     const search: DocsSearchSection[] = JSON.parse(await output("api/_docs/search.json"))
     expect(search.find(record => record.id === "/docs/annotate")?.keywords).toEqual(["image annotation", "PR evidence"])

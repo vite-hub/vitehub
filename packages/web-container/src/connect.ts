@@ -1,9 +1,4 @@
-/**
- * Accounts a reader can connect to a WebContainer app: deploy targets, a source host, and model providers.
- *
- * This entry only describes providers. It runs no OAuth flow yet. A connected credential stays in the
- * browser tab and reaches the app only as an environment variable of one `container.run()` call.
- */
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type ConnectProviderName = "anthropic" | "cloudflare" | "github" | "netlify" | "openai" | "vercel"
 
@@ -69,7 +64,7 @@ function isProviderName(name: string): name is ConnectProviderName {
 /** Describes the providers a page offers, in a fixed order. */
 export function defineConnect(config: ConnectConfig): Connect {
   for (const name of Object.keys(config)) {
-    if (!isProviderName(name)) throw new TypeError(`Unknown connect provider "${name}". Use one of: ${Object.keys(defaults).sort().join(", ")}.`)
+    if (!isProviderName(name)) throw webContainerErrorDiagnostics.WEB_CONTAINER_CONNECT_PROVIDER_UNKNOWN({ choices: Object.keys(defaults).sort().join(", "), name })
   }
   const providers: ConnectProvider[] = []
   for (const name of Object.keys(defaults).sort()) {

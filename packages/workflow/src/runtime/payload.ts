@@ -12,12 +12,17 @@ type PayloadValidator<T> =
   | ParsePayloadSchema<T>
   | ((payload: unknown) => T | Promise<T>)
 
-export async function readRequestPayload<T = unknown>(request: Request): Promise<T> {
+/** Reads a JSON body as parsed JSON and any other body as text. The value is not checked: pass it to `validatePayload()`. */
+export async function readRequestPayload(request: Request): Promise<unknown> {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
-  if (contentType === "application/json") {
-    return await request.json() as T
+  const text = await request.text()
+  if (contentType !== "application/json") return text
+  try {
+    return JSON.parse(text)
   }
-  return await request.text() as T
+  catch (cause) {
+    throw workflowErrorDiagnostics.WORKFLOW_PAYLOAD_JSON_INVALID({ cause })
+  }
 }
 
 export async function validatePayload<T>(payload: unknown, schema: PayloadValidator<T>): Promise<T> {
@@ -48,8 +53,6 @@ function hasSchemaMethod<T>(value: PayloadSchema<T> | ParsePayloadSchema<T>, key
   while (prototype !== null) {
     if (Object.hasOwn(prototype, key)) {
       const constructor = Object.hasOwn(prototype, "constructor") ? prototype.constructor : undefined
-      // Native Object constructors have the same source across realms. Custom
-      // constructor prototypes can also have a null parent and remain valid.
       return typeof constructor === "function"
         && constructor.prototype === prototype
         && Function.prototype.toString.call(constructor) !== Function.prototype.toString.call(Object)

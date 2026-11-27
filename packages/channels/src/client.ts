@@ -2,7 +2,7 @@ import { defineChannel, isChannelDefinition } from "./definition.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { ChannelAdapter, ChannelClient, ChannelDefinitionOptions, ChannelErrorCode, ChannelSendOptions, ChannelSendReceipt, ChannelSendResult } from "./types.ts"
+import type { ChannelAdapter, ChannelClient, ChannelDefinitionOptions, ChannelErrorCode, ChannelMessage, ChannelSendOptions, ChannelSendReceipt, ChannelSendResult } from "./types.ts"
 import { channelErrors } from "./error-diagnostics.ts"
 
 const uninspectableSendErrorMessage = "Channel send failed with an uninspectable value."
@@ -20,66 +20,51 @@ function toError(cause: unknown): Error {
   }
 }
 
-function channelSendErrorMessage(error: Error): string {
+function unlessItThrows<T>(read: () => T): T | undefined {
   try {
-    const message = error.message
-    if (typeof message === "string") return message.slice(0, 2_000)
+    return read()
   }
   catch {
-    // Connector error getters and proxies can throw while reading the message.
+    return undefined
   }
-  return uninspectableSendErrorMessage
+}
+
+function channelSendErrorMessage(error: Error): string {
+  const message = unlessItThrows(() => error.message)
+  return typeof message === "string" ? message.slice(0, 2_000) : uninspectableSendErrorMessage
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, kind: string, extra?: () => Record<string, unknown>): void {
-  try {
-    console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() }))
-  }
-  catch {
-    // Logging must not change delivery results or encourage retrying a delivered message.
-  }
+  unlessItThrows(() => console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() })))
 }
 
 function normalizeSendReceipt(result: object): ChannelSendReceipt {
   const entries: Array<[PropertyKey, unknown]> = []
-  try {
-    for (const key of Reflect.ownKeys(result)) {
-      if (key === "id") continue
-      try {
-        if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
-      }
-      catch {
-        // Optional metadata must not turn an accepted delivery into a retry.
-      }
-    }
-  }
-  catch {
-    // An adapter proxy can reject enumeration while still exposing its ID.
+  for (const key of unlessItThrows(() => Reflect.ownKeys(result)) ?? []) {
+    if (key === "id") continue
+    unlessItThrows(() => {
+      if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
+    })
   }
   const normalized: ChannelSendReceipt = Object.fromEntries(entries)
-  try {
-    const id: unknown = Reflect.get(result, "id")
-    if (typeof id === "string") normalized.id = id
-  }
-  catch {
-    // Delivery already succeeded. An inaccessible optional ID must not encourage a resend.
-  }
+  const id = unlessItThrows(() => Reflect.get(result, "id"))
+  if (typeof id === "string") normalized.id = id
   return normalized
 }
 
 /** A client that sends through the Channel's adapter. `useChannel()` returns the same client for discovered Channels. */
-export function createChannel<TAdapter extends ChannelAdapter<never>>(
+export function createChannel<TAdapter extends ChannelAdapter<never, never>>(
   name: string,
   definition: ChannelDefinitionOptions<TAdapter>,
-): ChannelClient<ChannelSendOptions<TAdapter>> {
+): ChannelClient<ChannelSendOptions<TAdapter>, ChannelMessage<TAdapter>> {
   const { adapter } = isChannelDefinition(definition) ? definition : defineChannel(definition)
 
   return {
     name,
-    async send(text: string, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
+    async send(message: unknown, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
       const invalid = (detail: string): Result<ChannelSendResult, ChannelErrorCode> => [channelErrors.CHANNEL_INVALID_SEND({ detail }), undefined]
-      if (typeof text !== "string" || text.trim().length === 0) {
-        return invalid("Channel message text must be a non-empty string.")
+      if (typeof message === "string" ? message.trim().length === 0 : (!message || typeof message !== "object" || Array.isArray(message))) {
+        return invalid("Channel message must be non-empty text or an object that the adapter accepts.")
       }
       if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options))) {
         return invalid(`Channel "${name}" send options must be an object.`)
@@ -92,10 +77,12 @@ export function createChannel<TAdapter extends ChannelAdapter<never>>(
       const deliveryId = globalThis.crypto.randomUUID()
       try {
         logDelivery("outbound.started", deliveryId, name, adapter.kind)
-        // SAFETY: ChannelClient types the options as the adapter's send options.
-        const result: unknown = await send.call(adapter, text, (options ?? {}) as never)
+        // SAFETY: ChannelClient types the message and options as the adapter's send arguments.
+        const result: unknown = await send.call(adapter, message as never, (options ?? {}) as never)
         if (!result || typeof result !== "object") {
-          throw new Error(`The "${adapter.kind}" adapter of Channel "${name}" returned an invalid result.`)
+          const failure = channelErrors.CHANNEL_SEND_FAILED({ channel: name, kind: adapter.kind, detail: "Its send() resolved to a value that is not an object." })
+          logDelivery("outbound.failed", deliveryId, name, adapter.kind, () => ({ error: channelSendErrorMessage(failure) }))
+          return [failure, undefined]
         }
         const normalized = normalizeSendReceipt(result)
         logDelivery("outbound.completed", deliveryId, name, adapter.kind, () => ({ messageId: normalized.id }))
@@ -107,5 +94,5 @@ export function createChannel<TAdapter extends ChannelAdapter<never>>(
         return [channelErrors.CHANNEL_SEND_FAILED({ cause, channel: name, kind: adapter.kind }), undefined]
       }
     },
-  } as ChannelClient<ChannelSendOptions<TAdapter>>
+  } as ChannelClient<ChannelSendOptions<TAdapter>, ChannelMessage<TAdapter>>
 }

@@ -18,13 +18,10 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
             to="/docs/getting-started/first-server-primitive"
             label="Build your first primitive"
             trailing-icon="i-lucide-arrow-right"
-            color="neutral"
-            size="lg"
-            class="closing-cta h-10 rounded-none px-4"
           />
           <NuxtLink
             to="/docs/getting-started/first-agent"
-            class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+            class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted"
           >
             Build your first Agent
             <UIcon name="i-lucide-arrow-up-right" class="size-3.5" aria-hidden="true" />
@@ -74,18 +71,9 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
   transition: background-color 200ms ease;
 }
 
-.closing-fact.is-link:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
-
 .closing-arrow {
   color: var(--ui-text-muted);
-  transition: color 180ms ease, transform 180ms ease;
-}
-
-.closing-cta :deep(.iconify) {
-  transition: transform 200ms ease;
+  transition: color 180ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -95,20 +83,6 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
 
   .closing-fact.is-link:hover .closing-arrow {
     color: var(--ui-text-highlighted);
-    transform: translate(1px, -1px);
-  }
-
-  .closing-cta:hover :deep(.iconify) {
-    transform: translateX(0.25rem);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .closing-fact,
-  .closing-arrow,
-  .closing-cta :deep(.iconify) {
-    transition: none;
-    transform: none;
   }
 }
 </style>

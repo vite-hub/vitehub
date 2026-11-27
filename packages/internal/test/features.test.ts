@@ -1,13 +1,66 @@
+import { readFileSync } from "node:fs"
+
 import { describe, expect, it } from "vitest"
 
-import type { DeploymentPreset } from "../src/deployment.ts"
+import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, installSpecifier, isOwnerCheckedPackage } from "../src/features.ts"
 
-const presets: DeploymentPreset[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
+interface OwnerManifest {
+  peerDependencies: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+function manifest(name: string): OwnerManifest {
+  return JSON.parse(readFileSync(new URL(`../../${name}/package.json`, import.meta.url), "utf8"))
+}
+
+const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
 describe("feature catalog", () => {
+  it.each([
+    ["queue", "postgres", "@vercel/queue"],
+    ["workflow", "openworkflow", "@vercel/functions"],
+  ] as const)("selects Vercel SDKs for %s unless another driver is explicit", (feature, driver, sdk) => {
+    expect(featurePackages(feature, true, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver: "vercel" }, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
+  })
+
+  it("adds nodemailer only for the SMTP Email driver off Cloudflare, and leaves its check to Email", () => {
+    expect(featurePackages("email", { driver: "smtp" }, "node")).toEqual(["@vite-hub/email", "nodemailer"])
+    expect(featurePackages("email", { driver: "smtp" }, "cloudflare")).toEqual(["@vite-hub/email"])
+    expect(featurePackages("email", { driver: "resend" }, "node")).toEqual(["@vite-hub/email"])
+    expect(featurePackages("email", true, "cloudflare")).toEqual(["@vite-hub/email"])
+    expect(isOwnerCheckedPackage("email", "nodemailer")).toBe(true)
+    expect(isOwnerCheckedPackage("email", "@vite-hub/email")).toBe(false)
+  })
+
+  it("installs Drizzle in the peer range of every owner, which holds the release of the workspace catalog", () => {
+    const catalog = readFileSync(new URL("../../../pnpm-workspace.yaml", import.meta.url), "utf8")
+    for (const name of ["drizzle-orm", "drizzle-kit"]) {
+      const version = catalog.match(new RegExp(`^\\s+${name}: (\\S+)$`, "mu"))?.[1]
+      expect(version, name).toBeDefined()
+      const specifier = installSpecifier(name)
+      expect(specifier.startsWith(`${name}@`), specifier).toBe(true)
+      const range = specifier.slice(name.length + 1)
+      expect(range.split(" || "), name).toContain(version)
+      for (const owner of ["vite-hub", "database", "auth"]) {
+        const peer = manifest(owner).peerDependencies[name]
+        if (peer) expect(peer, `${owner} ${name}`).toBe(range)
+      }
+    }
+    expect(installSpecifier("@vite-hub/database")).toBe("@vite-hub/database")
+  })
+
+  it("lists drizzle-orm for Auth, which requires it as a peer", () => {
+    expect(features.auth.packages).toContain("drizzle-orm")
+    const auth = manifest("auth")
+    expect(auth.peerDependencies["drizzle-orm"]).toBeDefined()
+    expect(auth.peerDependenciesMeta?.["drizzle-orm"]?.optional).not.toBe(true)
+  })
+
   it("has one definition per feature id, keyed by its id", () => {
     expect(Object.keys(features).sort()).toEqual([...featureIds].sort())
     for (const id of featureIds) expect(features[id].id).toBe(id)
@@ -32,12 +85,7 @@ describe("feature catalog", () => {
           expect(support.level, `${id} on ${preset}`).not.toBe("native")
           continue
         }
-        // Realtime on Node is supported, but the app must select the memory authority.
-        if (support.level === "explicit") {
-          expect(`${id}:${preset}`).toBe("realtime:node")
-          continue
-        }
-        expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
+        expect(support, `${id} on ${preset}`).toMatchObject({ driver: policy.driver, guarantee: policy.guarantee, level: "native" })
       }
     }
   })
@@ -56,17 +104,16 @@ describe("feature catalog", () => {
     }
   })
 
-  it("implies Workflow from Agent except on Netlify", () => {
-    expect(impliedFeatures(["agent"], "cloudflare")).toEqual(["workflow"])
-    expect(impliedFeatures(["agent"], "netlify")).toEqual([])
-    expect(impliedFeatures(["agent"], "node", ["workflow"])).toEqual([])
+  it("does not turn Workflow on for Agent", () => {
+    expect(impliedFeatures(["agent"])).toEqual([])
   })
 
   it("requires Database for Comments and Connections but not Console", () => {
-    expect(impliedFeatures(["console"], "node")).toEqual([])
-    expect(impliedFeatures(["comments"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections", "database"], "node")).toEqual([])
+    expect(impliedFeatures(["console"])).toEqual([])
+    expect(impliedFeatures(["comments"])).toEqual(["database"])
+    expect(impliedFeatures(["connections"])).toEqual(["database"])
+    expect(impliedFeatures(["connections", "database"])).toEqual([])
+    expect(impliedFeatures(["comments"], ["database"])).toEqual([])
   })
 
   it("only implies features that exist", () => {
@@ -79,19 +126,19 @@ describe("feature catalog", () => {
     expect(featureIds.filter(id => features[id].enabledByDefault)).toEqual(["env"])
   })
 
-  it("requires the configured preset for development lookups", () => {
-    // @ts-expect-error Development needs a preset, including when JavaScript calls this API.
-    expect(() => featureSupport("workflow", "dev")).toThrow(/deployment preset/)
+  it("requires the configured host for development lookups", () => {
+    // @ts-expect-error Development needs a host, including when JavaScript calls this API.
+    expect(() => featureSupport("workflow", "dev")).toThrow(/configured ViteHub host/)
   })
 
   it("uses process-local Rate Limit memory during Cloudflare development", () => {
     expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       level: "native",
     })
     expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       guarantee: "native",
       level: "native",
     })

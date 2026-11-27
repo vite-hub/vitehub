@@ -1,19 +1,22 @@
 import { existsSync } from "node:fs"
 import * as fs from "node:fs"
 import * as fsPromises from "node:fs/promises"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as rolldown from "@vite-hub/internal/build/rolldown"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveSchedulePublicEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
+
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 
 vi.mock("node:fs", async importOriginal => ({ ...await importOriginal<typeof import("node:fs")>() }))
 vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }))
@@ -49,7 +52,8 @@ describe("schedule provider output", () => {
       const rootDir = await createTempProject("vitehub-schedule-netlify-url-")
       await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
         "import { defineSchedule } from '@vite-hub/schedule'",
-        "import { resolvePublicUrl, consoleInvocationUrl } from '@vite-hub/runtime'",
+        "import { resolvePublicUrl } from '@vite-hub/runtime'",
+        "import { consoleInvocationUrl } from '@vite-hub/runtime/internal/console'",
         "export default defineSchedule({ cron: '0 0 * * *', handler: () => {",
         "  const origin = resolvePublicUrl({ agentName: 'worker' })",
         "  globalThis.scheduleUrl = origin ? consoleInvocationUrl(origin, 'worker', 'invocation') : undefined",
@@ -58,7 +62,10 @@ describe("schedule provider output", () => {
       await generateProviderOutputs({
         clientOutDir: "dist/client",
         rootDir,
-        bundleAlias: { "@vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")) },
+        bundleAlias: {
+          "@vite-hub/runtime/internal/console": fileURLToPath(import.meta.resolve("@vite-hub/runtime/internal/console")),
+          "@vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")),
+        },
         bundleDefines: {
           __VITEHUB_PUBLIC_URL__: JSON.stringify(origin ? { url: origin } : undefined) ?? "undefined",
           __VITEHUB_APP_BASE_URL__: JSON.stringify(base),
@@ -71,7 +78,7 @@ describe("schedule provider output", () => {
       const handler = await import(pathToFileURL(file).href)
       const result = await handler.default(new Request("https://request.example"))
       expect(result.status).toBe(204)
-      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? `${origin}${base}_vitehub/agents/worker/invocations/invocation` : undefined)
+      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? hostedConsoleLink(`${origin}${base.replace(/\/$/, "")}`, "/agents/worker/invocations/invocation") : undefined)
     }
     Reflect.deleteProperty(globalThis, "scheduleUrl")
   })
@@ -81,7 +88,8 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "retained", "sources")
     const retainedHandler = join(retainedSourcesDir, "cleanup.schedule.ts")
     await mkdir(retainedSourcesDir, { recursive: true })
-    const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => '${value}' })`
+    const publishedHandler = join(rootDir, ".vitehub", "schedule", "sources", "cleanup.schedule.ts")
+    const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => ['${value}', ${JSON.stringify(publishedHandler)}] })`
     await writeFile(retainedHandler, source("previous"))
     const options = {
       clientOutDir: "dist/client",
@@ -179,8 +187,8 @@ describe("schedule provider output", () => {
       cleanup.mockRestore()
     }
     if (failure === "persistent rollback restore") {
-      const originalBundle = esbuild.bundleEsmEntry
-      const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, bundleOptions) => {
+      const originalBundle = rolldown.bundleEsmEntry
+      const bundle = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementation(async (entry, output, bundleOptions) => {
         if (output.endsWith("deno-cron.mjs.vitehub-tmp")) throw new Error("Deno retry failed")
         return await originalBundle(entry, output, bundleOptions)
       })
@@ -222,8 +230,8 @@ describe("schedule provider output", () => {
     const siblingGate = new Promise<void>(resolve => { releaseSibling = resolve })
     const failureStarted = new Promise<void>(resolve => { markFailureStarted = resolve })
     const siblingFinished = new Promise<void>(resolve => { markSiblingFinished = resolve })
-    const originalBundle = esbuild.bundleEsmEntry
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, options) => {
+    const originalBundle = rolldown.bundleEsmEntry
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementation(async (entry, output, options) => {
       if (!output.startsWith(`${createDefaultNetlifyOutputRoot(rootDir)}.pending/functions/`)) return await originalBundle(entry, output, options)
       if (output.endsWith("vitehub-schedule-cleanup.mjs")) {
         await siblingStarted
@@ -344,13 +352,12 @@ describe("schedule provider output", () => {
     }])
   })
 
-  it("keeps esbuild external in built provider output code", async () => {
+  it("loads no esbuild in built provider output code", async () => {
     const distDir = join(packageRoot, "dist")
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
     const output = (await Promise.all(outputFiles.map(file => readFile(join(distDir, file), "utf8")))).join("\n")
 
-    expect(output).not.toContain("The esbuild JavaScript API cannot be bundled")
-    expect(output).not.toContain("esbuildCommandAndArgs")
+    expect(output).not.toMatch(/["']esbuild["']/)
   })
 
   it("keeps the definition entry out of public package exports", async () => {
@@ -379,7 +386,7 @@ describe("schedule provider output", () => {
     expect(existsSync(cloudflareWorker)).toBe(true)
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("unwrapScheduleDefinition")
-    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)")
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("cronWithWeekdayNames(cron) !== trigger")
     const { default: cloudflareHandler } = await import(pathToFileURL(cloudflareWorker).href)
     for (const cron of [42, true, {}, ["0 0 * * *"], "   "]) {
       await expect(cloudflareHandler.scheduled({ cron, scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() }))
@@ -399,6 +406,33 @@ describe("schedule provider output", () => {
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
+  })
+
+  it("emits schedule.failed from the generated Cloudflare cron entry when a listener is installed", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-failure-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => { throw new Error('Cleanup failed') } })",
+    ].join("\n"))
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const entry = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    const { default: worker } = await import(pathToFileURL(entry).href)
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    try {
+      await expect(worker.scheduled({ cron: "0 0 * * *", scheduledTime: Date.parse("2026-11-18T00:00:00Z") }, {}, { waitUntil: vi.fn() }))
+        .rejects.toThrow("Cleanup failed")
+      expect(listener).toHaveBeenCalledExactlyOnceWith({
+        event: "schedule.failed",
+        schedule: "cleanup",
+        runId: "run_cleanup_2026-11-18T00:00:00.000Z",
+        error: { message: "Cleanup failed" },
+        failedAt: expect.any(String),
+      })
+    }
+    finally {
+      stop()
+    }
   })
 
   it("preserves Node built-ins for the Cloudflare runtime", async () => {
@@ -447,11 +481,11 @@ describe("schedule provider output", () => {
         bundleAlias: {},
         bundlePlugins: [{
           name: "test-workflow-transform",
-          setup(build) {
-            workflowTransformWorkingDir = build.initialOptions.absWorkingDir
+          buildStart(options) {
+            workflowTransformWorkingDir = options.cwd
           },
         }],
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: true,
         registryFile: workflowRegistry,
       },
@@ -483,7 +517,7 @@ describe("schedule provider output", () => {
       rootDir,
       workflow: {
         bundleAlias: {},
-        importBase: "test-workflow",
+        runtimeModules: { state, vercelVite: vercelRuntime },
         native: false,
         registryFile: workflowRegistry,
       },
@@ -570,6 +604,88 @@ describe("schedule provider output", () => {
     expect(source).toContain("handler: () => \"ok\"")
   })
 
+  it("keeps Deno cron names on every build locale and never moves one to another Schedule", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-locale-")
+    const writeSchedule = async (name: string) => {
+      const file = join(rootDir, "src", `${name}.schedule.ts`)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+        "",
+      ].join("\n"), "utf8")
+    }
+    const readCronNames = async () => {
+      const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+      return new Map([...source.matchAll(/"cronName":\s*"([^"]+)",[^}]*?"name":\s*"([^"]+)"/g)].map(match => [match[2]!, match[1]!]))
+    }
+    const generateWithHostLocale = async (locale: string) => {
+      const collator = new Intl.Collator(locale)
+      const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+        return collator.compare(this, that)
+      })
+      try {
+        await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+      }
+      finally {
+        localeCompare.mockRestore()
+      }
+      return readCronNames()
+    }
+    for (const name of ["hourly", "chores", "tidy", "zip", "Zeta", "foo/bar", "foo_bar"]) await writeSchedule(name)
+
+    const english = await generateWithHostLocale("en-US")
+    expect(Object.fromEntries(english)).toEqual({
+      "chores": "vitehub-0-chores",
+      "cleanup": "vitehub-1-cleanup",
+      "foo/bar": expect.stringMatching(/^vitehub_[0-9a-f]{12}-foo_bar$/),
+      "foo_bar": "vitehub-2-foo_bar",
+      "hourly": "vitehub-4-hourly",
+      "tidy": "vitehub-5-tidy",
+      "Zeta": "vitehub-6-Zeta",
+      "zip": "vitehub-7-zip",
+    })
+    for (const locale of ["cs", "et", "lt"]) {
+      expect(await generateWithHostLocale(locale)).toEqual(english)
+    }
+
+    await writeSchedule("aaa")
+    const later = await generateWithHostLocale("en-US")
+    const handlerByCronName = new Map([...english].map(([name, cronName]) => [cronName, name]))
+    for (const [name, cronName] of later) {
+      expect(handlerByCronName.get(cronName) ?? name).toBe(name)
+    }
+    expect(later.get("foo/bar")).toBe(english.get("foo/bar"))
+  })
+
+  it("bundles Schedules that import vite-hub/schedule into the Deno cron output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-facade-")
+    await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
+      "import { defineSchedule } from 'vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    expect(source).toContain("handler: () => \"ok\"")
+    expect(source).not.toContain("\"vite-hub/schedule\"")
+  })
+
+  it.each(["vite-hub/schedule", "@vite-hub/schedule"])("preserves runtime helpers imported from %s in Deno output", async (specifier) => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-runtime-")
+    await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
+      `import { defineSchedule, startSchedule } from '${specifier}'`,
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => startSchedule('reminder', { at: '2026-12-01T00:00:00Z', payload: {} }) })",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    expect(source).toContain('startSchedule("reminder"')
+    expect(source).not.toContain('"vite-hub/schedule"')
+  })
+
   it("registers shifted and declared weekdays with Deno weekday names", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-weekdays-")
     for (const [name, cron, timeZone] of [
@@ -585,16 +701,14 @@ describe("schedule provider output", () => {
     }
     await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
-    const source = (await readFile(denoCron, "utf8")).replace(
-      JSON.stringify("@vite-hub/schedule/runtime/static"),
-      JSON.stringify(pathToFileURL(resolveScheduleRuntimeEntry()).href),
-    )
+    const packagesDir = join(rootDir, "node_modules", "@vite-hub")
+    await mkdir(packagesDir, { recursive: true })
+    await symlink(packageRoot, join(packagesDir, "schedule"), "junction")
+    await symlink(join(packageRoot, "..", "runtime"), join(packagesDir, "runtime"), "junction")
     const registrations: Record<string, string> = {}
     vi.stubGlobal("Deno", { cron: (name: string, cron: string) => { registrations[name] = cron } })
     try {
-      const nodeEntry = join(rootDir, "deno-node.mjs")
-      await writeFile(nodeEntry, source)
-      await import(pathToFileURL(nodeEntry).href)
+      await import(pathToFileURL(denoCron).href)
       const registered = (name: string) => Object.entries(registrations).find(([id]) => id.endsWith(`-${name}`))?.[1]
       expect(registered("sydney")).toBe("0 22,23 * * SUN,MON,TUE,WED,THU")
       expect(registered("sunday")).toBe("0 9 * * SUN")
@@ -658,11 +772,20 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
     const retainedHandler = join(retainedSourcesDir, "src", "cleanup.schedule.ts")
     await mkdir(dirname(retainedHandler), { recursive: true })
-    await writeFile(retainedHandler, [
-      "import { defineSchedule } from '@vite-hub/schedule'",
-      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'retained' })",
-      "",
-    ].join("\n"), "utf8")
+    const workspaceDir = join(retainedSourcesDir, "src", "workspace")
+    await mkdir(workspaceDir, { recursive: true })
+    await Promise.all([
+      writeFile(retainedHandler, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `const workspace = ${JSON.stringify(join(rootDir, ".vitehub", "schedule", "sources", "src", "workspace"))}`,
+        "export default defineSchedule({ cron: '0 1 * * *', handler: () => workspace })",
+        "",
+      ].join("\n"), "utf8"),
+      writeFile(join(workspaceDir, "notes.md"), "deployed\n"),
+      writeFile(join(workspaceDir, ".env"), "WORKSPACE_SECRET=fake-test-value\n"),
+      writeFile(join(retainedSourcesDir, ".env.local"), "APP_SECRET=fake-test-value\n"),
+      writeFile(join(retainedSourcesDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n"),
+    ])
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -672,13 +795,19 @@ describe("schedule provider output", () => {
       sourceRootDir: retainedSourcesDir,
     })
 
-    const deployedSource = join(".vitehub", "schedule", "sources", "src", "cleanup.schedule.ts")
     const vercelFunctionDir = join(rootDir, ".vercel/output/functions/api/vitehub/schedules/vercel/cleanup.func")
     const netlifyRoot = createDefaultNetlifyOutputRoot(rootDir)
     const netlifyFunction = join(netlifyRoot, "functions/vitehub-schedule-cleanup.mjs")
-    expect(existsSync(join(createDefaultCloudflareOutputRoot(rootDir), deployedSource))).toBe(true)
-    expect(existsSync(join(vercelFunctionDir, deployedSource))).toBe(true)
-    expect(existsSync(join(netlifyRoot, "schedule/sources/src/cleanup.schedule.ts"))).toBe(true)
+    const deployedSourcesDirs = [
+      join(createDefaultCloudflareOutputRoot(rootDir), ".vitehub", "schedule", "sources"),
+      join(vercelFunctionDir, ".vitehub", "schedule", "sources"),
+      join(netlifyRoot, "schedule", "sources"),
+    ]
+    for (const sourcesDir of deployedSourcesDirs) {
+      const deployed = (await readdir(sourcesDir, { recursive: true })).map(path => path.split(sep).join("/")).sort()
+      expect(deployed, sourcesDir).toContain("src/workspace/notes.md")
+      expect(deployed.filter(path => path.includes(".env") || path.endsWith("pnpm-lock.yaml")), sourcesDir).toEqual([])
+    }
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain('includedFiles: ["../schedule/sources/**"]')
   })
 
@@ -962,7 +1091,7 @@ describe("schedule provider output", () => {
     }
     await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
     for (const file of Object.values(outputs)) expect(existsSync(file)).toBe(true)
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry")
 
     try {
       await generateProviderOutputs({ clientOutDir: "dist/client", host, rootDir })
@@ -978,7 +1107,7 @@ describe("schedule provider output", () => {
 
   it("writes no Schedule wake output for a Node build", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-node-host-")
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry")
 
     try {
       await generateProviderOutputs({ clientOutDir: "dist/client", host: "node", rootDir })
@@ -1027,18 +1156,11 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the static schedule runtime from its declared package export", () => {
-    expect(resolveScheduleRuntimeEntry((specifier) => {
-      expect(specifier).toBe("@vite-hub/schedule/runtime/static")
-      return "file:///repo/node_modules/@vite-hub/schedule/dist/runtime/static.js"
-    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/runtime/static.js")
-  })
-
-  it("resolves the private schedule definition from the declared package root", () => {
-    expect(resolveScheduleDefinitionEntry((specifier) => {
+  it("resolves the public Schedule entry from the declared package root", () => {
+    expect(resolveSchedulePublicEntry((specifier) => {
       expect(specifier).toBe("@vite-hub/schedule/package.json")
       return "file:///repo/node_modules/@vite-hub/schedule/package.json"
-    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/definition.js")
+    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/index.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {
@@ -1073,6 +1195,52 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
+  it("writes Cloudflare triggers with weekday names and matches each trigger to its Schedule", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cloudflare-weekdays-")
+    for (const [name, cron, timeZone] of [
+      ["sunday", "0 20 * * 0", "UTC"],
+      ["weekdays", "0 4 * * 1-5", "UTC"],
+      ["list", "0 9 * * 1,3,5", "UTC"],
+      ["tokyo", "30 1 * * 1", "Asia/Tokyo"],
+    ]) {
+      await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `export default defineSchedule({ cron: '${cron}', timeZone: '${timeZone}', handler: ({ cron }) => {`,
+        `  globalThis.weekdayRuns = [...(globalThis.weekdayRuns ?? []), '${name} ' + cron]`,
+        "} })",
+      ].join("\n"), "utf8")
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual([
+      "0 0 * * *",
+      "0 9 * * MON,WED,FRI",
+      "0 20 * * SUN",
+      "30 16 * * SUN",
+      "0 4 * * MON,TUE,WED,THU,FRI",
+    ])
+    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toContainEqual({
+      path: "/api/vitehub/schedules/vercel/tokyo",
+      schedule: "30 16 * * 0",
+    })
+    const netlifyModule = await import(pathToFileURL(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-weekdays.mjs")).href)
+    expect(netlifyModule.config.schedule).toBe("0 4 * * 1-5")
+
+    const runs = () => (globalThis as { weekdayRuns?: string[] }).weekdayRuns ?? []
+    const { default: cloudflareHandler } = await import(pathToFileURL(join(cloudflareRoot, "index.js")).href)
+    for (const [cron, scheduledTime] of [
+      ["0 20 * * SUN", "2026-11-22T20:00:00Z"],
+      ["0 4 * * MON,TUE,WED,THU,FRI", "2026-11-23T04:00:00Z"],
+      ["0 9 * * MON,WED,FRI", "2026-11-23T09:00:00Z"],
+      ["30 16 * * SUN", "2026-11-22T16:30:00Z"],
+      ["0 4 * * 1-5", "2026-11-22T04:00:00Z"],
+    ]) {
+      await cloudflareHandler.scheduled({ cron, scheduledTime: Date.parse(scheduledTime!) }, {}, { waitUntil: vi.fn() })
+    }
+    expect(runs()).toEqual(["sunday 0 20 * * 0", "weekdays 0 4 * * 1-5", "list 0 9 * * 1,3,5", "tokyo 30 16 * * 0"])
+  })
+
   it("runs a time-zoned Schedule from a UTC host cron and checks the local time on each wake", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-time-zone-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
@@ -1101,7 +1269,6 @@ describe("schedule provider output", () => {
     expect(netlifyModule.config.schedule).toBe("0 6,7 * * *")
     vi.useFakeTimers({ toFake: ["Date"] })
     try {
-      // Winter: 07:00Z is 08:00 in Madrid. A late call still runs the 07:00Z occurrence.
       for (const now of ["2026-01-15T06:00:04Z", "2026-01-15T07:02:31Z"]) {
         vi.setSystemTime(new Date(now))
         expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)
@@ -1119,7 +1286,7 @@ describe("schedule provider output", () => {
     const generate = async (cron?: Record<string, string>) => await generateProviderOutputs({ clientOutDir: "dist/client", cron, rootDir })
     const vercelCrons = async () => JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons
 
-    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'America/New_York' })")
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'America/New_York', handler: () => 'ok' })")
     await generate()
     expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 12,13 * * *" }])
 
@@ -1739,7 +1906,7 @@ describe("schedule provider output", () => {
     expect(source).toContain("const name = \"reports/daily\"")
   })
 
-  it("emits Vercel handlers that require the cron secret when configured", async () => {
+  it("emits Vercel handlers that require the cron secret", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-auth-")
     await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
     const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
@@ -1754,7 +1921,7 @@ describe("schedule provider output", () => {
 
     const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
     expect(source).toContain("process.env.CRON_SECRET")
-    expect(source).toContain("if (cronSecret && !isScheduleCronAuthorized(authorization, cronSecret))")
+    expect(source).toContain("if (!isScheduleCronAuthorized(authorization, cronSecret))")
     expect(source).not.toContain("!== `Bearer ${cronSecret}`")
     expect(source).toContain("res.statusCode = 401")
 
@@ -1765,8 +1932,15 @@ describe("schedule provider output", () => {
       return res.statusCode
     }
     const previousSecret = process.env.CRON_SECRET
-    process.env.CRON_SECRET = "cron-secret"
     try {
+      for (const secret of [undefined, ""]) {
+        if (secret === undefined) delete process.env.CRON_SECRET
+        else process.env.CRON_SECRET = secret
+        for (const authorization of [undefined, "Bearer ", "Bearer undefined", "Bearer cron-secret"]) {
+          expect(await run(authorization)).toBe(401)
+        }
+      }
+      process.env.CRON_SECRET = "cron-secret"
       for (const authorization of [undefined, "Bearer cron", "Bearer cron-secret-", "Bearer cron-secreT", "Basic cron-secret"]) {
         expect(await run(authorization)).toBe(401)
       }

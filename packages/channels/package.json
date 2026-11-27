@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/channels",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Provider-neutral channel primitives and Vite integration for ViteHub.",
   "keywords": [
     "channels",
@@ -38,6 +38,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js",
+      "default": "./dist/adapters.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -54,7 +59,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/channels#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/channels#build && vp test"
+    "test": "vp run --cache -t @vite-hub/channels#build && vp test"
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
@@ -79,6 +84,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

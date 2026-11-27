@@ -1,16 +1,25 @@
 export { env } from "./core/declarations.ts"
 export { openWorkflowEnv, typesafeEnv } from "./presets.ts"
+export type { OpenWorkflowEnvOptions, TypesafeEnvOptions } from "./presets.ts"
 export { parseSchema } from "./schema.ts"
+export type { StandardSchemaResultFailure, StandardSchemaResultSuccess, StandardSchemaV1 } from "./schema.ts"
 export { SecretEnv } from "./secret.ts"
 export { defineEnvProvider } from "./provider.ts"
-export { describeServerEnv, inspectServerEnv, isBlockingServerEnvEntry, loadServerEnv, resolveServerEnv } from "./server.ts"
-export type { StandardSchemaV1 } from "./schema.ts"
+export { isBlockingServerEnvEntry } from "./server.ts"
+export { deriveSecret, describeServerEnv, inspectServerEnv, loadServerEnv, runWithServerEnv, useServerEnv } from "#vitehub/env/server"
+export { usePublicEnv } from "#vitehub/env/public"
+export { seal, unseal } from "./seal-value.ts"
+export { checkServiceToken, requireServiceToken } from "./service-token.ts"
+export type { ServiceTokenErrorCode, ServiceTokenEvent } from "./service-token.ts"
+export { signWebhook, verifyWebhook } from "./webhook.ts"
+export type { SignWebhookOptions, VerifyWebhookOptions, VerifyWebhookSchemaOptions, WebhookErrorCode } from "./webhook.ts"
+export type { SealOptions, SealUsesDatabase, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {
-  EnvConfigOptions,
+  EnvDeclarations,
   EnvDiagnosticEntry,
   EnvDiagnostics,
-  EnvIntegrationOptions,
+  EnvOptions,
   EnvProvider,
   EnvProviderContext,
   EnvProviders,
@@ -18,6 +27,7 @@ export type {
   EnvMode,
   EnvRuntimeConfigOptions,
   EnvRuntimeRegistry,
+  EnvSchemaModuleReference,
   EnvSource,
   EnvSourceContext,
   EnvSourceResolver,
@@ -25,11 +35,10 @@ export type {
   EnvValueSchema,
   EnvVariableDeclaration,
   EnvVariableOptions,
-  EnvViteConfigOptions,
-  EnvViteUserConfig,
   LoadServerEnvOptions,
   DeepReadonly,
   PublicEnv,
+  ReadonlyServerEnv,
   ServerEnv,
   ServerEnvDescription,
   ServerEnvDescriptionEntry,

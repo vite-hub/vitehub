@@ -1,33 +1,28 @@
 import { readFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 
-import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { appUrlError, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { isSecretInspectionKey, redactInspectionText, redactedInspectionValue } from "@vite-hub/internal/inspect"
-import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
+import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliOptions, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
+import { consoleClient } from "./setup/console-apps.ts"
+import { readConsoleCredential } from "./setup/console-auth.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { AnyOperation, OperationFailure, OperationResult } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
 
-/** How a flag reads its text. `json` flags take a JSON document, such as `--body '{"a":1}'`. */
 type FlagType = "boolean" | "integer" | "json" | "list" | "number" | "string"
 
 interface Flag {
   description?: string
-  /** The type of the items of a `list`. */
   item?: FlagType
-  /** The flag may be the literal `null`. */
   nullable: boolean
-  /** A union of scalars, such as `string | number`, tried in this order. */
   alternatives: FlagType[]
-  /** The key of the operation input. */
   key: string
   required: boolean
   type: FlagType
@@ -45,7 +40,6 @@ export async function loadCliOperations(plugins: readonly unknown[], stderr: Vit
       stderr.write(`Could not load the operations of ${contribution.plugin} from ${contribution.module}: ${error instanceof Error ? error.message : String(error)}\n`)
     }
   }
-  // Two commands with one name fail here, with INTERNAL_B0049.
   return createOperationRegistry(sources).list()
 }
 
@@ -63,7 +57,6 @@ function isObject(value: unknown): value is JsonSchema {
 
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
-/** Reads the type of a JSON Schema node. Objects, unknown values, and lists of objects are JSON. */
 function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType, nullable: boolean, type: FlagType } {
   if (!isObject(schema)) return { alternatives: [], nullable: false, type: "json" }
   const options = Array.isArray(schema.anyOf) ? schema.anyOf : Array.isArray(schema.oneOf) ? schema.oneOf : undefined
@@ -75,7 +68,6 @@ function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType,
     if (present.length === 1) return { ...present[0]!, nullable }
     const scalars = present.map(part => part.type)
     if (scalars.every(type => type !== "json" && type !== "list")) {
-      // A union with a string stays a string. Without one, the value takes the first scalar type that it parses as.
       return { alternatives: scalars.includes("string") ? ["string"] : scalars, nullable, type: scalars.includes("string") ? "string" : scalars[0]! }
     }
     return { alternatives: [], nullable, type: "json" }
@@ -98,17 +90,18 @@ function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType,
 
 function flagsOf(operation: AnyOperation): Flag[] {
   const schema = operationInputJsonSchema(operation)
-  const properties = isObject(schema.properties) ? Object.entries(schema.properties) : []
-  const required = Array.isArray(schema.required) ? schema.required.map(String) : []
-  return properties.map(([key, property]): Flag => {
+  const shapes = (Array.isArray(schema.anyOf) ? schema.anyOf : [schema]).filter(isObject)
+  const properties = new Map(shapes.flatMap(shape => isObject(shape.properties) ? Object.entries(shape.properties) : []))
+  return [...properties].map(([key, property]): Flag => {
     const description = isObject(property) ? property.description : undefined
-    return { ...readType(property), key, required: required.includes(key), ...(typeof description === "string" ? { description } : {}) }
+    const required = shapes.every(shape => Array.isArray(shape.required) && shape.required.includes(key))
+    return { ...readType(property), key, required, ...(typeof description === "string" ? { description } : {}) }
   })
 }
 
 function usageOf(operation: AnyOperation, flags: readonly Flag[]): string {
   const { command, namespace } = operationCliPath(operation)
-  const positional = operation.cli?.positional ?? []
+  const positional = operationCliOptions(operation)?.positional ?? []
   const names = positional.map((key) => {
     const flag = flags.find(entry => entry.key === key)
     return flag?.required === false ? `[${kebab(key)}]` : `<${kebab(key)}>`
@@ -126,7 +119,7 @@ function describeFlag(flag: Flag): string {
 }
 
 function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
-  const positional = operation.cli?.positional ?? []
+  const positional = operationCliOptions(operation)?.positional ?? []
   const lines = [`Usage: ${usageOf(operation, flags)}`, "", operation.description, ""]
   const described = flags.map(flag => `  ${positional.includes(flag.key) ? `<${kebab(flag.key)}>` : `--${kebab(flag.key)}`}  ${describeFlag(flag)}${flag.description ? `. ${flag.description}` : ""}`)
   if (described.length) lines.push("Input:", ...described, "")
@@ -135,7 +128,8 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --input <json|@file>  Pass the whole input as JSON or from a file. Flags override it.",
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
-    "  --url <origin> Call a deployed app. Without it the command calls the running dev server.",
+    "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
+    "                 After `vitehub login`, the call to an app of the Console goes through the Console.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -185,7 +179,6 @@ function convert(flag: Flag | undefined, name: string, raw: string): unknown {
   if (!flag) return raw
   if (flag.nullable && raw === "null") return null
   if (flag.alternatives.length > 1) {
-    // A string|number union stays a string. Other unions take the first type that the text parses as.
     for (const type of flag.alternatives) {
       try {
         return convertScalar(type, name, raw)
@@ -213,7 +206,6 @@ function assign(input: Record<string, unknown>, flag: Flag | undefined, key: str
   input[key] = convert(flag, name, raw)
 }
 
-/** `--input '{"a":1}'` or `--input @file.json`. */
 function readWholeInput(raw: string, cwd: string): Record<string, unknown> {
   let text = raw
   if (raw.startsWith("@")) {
@@ -231,7 +223,7 @@ function readWholeInput(raw: string, cwd: string): Record<string, unknown> {
 
 function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readonly string[], cwd: string): ParsedCall {
   const parsed: ParsedCall = { help: false, input: {}, json: false, yes: false }
-  const positional = [...(operation.cli?.positional ?? [])]
+  const positional = [...(operationCliOptions(operation)?.positional ?? [])]
   const { command, namespace } = operationCliPath(operation)
   let whole: Record<string, unknown> = {}
   for (let index = 0; index < args.length; index++) {
@@ -262,7 +254,7 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
       else if (name === "input") whole = readWholeInput(take(), cwd)
       else if (name === "timeout") {
         const timeout = Number(take())
-        if (!Number.isInteger(timeout) || timeout < 1) throw usageError("--timeout must be a whole number of milliseconds.")
+        if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) throw usageError("--timeout must be a whole number of milliseconds between 1 and 2147483647.")
         parsed.timeout = timeout
       }
       else {
@@ -284,7 +276,6 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
       assign(parsed.input, flags.find(flag => flag.key === key), key, kebab(key), arg)
     }
   }
-  // Flags and positionals override the whole input.
   parsed.input = { ...whole, ...parsed.input }
   return parsed
 }
@@ -298,7 +289,6 @@ function writeFailure(failure: OperationFailure, parsed: Pick<ParsedCall, "json"
   return 1
 }
 
-/** A coded failure for a thrown diagnostic. */
 function failureOf(error: unknown, status = 400): OperationFailure {
   const code = Reflect.get(Object(error), "code")
   const fix = Reflect.get(Object(error), "fix")
@@ -321,94 +311,73 @@ async function confirm(operation: AnyOperation, target: string): Promise<boolean
   }
 }
 
-/** The roots that the CLI accepts a dev server for: the Vite root and the ViteHub project root. */
 function acceptedRoots(rootDir: string): string[] {
-  const roots = new Set([rootDir])
-  try {
-    roots.add(resolveViteHubProjectRoot(rootDir))
-  }
-  catch {
-    // The Vite root alone is enough to compare.
-  }
-  return [...roots]
+  return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
-/**
- * Where a command sends its call: `--url`, else the dev server that wrote `.vitehub/dev-server.json` in this project,
- * else `VITEHUB_DEV_SERVER_URL`. There is no guess: another project may use port 5173.
- */
-function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
+async function throughConsole(url: string, context: ViteHubCliContext, signal: AbortSignal): Promise<{ target: string, authorization: string } | undefined> {
+  if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
+  const warnDiscoveryFailed = () => {
+    context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
+  }
+  try {
+    const credential = await readConsoleCredential(context.env, undefined, signal)
+    if (!credential) return
+    const { body } = await consoleClient(context, credential, signal).request("/api/projects")
+    signal.throwIfAborted()
+    if (!Array.isArray(body.projects)) {
+      warnDiscoveryFailed()
+      return
+    }
+    if (body.cliForwarding !== true) return
+    const projects: unknown[] = body.projects
+    for (const project of projects) {
+      if (project === null || typeof project !== "object") continue
+      const { id, publicKey, url: linked } = project as Record<string, unknown>
+      if (typeof id === "string" && id && typeof publicKey === "string" && publicKey && typeof linked === "string" && sameApp(linked, url)) {
+        return { authorization: `Bearer ${credential.token}`, target: `${credential.origin}/p/${encodeURIComponent(id)}` }
+      }
+    }
+  }
+  catch {
+    warnDiscoveryFailed()
+  }
+}
+
+function sameApp(linked: string, url: string): boolean {
+  const key = (value: string) => {
+    const parsed = new URL(value)
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/u, "")}`
+  }
+  try {
+    return key(linked) === key(url)
+  }
+  catch {
+    return false
+  }
+}
+
+function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string, roots?: string[] } | { failure: OperationFailure } {
   if (parsed.url) {
-    let base: URL
-    try {
-      base = new URL(parsed.url)
-    }
-    catch {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })) }
-    }
-    const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
-    if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })) }
-    }
-    if (base.username || base.password || base.search || base.hash) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
-    }
+    const message = appUrlError(parsed.url)
+    if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
     return { target: parsed.url }
   }
-  const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
-  if (found) return { target: found }
-  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
-  return { failure: failureOf(error, 503) }
-}
-
-/**
- * Posts a signed dispatch to the route of an operation on a deployed app. Returns undefined when no dispatch key is set,
- * so the command falls back to the RPC with Console credentials.
- */
-async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
-  const base = new URL(url)
-  let key: string | undefined
   try {
-    key = await resolveViteHubDispatchKey(context.env)
+    const roots = acceptedRoots(context.rootDir)
+    const found = findViteHubDevServerUrl(roots, context.env)
+    if (found) return { target: found, roots }
+    const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
+    return { failure: failureOf(error, 503) }
   }
   catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
+    return { failure: failureOf(error) }
   }
-  if (!key) return undefined
-  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
-  const target = new URL(route.slice(1), base)
-  const body = JSON.stringify(input ?? {})
-  const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
-  const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
-  if (context.env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", context.env.CF_ACCESS_CLIENT_ID)
-  if (context.env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", context.env.CF_ACCESS_CLIENT_SECRET)
-  let response: Response
-  let text: string
-  try {
-    response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
-    text = await response.text()
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${redactInspectionText(error instanceof Error ? error.message : String(error))}` }), 502), ok: false }
-  }
-  let json: unknown
-  try {
-    // Share inspection's secret-key policy without its output size limits.
-    json = text ? JSON.parse(text, (key, value: unknown) => isSecretInspectionKey(key) ? redactedInspectionValue : typeof value === "string" ? redactInspectionText(value) : value) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && json !== undefined) return { ok: true, value: json }
-  const message = Reflect.get(Object(json), "message")
-  const failure = failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request failed with HTTP ${response.status}${typeof message === "string" && message ? `: ${message}` : "."}` }), response.status)
-  if (response.status === 401) failure.fix = "Set VITEHUB_DISPATCH_KEY to the key of the app (`vitehub secret derive vitehub:dispatch` prints it), and keep the clock of this machine correct."
-  return { ...failure, ok: false }
 }
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
   const flags = flagsOf(operation)
-  const { command } = operationCliPath(operation)
+  const { command, namespace } = operationCliPath(operation)
   return {
     description: operation.description,
     name: command,
@@ -438,25 +407,30 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
       let confirmed = parsed.yes
-      // A call that only reads, such as a dry run, needs no confirmation.
       if (operation.kind === "destructive" && !parsed.yes && !reads) {
         if (!(process.stdin.isTTY && process.stderr.isTTY) || !await confirm(operation, target)) {
           return writeFailure(failureOf(cliErrorDiagnostics.CLI_R0004({ message: `${operation.name} changes or removes data and was not confirmed.` })), parsed, context)
         }
         confirmed = true
       }
-      // The server parses the original input once and verifies confirmation against that result.
-      const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
-      const result = dispatch ?? await callOperation({
+      const signal = AbortSignal.timeout(parsed.timeout ?? 30_000)
+      const proxy = parsed.url ? await throughConsole(parsed.url, context, signal) : undefined
+      const rpcTarget = {
+        ...(proxy ? { authorization: proxy.authorization } : {}),
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
-        ...(parsed.url ? {} : { roots: acceptedRoots(context.rootDir) }),
-        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-        url: target,
-      }, operation.name, parsed.input)
+        ...(resolved.roots ? { roots: resolved.roots } : {}),
+        signal,
+        url: proxy?.target ?? target,
+      }
+      let result = await callOperation(rpcTarget, operation.name, parsed.input)
+      if (!result.ok && result.status === 404 && result.code === "CONSOLE_NOT_FOUND"
+        && operation.name === "invocations.usage" && operation.kind === "read" && namespace === "agent" && command === "usage") {
+        result = await callOperation(rpcTarget, "usage.get", parsed.input)
+      }
       if (!result.ok) return writeFailure(result, parsed, context)
-      const format = operation.cli?.format as ((output: unknown) => string) | undefined
+      const format = operationCliOptions(operation)?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
       context.stdout.write(output)
       return 0
@@ -465,7 +439,6 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
   }
 }
 
-/** `vitehub <namespace> <group> <command>`: one feature that runs the commands whose name starts with `<group> `. */
 function groupOf(namespace: string, name: string, commands: readonly ViteHubCliFeature[]): ViteHubCliFeature {
   const usage = `vitehub ${namespace} ${name} <${commands.map(command => command.name).join("|")}> [args...]`
   const help = () => {
@@ -508,6 +481,7 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
+    if (operation.cli === false) continue
     const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
     const space = command.indexOf(" ")
@@ -519,12 +493,11 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
       group.commands.push({ ...featureOf(operation), name: command.slice(space + 1) })
       groups.set(key, group)
     }
-    if (operation.cli?.default) namespace.defaultFeature = command
+    if (operationCliOptions(operation)?.default) namespace.defaultFeature = command
     namespaces.set(name, namespace)
   }
   for (const group of groups.values()) {
     const namespace = namespaces.get(group.namespace)!
-    // An operation command with the group name wins, as a hand-written command wins over a generated one.
     if (!namespace.features.some(feature => feature.name === group.name)) namespace.features.push(groupOf(group.namespace, group.name, group.commands))
   }
   return [...namespaces.values()]

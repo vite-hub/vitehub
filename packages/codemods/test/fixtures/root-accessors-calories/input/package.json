@@ -1,0 +1,10 @@
+{
+  "name": "vitehub-calories",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2610071710-0296ca4",
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@02e38c1094c7531aea62f7961f105e16009b346f"
+  }
+}

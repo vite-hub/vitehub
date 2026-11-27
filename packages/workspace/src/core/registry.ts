@@ -1,15 +1,12 @@
+import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
+
 import { workspaceNotFoundError } from "./errors.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
+import type { ValidatedWorkspaceName, Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
-import runtimeRegistry from "#vitehub-workspace-registry"
+import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry, type WorkspaceRegistryLoader } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type WorkspaceRegistryModule = {
-  default?: WorkspaceDefinitionInput
-}
-
-export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryModule>>
+export type { WorkspaceRegistry, WorkspaceRegistryModule } from "../runtime/registry.ts"
 
 const workspaceRegistryStateKey = Symbol.for("vitehub.workspace.registryState")
 
@@ -17,13 +14,13 @@ interface WorkspaceRegistryState {
   loadingDefinitions: Map<string, {
     consumers: number
     generation: number
-    load: WorkspaceRegistry[string]
+    load: WorkspaceRegistryLoader
     promise: Promise<WorkspaceDefinition>
   }>
   loadGenerations: Map<string, number>
   loadedDefinitions: Map<string, WorkspaceDefinition>
-  loaders: WorkspaceRegistry
   registeredDefinitions: Map<string, WorkspaceDefinition>
+  registryVersion: number
   scopedDefinitions: Map<string, Map<string, WorkspaceDefinition>>
 }
 
@@ -36,14 +33,22 @@ function workspaceRegistryState(): WorkspaceRegistryState {
     loadingDefinitions: new Map(),
     loadGenerations: new Map<string, number>(),
     loadedDefinitions: new Map<string, WorkspaceDefinition>(),
-    loaders: runtimeRegistry,
     registeredDefinitions: new Map<string, WorkspaceDefinition>(),
+    registryVersion: workspaceRuntimeRegistryState().version,
     scopedDefinitions: new Map(),
   }
-  scope[workspaceRegistryStateKey].loadingDefinitions ??= new Map()
-  scope[workspaceRegistryStateKey].loadGenerations ??= new Map<string, number>()
-  scope[workspaceRegistryStateKey].scopedDefinitions ??= new Map()
-  return scope[workspaceRegistryStateKey]
+  const state = scope[workspaceRegistryStateKey]
+  state.loadingDefinitions ??= new Map()
+  state.loadGenerations ??= new Map<string, number>()
+  state.scopedDefinitions ??= new Map()
+  // The startup plugin sets the registry without loading this module. Drop what an older registry loaded.
+  const { version } = workspaceRuntimeRegistryState()
+  if (state.registryVersion !== version) {
+    invalidateWorkspaceLoads(state)
+    state.loadedDefinitions.clear()
+    state.registryVersion = version
+  }
+  return state
 }
 
 function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<string, unknown>): WorkspaceDefinitionInput {
@@ -65,13 +70,23 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
   return workspace
 }
 
+/**
+ * The error for a failed loader of the generated Workspace registry. The registry runs plain source text without the
+ * Workspace catalog, so its own failures and the errors of the Definition module get a code here. A coded error passes.
+ */
+export function workspaceRegistryLoadError(workspace: string, error: unknown): unknown {
+  if (isRuntimeDiagnostic(error) || getViteHubErrorShape(error)) return error
+  const reason = error instanceof Error ? error.message : String(error)
+  return workspaceErrorDiagnostics.WORKSPACE_REGISTRY_LOAD_FAILED({ reason, workspace, cause: error })
+}
+
 export function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
   if (!definition) throw workspaceNotFoundError(name)
   // SAFETY: Registry normalization establishes the asserted Workspace definition contract.
   const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
   if (workspaceAgentOptions?.workspace) {
     const injectedWorkspace = pickWorkspaceFields(definition)
-    const configuredWorkspace = hasRuntimeType(workspaceAgentOptions.workspace, "string") ? {} : workspaceAgentOptions.workspace
+    const configuredWorkspace = typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace
     const sources = mergeWorkspaceSources(injectedWorkspace.sources, configuredWorkspace.sources)
     const normalizedWorkspace: WorkspaceDefinition = {
       ...injectedWorkspace,
@@ -98,7 +113,7 @@ function mergeWorkspaceSources(
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): WorkspaceDefinition {
-  if (!name || !hasRuntimeType(name, "string")) {
+  if (!name || typeof name !== "string") {
     throw workspaceErrorDiagnostics.WORKSPACE_R0022({ message: "[vitehub] registerWorkspace requires a string name." })
   }
   const registered = normalizeWorkspaceDefinition(name, definition)
@@ -115,17 +130,13 @@ export function setWorkspaceRuntimeDefinitions(scope: string, definitions: Recor
 }
 
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
-  const state = workspaceRegistryState()
-  invalidateWorkspaceLoads(state)
-  state.loaders = registry
-  state.loadedDefinitions.clear()
+  setWorkspaceRuntimeRegistry(registry)
+  workspaceRegistryState()
 }
 
 export function resetWorkspaceRegistry(): void {
-  const state = workspaceRegistryState()
-  invalidateWorkspaceLoads(state)
-  state.loaders = runtimeRegistry
-  state.loadedDefinitions.clear()
+  resetWorkspaceRuntimeRegistry()
+  workspaceRegistryState()
 }
 
 function invalidateWorkspaceLoads(state: WorkspaceRegistryState): void {
@@ -148,16 +159,18 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
   const existing = state.loadedDefinitions.get(name)
   if (existing) return existing
 
-  const load = state.loaders[name]
+  const load = workspaceRuntimeRegistryState().loaders[name]
   if (!load) throw workspaceNotFoundError(name)
 
   let loading = state.loadingDefinitions.get(name)
   if (!loading || loading.load !== load) {
     const generation = (state.loadGenerations.get(name) ?? 0) + 1
     state.loadGenerations.set(name, generation)
-    const promise = load().then((mod) => {
+    const promise = (async () => load())().catch((error: unknown) => {
+      throw workspaceRegistryLoadError(name, error)
+    }).then((mod) => {
       const definition = normalizeWorkspaceDefinition(name, mod.default)
-      if (state.loadGenerations.get(name) === generation && state.loaders[name] === load) {
+      if (state.loadGenerations.get(name) === generation && workspaceRuntimeRegistryState().loaders[name] === load) {
         state.loadedDefinitions.set(name, definition)
       }
       return definition
@@ -193,6 +206,14 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
       }
     }
   }
+}
+
+/** Whether a Workspace Definition has this name. Use it to check a name that comes from a request or a database. */
+export function isWorkspaceName(name: string): name is ValidatedWorkspaceName {
+  const state = workspaceRegistryState()
+  return state.registeredDefinitions.has(name)
+    || [...state.scopedDefinitions.values()].some(definitions => definitions.has(name))
+    || Object.hasOwn(workspaceRuntimeRegistryState().loaders, name)
 }
 
 export async function resolveRegisteredWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {

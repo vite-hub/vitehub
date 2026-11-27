@@ -14,15 +14,16 @@ The CMS gives you the `cms` preset and roles. Pass the preset to `defineContent(
 | --- | --- |
 | `cms` from `vite-hub/cms` | The preset, in an app with `vitehub()`. |
 | `cms`, or the default export, from `@vite-hub/cms` | The same preset, for libraries and apps that install each package. |
-| `CmsPresetOptions` type from `vite-hub/cms` or `@vite-hub/cms` | The options of the tuple form. |
-| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` or `@vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
+| `CmsPresetOptions` type from `vite-hub/cms` | The options of the tuple form. |
+| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and policies built on them ([Roles and access](/docs/cms/access)). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { workspace: 'site' }],
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -43,20 +44,20 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 
 - import `cms` from `vite-hub/cms` or `@vite-hub/cms`, as a named or default import;
 - pass that import directly to `extends`, not a value built at runtime;
-- write each option as a string literal.
+- use literal options. Use the boolean literal `true` for `roles`.
 
-The build follows a re-export of `content` from a relative file, such as `export { content } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
+The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_PRESET_INVALID`, `CONTENT_PRESET_OPTION_UNKNOWN`, or `CONTENT_CMS_OPTION_INVALID`.
 
 The preset fills `workspace` in `defineContent()`, so you cannot use `extends` with `workspace`. It also:
 
-- fills `authorize` with the CMS role policy when you set `access: 'roles'` and no `authorize`. Without either, every action is denied.
+- fills `authorize` with the CMS role policy when you set `roles: true` and no `authorize`. Without either, every action is denied.
 - uses pull request publishing for `content.publish()` with the GitHub store and `publish: 'pr'`.
 
 ## Option values
 
 | Option | Accepts |
 | --- | --- |
-| `access` | `'roles'` to turn on the CMS role policy. |
+| `roles` | `true` to turn on the CMS role policy. |
 | `database`, `blob`, `workspace` | Letters, numbers, dots, underscores, and dashes, starting with a letter or number. Slashes separate parts, such as `content/main`. |
 | `store` | `'blob-database'` or `'github'`. |
 | `repo` | A repository as `owner/name`. The owner has letters, numbers, and dashes. The name has letters, numbers, dots, underscores, and dashes, and is not `.` or `..`. |

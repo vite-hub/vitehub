@@ -101,7 +101,7 @@ async function createStore(binding: unknown, options: { branch?: string } = {}) 
     binding: "WORKSPACE_ARTIFACTS",
     namespace: "vitehub",
     ...options,
-    provider: "cloudflare-artifacts",
+    driver: "cloudflare",
   }, "docs")
 }
 
@@ -128,6 +128,17 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
     await seedGlobCwdStore(store)
     await checkGlobCwd(store)
+  })
+
+  it("reports the digest of the current content after a file changes", async () => {
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+    await store.writeFile("doc.md", { path: "doc.md", content: "first" })
+    expect(await store.list()).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("first") })])
+    await store.writeFile("doc.md", { path: "doc.md", content: "second" })
+    expect(await store.list()).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("second") })])
+    expect(await store.glob("*.md")).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("second") })])
+    expect(await store.stat("doc.md")).toMatchObject({ digest: await sha256("second"), size: 6, type: "file" })
+    expect(await store.stat("missing.md")).toBeUndefined()
   })
 
   it("removes only empty directories", async () => {
@@ -159,7 +170,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const options = {
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts" as const,
+      driver: "cloudflare" as const,
     }
 
     for (const name of ["a/b", "a-b", "a_2fb"]) {
@@ -239,6 +250,18 @@ describe("Cloudflare Artifacts workspace store", () => {
     ])
   })
 
+  it("writes the author of a snapshot as the Git author", async () => {
+    const repo = artifactsRepo()
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+    await store.writeFile("README.md", { content: "hello", path: "README.md" })
+    await store.snapshot({ name: "docs: hello", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(gitMock.commit).toHaveBeenCalledWith(expect.objectContaining({
+      author: { name: "Ada Lovelace", email: "ada@example.com" },
+      committer: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+      message: "docs: hello",
+    }))
+  })
+
   it("pushes an empty initial snapshot as a Git commit", async () => {
     const store = await createStore({
       create: vi.fn(),
@@ -289,7 +312,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureHostedWorkspaceRuntime } = await import("../src/hosted.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureHostedWorkspaceRuntime({
-      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror" },
+      store: { branch: "main", driver: "github", repo: "onmax/repo", root: "mirror" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
@@ -307,7 +330,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureCloudflareWorkspaceRuntime({
-      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror", token: "explicit-token" },
+      store: { branch: "main", driver: "github", repo: "onmax/repo", root: "mirror", token: "explicit-token" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
@@ -328,7 +351,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     }, "docs")
 
     await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
@@ -348,7 +371,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     }, "docs")
 
     await store.writeFile("nested/README.md", { path: "nested/README.md", content: "hello" })
@@ -372,6 +395,21 @@ describe("Cloudflare Artifacts workspace store", () => {
 
     await expect(store.readFile("README.md")).rejects.toBe(error)
     expect(binding.create).not.toHaveBeenCalled()
+  })
+
+  it("loads the repository again on the next call after a transient lookup failure", async () => {
+    const error = artifactsError("INTERNAL_ERROR", 10400, "Artifacts unavailable")
+    const binding = {
+      create: vi.fn(),
+      get: vi.fn()
+        .mockRejectedValueOnce(error)
+        .mockImplementation(async () => artifactsRepo()),
+    }
+    const store = await createStore(binding)
+
+    await expect(store.readFile("README.md")).rejects.toBe(error)
+    await expect(store.readFile("README.md")).resolves.toBeUndefined()
+    expect(binding.get).toHaveBeenCalledTimes(2)
   })
 
   it("disposes the repository handle when reading its info fails", async () => {
@@ -848,7 +886,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const first = store.snapshot()
     await vi.waitFor(() => expect(gitMock.push).toHaveBeenCalledOnce())
     const second = store.snapshot()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(gitMock.statusMatrix).toHaveBeenCalledOnce()
     releasePush()
 
@@ -910,7 +948,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(gitMock.push).toHaveBeenCalledTimes(2)
   })
 
-  it("maps non-fast-forward pushes to a Workspace conflict and keeps the commit pending", async () => {
+  it("retries a non-fast-forward push once on the new head and reports a second rejection as a conflict", async () => {
     const repo = artifactsRepo()
     const store = await createStore({
       create: vi.fn(),
@@ -929,9 +967,150 @@ describe("Cloudflare Artifacts workspace store", () => {
       message: expect.stringContaining("changed remotely"),
       name: "ViteHubError",
     })
-    await expect(store.snapshot()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", name: "ViteHubError" })
-    expect(gitMock.commit).toHaveBeenCalledOnce()
     expect(gitMock.push).toHaveBeenCalledTimes(2)
+    await expect(store.readFile("README.md")).resolves.toMatchObject({ content: new TextEncoder().encode("hello") })
+    await expect(store.snapshot()).resolves.toMatchObject({ id: "commit-1" })
+    expect(gitMock.push).toHaveBeenCalledTimes(3)
+  })
+
+  it("drops the staged writes of a failed request and clones the branch again", async () => {
+    const repo = artifactsRepo()
+    gitMock.listServerRefs.mockImplementation(async () => [{ oid: "base-commit", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementation(async (options?: unknown) => {
+      const { fs } = options as { fs: { promises: { writeFile(path: string, content: string): Promise<void> } } }
+      await fs.promises.writeFile("/workspace/page.md", "# Base\n")
+    })
+    gitMock.resolveRef.mockImplementation(async () => "base-commit")
+    const { trackStagedWrites, runWorkspaceRequest } = await import("../src/core/request-scope.ts")
+    const store = trackStagedWrites(await createStore({ create: vi.fn(), get: vi.fn(async () => repo) }))
+    try {
+      await expect(runWorkspaceRequest(async () => {
+        await store.writeFile("draft.md", { content: "half done", path: "draft.md" })
+        throw new Error("failed")
+      })).rejects.toThrow("failed")
+
+      await expect(store.readFile("draft.md")).resolves.toBeUndefined()
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode("# Base\n") })
+      expect(gitMock.clone).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
+      gitMock.clone.mockReset().mockImplementation(async () => { throw new Error("empty remote") })
+      gitMock.resolveRef.mockReset().mockImplementation(async () => "remote-sha")
+    }
+  })
+
+  it("loads the branch again when another writer pushed and the loaded head is older than five seconds", async () => {
+    const repo = artifactsRepo()
+    let remoteHead = "base-commit"
+    let remotePage = "# Base\n"
+    gitMock.listServerRefs.mockImplementation(async () => [{ oid: remoteHead, ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementation(async (options?: unknown) => {
+      const { fs } = options as { fs: { promises: { writeFile(path: string, content: string): Promise<void> } } }
+      await fs.promises.writeFile("/workspace/page.md", remotePage)
+    })
+    gitMock.resolveRef.mockImplementation(async () => remoteHead)
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+    let now = Date.now()
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode("# Base\n") })
+      remoteHead = "remote-commit"
+      remotePage = "# Remote\n"
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode("# Base\n") })
+      expect(gitMock.clone).toHaveBeenCalledOnce()
+
+      now += 5_001
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode("# Remote\n") })
+      expect(gitMock.clone).toHaveBeenCalledTimes(2)
+
+      // A Store with staged writes keeps its loaded head until it pushes.
+      await store.writeFile("draft.md", { content: "draft", path: "draft.md" })
+      remoteHead = "later-commit"
+      now += 5_001
+      await store.readFile("draft.md")
+      expect(gitMock.clone).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.restoreAllMocks()
+      gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
+      gitMock.clone.mockReset().mockImplementation(async () => { throw new Error("empty remote") })
+      gitMock.resolveRef.mockReset().mockImplementation(async () => "remote-sha")
+    }
+  })
+
+  it.each(["read", "write"])("retries a failed refresh before the next %s", async (operation) => {
+    const repo = artifactsRepo()
+    let remoteHead = "base-commit"
+    gitMock.listServerRefs.mockImplementation(async () => [{ oid: remoteHead, ref: "refs/heads/main" }])
+    gitMock.resolveRef.mockImplementation(async () => remoteHead)
+    gitMock.clone.mockImplementation(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      await fs.promises.writeFile("/workspace/page.md", remoteHead)
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+    let now = Date.now()
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      await store.readFile("page.md")
+      remoteHead = "remote-commit"
+      now += 5_001
+      gitMock.clone.mockRejectedValueOnce(new Error("transient clone failure"))
+      await expect(store.readFile("page.md")).rejects.toThrow("transient clone failure")
+      if (operation === "write")
+        await store.writeFile("draft.md", { content: "draft", path: "draft.md" })
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode(remoteHead) })
+      expect(gitMock.clone).toHaveBeenCalledTimes(3)
+      if (operation === "write")
+        await expect(store.readFile("draft.md")).resolves.toMatchObject({ content: new TextEncoder().encode("draft") })
+    }
+    finally {
+      vi.restoreAllMocks()
+      gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
+      gitMock.clone.mockReset().mockImplementation(async () => { throw new Error("empty remote") })
+      gitMock.resolveRef.mockReset().mockImplementation(async () => "remote-sha")
+    }
+  })
+
+  it("keeps staged metadata when a rejected push moves the staged writes onto the new head", async () => {
+    const repo = artifactsRepo()
+    let remoteHead = "base-commit"
+    gitMock.listServerRefs.mockImplementation(async () => [{ oid: remoteHead, ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementation(async (options?: unknown) => {
+      const { fs } = options as { fs: { promises: { writeFile(path: string, content: string): Promise<void> } } }
+      await fs.promises.writeFile("/workspace/remote.md", remoteHead)
+    })
+    gitMock.resolveRef.mockImplementation(async () => remoteHead)
+    const rejection = Object.assign(new Error("Push rejected because it was not a simple fast-forward"), {
+      code: "PushRejectedError",
+      data: { reason: "not-fast-forward" },
+    })
+    gitMock.push.mockImplementationOnce(async () => {
+      remoteHead = "other-writer"
+      throw rejection
+    })
+    try {
+      const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+      await store.writeFile("local.md", { content: "local", path: "local.md" })
+      await store.setMeta?.("sync-state", { at: 1 })
+      // `undefined` removes the key, also after the staged writes move onto the new head.
+      await store.setMeta?.("recovery", { at: 0 })
+      await store.setMeta?.("recovery", undefined)
+      await expect(store.getMeta?.("recovery")).resolves.toBeUndefined()
+
+      await expect(store.snapshot({ name: "sync" })).resolves.toMatchObject({ id: "commit-1" })
+      expect(gitMock.push).toHaveBeenCalledTimes(2)
+      expect(gitMock.clone).toHaveBeenCalledTimes(2)
+      await expect(store.readFile("remote.md")).resolves.toMatchObject({ content: new TextEncoder().encode("other-writer") })
+      await expect(store.readFile("local.md")).resolves.toMatchObject({ content: new TextEncoder().encode("local") })
+      await expect(store.getMeta?.("sync-state")).resolves.toEqual({ at: 1 })
+      await expect(store.getMeta?.("recovery")).resolves.toBeUndefined()
+    }
+    finally {
+      gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
+      gitMock.clone.mockReset().mockImplementation(async () => { throw new Error("empty remote") })
+      gitMock.resolveRef.mockReset().mockImplementation(async () => "remote-sha")
+    }
   })
 
   it("rebases a conflicted snapshot without dropping unrelated staged writes", async () => {
@@ -945,7 +1124,8 @@ describe("Cloudflare Artifacts workspace store", () => {
     const finalCloneStarted = new Promise<void>((resolve) => {
       gitMock.clone.mockImplementation(async (options?: unknown) => {
         cloneCalls++
-        if (cloneCalls === 3) {
+        // 1: load, 2: the rebase of the rejected snapshot, 3: the rebase that conflicts on draft.md.
+        if (cloneCalls === 4) {
           await new Promise<void>((release) => {
             releaseFinalClone = release
             resolve()
@@ -982,9 +1162,11 @@ describe("Cloudflare Artifacts workspace store", () => {
 
     await expect(store.snapshot({ name: "conflict" })).rejects.toMatchObject({
       code: "WORKSPACE_CONFLICT",
+      details: { paths: ["draft.md", "page.md"] },
     })
     await expect(store.rebase?.({ takeRemote: ["page.md"] })).rejects.toMatchObject({
       code: "WORKSPACE_CONFLICT",
+      details: { paths: ["draft.md"] },
     })
     await expect(store.readFile("draft.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("unrelated draft\n"),

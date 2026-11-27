@@ -1,19 +1,26 @@
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { getTableName } from "drizzle-orm"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
+import { tenantCommentsStore } from "./operations-core/tenant-store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
-import { createForgeSync } from "./forge/sync.ts"
+import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
+import { commentSendsTables } from "./send/database.ts"
+import { createCommentSendService } from "./send/service.ts"
 import { pendingKey, runtimes } from "./installed.ts"
 
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
 import type { Comments } from "./index.ts"
 import type { CommentsPeople } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
 import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
 import type { CommentsSchemaOwner } from "./migrate.ts"
-import type { CommentsRequestEvent } from "./types.ts"
+import type { TenantCommentsStoreOptions } from "./operations-core/tenant-store.ts"
+import type { CommentThread, CommentsRequestEvent } from "./types.ts"
 import type { Installed } from "./installed.ts"
+import type { CommentSendWebhooks } from "./send/service.ts"
 
 export interface InstallCommentsOptions {
   database: CommentsDatabase
@@ -23,6 +30,8 @@ export interface InstallCommentsOptions {
   users?: CommentsPeople
   /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
   attachments?: CommentsAttachmentStore
+  /** `checkRateLimit` of ViteHub Rate Limit, when it counts in a shared KV store. See `CommentsRuntime.rateLimit`. */
+  rateLimit?: SharedRateLimit
   /** Only the Vite dev server enables it, for the default guest policy. Without it, the operation context decides, else `false`. */
   development?: boolean
   /**
@@ -33,6 +42,22 @@ export interface InstallCommentsOptions {
   schema?: CommentsSchemaOwner
   /** The SQL dialect of `database`. Default `sqlite`: SQLite, libSQL, and D1. */
   dialect?: "sqlite" | "postgresql"
+  /**
+   * Loads `@vite-hub/webhooks`, for `defineComments({ send })`. The generated plugin passes it when `send` is on.
+   * Without it, the Send routes answer `COMMENTS_SEND_OFF`.
+   */
+  webhooks?: () => Promise<CommentSendWebhooks>
+  /**
+   * Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. After each change of a thread, it
+   * tells the open pages of the thread to load their threads again. The generated plugin passes it.
+   */
+  realtime?: () => Promise<{ notifyCommentsChange: (thread: CommentThread) => Promise<void> }>
+  /**
+   * Keeps the threads of one tenant in `tables` that several tenants share, such as one project of a hosted Console.
+   * See `tenantCommentsStore()`. The runtime serves only this definition: the comment operations of the app keep
+   * their own runtime. Comments only reads the tables, as with `schema: "app"`.
+   */
+  tenant?: TenantCommentsStoreOptions
 }
 
 /** The store, after the tables are ready: each method waits for `ready` first. */
@@ -55,7 +80,9 @@ function gated(store: CommentsStore, ready: () => Promise<void>): CommentsStore 
  */
 export function installComments(comments: Comments, install: InstallCommentsOptions): CommentsRuntime {
   const tables = install.tables ?? { commentCounters: commentsSchema.vitehubCommentCounters, commentMessages: commentsSchema.vitehubCommentMessages, commentThreads: commentsSchema.vitehubCommentThreads }
-  const store = gated(createCommentsStore(install.database, tables), commentsSchemaGate(install.database, install.schema ?? "app", { dialect: install.dialect ?? "sqlite" }))
+  const owner = install.tenant ? "app" : install.schema ?? "app"
+  const shared = createCommentsStore(install.database, tables)
+  const store = gated(install.tenant ? tenantCommentsStore(shared, install.tenant) : shared, commentsSchemaGate(install.database, owner, { dialect: install.dialect ?? "sqlite", ...(owner === "app" ? { table: getTableName(tables.commentThreads) } : {}) }))
   // SAFETY: defineComments() sets this slot to the set of pending tasks before it freezes the object.
   const pending = Reflect.get(comments, pendingKey) as Set<Promise<unknown>> | undefined
   const track = (task: Promise<unknown>) => {
@@ -70,10 +97,10 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     ...(identify
       ? {
           identify: async (event: unknown) => {
-            // SAFETY: The operation surfaces pass the request event of the call: an H3 event or an event with Standard Context.
+            // SAFETY: The operation surfaces pass the request of the call: a Request, an H3 event, or an event with Standard Context.
             const requestEvent = event as CommentsRequestEvent
-            // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for an H3 app without the ViteHub plugin.
-            installStandardContext(requestEvent)
+            // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
+            getStandardContext(requestEvent)
             return await identify({ event: requestEvent }) ?? null
           },
         }
@@ -82,20 +109,29 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     store,
     ...(install.users ? { users: install.users } : {}),
     ...(install.attachments ? { attachments: install.attachments } : {}),
+    ...(install.rateLimit ? { rateLimit: install.rateLimit } : {}),
   }
+  const realtime = install.realtime
+  if (realtime && !install.tenant) runtime.changed = async thread => (await realtime()).notifyCommentsChange(thread)
   let sync: Installed["sync"]
   if (comments.options.forge) {
-    const forge = createForgeSync(comments.options.forge, { database: install.database, store, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
+    const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
     sync = forge.sync
     runtime.forge = {
       attach: forge.attach,
       changed(threadId) {
-        track(forge.sync(threadId).catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error)))
+        track(forge.sync(threadId).catch((error: unknown) => {
+          logSyncFailure("sync", "Comments could not sync a thread to its pull request", error, () => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error), { thread: threadId, waitUntil: track })
+        }))
       },
     }
   }
-  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}) })
+  const send = comments.options.send && install.webhooks && (install.dialect ?? "sqlite") === "sqlite"
+    ? createCommentSendService({ comments, database: install.database, webhooks: install.webhooks, ...(install.schema === "comments" ? { createTables: commentSendsTables } : {}) })
+    : undefined
+  if (send) runtime.reopened = thread => send.reopened(thread)
+  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}), ...(send ? { send } : {}) })
   // The comment operations of the Console, the CLI, and MCP share the runtime.
-  installCommentsRuntime(runtime)
+  if (!install.tenant) installCommentsRuntime(runtime)
   return runtime
 }

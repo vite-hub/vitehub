@@ -1,5 +1,5 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { otlp } from "../capabilities/otlp.ts";
+import { agentDiagnostics } from "../agent-diagnostics.ts";
 import type { AgentCapabilityDefinition } from "../types.ts";
 
 export interface AgentConsoleDelivery {
@@ -15,13 +15,13 @@ export function createAgentConsoleDelivery(options: {
 }): AgentConsoleDelivery | undefined {
   if (!options.url && !options.token) return;
   if (!options.url || !options.token)
-    throw new Error("Console delivery requires both url and token.");
+    throw agentDiagnostics.AGENT_CONSOLE_DELIVERY_INCOMPLETE();
   const base = new URL(options.url);
   if (!["http:", "https:"].includes(base.protocol) || base.username || base.password)
-    throw new Error("Console delivery requires an HTTP(S) URL without embedded credentials.");
+    throw agentDiagnostics.AGENT_CONSOLE_DELIVERY_URL_INVALID();
   const token = options.token;
   const headers = () => ({
-    authorization: `Bearer ${hasRuntimeType(token, "string") ? token : token.unseal()}`,
+    authorization: `Bearer ${typeof token === "string" ? token : token.unseal()}`,
   });
   const endpoint = (path: string) => new URL(path, base).href;
   return {

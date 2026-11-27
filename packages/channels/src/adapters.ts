@@ -1,16 +1,21 @@
+import type { Duration } from "@vite-hub/runtime"
+
 import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter } from "./types.ts"
+import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
 /**
  * Receives webhooks from any HTTP sender. ViteHub checks the signature, stores the delivery, deduplicates it by
- * delivery ID, and retries the `on` target until it succeeds.
+ * delivery ID, and retries the `on` target until it succeeds. Set `signature` and `secret`, the name of the server
+ * variable that holds the secret, or a function that returns it. Only `secret: false` accepts requests without
+ * verification.
  *
  * @example
  * export default defineChannel({
- *   adapter: webhook({ signature: 'bearer', secret: () => useServerEnv().prefect.webhookSecret }),
- *   on: { webhook: event => runQueue('triage', event.data) },
+ *   adapter: webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' }),
+ *   on: { webhook: event => sendQueue('triage', event.data) },
  * })
  */
-export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData> = {}): WebhookChannelAdapter<TData> {
+export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData>): WebhookChannelAdapter<TData> {
   const { kind = "webhook", ...webhookOptions } = options
   return { kind, webhook: webhookOptions }
 }
@@ -32,16 +37,17 @@ export interface StripeEvent<TObject = Record<string, unknown>> {
 }
 
 export interface StripeAdapterOptions {
-  /** The endpoint's signing secret (`whsec_...`). Defaults to the `STRIPE_WEBHOOK_SECRET` environment variable. */
+  /**
+   * The name of the server variable that holds the endpoint's signing secret (`whsec_...`), or a function that returns
+   * the secret. Defaults to `"STRIPE_WEBHOOK_SECRET"`.
+   */
   secret?: ChannelWebhookSecret
-  /** Another route next to `/api/_vitehub/channels/<name>`. A string literal. */
+  /** Another route next to `/_vitehub/channels/<name>`. A string literal. */
   path?: string
-  /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
-  toleranceSeconds?: number
-}
-
-function stripeWebhookSecret(): string | undefined {
-  return typeof process === "undefined" ? undefined : process.env.STRIPE_WEBHOOK_SECRET
+  /** The old webhook State and queue scope to keep when this Channel moves. */
+  stateScope?: WebhookAdapterOptions<StripeEvent>["stateScope"]
+  /** Maximum age of the signed timestamp, such as `"10m"`. Defaults to `"5m"`. */
+  tolerance?: Duration
 }
 
 /**
@@ -50,15 +56,19 @@ function stripeWebhookSecret(): string | undefined {
  * @example
  * export default defineChannel({
  *   adapter: stripe(),
- *   on: { 'checkout.session.completed': event => runQueue('fulfil', event.data) },
+ *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
 export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapter<StripeEvent> {
+  if ("toleranceSeconds" in options) {
+    throw channelsErrorDiagnostics.CHANNELS_C0011({ message: "The Stripe webhook adapter sets `toleranceSeconds`, which is now `tolerance`. Set `tolerance` to a duration, such as `tolerance: '30s'`." })
+  }
   return webhook<StripeEvent>({
     kind: "stripe",
     ...(options.path === undefined ? {} : { path: options.path }),
-    signature: options.toleranceSeconds === undefined ? "stripe-sha256" : { preset: "stripe-sha256", toleranceSeconds: options.toleranceSeconds },
-    secret: options.secret ?? stripeWebhookSecret,
+    ...(options.stateScope === undefined ? {} : { stateScope: options.stateScope }),
+    signature: options.tolerance === undefined ? "stripe" : { type: "stripe", tolerance: options.tolerance },
+    secret: options.secret ?? "STRIPE_WEBHOOK_SECRET",
     event: payload => typeof payload?.type === "string" ? payload.type : undefined,
     id: payload => typeof payload?.id === "string" ? payload.id : undefined,
   })

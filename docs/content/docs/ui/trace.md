@@ -3,7 +3,7 @@ title: Trace
 description: "Show the steps an Agent takes as compact lines that can expand into detail."
 navigation.order: 14
 navigation.group: Parts
-icon: i-ph-path-light
+icon: i-lucide-route
 ---
 
 `Trace` lists the steps of an Agent turn: thoughts, searches, commands, tool calls, sources, and plan steps. Each `TraceLine` has an icon, a title, an optional description, and a status. Wrap a line in `TraceCollapsible` to show its output on expand. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Trace](https://ui.shadcn.com/docs/components/trace).
@@ -13,27 +13,27 @@ icon: i-ph-path-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/trace`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { Trace, TraceLine } from "@vite-hub/ui";
+import { Trace, TraceLine } from "vite-hub/ui";
 ```
 
-`TraceRun` has its own entry, `@vite-hub/ui/trace-run`.
+`TraceRun` is in `vite-hub/ui` too.
 
 ## Usage
 
 Use a `TraceLine` for one step:
 
 ```ts
-import { Trace, TraceIcon, TraceLine, TraceTitle } from "@vite-hub/ui";
+import { Trace, TraceIcon, TraceLine, TraceTitle } from "vite-hub/ui";
 ```
 
 ```vue
 <template>
   <Trace>
     <TraceLine>
-      <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
       <TraceTitle>Searched for minimumReleaseAge</TraceTitle>
     </TraceLine>
   </Trace>
@@ -48,7 +48,7 @@ Wrap it in a `TraceCollapsible` to show detail on expand:
     <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -169,7 +169,7 @@ Wrap the `TraceLine` in a link. For a new tab, use an arrow icon and add "(opens
         Nuxt docs
         <span class="sr-only"> (opens in a new tab)</span>
       </TraceTitle>
-      <TraceIcon><UIcon name="i-ph-arrow-up-right-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-arrow-up-right" /></TraceIcon>
     </TraceLine>
   </a>
 </template>
@@ -190,7 +190,7 @@ Wrap the `TraceLine` in a button inside the trigger slot of a Nuxt UI `UModal`. 
     <button type="button">
       <TraceLine>
         <TraceTitle>Searched the web for cache keys</TraceTitle>
-        <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+        <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
       </TraceLine>
     </button>
     <template #body>...</template>
@@ -260,7 +260,7 @@ Show AI SDK tool parts. Map the part state to the title and status: "Ran" when o
 
 ## Trace Runs
 
-`TraceRun` renders one run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts:
+`TraceRun` renders one run from [`deriveTraceRuns()`](/docs/runtime/server-api#traces) in `vite-hub/runtime` with these parts:
 
 - One line with the run title, status, and duration.
 - It expands into one line per timed step.
@@ -272,13 +272,13 @@ Open failed runs by default. Use the `step` slot when a known trace schema needs
 <template>
   <Trace>
     <TraceLine>
-      <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
       <TraceTitle>Searched for minimumReleaseAge</TraceTitle>
     </TraceLine>
     <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -302,7 +302,7 @@ Trace
 
 ```vue
 <script setup lang="ts">
-import { deriveTraceRuns } from "@vite-hub/runtime";
+import { deriveTraceRuns } from "vite-hub/runtime";
 
 const runs = computed(() => deriveTraceRuns(events.value));
 </script>
@@ -361,7 +361,7 @@ Secondary text after the title, such as a count or duration. It does not truncat
 
 ### TraceCollapsible
 
-A line that expands. It is a Reka UI `CollapsibleRoot`.
+A line that expands. It is a `Collapsible` from `@ui-sdk/vue/collapsible`.
 
 #### Props
 
@@ -402,10 +402,10 @@ The detail of a line. It mutes its text. A `class` goes to its inner element, so
 
 #### Types
 
-`@vite-hub/ui` re-exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you need no second import.
+`vite-hub/ui` re-exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you need no second import.
 
 ```ts
-import type { TraceRunView, TraceStepView } from "@vite-hub/ui";
+import type { TraceRunView, TraceStepView } from "vite-hub/ui";
 
 function failedSteps(run: TraceRunView): TraceStepView[] {
   return run.steps.filter(step => step.status === "failed");
@@ -415,7 +415,7 @@ function failedSteps(run: TraceRunView): TraceStepView[] {
 Their shapes:
 
 ```ts
-import type { TraceEventLogEntry } from "@vite-hub/ui";
+import type { TraceEventLogEntry } from "vite-hub/ui";
 
 interface TraceRunView {
   id: string;
@@ -442,7 +442,7 @@ interface TraceStepView {
 
 ## Related
 
-- [Console](/docs/development/console) shows the activities of a whole Agent Invocation.
+- [Console](/docs/console) shows the activities of a whole Agent Invocation.
 - [Message parts](/docs/ui/message-parts) renders reasoning, tool, and source parts as Trace lines.
 - [Code block](/docs/ui/code-block) shows tool output under a line.
 - [Marker](/docs/ui/marker) shows status between turns.

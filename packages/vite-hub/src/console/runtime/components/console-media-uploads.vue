@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { MotionList, Progress } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleBytes } from "../client/format";
 
-import type { ConsoleMediaUploads } from "../client/media-uploads";
+import type { ConsoleMediaUploadEntry, ConsoleMediaUploads } from "../client/media-uploads";
+import Icon from "./console-icon.vue";
 
 /**
  * The upload queue: one row per file with its progress, then a check, a duplicate note, or the reason it failed with a
@@ -14,6 +16,11 @@ const props = defineProps<{ uploads: ConsoleMediaUploads }>();
 const entries = computed(() => props.uploads.entries.value);
 const done = computed(() => entries.value.filter(entry => entry.state === "done").length);
 const failed = computed(() => entries.value.filter(entry => entry.state === "failed").length);
+function barValue(entry: ConsoleMediaUploadEntry): number | null | undefined {
+  if (entry.state === "queued") return undefined;
+  if (entry.state === "uploading") return entry.progress >= 1 ? null : entry.progress;
+  return 1;
+}
 const title = computed(() => {
   const pending = props.uploads.pending.value;
   if (pending) return `Uploading ${pending} ${pending === 1 ? "file" : "files"}`;
@@ -28,11 +35,11 @@ const title = computed(() => {
       <p class="min-w-0 flex-1 truncate text-[13px] font-medium text-highlighted" aria-live="polite">{{ title }}</p>
       <UButton v-if="!uploads.pending.value" variant="ghost" size="xs" icon="i-lucide-x" aria-label="Close uploads" @click="uploads.clear()" />
     </header>
-    <ul class="max-h-64 overflow-y-auto py-1">
+    <MotionList tag="ul" class="max-h-64 overflow-y-auto py-1">
       <li v-for="entry in entries" :key="entry.id" class="grid gap-1 px-3 py-1.5">
         <div class="flex min-w-0 items-center gap-2">
-          <UIcon
-            :name="entry.state === 'done' ? 'i-lucide-check' : entry.state === 'failed' ? 'i-lucide-circle-alert' : 'i-lucide-loader-circle'"
+          <Icon
+            :name="entry.state === 'done' ? 'i-lucide-file' : entry.state === 'failed' ? 'i-lucide-circle-alert' : 'i-lucide-loader-circle'"
             class="size-3.5 shrink-0"
             :class="entry.state === 'failed' ? 'text-error' : entry.state === 'done' ? 'text-muted' : 'animate-spin text-dimmed'"
             aria-hidden="true"
@@ -47,22 +54,22 @@ const title = computed(() => {
             <UButton variant="ghost" size="xs" icon="i-lucide-x" :aria-label="`Dismiss ${entry.file.name}`" @click="uploads.dismiss(entry.id)" />
           </template>
         </div>
-        <div v-if="entry.state === 'uploading' || entry.state === 'queued'" class="h-0.5 overflow-hidden rounded-full bg-accented" aria-hidden="true">
-          <div class="h-full bg-inverted transition-[width] duration-150 ease-out" :style="{ width: `${Math.round(entry.progress * 100)}%` }" />
-        </div>
+        <Progress v-if="entry.state !== 'failed'" :value="barValue(entry)" :done="entry.state === 'done'" :label="`Upload ${entry.file.name}`" />
         <p v-if="entry.state === 'failed'" class="ps-5.5 text-xs text-error">{{ entry.error }}</p>
         <p v-else-if="entry.result?.duplicate" class="ps-5.5 text-xs text-muted">Already in the library as <span class="font-mono">{{ entry.result.file.pathname }}</span></p>
       </li>
-    </ul>
+    </MotionList>
   </section>
 </template>
 
 <style>
+/* A floating panel: the theme's floating surface, 12px radius, and layered shadow. */
 .vitehub-media-uploads {
-  background: var(--ui-bg);
-  border-radius: 0.75rem;
+  backdrop-filter: blur(12px);
+  background: var(--vh-floating);
+  border-radius: calc(var(--radius) * 3);
   bottom: 1rem;
-  box-shadow: 0 0 0 1px var(--ui-border), 0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 8%);
+  box-shadow: var(--vh-shadow-floating);
   overflow: hidden;
   position: absolute;
   right: 1rem;

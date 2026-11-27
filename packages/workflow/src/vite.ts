@@ -1,32 +1,42 @@
-import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/esbuild"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { invariant } from "@vite-hub/internal/invariant"
+import { workflowDurabilityUrl } from "./durability.ts"
+import { ownModule } from "@vite-hub/internal/build/paths"
+import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
-import { getViteMode } from "@vite-hub/internal/build/mode"
-import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
+import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalAddition, createProviderOutputEnvironmentOwner, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { errorCode } from "@vite-hub/internal/runtime/request-log"
 
 import { normalizeWorkflowOptions } from "./config.ts"
+import { workflowDeploymentEnv } from "./deployment-env.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
-import { inspectWorkflowDefinitions } from "./inspect.ts"
-import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { inspectWorkflowDefinitions, inspectWorkflowResources } from "./inspect.ts"
+import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
+import { writeWorkflowTypes } from "./internal/registry-types.ts"
+import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
-import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
+import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
+import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
+import type { ResolvedWorkflowOptions, WorkflowOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, Rolldown, UserConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
-export { inspectWorkflowDefinitions, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
+export { createWorkflowTypes } from "./internal/registry-types.ts"
+export { inspectWorkflowDefinitions, inspectWorkflowResources, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
 
 interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
@@ -36,17 +46,22 @@ interface WorkflowNitroConfigOptions {
   viteConfig?: UserConfig
 }
 
+/** Other owners write Workflow runtime paths into their generated code with this. */
+export { workflowRuntimeModule }
+
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
-  vitehub?: ViteHubInspectionPluginMetadata & {
+  /** The variables that Workflow reads on the deployed host. See `workflowDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
       prepareScheduleRuntime?: (artifactDir?: string, config?: ResolvedConfig) => Promise<{
         bundleAlias: Record<string, string>
-        bundlePlugins?: EsbuildPlugin[]
-        importBase: string
+        bundlePlugins?: Rolldown.Plugin[]
         native: boolean
         registryFile: string
+        runtimeModules: { state: string, vercelVite: string }
       } | undefined>
     }
   }
@@ -56,7 +71,24 @@ interface AgentWorkflowRegistryPlugin extends Plugin {
   vitehub?: {
     agent?: {
       transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string>
+      workflowModules?: AgentWorkflowModules
     }
+  }
+}
+
+function agentWorkflowModules(plugins: unknown): AgentWorkflowModules | undefined {
+  for (const plugin of [plugins].flat(Infinity)) {
+    // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which this reads defensively.
+    const modules = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.workflowModules
+    if (modules) return modules
+  }
+}
+
+function agentWorkflowRegistryTransform(plugins: unknown): ((code: string, id: string) => string | Promise<string>) | undefined {
+  for (const plugin of [plugins].flat(Infinity)) {
+    // SAFETY: Vite plugin objects may expose this optional ViteHub Agent extension.
+    const transform = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.transformWorkflowRegistry
+    if (transform) return transform
   }
 }
 
@@ -67,45 +99,65 @@ const workflowEnvironmentAssociation = Symbol("vitehubWorkflowEnvironmentAssocia
 interface ScheduledWorkflowBuildConfig {
   config: ResolvedConfig
   providerOutput: ProviderOutputCatalog | undefined
-  workflow: WorkflowModuleOptions | undefined
+  workflow: WorkflowOptions | undefined
   serverDirs: string[] | undefined
   environmentNames: Set<string>
   environmentAssociation?: object
 }
 
 interface InternalWorkflowModuleOptions {
-  agentImportBase?: string
+  databaseImport?: string
   hosting?: string
-  implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
-  includeUserAppEntry?: boolean
+  includeUserAppEntry?: boolean | string
   workspaceDependencyRuntimeImports?: {
-    sandboxTask?: string
-    sandboxTaskRuntimeState?: string
     shellWorkspace?: string
   }
-  workspaceImportBase?: string
+  workspaceRuntimeModule?: string
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
 }
 
-export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+interface DatabaseVitePlugin {
+  api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
+}
+
+function findDatabasePlugin(plugins: readonly unknown[] | undefined): DatabaseVitePlugin | undefined {
+  for (const plugin of plugins ?? []) {
+    if (Array.isArray(plugin)) {
+      const found = findDatabasePlugin(plugin)
+      if (found) return found
+    }
+    // SAFETY: The plugin name identifies the Database integration, whose `api` has this shape.
+    else if (plugin && typeof plugin === "object" && "name" in plugin && plugin.name === databaseVitePluginName) return plugin as DatabaseVitePlugin
+  }
+  return undefined
+}
+
+function readPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean | undefined {
+  if (!plugin) return false
+  const config = plugin.api?.getConfig?.()
+  return config ? config.databases.default?.dialect === "postgresql" : undefined
+}
+
+export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/workflow/vite")
   let resolved: ResolvedConfig | undefined
-  const defaultWorkflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
-    && normalizeHosting(internalOptions.hosting).includes("netlify")
-    ? false
-    : options
-  let workflow = defaultWorkflow
+  let startupBuild = false
+  const allowsInline = () => !startupBuild
+  const resolveWorkflow = (workflowOptions: WorkflowOptions | undefined) => normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions.hosting, inline: allowsInline() })
+  const resolveOutputs = (workflowOptions: WorkflowOptions | undefined, hosting = internalOptions.hosting) => resolveWorkflowProviderOutputs(workflowOptions, hosting, allowsInline())
   const scheduleBuildConfigs = new WeakMap<ResolvedConfig, {
     config: ResolvedConfig
     providerOutput: ProviderOutputCatalog | undefined
-    workflow: WorkflowModuleOptions | undefined
+    workflow: WorkflowOptions | undefined
     serverDirs: string[] | undefined
     environmentNames: Set<string>
     environmentAssociation?: object
@@ -115,7 +167,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     config: ResolvedConfig
     providerOutput: ProviderOutputCatalog | undefined
     serverDirs: string[] | undefined
-    workflow: WorkflowModuleOptions | undefined
+    workflow: WorkflowOptions | undefined
   }>()
   let serverDirs: string[] | undefined
   const stagedArtifactDirs = new WeakMap<object, string>()
@@ -170,7 +222,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
     const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
     return {
-      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(database ? { "@vite-hub/database/runtime/registry": database } : {}),
       ...(blob ? { "@vite-hub/blob": blob } : {}),
     }
   }
@@ -186,10 +238,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    if (!config) throw workflowErrorDiagnostics.WORKFLOW_B0001({ message: "[vitehub] Workflow runtime preparation requires resolved Vite config." })
+    invariant(config, "the Schedule plugin prepares the Workflow runtime during the build, after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
-    const workflowOptions = config.workflow === undefined ? build?.workflow ?? defaultWorkflow : config.workflow
-    if (normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
+    const workflowOptions = build?.workflow ?? workflow
+    if (resolveWorkflow(workflowOptions)?.driver !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(config.root)
     const aliases = await providerImportAliases(config)
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
@@ -197,7 +249,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
-          artifactDir: resolve(artifactDir, "sources"),
+          artifactDir: resolve(artifactDir, ".vitehub", "workflow", "sources"),
           paths: [
             ...providerOutputAliasSources(aliases, [config.root]),
             ...providerSources.paths,
@@ -210,15 +262,13 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
       .map(([handler, instructions]) => [retainedSources?.resolve(handler) ?? handler, instructions]))
     const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
-      agent: internalOptions?.agentImportBase,
+      agent: agentWorkflowModules(config.plugins),
       workflow: internalOptions?.importBase,
-      workspace: internalOptions?.workspaceImportBase,
+      workspaceRuntime: internalOptions?.workspaceRuntimeModule,
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
       ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions)
-    const importBase = internalOptions?.importBase ?? workflowPackageName
-    const projectRequire = createRequire(resolve(config.root, "package.json"))
     const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, retainedAliases, artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
@@ -226,8 +276,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     return {
       bundleAlias: {
         ...retainedAliases,
-        [`${importBase}/runtime/state`]: projectRequire.resolve(`${importBase}/runtime/state`),
-        [`${importBase}/runtime/vercel-vite`]: projectRequire.resolve(`${importBase}/runtime/vercel-vite`),
         ...(workflowApi && workflowRequire
           ? {
               "@workflow/core/runtime/world-target": resolveVercelWorkflowWorld(workflowApi),
@@ -237,73 +285,126 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           : {}),
       },
       bundlePlugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
-        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
-      ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
-      importBase,
+        createOptionalPackagesPlugin(rootDir),
+        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
+      ].filter((plugin): plugin is Rolldown.Plugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,
+      runtimeModules: { state: workflowRuntimeModule("state"), vercelVite: workflowRuntimeModule("vercel-vite") },
     }
   }
 
-  // Provider servers install the discovered Workflow registry in production.
-  // In `vite dev`, and in builds for hosts without a Provider Output server
-  // (Node, Docker), a generated Nitro plugin installs it and the resolved
-  // runtime configuration.
   function buildNeedsStartupRegistry(): boolean {
     if (!internalOptions.hosting) return false
-    const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions.hosting)
+    const outputs = resolveOutputs(workflow)
     return !outputs.cloudflare && !outputs.vercel
   }
 
   let devRootDir: string | undefined
+  let nitroOptions: object | undefined
+  let vercelNativeEntry = false
+
+  function addVercelWorkflowWebhookRoute(): void {
+    if (startupBuild && vercelNativeEntry && nitroOptions) addVercelWorkflowNitroRoutes(nitroOptions)
+  }
+  let databasePlugin: DatabaseVitePlugin | undefined
+  let postgresDatabaseImport: string | undefined
+
+  function startupWorkflow(): false | ResolvedWorkflowOptions | undefined {
+    return startupBuild
+      ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
+      : devWorkflow ?? false
+  }
+
+  function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
+    return devWorkflow?.driver === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
+  }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
-  let startupBuild = false
+
+  let reportedDevWorkflowError: string | undefined
 
   function resolveDevWorkflow(): ResolvedWorkflowOptions | undefined {
     try {
-      return normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? "vercel" })
+      const resolved = resolveWorkflow(workflow)
+      reportedDevWorkflowError = undefined
+      return resolved
     }
-    catch {
-      // The build reports configuration errors. Development keeps the app running without a registry.
+    catch (error) {
+      if (!startupBuild) reportDevWorkflowError(error)
       return undefined
     }
   }
 
-  async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined) {
+  function reportDevWorkflowError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    const code = errorCode(error)
+    const report = code ? `${code}: ${message}` : message
+    if (report === reportedDevWorkflowError) return
+    reportedDevWorkflowError = report
+    console.warn(`[vitehub:workflow] ${report} The dev server runs without Workflows until you fix the Workflow configuration.`)
+  }
+
+  let configPlugins: unknown
+
+  async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined, vercel?: WorkflowVercelNitroRegistry) {
     return await writeWorkflowDevRegistryFiles({
-      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      agentModules: agentWorkflowModules(configPlugins),
+      transformRegistry: agentWorkflowRegistryTransform(configPlugins),
+      databaseImport: postgresDatabaseImport,
+      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs, registersAgentWorkflows(workflow)) : [],
       dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
       pluginPath: devStartupPlugin,
+      vercel,
       workflow,
     })
+  }
+
+  function nitroOwnsVercelServer(config: ResolvedConfig, workflowOptions: WorkflowOptions | undefined): boolean {
+    return Boolean(resolveOutputs(workflowOptions).vercel) && resolveNitroVercelFunctionName(config, "workflow") !== undefined
+  }
+
+  let vercelModuleTransform: VercelWorkflowModuleTransform | undefined
+
+  async function prepareVercelNitroRegistry(config: ResolvedConfig): Promise<WorkflowVercelNitroRegistry> {
+    const rootDir = resolveViteHubProjectRoot(config.root)
+    const artifacts = await writeProviderEntries(rootDir, workflow, {
+      agent: agentWorkflowModules(config.plugins),
+      workflow: internalOptions.importBase,
+      workspaceRuntime: internalOptions.workspaceRuntimeModule,
+      workspaceDependencies: internalOptions.workspaceDependencyRuntimeImports,
+    }, serverDirs, internalOptions.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
+      .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+      ?.vitehub?.agent?.transformWorkflowRegistry, config.root)
+    const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, await providerImportAliases(config), artifacts.vercelNativeFiles)
+    vercelModuleTransform = native ? await createVercelWorkflowModuleTransform(rootDir) : undefined
+    return { native, registryFile: artifacts.registryFile }
   }
 
 
   return {
     name: "@vite-hub/workflow/vite",
-    // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
+    api: {
+      deploymentEnv: context => workflowDeploymentEnv(normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? context.host, inline: allowsInline() })),
+    },
     enforce: "pre",
     config: {
-      // Nitro reads `config.nitro` in its own `config` hook, so the plugin must be added first.
       order: "pre",
       async handler(config, env) {
-        workflow = config.workflow === undefined ? defaultWorkflow : config.workflow
         // SAFETY: ViteHub supplies this optional string-array extension during framework configuration.
         serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-        // Keep forwarded directories on each config for reused build plugins.
         // SAFETY: This private fallback field is written before Vite resolves the config.
         const buildConfig = config as typeof config & { __vitehubWorkflowServerDirs?: string[] }
         buildConfig.__vitehubWorkflowServerDirs = serverDirs
-        devWorkflow = resolveDevWorkflow()
         startupBuild = env.command === "build"
-        if (startupBuild && !internalOptions.hosting) return
+        configPlugins = config.plugins
+        if (startupBuild && internalOptions.hosting) resolveWorkflow(workflow)
+        devWorkflow = resolveDevWorkflow()
+        if (startupBuild && !internalOptions.hosting && !resolveNitroVercelFunctionName(config, "workflow")) return
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
-        // Reserve the startup plugin before Nitro reads config. Later hooks may enable Workflows.
         const { plugin } = await writeDevRegistry(devRootDir, startupBuild ? undefined : devWorkflow ?? false)
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
@@ -323,7 +424,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       if (!rootDir || !workflowConfig) return
       const watchedDirectories = (serverDirs ?? [resolve(rootDir, "server")]).map(directory => resolve(rootDir, directory))
       server.watcher.add([...watchedDirectories, rootDir])
-      // Vite does not call `handleHotUpdate` for new or deleted files, so watch them directly.
       const refresh = async (path: string) => {
         const file = path.replace(/\\/g, "/")
         if (file.includes(`/${workflowDevGeneratedDir}/`)) return
@@ -343,9 +443,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }
           modules.push(...module.importers)
         }
-        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.)/i.test(file)
+        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.|\/agents\/|\.agent\.)/i.test(file)
         if (!definitionFile && !registryDependency) return
         const { changed } = await writeDevRegistry(rootDir, workflowConfig)
+        await writeWorkflowTypes(rootDir, discoverWorkflowDevDefinitions(rootDir, serverDirs), internalOptions.importBase)
         const filesToInvalidate = new Set([
           ...changed,
           resolve(rootDir, workflowDevGeneratedDir, "dev-registry.mjs"),
@@ -370,13 +471,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     async configResolved(config) {
       resolved = config
+      configPlugins = config.plugins
       providerOutput = useProviderOutputCatalog(config)
-      workflow = config.workflow === undefined ? defaultWorkflow : config.workflow
       // SAFETY: The framework adds optional forwarded server directories to resolved Vite configuration.
       const buildConfig = config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[], __vitehubWorkflowServerDirs?: string[] }
-      // Vite clones environment configs by copying the build options. Keep a
-      // stable owner token on that object so clones retain their full
-      // Workflow and Provider Output association.
       // SAFETY: This plugin owns the private association token on resolved build options.
       const buildWithAssociation = config.build as typeof config.build & { [workflowBuildAssociation]?: object }
       if (buildWithAssociation && !buildWithAssociation[workflowBuildAssociation]) {
@@ -407,10 +505,19 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
+        databasePlugin = findDatabasePlugin(config.plugins)
+        postgresDatabaseImport = postgresDatabaseImportFor(readPostgresDefaultDatabase(databasePlugin))
+        const vercel = startupBuild && devWorkflow && nitroOwnsVercelServer(config, workflow)
+          ? await prepareVercelNitroRegistry(config)
+          : undefined
+        vercelNativeEntry = vercel?.native === true
+        addVercelWorkflowWebhookRoute()
         await writeDevRegistry(devRootDir, startupBuild
-          ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
-          : devWorkflow ?? false)
+          ? devWorkflow && (buildNeedsStartupRegistry() || vercel) ? devWorkflow : undefined
+          : devWorkflow ?? false, vercel)
       }
+      const typesRoot = devRootDir ?? resolveViteHubProjectRoot(config.root)
+      await writeWorkflowTypes(typesRoot, workflow === false ? [] : discoverWorkflowDevDefinitions(typesRoot, buildServerDirs), internalOptions.importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -420,12 +527,29 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
+    transform: {
+      filter: { code: /use (?:step|workflow)/, id: /\.(?:c|m)?[jt]sx?$/ },
+      async handler(code, id, options) {
+        if (!vercelModuleTransform || id.startsWith("\0") || id.includes("?") || (this.environment?.config.consumer !== "server" && !options?.ssr)) return
+        return await vercelModuleTransform(code, id)
+      },
+    },
     vitehub: {
-      // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: "@vite-hub/workflow/operations" }],
+      durability: () => {
+        const options = resolveWorkflow(workflow)
+        if (!options) return []
+        const input = {
+          driver: options.driver,
+          defaultDatabase: options.driver === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
+          ...(options.driver === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
+          ...(options.driver === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
+        }
+        return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "workflow" }]
+      },
+      operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: ownModule(import.meta.url, "operations") }],
       inspect: () => {
-        const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
-        const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions?.hosting ?? "vercel")
+        const options = resolveWorkflow(workflow)
+        const outputs = resolveOutputs(workflow, internalOptions.hosting ?? "vercel")
         return {
           definitions: options ? [{
             kind: "workflow",
@@ -441,9 +565,22 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
           if (outputs.cloudflare && cloudflareInNitro) return [{ description: "Cloudflare Workflow bindings in Nitro's Wrangler config", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json") }]
           if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
-          if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
+          if (outputs.vercel && resolveNitroVercelFunctionName(resolved ?? {}, "workflow")) return [{ description: "Workflow registry in Nitro's Vercel server function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "index.mjs") }]
+          if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "index.mjs") }]
           return []
           })(),
+          // The build binds each Workflow on Cloudflare. It makes the same output decision, and it scans the project root
+          // when Nitro writes the bindings or the Vite root when the standalone Cloudflare output does.
+          resources: () => {
+            const cloudflare = resolveOutputs(workflow).cloudflare
+            if (!cloudflare) return []
+            const viteRoot = resolved?.root ?? process.cwd()
+            const projectRoot = resolveViteHubProjectRoot(viteRoot)
+            const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+            const inNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
+            const resources = inspectWorkflowResources({ binding: cloudflare.binding, name: cloudflare.name, projectRoot, rootDir: inNitro ? projectRoot : viteRoot, serverDirs })
+            return inNitro ? resources : resources.map(resource => ({ ...resource, standalone: true }))
+          },
         }
       },
       workflow: {
@@ -451,15 +588,15 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           if (viteConfig && (Reflect.get(viteConfig, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare"))) return nitro
           const input = viteConfig ? { ...nitro, preset: nitro.preset ?? internalOptions.hosting } : nitro
           const configured = await createCloudflareWorkflowNitroConfig({
-            agentImportBase: internalOptions?.agentImportBase,
+            agentModules: agentWorkflowModules(viteConfig?.plugins),
             nitro: input,
             rootDir: projectRoot,
             serverDirs: nitroServerDirs,
             includeUserAppEntry: internalOptions?.includeUserAppEntry,
-            workflow: viteConfig ? viteConfig.workflow === undefined ? defaultWorkflow : viteConfig.workflow : workflow,
+            workflow,
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-            workspaceImportBase: internalOptions?.workspaceImportBase,
+            workspaceRuntimeModule: internalOptions?.workspaceRuntimeModule,
             transformRegistry,
           })
           if (configured === input) return nitro
@@ -470,14 +607,26 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       },
     },
     buildApp: providerOutputEnvironment.buildApp,
-    nitro: providerOutputEnvironment.nitro,
-    buildStart() {
+    nitro: {
+      name: providerOutputEnvironment.nitro.name,
+      setup(nitro) {
+        providerOutputEnvironment.nitro.setup(nitro)
+        nitroOptions = nitro.options
+        addVercelWorkflowWebhookRoute()
+      },
+    },
+    async buildStart() {
+      if (devRootDir) {
+        const postgres = readPostgresDefaultDatabase(databasePlugin)
+        const next = postgres === undefined ? postgresDatabaseImport : postgresDatabaseImportFor(postgres)
+        if (next !== postgresDatabaseImport) {
+          postgresDatabaseImport = next
+          await writeDevRegistry(devRootDir, startupWorkflow())
+        }
+      }
       if (shouldSkipProviderOutputEnvironment(this)) return
       const context = buildEnvironment(this)
       rejectedBuilds.delete(context)
-      // Vite's builder can resolve several environments before starting any of
-      // them. Read the environment config here so a reused plugin does not use
-      // the last configResolved call for every build.
       const environmentConfig = this?.environment?.config
       if (environmentConfig) {
         // SAFETY: This private fallback field is copied from the plugin's config hook by Vite.
@@ -495,7 +644,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           config,
           providerOutput: useProviderOutputCatalog(config),
           serverDirs: config[VITEHUB_SERVER_DIRS] ?? config.__vitehubWorkflowServerDirs,
-          workflow: config.workflow ?? defaultWorkflow,
+          workflow,
           environmentNames: new Set<string>(),
         }
         if (this.environment?.name) scheduled.environmentNames.add(this.environment.name)
@@ -520,7 +669,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }
       const config = build?.config ?? resolved
       const buildProviderOutput = build?.providerOutput ?? providerOutput
-      if (!config || shouldSkipViteProviderBuild(config.command, getViteMode())) {
+      if (!config || shouldSkipViteProviderBuild(config.command)) {
         return
       }
       const rootDir = resolveViteHubProjectRoot(config.root)
@@ -541,13 +690,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           vercel: providerRuntimeImportAliases("vercel", generation, buildProviderOutput),
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
-        const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
-        // Read this build's Nitro output instead of retaining an early provider decision across builds.
+        const outputs = resolveOutputs(workflowOptions)
+        const nitroServer = nitroOwnsVercelServer(config, workflowOptions)
         // SAFETY: createNitroConfig installs the named Rollup plugin when Nitro owns the Workflow classes.
         const nitro = Reflect.get(config, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
         const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
-        // Only Provider Output bundles read retained sources, and a snapshot of every alias root is slow in large apps.
-        const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
+        const retainedSources = (!outputs.cloudflare && !outputs.vercel) || nitroServer ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
             ...providerOutputAliasSources(importAliases, [config.root]),
@@ -567,9 +715,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
           .map(([handler, instructions]) => [retainedSources.resolve(handler), instructions]))
         const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
-          agent: internalOptions?.agentImportBase,
+          agent: agentWorkflowModules(config.plugins),
           workflow: internalOptions?.importBase,
-          workspace: internalOptions?.workspaceImportBase,
+          workspaceRuntime: internalOptions?.workspaceRuntimeModule,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
         }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions)
         stagedArtifactDirs.set(environment, artifactDir)
@@ -580,14 +728,16 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           },
           owner: "workflow",
           rootDir,
-          write: async ({ write }) => {
+          write: async ({ addVercelRuntimePackages, write }) => {
             await generateWorkflowProviderOutputs({
-              agentImportBase: internalOptions?.agentImportBase,
+              addVercelRuntimePackages,
+              agentModules: agentWorkflowModules(config.plugins),
               artifacts,
               clientOutDir: resolve(config.root, config.build.outDir),
               bundleDefines: resolveViteHubBundleDefines(config),
               cloudflareInNitro,
               hosting: internalOptions?.hosting,
+              inline: allowsInline(),
               importBase: internalOptions?.importBase,
               providerImportAliases: retainedImportAliases,
               providerRuntimeImportAliases: retainedRuntimeImportAliases,
@@ -595,12 +745,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               rootDir,
               definitionRootDir: retainedDefinitionRoot,
               serverDirs: retainedServerDirs,
-              serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+              nitroServer,
               sourceRootDir: retainedSources.resolve(rootDir),
               includeUserAppEntry: internalOptions?.includeUserAppEntry,
               workflow: workflowOptions,
               workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
-              workspaceImportBase: internalOptions?.workspaceImportBase,
+              workspaceRuntimeModule: internalOptions?.workspaceRuntimeModule,
               transformRegistry,
             }, write)
           },
@@ -631,15 +781,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         if (rejectedBuilds.has(buildEnvironment(this)) || shouldSkipProviderOutputEnvironment(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? resolved
-        if (!config || shouldSkipViteProviderBuild(config.command, getViteMode())) return
+        if (!config || shouldSkipViteProviderBuild(config.command)) return
         await finalizeProviderDeploymentOutputs(build?.providerOutput ?? providerOutput)
       },
     },
-  }
-}
-
-declare module "vite" {
-  interface UserConfig {
-    workflow?: WorkflowModuleOptions
   }
 }

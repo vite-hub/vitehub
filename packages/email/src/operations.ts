@@ -5,21 +5,17 @@ import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/opera
 import type { EmailPreview } from "./preview.ts"
 import type { EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
 
-// The runtime module reads the outbox of the app, which only exists in the Nitro runtime. The operations load it when
-// they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = async () => {
-  // Install the capture setting even when application code has not imported Email yet.
   await import("#vitehub/email/definition")
   return import("./runtime/operations.ts")
 }
 
 function defineEmailOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The outbox answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "email", user: false })
 }
 
 const outboxList = defineEmailOperation<Record<string, never>, EmailOutboxList>({
-  cli: { command: "outbox-list" },
+  cli: { command: "outbox list" },
   description: "List the messages that the development outbox captured, newest first.",
   input: v.object({}),
   kind: "read",
@@ -28,7 +24,7 @@ const outboxList = defineEmailOperation<Record<string, never>, EmailOutboxList>(
 })
 
 const outboxShow = defineEmailOperation<{ id: string }, { message: EmailOutboxMessage }>({
-  cli: { command: "outbox-show", positional: ["id"] },
+  cli: { command: "outbox get", positional: ["id"] },
   description: "Show one captured message with its bodies, headers, and attachment details.",
   input: v.object({ id: v.pipe(v.string(), v.minLength(1)) }),
   kind: "read",
@@ -37,7 +33,7 @@ const outboxShow = defineEmailOperation<{ id: string }, { message: EmailOutboxMe
 })
 
 const outboxClear = defineEmailOperation<Record<string, never>, { cleared: number }>({
-  cli: { command: "outbox-clear" },
+  cli: { command: "outbox clear" },
   description: "Remove every message from the development outbox.",
   input: v.object({}),
   kind: "destructive",

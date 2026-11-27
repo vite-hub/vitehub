@@ -3,7 +3,7 @@ description: "Fix QUEUE_DEFINITION_NOT_FOUND in ViteHub. The queue name has no d
 seo.title: "QUEUE_DEFINITION_NOT_FOUND: unknown Queue name"
 ---
 
-`runQueue()`, `getQueue()`, or `dynamicQueue` throws `QUEUE_DEFINITION_NOT_FOUND` when the runtime has no Queue Definition with the name that you passed. `error.why` shows the name only when it is a safe identifier.
+`sendQueue()`, `useQueue()`, or `dynamicQueue` throws `QUEUE_DEFINITION_NOT_FOUND` when the runtime has no Queue Definition with the name that you passed. `error.why` shows the name only when it is a safe identifier.
 
 ## Why it happens
 
@@ -19,11 +19,11 @@ The generated server output loads a registry of the discovered Queue Definitions
 ## Fix it
 
 ```diff [server/api/signup.post.ts]
- import { runQueue } from 'vite-hub/queue'
+ import { sendQueue } from 'vite-hub/queue'
 
  export default defineEventHandler(async () => {
--  const [error] = await runQueue('welcome', { email: 'ava@example.com' })
-+  const [error] = await runQueue('welcome-email', { email: 'ava@example.com' })
+-  const [error] = await sendQueue('welcome', { email: 'ava@example.com' })
++  const [error] = await sendQueue('welcome-email', { email: 'ava@example.com' })
    if (error) throw error
  })
 ```
@@ -32,8 +32,8 @@ Use the name that discovery gives the file. Here the file is `server/queues/welc
 
 ```diff [vite.config.ts]
  export default defineConfig({
--  plugins: [vitehub({ preset: 'cloudflare' })],
-+  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+-  plugins: [vitehub({ host: 'cloudflare' })],
++  plugins: [vitehub({ host: 'cloudflare', queue: true })],
  })
 ```
 
@@ -49,7 +49,7 @@ Run `vitehub inspect definitions --kind queue`. It lists each discovered Queue D
 
 - [Define a queue](/docs/queue/configure#define-a-queue)
 - [Queue Server API](/docs/queue/server-api)
-- [Inspect Definitions and Provider Output](/docs/development/cli#inspect-definitions-and-provider-output)
+- [Inspect Definitions and Provider Output](/docs/cli/inspect#inspect-definitions-and-provider-output)
 - [Local delivery](/docs/queue/limits-and-errors#local-delivery)
 - [`QUEUE_DISABLED`](/docs/queue/diagnostics/queue_disabled)
 - [`QUEUE_DEFINITION_LOAD_FAILED`](/docs/queue/diagnostics/queue_definition_load_failed)

@@ -24,9 +24,9 @@ Replace the tutorial's options with these and use your bucket name.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	preset: 'cloudflare',
+  	host: 'cloudflare',
   	blob: {
-  		driver: 'cloudflare-r2',
+  		driver: 'cloudflare',
   		binding: 'BLOB',
   		bucketName: 'your-existing-bucket',
   	},
@@ -43,9 +43,9 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		blob: {
-			driver: 'cloudflare-r2',
+			driver: 'cloudflare',
 			binding: 'BLOB',
 			bucketName: 'your-existing-bucket',
 		},
@@ -61,9 +61,9 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		blob: {
-			driver: 'cloudflare-r2',
+			driver: 'cloudflare',
 			binding: 'BLOB',
 			bucketName: 'your-existing-bucket',
 		},

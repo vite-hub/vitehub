@@ -1,8 +1,12 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
+import { defineDiagnostics } from "nostics"
+
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
 
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
+export { matchesWebContainerRoute } from "./routes.ts"
 
 /** One step of a boot checklist, in the order a UI shows it. */
 export type WebContainerStage =
@@ -58,6 +62,11 @@ export interface BootWebContainerOptions {
    * @default 3000
    */
   port?: number
+  /**
+   * JavaScript that runs first in every HTML page of the preview, such as a script that reports the page address to
+   * the parent page. The preview origin is cross-origin, so this is the only way to run code in its pages.
+   */
+  previewScript?: string
   /** Called on every status change, from the first check on. */
   onStatus?: (status: WebContainerStatus) => void
 }
@@ -117,9 +126,16 @@ export type WebContainerSupport =
   | { supported: true }
   | { supported: false, reason: string }
 
-export class WebContainerUnsupportedError extends Error {
-  override name: string = "WebContainerUnsupportedError"
-}
+const webContainerBrowserDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: "https://vitehub.dev/docs/web-container/diagnostics",
+  codes: {
+    // Named errors.
+    WEB_CONTAINER_UNSUPPORTED: {
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in `webContainer.routes` of `vitehub()`, which sends the isolation headers on it in dev, preview, and production.",
+    },
+  },
+})
 
 /** Checks the page, not the browser name: a WebContainer needs a cross-origin isolated page with SharedArrayBuffer. */
 export function checkWebContainerSupport(): WebContainerSupport {
@@ -147,10 +163,10 @@ export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
   const root: FileSystemTree = {}
   for (const [path, contents] of Object.entries(files)) {
     const segments = path.split("/")
-    if (path.startsWith("/") || segments.includes("..")) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    if (path.startsWith("/") || segments.includes("..")) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ path, reason: "invalid" })
     const parts = segments.filter(part => part && part !== ".")
     const name = parts.pop()
-    if (!name) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    if (!name) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ path, reason: "invalid" })
     let tree = root
     for (const part of parts) {
       let node = Object.hasOwn(tree, part) ? tree[part] : undefined
@@ -158,10 +174,10 @@ export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
         node = { directory: {} }
         Object.defineProperty(tree, part, { value: node, enumerable: true, configurable: true, writable: true })
       }
-      if (!("directory" in node)) throw new TypeError(`WebContainer path ${path} goes through the file ${part}.`)
+      if (!("directory" in node)) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ part, path, reason: "through-file" })
       tree = node.directory
     }
-    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw new TypeError(`WebContainer path ${path} replaces the directory ${name}.`)
+    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ part: name, path, reason: "replaces-directory" })
     Object.defineProperty(tree, name, { value: { file: { contents } }, enumerable: true, configurable: true, writable: true })
   }
   return root
@@ -215,7 +231,6 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
     start(controller) { outputController = controller },
     cancel() { outputCancelled = true },
   }, { highWaterMark: outputLimit, size: chunk => chunk.length })
-  // Drain the process even when the terminal is idle, without tee()'s unbounded queue.
   const collected = spawned.output.pipeTo(new WritableStream<string>({
     write(chunk) {
       captured = (captured + chunk).slice(-outputLimit)
@@ -246,7 +261,6 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
   }
 }
 
-/** A snapshot from `createNodeModulesSnapshot()` lists its symlinks and executable files. Restore them in one Node run. */
 async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<void> {
   const listed = await container.fs.readFile(`node_modules/${snapshotLinksFile}`, "utf8").then(() => true, () => false)
   if (!listed) return
@@ -254,10 +268,9 @@ async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<
   await container.fs.writeFile(script, restoreLinksScript)
   const process = await container.spawn("node", [script])
   const code = await process.exit
-  if (code !== 0) throw new Error(`Restoring the links of the snapshot exited with code ${code}.`)
+  if (code !== 0) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LINKS_FAILED({ code })
 }
 
-/** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
 interface SnapshotCache {
   match: (url: string) => Promise<Response | undefined>
   put: (url: string, response: Response) => Promise<void>
@@ -272,8 +285,9 @@ function isCacheStorage(value: unknown): value is { open: (name: string) => Prom
 export interface FetchSnapshotOptions {
   /**
    * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
-   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
-   * A part goes into the cache only after the whole snapshot inflates and matches `sha256`.
+   * snapshot version its own URLs, such as names with a content hash. After the whole snapshot inflates and matches
+   * `sha256`, its parts go into the cache. Parts of other URLs are deleted only after every part is stored, so a
+   * failed write keeps the previous version. A failed load keeps the cache as it was.
    */
   cache?: string
   /** The SHA-256 of the joined parts, in hex. A snapshot that differs is rejected, and none of its parts is cached. */
@@ -285,37 +299,86 @@ export interface FetchSnapshotOptions {
  * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
  */
 export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const { cache: cacheName, sha256 } = options
   const storage: unknown = Reflect.get(globalThis, "caches")
-  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
-  if (cache) {
-    // `Request` resolves a relative URL against the page, as the cache keys do.
-    const keep = new Set(urls.map(url => new Request(url).url))
-    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
-  }
+  const cache = cacheName && isCacheStorage(storage) ? await storage.open(cacheName).catch(() => undefined) : undefined
   const parts = await Promise.all(urls.map(async (url) => {
-    const cached = await cache?.match(url)
-    if (cached) return { url, blob: await cached.blob(), downloaded: false }
+    const cached = cache && await readCachedPart(cache, url).catch(() => undefined)
+    if (cached) return { url, blob: cached, downloaded: false }
     const response = await fetch(url)
-    if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
+    if (!response.ok) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_FAILED({ status: response.status, url })
     return { url, blob: await response.blob(), downloaded: true }
   }))
-  const joined = new Blob(parts.map(part => part.blob))
   let data: Uint8Array
   try {
-    if (options.sha256) {
-      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
-      const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-      if (hex !== options.sha256.toLowerCase()) throw new Error(`The snapshot has SHA-256 ${hex}, not ${options.sha256}.`)
-    }
-    data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+    data = await inflateSnapshot(parts.map(part => part.blob), urls[0]!, sha256)
   }
   catch (cause) {
-    // A cached part can be the bad one. Drop every part of this snapshot, so the next load downloads them again.
-    await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
-    throw new Error(`The snapshot from ${urls[0]} is damaged: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    const cacheHits = parts.filter(part => !part.downloaded)
+    if (cache && cacheName && cacheHits.length) {
+      await withSnapshotCacheLock(cacheName, async () => {
+        const current = await Promise.all(urls.map(url => readCachedPart(cache, url)))
+        if (current.every(part => part !== undefined) && await inflateSnapshot(current, urls[0]!, sha256).catch(() => undefined)) return
+        await Promise.all(cacheHits.map(async part => await cache.delete(new Request(part.url)).catch(() => false)))
+      })
+    }
+    if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
+    throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
-  for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})
+  if (cache && cacheName) await replaceCachedPartsAfterLoad(cacheName, cache, parts)
   return data
+}
+
+async function inflateSnapshot(parts: Blob[], url: string, sha256?: string): Promise<Uint8Array> {
+  const joined = new Blob(parts)
+  if (sha256) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
+    const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+    if (hex !== sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${sha256}.`, url })
+  }
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
+async function readCachedPart(cache: SnapshotCache, url: string): Promise<Blob | undefined> {
+  return await (await cache.match(url))?.blob()
+}
+
+async function hasCachedPart(cache: SnapshotCache, url: string): Promise<boolean> {
+  try {
+    return await cache.match(url) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
+async function replaceCachedPartsAfterLoad(name: string, cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
+  await withSnapshotCacheLock(name, async () => {
+    let stored = true
+    for (const part of parts) {
+      if (!part.downloaded && await hasCachedPart(cache, part.url)) continue
+      try {
+        await cache.put(part.url, new Response(part.blob))
+      }
+      catch {
+        stored = false
+      }
+    }
+    if (!stored) return
+    const keep = new Set(parts.map(part => new Request(part.url).url))
+    const stale = (await cache.keys()).filter(request => !keep.has(request.url))
+    await Promise.all(stale.map(async request => await cache.delete(request).catch(() => false)))
+  })
+}
+
+async function withSnapshotCacheLock(name: string, update: () => Promise<void>): Promise<void> {
+  const navigator: unknown = Reflect.get(globalThis, "navigator")
+  const locks: unknown = typeof navigator === "object" && navigator !== null ? Reflect.get(navigator, "locks") : undefined
+  await (isLockManager(locks) ? locks.request(`vitehub-web-container-snapshot:${name}`, update) : update()).catch(() => {})
+}
+
+function isLockManager(value: unknown): value is { request: (name: string, callback: () => Promise<void>) => Promise<void> } {
+  return typeof value === "object" && value !== null && "request" in value && typeof value.request === "function"
 }
 
 /**
@@ -328,7 +391,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   status.enter("checking")
   const support = checkWebContainerSupport()
   if (!support.supported) {
-    const error = new WebContainerUnsupportedError(support.reason)
+    const error = webContainerBrowserDiagnostics.WEB_CONTAINER_UNSUPPORTED({ reason: support.reason })
     status.fail("unsupported", error)
     throw error
   }
@@ -336,16 +399,16 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
-    const loading = Promise.resolve(options.snapshot)
-    // The boot does not wait for the snapshot. A failed load still rejects below.
-    loading.catch(() => {})
+    const loading = Promise.allSettled([options.snapshot])
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
+    if (options.previewScript) await booted.setPreviewScript(options.previewScript)
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      const snapshot = await loading
-      if (snapshot) {
-        await booted.mount(snapshot)
+      const [loaded] = await loading
+      if (loaded.status === "rejected") throw loaded.reason
+      if (loaded.value) {
+        await booted.mount(loaded.value)
         await restoreSnapshotLinks(booted)
       }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
@@ -361,18 +424,28 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   const container = booted
 
   let server: WebContainerPreviewServer | undefined
-  let resolveReady!: (server: WebContainerPreviewServer) => void
-  let rejectReady!: (error: Error) => void
-  let readySettled = false
+  let readyResult: PromiseSettledResult<WebContainerPreviewServer> | undefined
+  let deliverReady: ((result: PromiseSettledResult<WebContainerPreviewServer>) => void) | undefined
+  let ready: Promise<WebContainerPreviewServer> | undefined
   let serverReadyCount = 0
   let devRunning = false
-  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
-  // Readiness is optional: consumers may use status events without awaiting it.
-  void ready.catch(() => {})
+  function settleReady(result: PromiseSettledResult<WebContainerPreviewServer>) {
+    if (readyResult) return
+    readyResult = result
+    deliverReady?.(result)
+  }
+  function readiness() {
+    if (!ready) {
+      ready = new Promise<WebContainerPreviewServer>((resolve, reject) => {
+        deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
+        if (readyResult) deliverReady(readyResult)
+      })
+      void ready.catch(() => undefined)
+    }
+    return ready
+  }
   function rejectPendingReady(error: Error) {
-    if (readySettled) return
-    readySettled = true
-    rejectReady(error)
+    settleReady({ status: "rejected", reason: error })
   }
   function fail(error: Error) {
     rejectPendingReady(error)
@@ -384,10 +457,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
-    if (!readySettled) {
-      readySettled = true
-      resolveReady(server)
-    }
+    settleReady({ status: "fulfilled", value: server })
     if (status.current.stage === "starting") status.enter("ready")
   })
   container.on("error", ({ message }) => fail(new Error(message)))
@@ -397,20 +467,18 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     preview: {
       get url() { return server?.url },
       get port() { return server?.port },
-      ready,
+      get ready() { return readiness() },
     },
     fs: container.fs,
     async run(command, runOptions = {}) {
       const [file, ...args] = typeof command === "string" ? commandLines[command] : command
       const stage = typeof command === "string" ? commandStages[command] : undefined
       if (stage === "starting") {
-        if (devRunning) throw new Error("A dev process is already running. Stop it and await its exit before starting another.")
-        // Reserve the slot before spawn yields so an overlapping call cannot share readiness.
+        if (devRunning) throw webContainerErrorDiagnostics.WEB_CONTAINER_DEV_RUNNING()
         devRunning = true
       }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
-      // Vite runs the WASI build of Rolldown here, and Node warns on each load that WASI is experimental.
       const env = { PORT: defaultPort, NODE_OPTIONS: "--disable-warning=ExperimentalWarning", ...runOptions.env }
       const previewPort = Number(env.PORT)
       previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
@@ -436,12 +504,15 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")
           fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
-        })
+        }, (cause: unknown) => fail(cause instanceof Error ? cause : new Error(String(cause))))
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
           devRunning = false
           if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+        }, (cause: unknown) => {
+          devRunning = false
+          fail(cause instanceof Error ? cause : new Error(String(cause)))
         })
       }
       return run

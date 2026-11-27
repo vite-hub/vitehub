@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createNodeModulesSnapshot, SnapshotLockfileMismatchError } from "../src/snapshot.ts"
+import { createNodeModulesSnapshot } from "../src/snapshot.ts"
 
 const npm = vi.hoisted(() => vi.fn())
 vi.mock("node:child_process", async () => {
@@ -35,7 +35,6 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   it("installs a wasm alias and restores the caller's exact manifest", async () => {
     const result = await createNodeModulesSnapshot({ dir })
     const root = JSON.parse(result.lockfile).packages[""]
-    // Optional, so npm doesn't check the alias's `cpu` against this machine.
     expect(root.optionalDependencies).toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2", "npm:esbuild-wasm@0.28.2")
     expect(root.dependencies).not.toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2")
     expect(JSON.parse(await readFile(join(dir, "node_modules/esbuild/package.json"), "utf8")).name).toBe("esbuild-wasm")
@@ -73,8 +72,26 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   })
 
   it("reports a confirmed wasm alias mismatch separately", async () => {
-    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toBeInstanceOf(SnapshotLockfileMismatchError)
+    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", fix: expect.stringContaining("frozenLockfile: false") })
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it("reports a lockfile that installs a file: package the app no longer has, before npm ci", async () => {
+    const lockfile = JSON.stringify({ packages: { "": {}, "node_modules/@vite-hub/forge": { version: "0.1.0", resolved: "file:tarballs/vite-hub-forge-0.1.0.tgz" } } })
+    const calls = npm.mock.calls.length
+    await expect(createNodeModulesSnapshot({ dir, lockfile })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", message: expect.stringContaining("The lockfile installs tarballs/vite-hub-forge-0.1.0.tgz, which the app does not have."), fix: expect.stringContaining("frozenLockfile: false") })
+    expect(npm.mock.calls.length).toBe(calls)
+    expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
+
+    const seen: unknown[] = []
+    const install = npm.getMockImplementation()!
+    npm.mockImplementation(async (command: string, args: string[]) => {
+      seen.push(JSON.parse(await readFile(join(dir, "package-lock.json"), "utf8")).packages)
+      await install(command, args)
+    })
+    await createNodeModulesSnapshot({ dir, lockfile, frozenLockfile: false })
+    expect(npm.mock.calls.at(-1)?.[1][0]).toBe("install")
+    expect(seen[0]).toEqual({ "": {} })
   })
 
   it.each([

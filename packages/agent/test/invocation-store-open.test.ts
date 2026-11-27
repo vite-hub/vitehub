@@ -5,6 +5,16 @@ import { recoverInterruptedAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
 /** A store that loads its client on first use, as the Console journal loads libSQL. Every operation waits for that load. */
 function lazyStore(open: () => Promise<void>) {
   const backing = createMemoryAgentInvocationStore()
@@ -108,6 +118,61 @@ describe("Agent Invocation store open", () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it("fails a strict run with a code when the store cannot open", async () => {
+    const cause = new Error("SQLITE_CANTOPEN: unable to open database file")
+    const invocations = defineAgentInvocations({ enforcement: "strict", store: lazyStore(() => Promise.reject(cause)) })
+    const run = vi.fn(() => "done")
+
+    const started = Date.now()
+    const [error] = await runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {})
+
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(error).toMatchObject({ code: "AGENT_RUN_FAILED", cause: { code: "AGENT_INVOCATION_STORE_OPEN_FAILED", cause } })
+    expect(run).not.toHaveBeenCalled()
+  }, 10_000)
+
+  it("runs after a transient open rejection and records the result after recovery", async () => {
+    vi.useFakeTimers()
+    const open = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("Database unavailable"))
+      .mockResolvedValue(undefined)
+    const invocations = defineAgentInvocations({ store: lazyStore(open) })
+    const run = vi.fn(() => "done")
+
+    const [error, result] = await runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {})
+
+    expect(error).toBeFalsy()
+    expect(result?.text).toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(open).toHaveBeenCalledTimes(2)
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [{ status: "completed" }] })
+  })
+
+  it.each(["best-effort", "strict"] as const)("bounds a stalled open for a %s run", async (enforcement) => {
+    vi.useFakeTimers()
+    const open = vi.fn(() => new Promise<void>(() => {}))
+    const invocations = defineAgentInvocations({ enforcement, store: lazyStore(open) })
+    const run = vi.fn(() => "done")
+    const result = vi.fn()
+
+    const request = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {}).then(result)
+    await vi.waitFor(() => expect(open).toHaveBeenCalledOnce())
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    if (enforcement === "strict") {
+      await vi.waitFor(() => expect(result).toHaveBeenCalledWith([expect.objectContaining({ cause: expect.objectContaining({ code: "AGENT_INVOCATION_STORE_TIMEOUT" }) }), undefined]))
+      expect(run).not.toHaveBeenCalled()
+    }
+    else {
+      await vi.waitFor(() => expect(result).toHaveBeenCalledWith([undefined, expect.objectContaining({ text: "done" })]))
+      expect(run).toHaveBeenCalledOnce()
+    }
+    await request
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(open).toHaveBeenCalledOnce()
+  })
+
   it("shares a slow open between recovery and journal reads", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({ id: "interrupted", traceId: "interrupted", status: "running", observations: [], createdAt: "2020-01-01T00:00:00Z", updatedAt: "2020-01-01T00:00:00Z" })
@@ -160,7 +225,7 @@ describe("Agent Invocation store open", () => {
 
   it.each(["resolve", "reject"] as const)("shares a timed-out open until it settles: %s", async (outcome) => {
     vi.useFakeTimers()
-    const pending = Promise.withResolvers<void>()
+    const pending = deferred<void>()
     const open = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(pending.promise)
       .mockResolvedValue(undefined)

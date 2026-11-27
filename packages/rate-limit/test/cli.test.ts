@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createRateLimitCliContributor, runRateLimitCli } from "../src/cli.ts"
+import { checkRateLimit, peekRateLimit } from "../src/index.ts"
+import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const rootDir = "/app"
 
@@ -23,23 +26,18 @@ function context() {
   return { context: { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" } as NodeJS.ProcessEnv, rootDir, stderr, stdout }, stderr, stdout }
 }
 
-/**
- * A fake app: it answers the operation RPC. A result is the value of the operation. With `status`, the result is an
- * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
- */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "RATE_LIMIT_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "RATE_LIMIT_FAILED", message: error.message, status })
   })
 }
 
-/** The operation and input that a command sent. */
 function sentCall(fetch: ReturnType<typeof devServer>) {
   const request = fetch.mock.calls[0]?.[1]
-  return { body: JSON.parse(String(request?.body)) as { input: unknown, operation: string }, headers: new Headers(request?.headers), method: request?.method }
+  return { body: operationRpcRequest(request?.body), headers: new Headers(request?.headers), method: request?.method }
 }
 
 const known = {
@@ -122,7 +120,6 @@ describe("Rate Limit review regressions", () => {
     const reset = { key: "192.0.2.1", name: "login", provider: "memory", scope: "process", status: "reset" }
     const refused = context()
     const fetch = devServer(reset)
-    // Tests run without a terminal, so nobody can answer.
     await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], refused.context, { fetch })).resolves.toBe(1)
     expect(refused.stderr.output()).toContain("was not confirmed")
     expect(refused.stderr.output()).toContain("--yes")
@@ -139,7 +136,6 @@ describe("Rate Limit review regressions", () => {
     expect(question).toHaveBeenCalledWith(expect.stringContaining("login"))
     expect(sentCall(fetch).body.operation).toBe("rate-limit.reset")
 
-    // A peek never asks.
     const peek = context()
     await expect(runRateLimitCli(["peek", "login", "192.0.2.1"], peek.context, { confirm: () => { throw new Error("must not ask") }, fetch: devServer(known) })).resolves.toBe(0)
   })
@@ -155,6 +151,18 @@ describe("Rate Limit review regressions", () => {
 })
 
 describe("vitehub rate-limit", () => {
+  it("prints a live counter with whitespace in its window", async () => {
+    setRateLimitRuntimeConfig({ driver: "memory" })
+    const request = new Request("https://example.com/login")
+    const window = " 1 minute"
+    await checkRateLimit(request, "spaced-window", { key: "user", limit: 1, window })
+    const counter = await peekRateLimit("spaced-window", "user")
+    const output = context()
+
+    await expect(runRateLimitCli(["peek", "spaced-window", "user", "--json"], output.context, { fetch: devServer(counter) })).resolves.toBe(0)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ counters: [{ used: 1, window, windowMs: 60_000 }] })
+  })
+
   it("prints the counter of one key as a table and as JSON", async () => {
     const human = context()
     const fetch = devServer(known)
@@ -169,7 +177,7 @@ describe("vitehub rate-limit", () => {
       "5      1m      2     3          2026-05-22T09:01:00.000Z",
       "",
     ].join("\n"))
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
     const sent = sentCall(fetch)
     expect(sent).toMatchObject({ body: { input: { key: "192.0.2.1", name: "login" }, operation: "rate-limit.peek" }, method: "POST" })
     expect(sent.headers.get("x-vitehub-console")).toBe("1")

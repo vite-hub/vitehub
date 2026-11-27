@@ -1,6 +1,5 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, blobArrayBuffer, blobSize, isArrayBufferValue, isBlobValue, isUint8ArrayValue, uint8ArrayByteLength } from "../messages.ts"
+import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, isArrayBufferValue, isBlobValue, isUint8ArrayValue, uint8ArrayByteLength } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -133,11 +132,11 @@ export async function streamTranscription(options: StreamTranscriptionOptions): 
 
 function isAudioPart(part: unknown): part is AudioPart {
   return !!part
-    && hasRuntimeType(part, "object")
+    && typeof part === "object"
     // SAFETY: Transcription input normalization establishes the asserted media contract.
     && (part as { type?: unknown }).type === "audio"
     // SAFETY: Transcription input normalization establishes the asserted media contract.
-    && hasRuntimeType((part as { mediaType?: unknown }).mediaType, "string")
+    && typeof (part as { mediaType?: unknown }).mediaType === "string"
 }
 
 function normalizeMaxBytes(maxBytes: number | undefined): number {
@@ -149,14 +148,14 @@ function normalizeMaxBytes(maxBytes: number | undefined): number {
 }
 
 function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, source: string): void {
-  if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
+  if (typeof byteLength === "number" && byteLength > maxBytes) {
     throw agentDiagnostics.AGENT_R0236({ message: `[vitehub] transcribe() ${source} is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).` })
   }
 }
 
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
-  if (isBlobValue(audio.data)) assertWithinMaxBytes(blobSize(audio.data), maxBytes, "audio data")
+  if (isBlobValue(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
   else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferByteLength(audio.data), maxBytes, "audio data")
   else if (isUint8ArrayValue(audio.data)) assertWithinMaxBytes(uint8ArrayByteLength(audio.data), maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
@@ -172,18 +171,18 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
     resolvedAudioData.set(audio, cached)
   }
   const data = await cached
-  if (isBlobValue(data)) assertWithinMaxBytes(blobSize(data), maxBytes, "downloaded audio")
+  if (isBlobValue(data)) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferByteLength(data), maxBytes, "downloaded audio")
   else if (isUint8ArrayValue(data)) assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
-  else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
+  else if (typeof data === "string" && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
 }
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (isBlobValue(data)) {
-    const bytes = new Uint8Array(await blobArrayBuffer(data))
+    const bytes = new Uint8Array(await data.arrayBuffer())
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
@@ -192,7 +191,7 @@ async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Paramet
     assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "audio data")
     return new Uint8Array(data)
   }
-  if (hasRuntimeType(data, "string") && /^data:/i.test(data)) {
+  if (typeof data === "string" && /^data:/i.test(data)) {
     assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
     return attachmentStringBytes(data, audio.mediaType)
   }
@@ -202,7 +201,7 @@ async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Paramet
     return new Uint8Array(data)
   }
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  if (hasRuntimeType(data, "string")) return data
+  if (typeof data === "string") return data
   if (audio.url) return new URL(audio.url)
   throw agentDiagnostics.AGENT_R0237({ message: "[vitehub] transcribe() requires audio data, fetchData, or url." })
 }
@@ -275,13 +274,13 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
   if (isBlobValue(data)) {
-    const bytes = new Uint8Array(await blobArrayBuffer(data))
+    const bytes = new Uint8Array(await data.arrayBuffer())
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
   if (isUint8ArrayValue(data) || isArrayBufferValue(data)) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  if (hasRuntimeType(data, "string")) {
+  if (typeof data === "string") {
     if (/^data:/i.test(data)) {
       assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
       return attachmentStringBytes(data, audio.mediaType)
@@ -299,11 +298,11 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
 }
 
 function transcriptText(result: TranscribeExecuteResult): string {
-  return hasRuntimeType(result, "string") ? result : result.text
+  return typeof result === "string" ? result : result.text
 }
 
 async function resolveTranscribeOptions(options: TranscribeOptions): Promise<StaticTranscribeOptions> {
-  return hasRuntimeType(options, "function") ? await options() : options
+  return typeof options === "function" ? await options() : options
 }
 
 function normalizeAiSdkTranscriptionError(aiSdk: typeof import("ai"), cause: unknown): unknown {
@@ -367,7 +366,7 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
 }
 
 function isWritableWorkspace(workspace: unknown): workspace is WritableWorkspaceFacade {
-  return !!workspace && hasRuntimeType(workspace, "object") && "fs" in workspace && "snapshot" in workspace
+  return !!workspace && typeof workspace === "object" && "fs" in workspace && "snapshot" in workspace
 }
 
 function joinWorkspacePath(...parts: Array<string | undefined>): string {
@@ -430,7 +429,7 @@ async function resolveArtifactValue<T>(
   value: TranscribeArtifactValue<T, TranscribeArtifactTemplateInput>,
   input: TranscribeArtifactTemplateInput,
 ): Promise<T> {
-  return hasRuntimeType(value, "function")
+  return typeof value === "function"
     // SAFETY: Transcription input normalization establishes the asserted media contract.
     ? await (value as (input: TranscribeArtifactTemplateInput) => MaybePromise<T>)(input)
     : value
@@ -438,13 +437,13 @@ async function resolveArtifactValue<T>(
 
 function getAudioArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeAudioArtifactOptions | undefined {
   if (artifacts.audio === false) return
-  if (artifacts.audio && hasRuntimeType(artifacts.audio, "object")) return artifacts.audio
+  if (artifacts.audio && typeof artifacts.audio === "object") return artifacts.audio
   return {}
 }
 
 function getTranscriptArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeTranscriptArtifactOptions | undefined {
   if (artifacts.transcript === false) return
-  if (artifacts.transcript && hasRuntimeType(artifacts.transcript, "object")) return artifacts.transcript
+  if (artifacts.transcript && typeof artifacts.transcript === "object") return artifacts.transcript
   return {}
 }
 
@@ -646,6 +645,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         return results.length ? results : undefined
       })
     },
-    requires: hasRuntimeType(options, "function") ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
+    requires: typeof options === "function" ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
   })
 }

@@ -1,7 +1,6 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts";
 import {
   addresses,
-  applyPersonalization,
   applyUnsubscribe,
   bytesToBase64,
   formatAddress,
@@ -10,6 +9,7 @@ import {
   validateAddresses,
   validateAttachments,
 } from "./shared.ts";
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object";
 
 import type {
   EmailAttachment,
@@ -33,10 +33,6 @@ function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
     isRecord(cause)
     && cause.name === "AbortError"
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {
@@ -247,15 +243,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   const request = configuredFetch ?? globalThis.fetch;
   if (typeof request !== "function")
     throw emailProviderError("resend", "NOT_CONFIGURED", "fetch is unavailable.");
-  let endpoint: string;
+  let url: URL;
   try {
     const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
-    const url = new URL(configuredEndpoint ?? "https://api.resend.com");
-    if (url.protocol !== "http:" && url.protocol !== "https:")
-      throw new TypeError("Unsupported protocol");
-    if (url.username || url.password || url.search || url.hash)
-      throw new TypeError("Unsupported URL components");
-    endpoint = url.href.replace(/\/+$/, "");
+    url = new URL(configuredEndpoint ?? "https://api.resend.com");
   } catch (cause) {
     throw emailProviderError(
       "resend",
@@ -264,85 +255,22 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       { cause },
     );
   }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw emailProviderError("resend", "NOT_CONFIGURED", "endpoint must be a valid HTTP or HTTPS URL.");
+  const endpoint = url.href.replace(/\/+$/, "");
   return {
     name: "resend",
     async send(message, context) {
       let body: string;
       let idempotencyKey: string | undefined;
       try {
-        if (message.stream !== undefined || context.stream !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support stream selection.",
-            ),
-          };
-        }
-        const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale"] as const).find(
-          (option) => message[option] !== undefined,
-        );
-        if (unsupportedOption) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              `Resend does not support the ${unsupportedOption} option.`,
-            ),
-          };
-        }
-        if (message.sandbox === true) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support sandbox delivery.",
-            ),
-          };
-        }
-        if (message.raw !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support raw message payloads.",
-            ),
-          };
-        }
-        if (message.template !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support template payloads.",
-            ),
-          };
-        }
-        if (
-          message.react !== undefined ||
-          message.jsx !== undefined ||
-          message.mjml !== undefined ||
-          message.handlebars !== undefined ||
-          message.handlebarsVars !== undefined ||
-          message.liquid !== undefined ||
-          message.liquidVars !== undefined
-        ) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support renderer payloads.",
-            ),
-          };
-        }
         message = applyUnsubscribe(message, "resend");
-        message = applyPersonalization("resend", message);
         validateAttachments("resend", message);
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey);
         if (
@@ -354,23 +282,17 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         }
         body = JSON.stringify(payload(message));
       } catch (cause) {
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", {
-            cause,
-          }),
-        };
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", {
+          cause,
+        }), undefined];
       }
       let response: Response;
       if (context.signal?.aborted) {
-        return {
-          data: null,
-          error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
-            cause: context.signal.reason,
-            retryable: false,
-          }),
-        };
+        return [emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
+          cause: context.signal.reason,
+          retryable: false,
+        }), undefined];
       }
       const requestController = new AbortController();
       const abortRequest = () => requestController.abort(context.signal?.reason);
@@ -395,29 +317,20 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         clearTimeout(requestTimeout);
         context.signal?.removeEventListener("abort", abortRequest);
         if (requestTimedOut)
-          return {
-            data: null,
-            error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", {
-              cause,
-              retryable: idempotencyKey !== undefined,
-            }),
-          };
-        if (cancelled(context.signal, cause))
-          return {
-            data: null,
-            error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
-              cause,
-              retryable: false,
-            }),
-          };
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "NETWORK", "Resend request failed.", {
+          return [emailProviderError("resend", "TIMEOUT", "Resend request timed out.", {
             cause,
             retryable: idempotencyKey !== undefined,
-          }),
-        };
+          }), undefined];
+        if (cancelled(context.signal, cause))
+          return [emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
+            cause,
+            retryable: false,
+          }), undefined];
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "NETWORK", "Resend request failed.", {
+          cause,
+          retryable: idempotencyKey !== undefined,
+        }), undefined];
       }
       clearTimeout(requestTimeout);
       let text: string;
@@ -429,27 +342,18 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         );
       } catch (cause) {
         if (cancelled(context.signal, cause))
-          return {
-            data: null,
-            error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", {
-              cause,
-              retryable: false,
-            }),
-          };
-        if (!response.ok) {
-          return {
-            data: null,
-            error: responseError(response, idempotencyKey, cause),
-          };
-        }
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "NETWORK", "Resend response failed.", {
+          return [emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", {
             cause,
-            retryable: idempotencyKey !== undefined,
-          }),
-        };
+            retryable: false,
+          }), undefined];
+        if (!response.ok) {
+          return [responseError(response, idempotencyKey, cause), undefined];
+        }
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "NETWORK", "Resend response failed.", {
+          cause,
+          retryable: idempotencyKey !== undefined,
+        }), undefined];
       } finally {
         context.signal?.removeEventListener("abort", abortRequest);
       }
@@ -459,20 +363,11 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         responseBody = isRecord(parsed) ? parsed : {};
       } catch {}
       if (!response.ok) {
-        return {
-          data: null,
-          error: responseError(response, idempotencyKey, responseBody, responseBody.message),
-        };
+        return [responseError(response, idempotencyKey, responseBody, responseBody.message), undefined];
       }
       return isString(responseBody.id) && responseBody.id.trim() !== ""
-        ? {
-            data: { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody },
-            error: null,
-          }
-        : {
-            data: null,
-            error: emailProviderError("resend", "PROVIDER", "Resend returned no message id."),
-          };
+        ? [undefined, { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody }]
+        : [emailProviderError("resend", "PROVIDER", "Resend returned no message id."), undefined];
     },
   };
 }

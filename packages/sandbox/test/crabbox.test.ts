@@ -175,6 +175,27 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
+  it("rejects kill signals that Crabbox cannot forward", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const sandbox = await resolveSandbox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await sandbox.open()
+      try {
+        const child = await session.spawn!("true")
+        await expect(child.kill("SIGINT")).rejects.toMatchObject({ code: "SANDBOX_R0165" })
+        await expect(child.wait()).resolves.toEqual({ code: 0 })
+      }
+      finally {
+        await session.close()
+      }
+    })
+  }, 30_000)
+
   it.skipIf(process.platform !== "linux")("reclaims session-marked processes across supervisors and preserves unrelated root observers", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
@@ -243,7 +264,6 @@ describe("createCrabboxRuntime", () => {
       const supervisorConfig = join(root, "supervisor.json")
       const supervisedPidFile = join(root, "supervised.pid")
       await writeFile(supervisorConfig, JSON.stringify({ sandboxRoot: session.root, marker: marker.stdout, pidFile: supervisedPidFile }))
-      // Keep the supervisor's cwd, arguments, environment, and open files outside the Sandbox.
       const supervisor = spawn(process.execPath, ["-e", `
         const { readFileSync, writeFileSync } = require("node:fs")
         const { spawn } = require("node:child_process")
@@ -834,7 +854,6 @@ describe("createCrabboxRuntime", () => {
           toolchain: "project",
         }, {})
         expect(sandbox.plan.requirements.map(requirement => requirement.command)).toEqual(["node", "pnpm"])
-        // Sessions on one authoritative workspace are serialized. The second one reuses the cache.
         for (let index = 0; index < 2; index++) {
           const session = await sandbox.open()
           try {

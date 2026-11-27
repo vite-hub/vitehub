@@ -8,16 +8,37 @@ icon: i-lucide-calendar-clock
 
 `content.schedule()` publishes reviewed drafts later. A Schedule Definition (a cron file) runs them with `content.publishDue()` on every host that runs [Schedule](/docs/schedule).
 
-```ts
-const posts = content.collection('posts')
-const { draft } = (await posts.status('launch'))!
+The examples on this page schedule documents of this `posts` collection:
 
-const schedule = await content.schedule({
-  at: '2026-10-20T09:00:00+02:00',
-  expect: [{ collection: 'posts', id: 'launch', digest: draft }],
-  message: 'Publish the launch post',
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  extends: cms,
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
 })
-// { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+```
+
+```ts [server/utils/schedule-launch.ts]
+import content from '../content'
+
+export async function scheduleLaunch() {
+  const posts = content.collection('posts')
+  const { draft } = (await posts.status('launch'))!
+
+  const schedule = await content.schedule({
+    at: '2026-10-20T09:00:00+02:00',
+    expect: [{ collection: 'posts', id: 'launch', digest: draft }],
+    message: 'Publish the launch post',
+  })
+  // { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+  return schedule
+}
 ```
 
 ## Run due schedules
@@ -26,7 +47,7 @@ Add a Schedule Definition that calls `content.publishDue()`, and turn on Schedul
 
 ```ts [server/schedules/content-publish.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
-import { content } from '../content'
+import content from '../content'
 
 export default defineSchedule({
   cron: '* * * * *',
@@ -40,7 +61,7 @@ export default defineSchedule({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', schedule: true },
+  vitehub: { host: 'cloudflare', schedule: true },
 })
 ```
 :::
@@ -52,7 +73,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', schedule: true }), nitro()],
 })
 ```
 :::
@@ -63,7 +84,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', schedule: true })],
+  plugins: [vitehub({ host: 'cloudflare', schedule: true })],
 })
 ```
 :::
@@ -78,7 +99,7 @@ If Schedule is off, or no definition calls `publishDue()`, the Console turns off
 | Cloudflare | A Cron Trigger from the Schedule Definition. | Within a minute of `at`. |
 | Vercel | A Vercel Cron Job. Hobby projects run cron jobs once a day, so use a daily cron there. | Within a minute on Pro. At the next daily run on Hobby. |
 | Netlify | A Scheduled Function. | Within a minute of `at`. |
-| Node or Docker | The Schedule [Process Runtime](/docs/schedule/hosts) in one long-lived replica. | Within its scan interval, at most a minute. |
+| Node or Docker | The Schedule [Process Runtime](/docs/schedule/hosts) in each server. With a Postgres or remote libSQL Default Database, servers [use leases to claim occurrences](/docs/schedule/configure#run-on-more-than-one-server). A run can repeat if its lease expires. Without a shared lease store, run one long-lived replica. | Within its scan interval, at most a minute. |
 | Development | `pnpm vitehub schedule run content-publish` on Vite + Nitro, because the definition sets `manual: true`, or the Process Runtime. | When you run it. |
 
 Runs can overlap, for example from two replicas. Each publish checks the digests, so each schedule settles once. On another error, such as a store that is down, the schedule stays pending and the Schedule Run records the error.
@@ -107,9 +128,13 @@ Runs can overlap, for example from two replicas. Each publish checks the digests
 
 `status()` shows each document's pending, overdue, or else failed schedule as `schedule: { id, at, status, digest, failure? }`. `state` stays `draft`, `changed`, or `deleted` until it publishes. If `schedule.digest` differs from `draft`, the run will fail.
 
-```ts
-await content.collection('posts').status('launch')
-// { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+```ts [server/utils/launch-status.ts]
+import content from '../content'
+
+export async function launchStatus() {
+  return await content.collection('posts').status('launch')
+  // { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+}
 ```
 
 ## Inspect and cancel
@@ -128,7 +153,7 @@ Each schedule is one JSON file, named by its id, on the `schedules` ref of the C
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const { revisions } = await useWorkspace('site').history.list({ ref: 'schedules' })
+const { revisions } = await useWorkspace('content').history.list({ ref: 'schedules' })
 ```
 
 Schedules need no other storage and are as durable as the Workspace history. Each change is a compare-and-swap on the `schedules` head, so concurrent writers retry instead of overwriting.

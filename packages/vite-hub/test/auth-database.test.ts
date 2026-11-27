@@ -2,21 +2,22 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
-import { admin } from "better-auth/plugins"
-import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api"
+import { admin, twoFactor } from "better-auth/plugins"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
-import { authSqliteSchema } from "../src/auth/schema.ts"
-import { createAuthForRequest } from "../src/auth/server.ts"
-import { consoleMcpOAuth } from "../src/console/auth.ts"
+import { authSqliteSchema, createAuthSqliteSchema } from "../src/auth/schema.ts"
+import { createAuthForRequest } from "../src/_internal/auth/internal/server.ts"
+import { mcpOAuth } from "../src/auth/mcp.ts"
 
 const app = "https://app.example.com"
-const resource = `${app}/_vitehub/mcp`
+const resource = `${app}/mcp`
 const state = vi.hoisted(() => ({ databases: {} as Record<string, { db: unknown, schema: Record<string, unknown> }> }))
-vi.mock("@vite-hub/database/drizzle", () => ({ databases: state.databases }))
+vi.mock("@vite-hub/database/runtime/registry", () => ({ databases: state.databases }))
 
 let directory: string
 let client: ReturnType<typeof createClient>
@@ -24,10 +25,10 @@ let client: ReturnType<typeof createClient>
 beforeAll(async () => {
   directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "vitehub-auth-database-"))
   client = createClient({ url: `file:${join(directory, "auth.db")}` })
-  // The migration that `vitehub db generate` writes for the contributed tables.
-  const statements = await generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...authSqliteSchema }))
+  // The migration that `vitehub database generate` writes for the contributed tables.
+  const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
-  state.databases.default = { db: drizzle(client, { schema: authSqliteSchema }), schema: { ...authSqliteSchema } }
+  state.databases.default = { db: drizzle({ client: client, relations: defineRelations(authSqliteSchema) }), schema: { ...authSqliteSchema } }
 })
 
 afterAll(async () => {
@@ -61,38 +62,89 @@ describe("authDatabase()", () => {
   })
 
   it("rejects user fields absent from the migrated table before opening the Database", () => {
-    expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
+    expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/`user` table of the "default" Database has no `plan` column/)
   })
 
-  it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
-    const definition = defineAuth({
-      database: authDatabase(),
-      emailAndPassword: { enabled: true },
-      plugins: [admin(), ...consoleMcpOAuth({ resource })],
-    })
-    const auth = createAuthForRequest(definition, new Request(app))
-    const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", origin: app },
-      method: "POST",
-    }))
+  it("stores additional user fields and twoFactor() in the tables that the Definition adds", async () => {
+    const schema = createAuthSqliteSchema({ plugins: ["twoFactor"], additionalFields: { user: { login: { type: "string" } } } })
+    const extended = createClient({ url: `file:${join(directory, "extended.db")}` })
+    try {
+      for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await extended.execute(statement)
+      // The dynamic schema has a string index; give Drizzle an explicit empty relations map.
+      state.databases.extended = { db: drizzle({ client: extended, relations: defineRelations(schema, (): Record<string, never> => ({})) }), schema: { ...schema } }
+      // comark-ui stores the GitHub login; Finance and Lesson Video turn on two-factor sign-in.
+      const definition = defineAuth({
+        database: authDatabase("extended"),
+        emailAndPassword: { enabled: true },
+        plugins: [twoFactor()],
+        user: { additionalFields: { login: { type: "string", required: false } } },
+      })
+      const auth = createAuthForRequest(definition, new Request(app))
+      const post = (path: string, body: unknown, cookie = "") => auth.handler(new Request(`${app}/api/auth${path}`, {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", cookie, origin: app },
+        method: "POST",
+      }))
+      const signUp = await post("/sign-up/email", { email: "grace@example.com", login: "grace", name: "Grace", password: "correct-horse-battery" })
+      expect(signUp.status, await signUp.clone().text()).toBe(200)
+      const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const enable = await post("/two-factor/enable", { password: "correct-horse-battery" }, cookie)
+      expect(enable.status, await enable.clone().text()).toBe(200)
+      expect((await extended.execute("select login, two_factor_enabled from user")).rows).toEqual([expect.objectContaining({ login: "grace", two_factor_enabled: 0 })])
+      expect((await extended.execute("select count(*) as count from two_factor")).rows[0]?.count).toBe(1)
+    }
+    finally {
+      delete state.databases.extended
+      extended.close()
+    }
+  })
 
-    const signUp = await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "correct-horse-battery" })
-    expect(signUp.status, await signUp.clone().text()).toBe(200)
-    const users = await client.execute("select email, role, email_verified from user")
-    expect(users.rows).toEqual([expect.objectContaining({ email: "ada@example.com", role: "user", email_verified: 0 })])
+  it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {
+    const schema = createAuthSqliteSchema({ plugins: ["admin"] })
+    const adminClient = createClient({ url: `file:${join(directory, "admin.db")}` })
+    try {
+      for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await adminClient.execute(statement)
+      state.databases.admin = { db: drizzle({ client: adminClient, relations: defineRelations(schema, (): Record<string, never> => ({})) }), schema: { ...schema } }
+      const definition = defineAuth({
+        database: authDatabase("admin"),
+        emailAndPassword: { enabled: true },
+        plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
+      })
+      const auth = createAuthForRequest(definition, new Request(app))
+      const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", origin: app },
+        method: "POST",
+      }))
 
-    const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
-    expect(registration.status, await registration.clone().text()).toBe(201)
-    expect((await client.execute("select name from oauth_client")).rows).toEqual([expect.objectContaining({ name: "Claude Code" })])
-    const { client_id: clientId } = await registration.json() as { client_id: string }
-    const stored = await auth.handler(new Request(`${app}/api/auth/oauth2/public-client?client_id=${clientId}`, { headers: { cookie: signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } }))
-    expect(stored.status, await stored.clone().text()).toBe(200)
-    expect(await stored.json()).toMatchObject({ client_id: clientId, client_name: "Claude Code" })
+      const signUp = await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "correct-horse-battery" })
+      expect(signUp.status, await signUp.clone().text()).toBe(200)
+      const users = await adminClient.execute("select email, role, email_verified from user")
+      expect(users.rows).toEqual([expect.objectContaining({ email: "ada@example.com", role: "user", email_verified: 0 })])
 
-    const keys = await auth.handler(new Request(`${app}/api/auth/jwks`))
-    expect(keys.status).toBe(200)
-    expect((await client.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
+      const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
+      expect(registration.status, await registration.clone().text()).toBe(201)
+      expect((await adminClient.execute("select name from oauth_client")).rows).toEqual([expect.objectContaining({ name: "Claude Code" })])
+      const { client_id: clientId } = await registration.json() as { client_id: string }
+      const stored = await auth.handler(new Request(`${app}/api/auth/oauth2/public-client?client_id=${clientId}`, { headers: { cookie: signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } }))
+      expect(stored.status, await stored.clone().text()).toBe(200)
+      expect(await stored.json()).toMatchObject({ client_id: clientId, client_name: "Claude Code" })
+
+      const keys = await auth.handler(new Request(`${app}/api/auth/jwks`))
+      expect(keys.status).toBe(200)
+      expect((await adminClient.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
+    }
+    finally {
+      delete state.databases.admin
+      adminClient.close()
+    }
+  })
+
+  it("adds no user.role and no admin() column for an Auth Definition without admin()", async () => {
+    const columns = async (table: string) => (await client.execute(`select name from pragma_table_info('${table}')`)).rows.map(row => String(row.name))
+    const adminColumns = ["role", "banned", "ban_reason", "ban_expires", "impersonated_by"]
+    expect([...await columns("user"), ...await columns("session")].filter(name => adminColumns.includes(name))).toEqual([])
+    expect(() => authDatabase()({ plugins: [admin()] })).toThrow(/`user` table of the "default" Database has no `role` column/)
   })
 
   it("keeps the limiter counters of every Auth instance in the rate_limit table", async () => {

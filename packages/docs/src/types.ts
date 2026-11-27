@@ -1,38 +1,30 @@
-import type { DocsLayout } from "./schema.ts"
+import type { DocsLayout, DocsPageFrontmatter } from "./schema.ts"
 
 export type { DocsLayout }
 
-/** One Markdown page, as the navigation and the page route see it. */
-export interface DocsPage {
+/** The workspace fields of a `layout: playground` or `layout: learn` page, as its frontmatter sets them. */
+export type DocsPageWorkspace = Pick<DocsPageFrontmatter, "examples" | "tabs" | "render" | "connect" | "port" | "fixture" | "guide" | "lesson" | "preview">
+
+/**
+ * The fields of a page that the app reads. `useDocsManifest()` returns pages with only these fields, so every page of
+ * the site does not carry the text and SEO options of every other page. The page route returns the whole `DocsPage`.
+ */
+export interface DocsAppPage {
   /** Path of the page inside its section, such as `index` or `operations/history`. */
   id: string
   /** Public URL, such as `/docs/kv/get-started`. */
   path: string
-  /** File path relative to the content directory, such as `docs/kv/get-started.md`. */
-  file: string
-  /** Server asset namespace of a mapped content source. Omitted for the default content directory. */
-  source?: string
   /** Label in navigation: `navigation.title`, else `title`. */
   title: string
   /** The `title` field, for the page heading. */
   sourceTitle: string
   description: string | null
-  /** Text under the heading: `tagline`, else `description`. */
-  tagline: string | null
-  /** A short label above the title, from the `eyebrow` field. */
-  eyebrow: string | null
-  /** Inline Markdown at the end of the page. The page route returns it parsed. */
-  credits: string | null
-  /** Search words besides the page's own text. */
-  keywords: string[]
   icon: string | null
   layout: DocsLayout
   tutorial?: "project" | "quickstart"
   codePanel?: boolean
-  /** Search result title and description, when they differ from the page heading. */
-  seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
-  /** Whether the navigation sidebar shows on this page. */
-  sidebar: boolean
+  /** Whether the navigation sidebar shows on this page. `"collapsed"` starts it as a narrow strip that the reader opens. */
+  sidebar: boolean | "collapsed"
   /** Whether the "On this page" outline shows on this page. */
   toc: boolean
   kind: string | null
@@ -41,11 +33,36 @@ export interface DocsPage {
   navigation: boolean
   /** `true` on the Overview of a folder with `navigation.panel: true`. Its folder is a panel of its own. */
   panel?: true
+  /**
+   * On a panel's Overview in the app manifest: the number of listed pages inside the panel. The app loads those pages
+   * when a reader opens the panel, so the section sidebar reads the count from here.
+   */
+  panelSize?: number
   order: number
 }
 
+/** One Markdown page, as the navigation and the page route see it. */
+export interface DocsPage extends DocsAppPage {
+  /** File path relative to the content directory, such as `docs/kv/get-started.md`. */
+  file: string
+  /** Server asset namespace of a mapped content source. Omitted for the default content directory. */
+  source?: string
+  /** Text under the heading: `tagline`, else `description`. */
+  tagline: string | null
+  /** A short label above the title, from the `eyebrow` field. */
+  eyebrow: string | null
+  /** Inline Markdown at the end of the page. The page route returns it parsed. */
+  credits: string | null
+  /** Search words besides the page's own text. */
+  keywords: string[]
+  /** Search result title and description, when they differ from the page heading. */
+  seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
+  /** On a `playground` or `learn` page: the fields that set up its workspace. */
+  workspace?: DocsPageWorkspace
+}
+
 /** A folder under the docs base: one rail entry with its own page list. */
-export interface DocsSection {
+export interface DocsSection<Page extends DocsAppPage = DocsPage> {
   id: string
   path: string
   title: string
@@ -58,18 +75,18 @@ export interface DocsSection {
   fold: boolean
   related: string[]
   order: number
-  pages: DocsPage[]
+  pages: Page[]
 }
 
 /** Everything the site navigates, computed from the content directory at build time. */
-export interface DocsManifest {
+export interface DocsManifest<Page extends DocsAppPage = DocsPage> {
   /** URL prefix of the sections, such as `/docs`. */
   base: string
   /** The page at the base URL, such as `content/docs/index.md`. */
-  root: DocsPage | null
-  sections: DocsSection[]
+  root: Page | null
+  sections: DocsSection<Page>[]
   /** Pages without a section: direct children of the base and pages outside it, such as `/about`. */
-  pages: DocsPage[]
+  pages: Page[]
 }
 
 /** One entry of the "On this page" outline. */
@@ -90,4 +107,6 @@ export interface DocsSearchSection {
   content: string
   /** Page entries only: the page's `keywords`, which search matches like a title. */
   keywords?: string[]
+  /** `false` on the one record of a page that search engines skip, such as a generated error code page. */
+  indexed?: false
 }

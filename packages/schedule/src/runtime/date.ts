@@ -7,8 +7,6 @@ export function scheduleIdempotencyKey(name: string, scheduledAt: Date): string 
 
 export function isScheduleDate(value: unknown): value is Date {
   try {
-    // `getTime` checks the internal Date slot in every realm. Do not read
-    // `Symbol.toStringTag`, because callers can define or throw from it.
     return !Number.isNaN(Date.prototype.getTime.call(value as Date))
   }
   catch {
@@ -16,8 +14,6 @@ export function isScheduleDate(value: unknown): value is Date {
   }
 }
 
-// A date-time with a time zone, so the time does not depend on the server. JavaScript accepts `T24:00` and rolls
-// `02-30` into March, so `parseScheduledAt()` also checks the hour and the day of the month.
 const scheduledAtText = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/i
 
 function parseScheduledAtText(value: string): Date | undefined {
@@ -46,7 +42,6 @@ export function validateScheduledAt(scheduledAt: Date | undefined): Date {
  * as `2026-01-31T23:59:00Z`. Anything else fails with `SCHEDULE_INVALID_SCHEDULED_AT`. Absent means now.
  */
 export function parseScheduledAt(scheduledAt: Date | string | undefined): Date {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The run time comes from CLI, RPC, or dispatch input.
   if (typeof scheduledAt !== "string") return validateScheduledAt(scheduledAt)
   const parsed = parseScheduledAtText(scheduledAt)
   if (parsed) return parsed

@@ -1,9 +1,12 @@
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "./discovery.ts"
-import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
+import { isProviderCron, readStaticScheduleCronOption, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
 import { utcCronForTimeZone } from "./internal/time-zone-cron.ts"
+import { parseCronFields } from "./os/cron.ts"
 import { scheduleConsoleTiming } from "./runtime/console.ts"
 
 import type { ViteHubConsoleRecord, ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
@@ -25,16 +28,10 @@ function inspectTimeZone(timeZone: string | null | undefined): string {
   return timeZone === null ? "Not a static string" : timeZone ?? "UTC"
 }
 
-/** The UTC cron that Cloudflare, Vercel, Netlify, and Deno run for a Schedule with a static `timeZone`. */
 function inspectHostCron(cron: string, timeZone: string): ViteHubDefinitionField[] {
-  try {
-    const utcCron = utcCronForTimeZone(cron, timeZone)
-    return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
-  }
-  catch {
-    // Inspection lists Definitions that host cron output would reject.
-    return []
-  }
+  if (!isIanaTimeZone(timeZone) || !isProviderCron(cron) || !parseCronFields(cron)) return []
+  const utcCron = utcCronForTimeZone(cron, timeZone)
+  return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
 }
 
 function summarizeScheduleDefinition(
@@ -98,12 +95,8 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
   const crons = new Map<string, string>()
   for (const definition of definitions) {
     if (definition.startable) continue
-    try {
-      for (const [name, cron] of await readRuntimeDefinitionCrons([definition])) crons.set(name, cron)
-    }
-    catch {
-      // Inspection must not apply provider-output validation to runtime-valid Schedule Definitions.
-    }
+    const cron = readStaticScheduleCronOption(definition.handler)
+    if (cron) crons.set(definition.name, cron)
   }
   return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons, options.cron))
 }
@@ -115,7 +108,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
   const startable = field("Kind") === "Started by code"
   return {
     cells: {
-      manual: field("Manual") === "Enabled" ? "Yes" : "No",
+      manual: field("Manual") === "Enabled" ? "Enabled" : "Disabled",
       schedule: summary.name,
       timing: startable ? "Started by code" : cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
@@ -124,8 +117,8 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
       { label: "File", value: summary.file },
       { label: "Source", value: summary.source },
       startable
-        ? { label: "Runs", value: `Use \`vitehub schedule list ${summary.name}\` to list the Schedules that code started, and \`vitehub schedule runs <id>\` for the runs of one.` }
-        : { label: "Runs", value: `Use \`vitehub schedule runs ${summary.name}\` to list runs that this runtime recorded.` },
+        ? { label: "Runs", value: `Use \`vitehub schedule list ${summary.name}\` to list the Schedules that code started, and \`vitehub schedule runs list <id>\` for the runs of one.` }
+        : { label: "Runs", value: `Use \`vitehub schedule runs list ${summary.name}\` to list runs that this runtime recorded.` },
     ],
     id: `definition:${summary.name}`,
     runnable: field("Manual") === "Enabled",
@@ -140,7 +133,7 @@ export async function inspectScheduleConsoleRecords(options: ScheduleInspectionO
 /**
  * Console section for Schedules. Records list discovered Schedule Definitions. When the server runs the Process Runtime,
  * the cron and time zone come from the loaded Definitions, so any expression shows its real value.
- * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs <name>` lists the runs
+ * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs list <name>` lists the runs
  * that a runtime recorded.
  */
 export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<ScheduleInspectionOptions> = {
@@ -149,7 +142,7 @@ export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<Sch
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,
-  runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" },
+  runtime: { export: "readScheduleConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [
       { key: "schedule", label: "Schedule" },

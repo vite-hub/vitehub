@@ -1,10 +1,9 @@
 import { runtimeBinding } from "./runtime-binding.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "./connections.ts"
 
-import type { BrowserEngine, BrowserProvider } from "../types.ts"
+import type { BrowserEngine, BrowserDriver } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "./connections.ts"
 
 interface CloudflareBrowserHandle {
@@ -32,7 +31,7 @@ export type LoadCloudflarePlaywright = () => Promise<CloudflarePlaywrightDriver>
 export function createCloudflareBrowser(
   options: CloudflareBrowserOptions,
   loadCloudflarePlaywright: LoadCloudflarePlaywright,
-): BrowserProvider<CloudflareBrowserBindingConnection> {
+): BrowserDriver<CloudflareBrowserBindingConnection> {
   const bindingOption = options.binding ?? "BROWSER"
   const engine = options.engine ?? "kitesurf"
   return {
@@ -69,12 +68,12 @@ export function createCloudflareBrowser(
         acquired = openOptions.idleTimeoutMs
           ? await driver.acquire(binding, { keep_alive: openOptions.idleTimeoutMs })
           : await driver.acquire(binding)
-        if (!acquired || !isCloudflareSessionId(acquired.sessionId)) {
-          throw new TypeError("Cloudflare Browser Run returned an invalid session id.")
-        }
       }
       catch (error) {
         throw browserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })
+      }
+      if (!acquired || !isCloudflareSessionId(acquired.sessionId)) {
+        throw browserProviderError("cloudflare", "acquire a Browser Run session", { cause: "Cloudflare Browser Run returned an invalid session id." })
       }
       let closed = false
       const connection: CloudflareBrowserBindingConnection = {
@@ -108,7 +107,7 @@ export function createCloudflareBrowser(
 }
 
 function isCloudflareSessionId(value: unknown): value is string {
-  return hasRuntimeType(value, "string")
+  return typeof value === "string"
     && value.length > 0
     && isWellFormedUnicode(value)
     && value !== "."

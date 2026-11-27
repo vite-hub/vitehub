@@ -1,13 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { agentWithSkills, codexDriver, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { withColocatedAgentSkills } from "@vite-hub/agent/server/internal"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Two-, four-, and three-byte UTF-8 sequences. The lone surrogate encodes as U+FFFD.
 const unicodeContent = "é🙂\ud800"
@@ -20,25 +22,29 @@ function install() {
   })
   const definition = agentWithSkills(base, { review: "# Review\n\nRead the evidence.\n" })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-  installConsoleInvocationFallback(invocations, process.cwd())
+  installConsoleInvocations(process.cwd(), invocations)
   installConsoleAgentDefinitions([{ definition, fallbackName: "reviewer" }, { definition: defineAgent({ driver: codexDriver(), runtime: false }), fallbackName: "empty" }], {
     invocations,
   })
 }
 function call(query: Record<string, string> = {}) {
-  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
     method: "POST", headers: { [consoleRpcHeader]: "1", "content-type": "application/json" },
-    body: JSON.stringify({ operation: "skills.inspect", input: query }),
+    body: operationRpcBody("skills.inspect", query),
   }))
 }
 afterEach(() => { vi.unstubAllGlobals(); installConsoleAccess({ mode: "open" }) })
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("Console bundled Skills", () => {
   it("lists composed Skills and supporting files without returning content", async () => {
     install()
     const response = await call({ agent: "reviewer" })
     expect(response.status).toBe(200)
-    const result = await response.json()
+    const result = await operationRpcResponseResult(response)
     expect(result).toMatchObject({ ok: true, value: { agent: "reviewer", agents: ["empty", "reviewer"], files: [
       { path: ".agents/skills/review/large.txt", size: 524289 },
       { path: ".agents/skills/review/logo.png", size: 2 },
@@ -55,11 +61,11 @@ describe("Console bundled Skills", () => {
   })
   it("opens the first Agent that bundles Skills when no Agent is chosen", async () => {
     install()
-    expect(await (await call()).json()).toMatchObject({ ok: true, value: { agent: "reviewer", agents: ["empty", "reviewer"] } })
+    expect(await operationRpcResponseResult(await call())).toMatchObject({ ok: true, value: { agent: "reviewer", agents: ["empty", "reviewer"] } })
   })
   it("returns an honest empty catalog for an Agent without bundled Skills", async () => {
     install()
-    expect(await (await call({ agent: "empty" })).json()).toMatchObject({ ok: true, value: { agent: "empty", files: [] } })
+    expect(await operationRpcResponseResult(await call({ agent: "empty" }))).toMatchObject({ ok: true, value: { agent: "empty", files: [] } })
   })
   it.each(["../secret", "/etc/passwd", ".agents/skills/review/missing.md"])("cannot read an unbundled file: %s", async path => {
     install()
@@ -90,6 +96,6 @@ describe("Console bundled Skills", () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["skills:read"] }) })
     const response = await call({ agent: "reviewer", path: ".agents/skills/review/SKILL.md" })
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ ok: true, value: { content: "# Review\n\nRead the evidence.\n" } })
+    expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true, value: { content: "# Review\n\nRead the evidence.\n" } })
   })
 })

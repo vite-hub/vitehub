@@ -1,17 +1,20 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { hubBlob } from "@vite-hub/blob/vite";
+import { hubBundle } from "@vite-hub/bundle/vite";
 import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createCmsCliContributor } from "@vite-hub/cms/vite";
 import { createContentCliContributor } from "@vite-hub/content/cli";
-import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
+import { createChoicesCliNamespace } from "@vite-hub/choices/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
-import { hubKv } from "@vite-hub/kv/vite";
+import { hubI18n } from "@vite-hub/i18n/vite";
+import { hubKV } from "@vite-hub/kv/vite";
 import { hubQueue } from "@vite-hub/queue/vite";
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
 import { hubWorkflow } from "@vite-hub/workflow/vite";
@@ -19,15 +22,17 @@ import { hubSchedule } from "@vite-hub/schedule/vite";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { createMigrateCliNamespace } from "../src/migrate-cli.ts";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
-import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
-import { consoleOperations } from "../src/console/runtime/server/operations.ts";
+import { loadConsoleOperations } from "../src/console/operation-modules.ts";
 import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
+import { viteHubCachePlugin } from "../src/cache/vite.ts";
+import { viteHubDurabilityPlugin } from "../src/durability/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
+const cliReference = join(repoRoot, "docs/content/docs/cli/index.md");
 const evalFixtureRoot = join(repoRoot, "packages/agent/test/fixtures");
 
 function stream() {
@@ -80,28 +85,28 @@ describe("CLI documentation contract", () => {
       blobPlugin,
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
-      { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
       { vitehub: { cli: createContentCliContributor() } },
-      // `hubCms()` contributes this only for an app with server/content.ts.
       { vitehub: { cli: createCmsCliContributor() } },
       hubEnv(),
+      hubI18n({ locales: ["en", "es"] }),
       emailPlugin,
-      hubKv(),
+      hubKV(),
       hubQueue(),
       hubRateLimit(),
       schedulePlugin,
       workflowPlugin,
       workspacePlugin,
       viteHubTaskPlugin(),
-      // The task plugin contributes these only for an app that has tasks.
-      { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: "vite-hub/_internal/task/operations" }] } },
-      // The Console plugin contributes every Console operation; the reference documents the Database ones.
-      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.")), module: "vite-hub/console/server" }] } },
+      viteHubDurabilityPlugin(),
+      viteHubCachePlugin(),
+      { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => (await loadConsoleOperations()).filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
       typesPlugin,
+      hubBundle(),
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createDecisionsCliNamespace(), createSandboxCliNamespace()];
+    const runtimeNamespaces = [createChoicesCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),
@@ -120,7 +125,6 @@ describe("CLI documentation contract", () => {
           stdout: namespaceHelp,
         }),
       ).resolves.toBe(0);
-      // A namespace that is one command, such as `vitehub pull`, prints the command's usage.
       if (!namespaceHelp.output().includes("Available features:")) {
         singleCommands.push(namespace);
         continue;
@@ -131,7 +135,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["init", "add", "remove", "catalog", "status", "link", "unlink", "deploy", "deployments"]);
+    expect(projectCommands).toEqual(["init", "add", "remove", "update", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "apps", "drain"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

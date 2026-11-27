@@ -1,9 +1,9 @@
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { expect, it, vi } from "vitest"
 
-import { installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
+import invocationHandler from "../src/agent/console/invocation.get.ts"
 import { consoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
@@ -19,7 +19,7 @@ it("resets a legacy cursor once before resuming append polls", async () => {
     traceId: "legacy-cursor-test",
     updatedAt: timestamp,
   })
-  installConsoleInvocationFallback(defineAgentInvocations({ store }), "/console-legacy-cursor-test")
+  installConsoleInvocations("/console-legacy-cursor-test", defineAgentInvocations({ store }))
   installConsoleAccess({ mode: "open", authorize: () => true })
   const url = "http://localhost/_vitehub/api/invocations/legacy-cursor-test"
   const legacy = new URLSearchParams({ observationCount: "0", observationCursor: "0-ztntfp-45h" })
@@ -49,7 +49,7 @@ it.each([2, 3, 31, 32, 33, 63, 64, 65])("serializes the history once for a poll 
     traceId: "cursor-test",
     updatedAt: timestamp,
   })
-  installConsoleInvocationFallback(defineAgentInvocations({ store }), "/console-invocation-cursor-test")
+  installConsoleInvocations("/console-invocation-cursor-test", defineAgentInvocations({ store }))
   installConsoleAccess({ mode: "open", authorize: () => true })
   const url = "http://localhost/_vitehub/api/invocations/cursor-test"
   const initial = await invocationHandler(consoleRequestEvent(new Request(url)))

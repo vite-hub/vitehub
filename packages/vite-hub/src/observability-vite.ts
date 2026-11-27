@@ -1,9 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
+import { getDeploymentHost, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { Plugin } from "vite"
@@ -35,7 +36,7 @@ export interface ObservabilityEvlogOptions {
     replacement?: string | ((matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => string)
     transform?: (event: Record<string, unknown> & {
       timestamp: string
-      level: "debug" | "info" | "warn" | "error"
+      level: "trace" | "debug" | "info" | "warn" | "error" | "fatal"
       service: string
       environment: string
       version?: string
@@ -47,12 +48,22 @@ export interface ObservabilityEvlogOptions {
   }
 }
 
+/** Where the Console and `vitehub logs` read logs. */
+export type LogsOptions =
+  /** A server module, relative to the project root, whose default export is a `LogSource` for an existing backend. */
+  | { source: string }
+  /** A bounded buffer of Evlog events in the `vite dev` process. */
+  | { maxEntries?: number, maxEntryBytes?: number }
+
 export interface ObservabilityOptions {
-  /** Service name on every event and log. */
-  service: string
+  /**
+   * Service name on every event and log. Set it to install `useObservability()`: Agent telemetry, PostHog export, and
+   * papercut reports.
+   */
+  service?: string
   /** Defaults to `NODE_ENV`, then `development`. */
   environment?: string
-  /** Export events, exceptions, and failed request logs to PostHog. */
+  /** Export events, exceptions, and failed request logs to PostHog. Requires `service`. */
   posthog?: {
     /** Server Env reference, for example `env({ secret: true, source: env.source("POSTHOG_API_KEY") })`. */
     apiKey: EnvVariableDeclaration | string
@@ -61,24 +72,33 @@ export interface ObservabilityOptions {
   }
   /** Options for the evlog Nitro module, such as `sampling`, `redact`, and `pretty`. */
   evlog?: ObservabilityEvlogOptions
-  /** Durable papercut reports, backed by the Console invocation journal. */
+  /** Durable papercut reports, backed by the Console invocation journal. Requires `service`. */
   papercuts?: true | { eventPrefix?: string, uuidNamespace?: string, intervalMs?: number }
   /** Queue bound for best-effort events and for the log buffer. Defaults to 1,000. */
   maxPending?: number
+  /**
+   * Send uncaught browser errors, and the reports of `reportBrowserError()` from `vite-hub/logs/client`, to
+   * `POST /_vitehub/browser-errors`. The server logs each one on the request's Evlog event. Same origin only, 16 KiB
+   * at most, and 20 reports a minute for each address.
+   */
+  browserErrors?: boolean
 }
+
+/** Observability options with a service name, which install `useObservability()`. */
+type ObservabilityTelemetryOptions = Omit<ObservabilityOptions, "browserErrors"> & { service: string }
 
 const generatedObservabilityPlugin = ".vitehub/nitro/observability/plugin.mjs"
 
-function renderObservabilityNitroPlugin(options: ObservabilityOptions): string {
+function renderObservabilityNitroPlugin(options: ObservabilityTelemetryOptions): string {
   const papercuts = options.papercuts === true ? {} : options.papercuts
   // JSON.stringify drops unset values.
   const settings = { service: options.service, environment: options.environment, maxPending: options.maxPending }
   const posthog = options.posthog ? { host: options.posthog.host, service: options.service } : undefined
   return [
-    `import { installObservability } from "@vite-hub/agent/observability/host"`,
+    `import { installObservability } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/host")))}`,
     ...(posthog
       ? [
-          `import { posthog } from "@vite-hub/agent/observability/posthog"`,
+          `import { posthog } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/posthog")))}`,
           `import { loadServerEnv } from "#vitehub/env/server"`,
         ]
       : []),
@@ -108,31 +128,29 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
   await writeFile(file, contents, "utf8")
 }
 
-/** Register the evlog Nitro module and a generated plugin that installs `useObservability()`. */
-export function observabilityVitePlugin(options: ObservabilityOptions, target: {
+/**
+ * Register the evlog Nitro module. With a service name, also register a generated plugin that installs
+ * `useObservability()`. `logsVitePlugin()` installs the log source of `vitehub({ logs })`.
+ */
+export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "browserErrors">, target: {
   agent?: boolean | { runtime?: string }
   hosting?: string
 } = {}): Plugin {
-  if (!options.service?.trim()) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0125({ message: "[vitehub] observability requires a non-empty service name." })
+  if (options.service !== undefined && !options.service.trim()) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0125({ message: "[vitehub] observability.service must be a non-empty service name." })
   }
-  const normalizedOptions = {
-    ...options,
-    service: options.service.trim(),
-    environment: options.environment?.trim() || options.evlog?.env?.environment?.trim() || process.env.NODE_ENV || "development",
+  const service = options.service?.trim()
+  if (!service && (options.posthog || options.papercuts)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0125({ message: "[vitehub] observability.posthog and observability.papercuts require observability.service." })
   }
+  const environment = options.environment?.trim() || options.evlog?.env?.environment?.trim() || process.env.NODE_ENV || "development"
+  const telemetry: ObservabilityTelemetryOptions | undefined = service ? { ...options, service, environment } : undefined
   return {
     name: "vite-hub/observability",
     configResolved(config) {
-      // SAFETY: ViteHub and Agent plugins extend these public Vite config keys.
-      const resolved = config as typeof config & {
-        agent?: boolean | { runtime?: string }
-        vitehub?: { preset?: string }
-        preset?: string
-        nitro?: { preset?: string }
-      }
-      const agent = resolved.agent ?? target.agent
-      const hosting = resolveHost({ hosting: resolved.vitehub?.preset ?? resolved.preset ?? target.hosting, nitro: resolved.nitro })
+      if (!telemetry) return
+      const agent = target.agent
+      const hosting = resolveHost({ hosting: getDeploymentHost(config) ?? target.hosting, nitro: Reflect.get(config, "nitro") })
       if (agent && ((typeof agent === "object" && agent.runtime === "deno") || hosting === "netlify")) {
         throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability currently requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported." })
       }
@@ -141,36 +159,28 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
       const { default: evlog } = await import("evlog/nitro/v3").catch(() => {
         throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] vitehub({ observability }) requires the evlog package. Install evlog." })
       })
-      // SAFETY: ViteHub Env and Nitro extend Vite's user config with these documented top-level keys.
+      // SAFETY: Nitro extends Vite's user config with this documented top-level key.
       const viteConfig = config as typeof config & {
         [VITEHUB_PROJECT_ROOT]?: string
-        env?: { server?: Record<string, unknown> }
         nitro?: Record<string, unknown>
       }
-      if (options.posthog) {
-        const env = viteConfig.env ??= {}
-        const server = env.server ??= {}
-        // SAFETY: A previous run of this hook on the same config object wrote this shape.
-        if (server.observability !== undefined && (server.observability as { posthog?: { apiKey?: unknown } }).posthog?.apiKey !== options.posthog.apiKey) {
-          throw viteHubErrorDiagnostics.VITE_HUB_R0128({ message: "[vitehub] env.server.observability is reserved for vitehub({ observability })." })
-        }
-        server.observability = { posthog: { apiKey: options.posthog.apiKey } }
-      }
-      // SAFETY: ViteHub's project-root config value is an externally supplied Vite extension key.
-      const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
-        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
-        : resolveViteHubProjectRoot(config.root || process.cwd())
-      const plugin = resolve(projectRoot, generatedObservabilityPlugin)
-      await writeIfChanged(plugin, renderObservabilityNitroPlugin(normalizedOptions))
       const kit = createNitroServerKit(viteConfig.nitro)
-      kit.addPlugin(plugin)
+      if (telemetry) {
+        // SAFETY: ViteHub's project-root config value is an externally supplied Vite extension key.
+        const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
+          ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+          : resolveViteHubProjectRoot(config.root || process.cwd())
+        const plugin = resolve(projectRoot, generatedObservabilityPlugin)
+        await writeIfChanged(plugin, renderObservabilityNitroPlugin(telemetry))
+        kit.addPlugin(plugin)
+      }
       const modules = Array.isArray(kit.config.modules) ? kit.config.modules : []
       const evlogOptions = options.evlog ?? {}
-      const env: NonNullable<ObservabilityEvlogOptions["env"]> = { ...evlogOptions.env, service: normalizedOptions.service }
-      env.environment = normalizedOptions.environment
+      const env: NonNullable<ObservabilityEvlogOptions["env"]> = { ...evlogOptions.env, ...(service ? { service } : {}) }
+      if (service) env.environment = environment
       // One evlog module per Nitro app. Skip it when this hook already ran on the same config.
       if (!modules.some(module => module instanceof Object && "name" in module && module.name === "evlog")) {
-        kit.config.modules = [...modules, evlog({ ...evlogOptions, env })]
+        kit.config.modules = [...modules, evlog({ ...evlogOptions, ...(Object.keys(env).length ? { env } : {}) })]
       }
       viteConfig.nitro = kit.config
     },

@@ -10,19 +10,14 @@ import { describe, expect, it } from "vitest"
 import { createProject, fakePackageManager, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddPlan, SetupError, SetupLinkResult, SetupMissing, SetupReference, SetupRemovePlan, SetupStatus } from "../src/setup/index.ts"
-
-/**
- * The setup commands on every host preset, in Vite and Nuxt configs.
- * Each case runs on a temp copy of a `fixtures/docs-hosts` config.
- */
 
 const docsHosts = fileURLToPath(new URL("../../../fixtures/docs-hosts/", import.meta.url))
 const manifest = JSON.stringify({ name: "my-app", type: "module" })
 
-type Host = Exclude<DeploymentPreset, "dev">
+type Host = Exclude<ViteHubHost, "dev">
 
 interface HostForm {
   host: Host
@@ -45,7 +40,7 @@ const forms: HostForm[] = hosts.flatMap(host => [
   {
     config: async () => {
       const nuxt = await readFile(join(docsHosts, "installation/nuxt.config.ts"), "utf8")
-      const edited = editViteHubConfig("nuxt.config.ts", nuxt, [{ key: "preset", op: "set", value: host }])
+      const edited = editViteHubConfig("nuxt.config.ts", nuxt, [{ key: "host", op: "set", value: host }])
       if (!edited.ok) throw new Error(edited.reason)
       return edited.code
     },
@@ -55,20 +50,20 @@ const forms: HostForm[] = hosts.flatMap(host => [
   },
 ] as const)
 
-/** Values that only the developer knows. `add` asks for them without a `rerun`. */
 const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
-  "logs.source": ["--option", "logs.source=./server/logs.ts"],
-  "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
+  "i18n.locales": ["--option", 'i18n.locales=["en","es"]'],
+  "mcp.auth": ["--option", "mcp.auth=false"],
+  "sandboxTask.driver": ["--option", "sandboxTask.driver=vercel"],
+  "workspace.store": ["--option", "workspace.store.driver=github", "--option", "workspace.store.repository=owner/repo"],
 }
 
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
 
 async function project(form: HostForm, id?: FeatureId): Promise<string> {
   let code = await form.config()
-  // Netlify supports request Observability, but not Observability for its Agents.
   if (id === "observability" && form.host === "netlify") {
     const edited = editViteHubConfig(form.configFile, code, [{ key: "agent", op: "set", value: false }])
     if (!edited.ok) throw new Error(edited.reason)
@@ -77,7 +72,6 @@ async function project(form: HostForm, id?: FeatureId): Promise<string> {
   return await createProject({ "package.json": manifest, [form.configFile]: code })
 }
 
-/** Runs `add` without an install, or with the `spawn` of a fake package manager. */
 async function add(args: readonly string[], root: string, spawn?: ViteHubCliSpawn) {
   return await runSetup<AddResult>(["add", ...args, ...(spawn ? [] : ["--no-install"]), "--yes", "--json"], root, {}, { spawn })
 }
@@ -88,15 +82,10 @@ async function snapshot(root: string): Promise<Record<string, string>> {
   return Object.fromEntries(await Promise.all(files.map(async file => [relative(root, file), await readFile(file, "utf8")] as const)))
 }
 
-/** The arguments of a `rerun`, without the `vitehub` word and the flags that `add` appends. */
 function rerunArgs(rerun: string): string[] {
   return rerun.split(" ").slice(2).filter(arg => !["--no-install", "--yes", "--json"].includes(arg))
 }
 
-/**
- * Adds `id` and follows the input that `add` asks for: a `rerun` when ViteHub can choose the values, else the
- * developer inputs above. Returns the arguments that succeeded and what the first run asked for.
- */
 async function addFeature(id: FeatureId, root: string, extra: readonly string[] = [], spawn?: ViteHubCliSpawn): Promise<{ args: string[], first: AddResult, firstExit: number, result: AddResult }> {
   const first = await add([id, ...extra], root, spawn)
   expect(first.loadConfig).not.toHaveBeenCalled()
@@ -157,7 +146,6 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
       else {
         expect([0, 2], `${id}: ${JSON.stringify(first.error)}`).toContain(firstExit)
       }
-      // Input-needed runs write nothing.
       if (firstExit === 2) expect(first.changes ?? [], id).toEqual([])
 
       const after = await readFile(join(root, form.configFile), "utf8")
@@ -173,7 +161,6 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
       const status = (await runSetup<SetupStatus>(["status", "--json"], root)).json
       expect(status.features.find(item => item.id === id)?.enabled, id).toBe("on")
 
-      // A second run changes nothing.
       const again = await add(args, root)
       expect(again.exitCode, id).toBe(0)
       expect(again.json, id).toMatchObject({ changes: [], status: "unchanged" })
@@ -190,28 +177,25 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
       const root = await project(form, id)
       const before = (await runSetup<SetupStatus>(["status", "--json"], root)).json.features
       const status = before.find(item => item.id === id)!
-      // A key that the config already sets has no earlier bytes to restore: `add` changes it in place.
       if (status.reason === "config" || status.enabled === "on") {
         results[id] = `skipped: ${status.enabled} by ${status.reason}`
         continue
       }
-      // A real app has the packages of its enabled features, so `remove` keeps only what `add` installed.
-      const on = before.filter(item => item.enabled === "on").map(item => features[item.id])
+      const on = before.filter(item => item.enabled === "on")
       const declared = (names: string[]) => Object.fromEntries(names.map(name => [name, "1.0.0"]))
-      const prod = declared(on.flatMap(item => item.packages))
-      const dev = declared(on.flatMap(item => item.devPackages))
+      const devNames = new Set(on.flatMap(item => features[item.id].devPackages))
+      const prod = declared(on.flatMap(item => item.missingPackages).filter(name => !devNames.has(name)))
+      const dev = declared([...devNames])
       await writeFile(join(root, "package.json"), JSON.stringify({ name: "my-app", type: "module", ...(Object.keys(prod).length ? { dependencies: prod } : {}), ...(Object.keys(dev).length ? { devDependencies: dev } : {}) }))
       const original = await snapshot(root)
       const pm = fakePackageManager(root)
       const added = await addFeature(id, root, features[id].definition ? ["--name", "demo"] : [], pm.spawn)
       expect(added.result.status, id).toBe("applied")
 
-      // Developer input, such as `database.connection.url` for Comments on Netlify, writes the key of that feature too.
       const optionFeatures = added.args.flatMap((arg, index) => added.args[index - 1] === "--option" ? [arg.split(".")[0] as FeatureId] : [])
       const ids = [...new Set([...added.result.features, ...optionFeatures])]
       const removeArgs = ["remove", ...ids, "--yes", "--json"]
       let removed = await runSetup<SetupRemovePlan & { error?: SetupError, references?: SetupReference[] }>(removeArgs, root, {}, { spawn: pm.spawn })
-      // The config of the fixture can import the feature itself, such as `hubSchedule` from `@vite-hub/schedule/vite`.
       const usedByFixture = removed.exitCode === 3 && removed.json.error?.code === "SETUP_FEATURE_IN_USE"
       if (usedByFixture) {
         expect(removed.json.references?.map(item => item.file), id).toEqual([form.configFile])
@@ -223,7 +207,6 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
       expect(removed.loadConfig).not.toHaveBeenCalled()
       expect(removed.json.turnedOff, id).toEqual(expect.arrayContaining([...added.result.features, ...added.result.implied]))
       if (usedByFixture) {
-        // The imported package stays installed; every other file is back.
         const { "package.json": _manifest, ...rest } = original
         expect(await snapshot(root), id).toMatchObject(rest)
         results[id] = `used by the fixture config: exit 3, then --force`

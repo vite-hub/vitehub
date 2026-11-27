@@ -1,4 +1,5 @@
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { sendBatchToPostHog } from "evlog/posthog"
 import { PostHog } from "posthog-node"
 import type { ObservabilityExporter } from "../observability.ts"
@@ -14,12 +15,12 @@ export interface PostHogExporterOptions {
 export function posthog(options: PostHogExporterOptions): ObservabilityExporter {
   const host = options.host || "https://us.i.posthog.com"
   const endpoint = new URL("/batch/", host)
-  if (!["https:", "http:"].includes(endpoint.protocol)) throw new TypeError("[vitehub] PostHog requires an HTTP(S) host.")
-  if (!options.apiKey?.trim()) throw new TypeError("[vitehub] PostHog requires an API key.")
+  if (!["https:", "http:"].includes(endpoint.protocol)) throw agentDiagnostics.AGENT_POSTHOG_HOST_INVALID()
+  if (!options.apiKey?.trim()) throw agentDiagnostics.AGENT_POSTHOG_API_KEY_MISSING()
 
   function distinctId(properties: Record<string, unknown>): string {
     for (const value of [options.service, properties.service, properties.agent_name]) {
-      if (hasRuntimeType(value, "string") && value.trim()) return value.trim()
+      if (typeof value === "string" && value.trim()) return value.trim()
     }
     return "vitehub"
   }
@@ -51,12 +52,12 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
         }
       }
       catch { /* The caller receives a failure without credential-bearing response content. */ }
-      if (!retryable || attempt === 2) throw new Error("[vitehub] PostHog did not acknowledge event delivery.")
+      if (!retryable || attempt === 2) throw agentDiagnostics.AGENT_POSTHOG_DELIVERY_UNACKNOWLEDGED()
       await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)))
     }
   }
 
-  // captureImmediate in SDK 5.51.6 suppresses transport failures. Preserve its
+  // captureImmediate in SDK 6 reports transport failures only as events. Preserve its
   // exception parser while requiring an acknowledgement for durable reports.
   class AcknowledgedPostHog extends PostHog {
     override captureImmediate(message: Parameters<PostHog["captureImmediate"]>[0]) { return acknowledged(message) }
@@ -64,7 +65,7 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
   const client = new AcknowledgedPostHog(options.apiKey, { host, disableGeoip: true, enableExceptionAutocapture: false, flushInterval: 0 })
   return {
     capture: (event, properties, delivery) => acknowledged({ distinctId: distinctId(properties), event, properties, uuid: delivery?.uuid, timestamp: delivery?.timestamp }, delivery?.signal),
-    exception: (error, properties) => client.captureExceptionImmediate(error, distinctId(properties), properties),
+    exception: (error, properties) => client.captureExceptionImmediate(error, { distinctId: distinctId(properties), properties }),
     logs: events => sendBatchToPostHog(events, { apiKey: options.apiKey, host, timeout: 3000, retries: 2 }),
     flush: () => client.shutdown(10_000),
   }

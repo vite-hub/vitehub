@@ -1,6 +1,5 @@
 import { expect, it, vi } from "vitest"
 
-// lib0, which y-websocket times its 30 second silence limit with, keeps the `Date.now` it finds when it loads.
 vi.useFakeTimers()
 const { connectRealtimeRoom } = await import("../src/client.ts")
 
@@ -24,7 +23,6 @@ it("keeps idle sockets open past y-websocket's 30 second silence limit while the
     }
 
     close() { this.state.closed = true }
-    // The server sends no room traffic, only a pong for each ping.
     send(data: unknown) {
       if (data !== "ping") return
       this.state.pings++

@@ -1,7 +1,7 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
-export { registerResponseConstructor } from "./internal/response.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
@@ -12,8 +12,7 @@ import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition,
 import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
-import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { Diagnostic } from "nostics"
+import { asUnknownBoundary, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
@@ -25,7 +24,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
-import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule, loadInstalledAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
@@ -38,6 +37,7 @@ import { agentInvocationInputSupport, sendAgentInvocationInput } from "./interna
 import { agentInvocationCancellationDriver, isAgentInvocationAbortError, markAgentInvocationCancellationFailure } from "./internal/invocation-cancellation.ts"
 import type { AgentInvocationCancellationDriver } from "./internal/invocation-cancellation.ts"
 import { withAgentInvocationResponseOwner } from "./internal/agent-invocation-response-owner.ts"
+import { installAgentChannelItemReservation } from "./internal/channel-item-reservation.ts"
 import {
   createReactionDeliveryEffectIntent,
   defineFinishEffect,
@@ -46,13 +46,15 @@ import {
 } from "./delivery-effects.ts"
 
 export { defineFinishEffect } from "./delivery-effects.ts"
-import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
+import { isTraceContentAttributeKey, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agent-run.ts"
 import { agentRunError, type AgentErrorCode } from "./run-errors.ts"
 import type { Result } from "@vite-hub/runtime"
-import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
@@ -62,6 +64,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import { namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -83,9 +86,11 @@ import {
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
+import { retainedUserMessages } from "./internal/input-attachments.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
+import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
+import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { type AgentMessagePhase, type Message, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   agentInvokerInputReplayProvenance,
@@ -145,13 +150,13 @@ import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentIn
 import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
-  resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
   runAgentTriggerWith,
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
   isColocatedAgentInstructionsBuildSource,
   isWorkspaceAgentOptions,
+  rememberDeclaredAgentWorkspace,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
@@ -214,7 +219,6 @@ import type {
   AgentHookObserverHooks,
   AgentInvoker,
   AgentInvokerOptions,
-  AgentInvokerProfile,
   AgentModelDriver,
   AgentOutputDefinition,
   AgentModelResolver,
@@ -242,6 +246,7 @@ import type {
   AgentUsage,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
+  ExternalAgentOptions,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
@@ -268,12 +273,16 @@ import type {
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
 
-export { agentInvocationId, agentInvocationRerunInput } from "./invocations.ts"
+export { agentInvocationId } from "./invocations.ts"
+export { agentInvocationRerunInput } from "./invocation-rerun.ts"
+export { invocationPageChanges } from "./invocations/page-changes.ts"
+export type { InvocationPageApproval, InvocationPageChange } from "./invocations/page-changes.ts"
 
 export type {
   AgentInvocationAnnotationValue,
   AgentInvocationCancelResult,
   AgentInvocationDeleteOutcome,
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
@@ -288,6 +297,8 @@ export type {
   AgentInvocationStore,
 } from "./invocations.ts"
 export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
+export { getAgentInvocations } from "./invocations/app.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal, AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./invocations/app.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -318,7 +329,7 @@ export type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
-  AgentActor,
+  AgentInvoker,
   AgentCapabilities,
   AgentCapabilitiesInput,
   AgentCapabilitiesList,
@@ -330,6 +341,7 @@ export type {
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryEventType,
   AgentChannelDeliveryInspection,
+  AgentChannelDeliveryRejection,
   AgentChannelDeliveryStatus,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
@@ -436,6 +448,7 @@ export type {
   AgentAskQuestions,
   AgentAskQuestionsResolver,
   AgentDriver,
+  ExternalAgentOptions,
   AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
@@ -459,7 +472,6 @@ export type {
   AgentInputHook,
   AgentInterceptContext,
   AgentInterceptHandler,
-  AgentIntegrationOption,
   AgentHookObserver,
   AgentHookObserverEvent,
   AgentHookObserverHooks,
@@ -472,13 +484,8 @@ export type {
   AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentInvocationReference,
-  AgentInvocationsHostSettings,
-  AgentInvocationsInput,
-  AgentIntegrationsOptions,
-  AgentInvoker,
   AgentInvokerMeta,
   AgentInvokerOptions,
-  AgentInvokerProfile,
   AgentInvokerResolveContext,
   AgentMessageChannelSettings,
   AgentMessageConcurrency,
@@ -497,7 +504,9 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
-  AgentModuleOptions,
+  AgentModelsEmulateSeed,
+  AgentModelsOptions,
+  AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
   AgentOutputRenderer,
@@ -531,8 +540,6 @@ export type {
   AgentWebhookRegistrationDefinition,
   AgentChannelWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
-  AgentSandboxProviderOptions,
-  AgentSchedulerProviderOptions,
   AgentSettings,
   AgentShutdownOptions,
   AgentSourceProvenance,
@@ -542,6 +549,9 @@ export type {
   AgentToolTransform,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
+  AgentCloudflareStateProviderOptions,
+  AgentMemoryStateProviderOptions,
+  AgentSqlStateProviderOptions,
   AgentStateProviderOptions,
   AgentTelemetry,
   AgentTelemetryContentOptions,
@@ -580,6 +590,7 @@ export type {
   CodexDriverOptions,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -594,18 +605,7 @@ export type {
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 
-export {
-  createAgentInspectionMetadata,
-  materializeAgentInspectionSourceMetadata,
-  resolveAgentInspectionMetadata,
-  workspaceAgentOwnsWorkspaceDefinition,
-  workspaceDefinitionFromOptions,
-} from "./workspace-agent.ts"
-
-export {
-  agentInvokerContextKey,
-  defineAgentInvoker,
-} from "./invoker.ts"
+export { defineAgentInvoker } from "./invoker.ts"
 
 export type {
   WorkspaceAgentDefinition,
@@ -625,11 +625,6 @@ export type {
   ToolInvocation,
   ToolInvocationState,
 } from "./messages.ts"
-
-export {
-  agentChatContextKey,
-  getAgentChatContext,
-} from "./chat-trigger.ts"
 
 export type {
   AgentChannelContext,
@@ -823,6 +818,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 interface AgentWorkflowRun<TOutput = unknown> {
+  error?: { code?: string, message: string, name?: string }
   id: string
   metadata?: unknown
   payload?: unknown
@@ -917,7 +913,7 @@ function agentParentNames(agent: object, name: string): string[] {
   const names: string[] = []
   for (const parent of agentLayerParents(agent)) {
     const explicitName: unknown = Reflect.get(parent, "name")
-    const parentName = hasRuntimeType(explicitName, "string") && explicitName ? explicitName : readDiscoveredAgentName(parent)
+    const parentName = typeof explicitName === "string" && explicitName ? explicitName : readDiscoveredAgentName(parent)
     if (parentName && parentName !== name && !names.includes(parentName)) names.push(parentName)
   }
   return names
@@ -954,11 +950,11 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
-  return hasRuntimeType(value, "object")
+  return typeof value === "object"
     && value !== null
     && "resolve" in value
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
+    && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
 function resolveAgentWorkflowRuntimeBinding<
@@ -990,10 +986,10 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   const definition = hasAgentDefinition(agent) ? agent : undefined
   const name = binding.name || ("discoveryDefault" in binding ? context.agentIdentity?.name : definition?.name || context.agentIdentity?.name)
   if (name) return name
-  throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
+  throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime agentWorkflow() requires a name when invoked directly. A stable Workflow Definition target requires agentWorkflow(\"name\")." })
 }
 
-async function deferAgentWorkflowRecovery<TPayload, TResult>(
+async function startAgentWorkflowRecovery<TPayload, TResult>(
   handle: WorkflowHandle<TPayload, TResult>,
   payload: TPayload,
   options: { id?: string },
@@ -1001,7 +997,8 @@ async function deferAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.defer(payload, options)
+      const [error] = await handle.start(payload, options)
+      if (error) throw error
       return
     }
     catch (error) {
@@ -1033,7 +1030,7 @@ async function getAgentWorkflowHandle<
   const registry = getWorkflowRuntimeRegistry()
   const discoveredWorkflow = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
   if (discoveredWorkflow && !reuseRegistry && !recovery) {
-    throw agentDiagnostics.AGENT_R0422({ message: `[vitehub] Workflow name ${JSON.stringify(name)} belongs to a discovered Agent. Another Agent cannot use it. Give this Agent its own name with workflow("other-name"), or run the discovered Agent.` })
+    throw agentDiagnostics.AGENT_R0422({ message: `[vitehub] Workflow name ${JSON.stringify(name)} belongs to a discovered Agent. Another Agent cannot use it. Give this Agent its own name with agentWorkflow("other-name"), or run the discovered Agent.` })
   }
   const registered = (reuseRegistry && discoveredWorkflow) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (registered) {
@@ -1050,7 +1047,7 @@ async function getAgentWorkflowHandle<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
       },
-      options: { rootStep: false },
+      rootStep: false,
     })
   }
   const handle = registered || recovery
@@ -1060,7 +1057,7 @@ async function getAgentWorkflowHandle<
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
-      }, { rootStep: false })
+      }, { internalAgentWorkflow: true, rootStep: false })
   agentWorkflowNames.add(name)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
@@ -1076,15 +1073,15 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
-async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
-  const materialized = await materializeMessageAttachmentData(messages)
+async function portableWorkflowMessages(messages: Message[], optionalImage?: (message: Message) => boolean): Promise<Message[]> {
+  const materialized = await materializeMessageAttachmentData(messages, optionalImage)
   return await Promise.all(materialized.map(async message => ({
     ...message,
     parts: await Promise.all(message.parts.map(async (part) => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (isAttachmentBlob(data)) data = new Uint8Array(await blobArrayBuffer(data))
+      if (isAttachmentBlob(data)) data = new Uint8Array(await data.arrayBuffer())
       if (isArrayBufferValue(data)) data = new Uint8Array(data)
       const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
@@ -1095,14 +1092,25 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   })))
 }
 
-export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
+export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>, messageId?: string): Promise<AgentRunInput<CALL_OPTIONS>> {
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   delete workflowInput.abortSignal
   if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
-  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
-  if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
-  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
   const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+  if (workflowInput.messages) {
+    const messages = workflowInput.messages
+    const currentIndex = messageId ? messages.findIndex(message => message.id === messageId) : messages.findLastIndex(message => message.role === "user")
+    const history = new Set<Message>()
+    if (isAgentChannelDeliveryWorkflowBinding(delivery) && delivery.state === "chat" && currentIndex > 0) {
+      const queued = new Set(retainedUserMessages(messages, messageId))
+      for (const message of messages.slice(0, currentIndex)) {
+        if (message.role === "user" && !queued.has(message)) history.add(message)
+      }
+    }
+    workflowInput.messages = await portableWorkflowMessages(messages, message => history.has(message))
+  }
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
   if (isAgentChannelDeliveryWorkflowBinding(delivery) && isRuntimeObject(delivery.steer) && isRuntimeObject(delivery.steer.lock)) {
     const { lock } = delivery.steer
     // State adapters may return RPC objects; only the lock fields cross runtimes.
@@ -1124,13 +1132,13 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
   return cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>
 }
 
-export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>, context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
+async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>, context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!agent.invocations) return
   await loadAgentHost()
   const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
-    if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-    throw new Error("Could not acquire the Invocation execution claim.")
+    if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+    throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
   }
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!journal.createdNew) {
@@ -1142,42 +1150,46 @@ export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntim
       // even when legacy metadata cannot show whether dispatch was accepted.
       if (!canDispatchAgentWorkflow(binding, context)) {
         if (binding || dispatch) {
-          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw new AgentInvocationClaimConflict()
-          throw new AgentInvocationClaimConflict()
+          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+          throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
         }
         return journal
       }
       const workflowName = resolveAgentWorkflowName(agent, binding, context)
-      const recoveryConfig = (await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig()
+      const recoveryState = "discoveryDefault" in binding
+        ? await loadInstalledAgentWorkflowRuntimeStateModule()
+        : await loadAgentWorkflowRuntimeStateModule()
+      const recoveryConfig = recoveryState ? recoveryState.getWorkflowRuntimeConfig() : false
       // Discovery-default agents fall back to inline execution when Workflow
-      // is disabled. There is no provider run to inspect in this case, so keep
+      // is disabled or not installed. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
       const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
-      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
-      if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
-        throw new Error("Workflow dispatch identity changed; replay cannot safely submit this Invocation again.")
+      if (!dispatch && recoveryConfig && recoveryConfig.driver === "vercel") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+      if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.driver) || dispatch.name !== workflowName)) {
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch identity changed" })
       }
-      if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
+      if ((recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch) {
         if (!dispatch.id) {
-          throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
+          throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch acknowledgement is unknown" })
         }
       }
-      const providerId = (recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.provider === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
-      const accepted = await handle.getRun(providerId)
+      const providerId = (recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.driver === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
+      const [acceptedError, accepted] = await handle.getRun(providerId)
+      if (acceptedError) throw acceptedError
       if (accepted.status !== "unknown") {
-        if (!await journal.confirmWorkflowDispatch()) throw new Error("Could not confirm the accepted Workflow Invocation.")
-        throw new AgentInvocationClaimConflict()
+        if (!await journal.confirmWorkflowDispatch()) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the accepted Workflow Invocation" })
+        throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       }
       // A missing marker is ambiguous for legacy reservations. Only an explicit
       // false means the provider call was never attempted; an attempted or
       // unknown marker must stay pending until the provider can be reconciled.
       if (await journal.getWorkflowDispatchAttempted() !== false) {
-        throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch acknowledgement is unknown" })
       }
-      if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
-        throw new Error("The acknowledged Workflow run is unavailable; replay cannot safely submit this Invocation again.")
+      if ((recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch) {
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "The acknowledged Workflow run is unavailable" })
       }
     } catch (error) {
       await journal.releaseClaim()
@@ -1185,6 +1197,21 @@ export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntim
     }
   }
   return journal
+}
+installAgentChannelItemReservation(reserveAgentChannelItem)
+
+/** The Agent Dev Loop marks the copy of an Agent whose `run` runs a Workspace command instead of the Driver. */
+const workspaceCommandRun = Symbol.for("vitehub.agentWorkspaceCommandRun")
+
+/**
+ * An Agent with `driver: "external"` runs outside the app. Fail before ViteHub writes an activity or a journal record.
+ * A Dev Loop Workspace command (`vitehub agent dev "!cmd"`) does not start the Driver, so it can still use the Workspace.
+ */
+function assertAgentRunsInApp(agent: unknown, context: Pick<AgentRuntimeContext, "agentIdentity">): void {
+  if (!hasAgentDefinition(agent) || Reflect.get(agent, workspaceCommandRun) === true) return
+  // SAFETY: defineBaseAgent sets this private Driver kind on every Agent Definition.
+  if ((agent as { [baseAgentDriverKind]?: AgentDriverKind })[baseAgentDriverKind] !== "external") return
+  throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUN({ agent: agentInvocationName(agent, context) ?? "agent" })
 }
 
 async function runAgentAsWorkflow<
@@ -1197,6 +1224,7 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
+  assertAgentRunsInApp(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
@@ -1214,8 +1242,8 @@ async function runAgentAsWorkflow<
         })
       : undefined
     if (journal?.claimStatus !== "owned") {
-      if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-      throw new Error("Could not acquire the Invocation execution claim.")
+      if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+      throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     replayJournal = journal
     replayReserved = true
@@ -1239,9 +1267,12 @@ async function runAgentAsWorkflow<
       console.error(new AggregateError([error, journalError], "[vitehub] Agent Workflow preparation and invocation journaling failed."))
     }
   }
-  let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
+  let workflowRuntimeState: Awaited<ReturnType<typeof loadInstalledAgentWorkflowRuntimeStateModule>>
   try {
-    workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+    // A discovered Agent uses Workflow only when the app installs it. agentWorkflow() requires it.
+    workflowRuntimeState = "discoveryDefault" in binding
+      ? await loadInstalledAgentWorkflowRuntimeStateModule()
+      : await loadAgentWorkflowRuntimeStateModule()
   }
   catch (error) {
     await ensureActivity()
@@ -1249,15 +1280,16 @@ async function runAgentAsWorkflow<
     await recordPreparationFailure(error)
     throw error
   }
+  if (!workflowRuntimeState) return undefined
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {
     if (input.context?.[requireAgentWorkflowContextKey] !== true || !cloudflareEnv) return undefined
-    workflowConfig = { provider: "cloudflare" }
+    workflowConfig = { driver: "cloudflare" }
     activateCloudflareWorkflow = true
   }
   if ("discoveryDefault" in binding && workflowConfig === false) return undefined
-  if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare") {
+  if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.driver === "cloudflare") {
     if (!cloudflareEnv) return undefined
     if (!exclusive) await activity?.update("queued")
     try {
@@ -1284,7 +1316,7 @@ async function runAgentAsWorkflow<
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
   await ensureActivity()
-  if (exclusive || !(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare")) {
+  if (exclusive || !(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.driver === "cloudflare")) {
     await activity?.update("queued")
   }
   let workflowName: string
@@ -1295,7 +1327,7 @@ async function runAgentAsWorkflow<
   try {
     workflowName = resolveAgentWorkflowName(agent, binding, context)
     handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, hostDiscovered(context))
-    // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
+    // AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
       ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
       : input
@@ -1310,7 +1342,7 @@ async function runAgentAsWorkflow<
         parsedInputData = false
       }
     }
-    workflowInput = await portableAgentWorkflowInput(parsedInput)
+    workflowInput = await portableAgentWorkflowInput(parsedInput, context.run?.messageId)
   }
   catch (error) {
     await recordPreparationFailure(error)
@@ -1374,9 +1406,9 @@ async function runAgentAsWorkflow<
     ? `${context.run.runId}:${channelDeliveryBinding.steer.claimId}${options.fresh ? `:${crypto.randomUUID()}` : ""}`
     : context.run?.runId
   const workflowRunId = context.run?.runId && (!options.fresh || durableChannelDelivery)
-    ? exclusive && (workflowConfig && workflowConfig.provider) === "vercel"
+    ? exclusive && (workflowConfig && workflowConfig.driver) === "vercel"
       ? undefined
-      : workflowConfig && workflowConfig.provider === "cloudflare"
+      : workflowConfig && workflowConfig.driver === "cloudflare"
       ? await portableAgentWorkflowRunId(workflowProviderRunId ?? context.run.runId)
       : workflowProviderRunId ?? context.run.runId
     : undefined
@@ -1390,7 +1422,7 @@ async function runAgentAsWorkflow<
         hostDiscovered(context),
         true,
       )
-      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
+      await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => startAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agentInvocationName(agent, context) ? { agentName: agentInvocationName(agent, context) } : {}),
           runId,
@@ -1398,7 +1430,7 @@ async function runAgentAsWorkflow<
           workflowName,
         },
         ...(context.trace ? { trace: context.trace } : {}),
-      }, (workflowConfig && workflowConfig.provider) === "vercel" ? {} : { id: recoveryId }))
+      }, (workflowConfig && workflowConfig.driver) === "vercel" ? {} : { id: recoveryId }))
       return true
     }
     catch {
@@ -1413,11 +1445,11 @@ async function runAgentAsWorkflow<
     try {
       await replayJournal.watchCancellation(invocationCancellationDriver(agent))
       replayJournal.abortSignal.throwIfAborted()
-      if (!await replayJournal.prepareWorkflowDispatch({ name: workflowName, provider: (workflowConfig && workflowConfig.provider) || "unknown" })) {
-        throw new Error("Could not persist the Workflow dispatch intent.")
+      if (!await replayJournal.prepareWorkflowDispatch({ name: workflowName, provider: (workflowConfig && workflowConfig.driver) || "unknown" })) {
+        throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Workflow dispatch intent" })
       }
       payload.invocationClaimToken = await replayJournal.handoffClaim({ workflowDispatch: true })
-      if (!payload.invocationClaimToken) throw new Error("Could not transfer the Invocation execution claim.")
+      if (!payload.invocationClaimToken) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "transfer the Invocation execution claim" })
     }
     catch (error) {
       await recordPreparationFailure(error)
@@ -1428,29 +1460,31 @@ async function runAgentAsWorkflow<
     // Storage handoff can yield after cancellation was requested. Check the
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    const [error, started] = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
-    )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+    ))
+    if (error) throw error
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    run = started as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   }
   catch (error) {
     const status = invocationFailureWasCancelled(error, input.abortSignal) || invocationFailureWasCancelled(error, replayJournal?.abortSignal) ? "cancelled" : "failed"
     await activity?.update(status, error)
-    const ambiguous = Boolean(replayJournal && (workflowConfig && workflowConfig.provider) === "vercel" && inputHandedOff)
+    const ambiguous = Boolean(replayJournal && (workflowConfig && workflowConfig.driver) === "vercel" && inputHandedOff)
       || isAmbiguousAgentWorkflowStartFailure(error)
     const failedRunId = !options.fresh && context.run?.runId
       ? context.run.runId
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const recoveryAccepted = !ambiguous
-        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || !(workflowConfig && workflowConfig.driver === "cloudflare" && workflowRunId)
         || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
       if (recoveryAccepted) {
         const invocationJournal = await bindAgentInvocations(agent.invocations, {
           ...context,
           run: { ...context.run, runId: failedRunId },
-        }, { agentName: agentInvocationName(agent, context), deferClaim: ambiguous, terminalTakeover: true })
+        }, { agentName: agentInvocationName(agent, context), deferClaim: ambiguous, executionMode: "workflow", terminalTakeover: true })
         if (!ambiguous) await invocationJournal?.finish(status, error)
       }
     }
@@ -1464,13 +1498,13 @@ async function runAgentAsWorkflow<
       ? await agent.invocations.getByRunId(context.run.runId, agentInvocationName(agent, context))
       : undefined
     if (record?.annotations?.[pendingAgentInvocationAnnotation] !== false) {
-      throw new Error("Could not confirm the Workflow Invocation dispatch.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the Workflow Invocation dispatch" })
     }
   }
   if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
     await activity?.update(
       run.status,
-      run.status === "failed" ? run.metadata : undefined,
+      run.status === "failed" ? run.error : undefined,
       run.status === "completed" ? finalTextFromAgentOutput(run.result) : undefined,
     )
   }
@@ -1493,7 +1527,7 @@ async function runAgentAsWorkflow<
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id },
-    }, { agentName: agentInvocationName(agent, context), deferClaim: true, terminalTakeover: true })
+    }, { agentName: agentInvocationName(agent, context), deferClaim: true, executionMode: "workflow", terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
@@ -1505,7 +1539,7 @@ async function runAgentAsWorkflow<
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
   module: AgentRegistryModule<TContext>,
 ): AgentInput<TContext> | undefined {
-  return hasRuntimeType(module, "object") && module !== null && "default" in module
+  return typeof module === "object" && module !== null && "default" in module
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? module.default as AgentInput<TContext> | undefined
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -1549,7 +1583,7 @@ function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig
   }
   const handlers = channel[channelDeliveryHandlers]?.[intent.kind]
   if (!handlers) return []
-  return hasRuntimeType(handlers, "function") ? [handlers] : [...handlers]
+  return typeof handlers === "function" ? [handlers] : [...handlers]
 }
 
 /** Read the trigger's message data and validate it with the Channel's `message.data` schema. */
@@ -1573,13 +1607,13 @@ function channelMessageMethodHandler<TRuntimeConfig extends AgentRuntimeConfig>(
   method: AgentChannelMessageMethod<TRuntimeConfig>,
 ): (context: AgentChannelMessageContext<TRuntimeConfig>, ...args: unknown[]) => unknown {
   // SAFETY: Message method arguments come from the typed handle or from a delivery intent for the same method name.
-  return (hasRuntimeType(method, "function") ? method : method.handler) as (context: AgentChannelMessageContext<TRuntimeConfig>, ...args: unknown[]) => unknown
+  return (typeof method === "function" ? method : method.handler) as (context: AgentChannelMessageContext<TRuntimeConfig>, ...args: unknown[]) => unknown
 }
 
 /** Restore reply artifacts that intent creation moved out of the reply input. */
 function channelMessageIntentInput(intent: AgentChannelDeliveryEffectIntent): unknown {
   if (intent.kind !== "reply" || !intent.artifacts?.length || isAsyncIterable(intent.payload)) return intent.payload
-  if (hasRuntimeType(intent.payload, "string")) return { artifacts: intent.artifacts, markdown: intent.payload }
+  if (typeof intent.payload === "string") return { artifacts: intent.artifacts, markdown: intent.payload }
   const input = isRuntimeRecord(intent.payload) ? { ...intent.payload } : {}
   input.artifacts = intent.artifacts
   return input
@@ -1618,9 +1652,9 @@ function agentActivityTasks(value: unknown): AgentActivityTask[] | undefined {
   if (!isRuntimeRecord(value) || !Array.isArray(value.plan)) return
   return value.plan.flatMap((item) => {
     if (!isRuntimeRecord(item)) return []
-    const title = [item.step, item.title, item.description].find(value => hasRuntimeType(value, "string") && value.trim())
-    if (!hasRuntimeType(title, "string")) return []
-    const rawStatus = hasRuntimeType(item.status, "string") ? item.status.replaceAll(/[^a-z]/gi, "").toLowerCase() : "pending"
+    const title = [item.step, item.title, item.description].find(value => typeof value === "string" && value.trim())
+    if (typeof title !== "string") return []
+    const rawStatus = typeof item.status === "string" ? item.status.replaceAll(/[^a-z]/gi, "").toLowerCase() : "pending"
     const status = rawStatus === "completed" || rawStatus === "complete" || rawStatus === "done"
       ? "completed"
       : rawStatus === "inprogress" || rawStatus === "running" || rawStatus === "active"
@@ -1709,7 +1743,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish("waiting")
       }
       else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested") {
-        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
+        const requestId = typeof event.data.requestId === "string" ? event.data.requestId : undefined
         if (requestId) pendingInputRequests.add(`input:${requestId}`)
         await publish("waiting")
       }
@@ -1718,7 +1752,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish(pendingInputRequests.size ? "waiting" : "running")
       }
       else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved") {
-        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
+        const requestId = typeof event.data.requestId === "string" ? event.data.requestId : undefined
         if (requestId) pendingInputRequests.delete(`input:${requestId}`)
         await publish(pendingInputRequests.size ? "waiting" : "running")
       }
@@ -1983,7 +2017,7 @@ async function dryRunDeliveryIntent(intent: AgentChannelDeliveryEffectIntent): P
   if (!isAsyncIterable(intent.payload)) return intent
   let text = ""
   for await (const chunk of intent.payload) {
-    if (hasRuntimeType(chunk, "string") && text.length < 16 * 1024) text += chunk.slice(0, 16 * 1024 - text.length)
+    if (typeof chunk === "string" && text.length < 16 * 1024) text += chunk.slice(0, 16 * 1024 - text.length)
   }
   return { ...intent, payload: text }
 }
@@ -2036,7 +2070,7 @@ async function callChannelMessageMethod<
   data: unknown,
   args: unknown[],
 ): Promise<unknown> {
-  const read = !hasRuntimeType(method, "function")
+  const read = typeof method !== "function"
   const traceIntent: AgentChannelDeliveryEffectIntent = { kind: name }
   const metadata = {
     "channel.effect.content": channelMessageCallContent(name, args),
@@ -2090,20 +2124,15 @@ async function callChannelMessageMethod<
   }
 }
 
-export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
-export { activeProviderSandbox, agentSettings, withoutForgeAccess } from "./composition.ts"
+export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
 export type { ProviderSandboxSession } from "./composition.ts"
-export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
-export * from "./messages.ts"
-export {
-  agentInvocationStreamRoute,
-  createAgentInvocationStreamResponse,
-  readAgentInvocationStream,
-} from "./invocation-stream.ts"
+export { createMessage, deserializeMessages, getMessageText, isAttachmentPart, resolveAttachmentData, serializeMessages } from "./messages.ts"
+export type * from "./messages.ts"
+export { createAgentInvocationStreamResponse, readAgentInvocationStream } from "./invocation-stream.ts"
 export type { AgentInvocationStreamErrorEvent, AgentInvocationStreamEvent } from "./invocation-stream.ts"
 export type { AgentErrorCode } from "./run-errors.ts"
 export type { AgentDevLoopAgentSummary, AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
@@ -2124,17 +2153,29 @@ function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli">
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
-  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+  inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
-  if (!inputs) return inputs
+  if (!inputs) return undefined
+  if (Array.isArray(inputs)) {
+    return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
+      const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
+      if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] server/channels/${name} must default-export defineChannel() from vite-hub/channels.` })
+      }
+      if (capabilitiesContributeWorkspace(channel.capabilities)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] The Channel "${name}" adds an Agent Workspace, which ViteHub must see in the Agent file. List it inline: channels: { ${name}: channel }.` })
+      }
+      return channel
+    })
+  }
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
-    const channel: unknown = hasRuntimeType(input, "function") ? input() : normalizeAgentChannelInput<TRuntimeConfig>(input)
+    const channel: unknown = typeof input === "function" ? input() : normalizeAgentChannelInput<TRuntimeConfig>(input)
     if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
-      throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
+      throw agentDiagnostics.AGENT_R0425({ message: typeof input === "function"
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
+        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/channels/adapters, such as webChat() or telegram({ ... }).` })
     }
     // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
@@ -2145,7 +2186,7 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 function isAgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig>(value: unknown): value is AgentChannelDefinition<TRuntimeConfig> {
-  return isRuntimeRecord(value) && hasRuntimeType(value.kind, "string")
+  return isRuntimeRecord(value) && typeof value.kind === "string"
 }
 
 function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
@@ -2185,7 +2226,7 @@ function validateAgentSandbox(
   options: { hasWorkspace: boolean },
 ) {
   if (isChatGPTGateway(driver.gateway)) throw agentDiagnostics.AGENT_R1015()
-  if (!hasRuntimeType(sandbox, "object") || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
+  if (typeof sandbox !== "object" || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
     throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ sandbox }) requires a Sandbox definition with a runtime." })
   }
   if (driver.kind !== "provider") {
@@ -2213,16 +2254,18 @@ function validateAgentSandbox(
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TOutput = unknown,
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runEvents, uiMessageStream, version, workspace } = options
+  if (driver.kind === "external" && options.runtime) throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUNTIME()
+  const runtime = options.runtime ?? (driver.kind === "external" ? false : defaultAgentWorkflowRuntime())
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
-  const capabilitiesResolver = hasRuntimeType(capabilities, "function")
+  const capabilitiesResolver = typeof capabilities === "function"
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
     : undefined
@@ -2287,16 +2330,20 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
-            retention: driver.retention,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
-          })))
+            workspaceWrite: driver.workspaceWrite,
+          })).catch((error: unknown) => {
+            // A failed load lets the next Invocation try again.
+            providerAdapter = undefined
+            throw error
+          }))
         : undefined
     if (!resolvedAdapter) {
       throw agentDiagnostics.AGENT_R0427({ message: "[vitehub] Agent Driver is required unless the agent uses driver.run." })
     }
     const resolvedContext = createResolvedRuntimeContext(context)
-    return isCallableMember(resolvedAdapter)
+    return typeof resolvedAdapter === "function"
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
       : resolvedAdapter
@@ -2375,7 +2422,8 @@ function defineBaseAgent<
   return definition
 }
 
-export function workflow(name?: string): AgentWorkflowRuntimeBinding {
+/** Run the Agent as a durable Workflow, optionally with a named Workflow definition. */
+export function agentWorkflow(name?: string): AgentWorkflowRuntimeBinding {
   return {
     kind: "workflow",
     ...(name ? { name } : {}),
@@ -2420,11 +2468,11 @@ function createSyntheticWorkspaceRun<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const textOutput = hasRuntimeType(result, "object") && result && "text" in result && hasRuntimeType((result as { text?: unknown }).text, "string")
+      const textOutput = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? (result as { text: string }).text
         : undefined
-      if (textOutput !== undefined && result && hasRuntimeType(result, "object")) {
+      if (textOutput !== undefined && result && typeof result === "object") {
         const eagerStreams: AsyncIterable<unknown>[] = []
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         for (const property of ["stream", "fullStream", "textStream"] as const) {
@@ -2454,11 +2502,11 @@ function createSyntheticWorkspaceRun<
         budgetDeferred = true
         release = undefined
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
+        return typeof (output as ReadableStream<unknown>).getReader === "function"
           ? toReadableAsyncIterableStream(streamed)
           : streamed
       }
-      if (output && hasRuntimeType(output, "object")) {
+      if (output && typeof output === "object") {
         const capacityRelease = release
         const sources = new Set<ReturnType<typeof cancellableAsyncIterableSource>>()
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
@@ -2483,7 +2531,7 @@ function createSyntheticWorkspaceRun<
             cancelOnAbort: source.cancel,
           })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          const preserved = hasRuntimeType((stream as ReadableStream<unknown>).getReader, "function")
+          const preserved = typeof (stream as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(wrapped)
             : wrapped
           preservedStreams.set(stream, preserved)
@@ -2603,13 +2651,7 @@ type AgentCapabilitiesOption<
 >
 
 type ValidateStaticAgentCapability<TCapability> =
-  TCapability extends AgentCapabilityDefinition
-    ? TCapability
-    : Extract<keyof TCapability, symbol> extends never
-      ? never
-      : TCapability[Extract<keyof TCapability, symbol>] extends true
-        ? TCapability
-        : never
+  TCapability extends AgentCapabilityDefinition ? TCapability : never
 
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]
@@ -2621,9 +2663,13 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
     : TCapabilities
 
 // Only the provider Driver factories reference the provider runtime, so apps that never call one do not bundle it.
-// One promise for every load, so an Invocation and its concurrent title run share one module instance.
+// One promise for every load, so an Invocation and its concurrent title run share one module instance. A failed load
+// lets the next Invocation try again.
 let providerAgentRuntimeModule: ReturnType<ProviderAgentRuntimeLoader> | undefined
-const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent")
+const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent").catch((error: unknown) => {
+  providerAgentRuntimeModule = undefined
+  throw error
+})
 
 /** Run the Agent with Codex. Codex starts as a local process, so the Agent needs a Node.js host. */
 export function codexDriver<TOutput = unknown>(
@@ -2642,11 +2688,11 @@ export function claudeCodeDriver<TOutput = unknown>(
 type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
   ? NonNullable<TOptions["invoker"]> extends AgentInvokerOptions<any, any, infer TProfile, any>
     ? TProfile
-    : AgentInvokerProfile
-  : AgentInvokerProfile
+    : AgentInvoker
+  : AgentInvoker
 
 type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
-type AgentDefinitionConstraint = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, unknown, unknown, unknown, unknown, unknown>
+type AgentDefinitionConstraint = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, unknown, unknown, unknown, unknown, unknown>
 
 type ConfiguredOptionsRecord<TOptions> = [Extract<TOptions, readonly unknown[] | ((...args: never[]) => unknown)
   | Promise<unknown> | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams | Headers | FormData | Blob | Request | Response | EventTarget
@@ -2659,13 +2705,9 @@ type ConfiguredPresetSelection<TDefinition, TParent> =
   | ({ extends: TParent | readonly [TParent, AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TDefinition>>>], options?: never } & AgentPresetConfig<NoInfer<TDefinition>>)
   | ({ extends: TParent, options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TDefinition>>> } & { [K in keyof AgentPresetConfig<NoInfer<TDefinition>>]?: never })
 
-type ConfiguredNamedPresetSelection<TDefinition> =
-  | ({ options?: never } & AgentPresetConfig<NoInfer<TDefinition>>)
-  | ({ options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TDefinition>>> } & { [K in keyof AgentPresetConfig<NoInfer<TDefinition>>]?: never })
-
 // Infer Workspace values and all spread keys separately so union members cannot hide unsupported settings.
 type ConfiguredAgentWorkspaceOptions<TOptions, TDefinition, TKeys extends PropertyKey> = TOptions & Partial<Record<TKeys, unknown>> & Record<
-  Exclude<TKeys, keyof ConfiguredAgentSettings<TDefinition> | (TDefinition extends { configKey: infer TKey extends string } ? TKey : never) | "preset" | "presets" | "extends" | "options">, never>
+  Exclude<TKeys, keyof ConfiguredAgentSettings<TDefinition> | (TDefinition extends { configKey: infer TKey extends string } ? TKey : never) | "extends" | "options">, never>
 
 type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput, infer TDataInput, unknown, unknown, unknown>
   ? AgentSettings<TRuntimeConfig, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput, AgentDriver<TRuntimeConfig, TCallOptions, TContext, TOutput>, TDefinition extends AgentDataOutputCarrier<infer TData> ? TData : unknown, never, TDataInput>
@@ -2701,6 +2743,8 @@ type LayerOutputFor<TDefinition, TIntercept, TDriver = never> = LayerOutput<TDef
 
 type LayerDefinition<TDefinition, TDataInput, TData, TIntercept, TReplace extends boolean, TDriver = never> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer _TOutput, infer _TDataInput, infer _TDriverOutput, unknown, unknown>
   ? Omit<TDefinition, keyof AgentDefinition> & AgentDefinition<TRuntimeConfig, TCallOptions, TInvoker, TContext, LayerOutput<TDefinition, TIntercept, TReplace, TDriver>, TDataInput, [TDriver] extends [never] ? _TDriverOutput : LayerDriverOutput<TDefinition, TDriver>, TData, LayerInterceptOutput<TDefinition, TIntercept, TReplace>>
+    // The layer replaces `channels` with the generic type, so keep the parent's declared Channels in the state.
+    & (TDefinition extends { [configuredAgentWorkspace]: unknown } ? {} : { [configuredAgentWorkspace]: ConfiguredWorkspaceState<TDefinition> })
   : never
 
 type ConfiguredLayerSettings<TDefinition, TSchema, TIntercept, TDriver> = ConfiguredAgentSettings<LayerDefinition<TDefinition, LayerDataInput<TDefinition, TSchema>, LayerData<TDefinition, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>
@@ -2728,7 +2772,57 @@ declare const configuredAgentWorkspace: unique symbol
 
 type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAgentWorkspace]: infer TState }
   ? TState
-  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: undefined, channels: {} }
+  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: undefined, channels: TDefinition extends { readonly channels: infer TChannels } ? TChannels : undefined }
+
+// Drop the index signature of AgentChannels, so only Channels with a declared name remain.
+type DeclaredChannelInputs<TChannels> = { [K in keyof TChannels as K extends string ? string extends K ? never : K : never]: TChannels[K] }
+
+// defineAgent() calls Channel factories and normalizes `defineChannel()` values to Agent Channel definitions.
+type DeclaredAgentChannel<TInput> = [TInput] extends [never]
+  ? AgentChannelDefinition
+  : TInput extends (...args: never[]) => infer TChannel
+    ? TChannel
+    : TInput extends { kind: string } | undefined ? TInput : AgentChannelDefinition
+
+type KnownChannelKeys<TChannels> = TChannels extends object ? keyof DeclaredChannelInputs<TChannels> : never
+
+type RequiredChannelKeys<TChannels, TKey = KnownChannelKeys<TChannels>> = TKey extends PropertyKey
+  ? [TChannels] extends [Record<TKey, unknown>] ? TKey : never
+  : never
+
+type RequiredNamedChannelKeys<TNames extends readonly string[], TName = TNames[number]> = number extends TNames["length"] ? never : TName extends string
+  ? {} extends Record<TName, unknown> ? never
+    : true extends { [TIndex in keyof TNames]-?: [TNames[TIndex]] extends [TName] ? true : false }[number] ? TName : never
+  : never
+
+type ChannelInputMap<TChannels> = TChannels extends readonly string[]
+  ? Record<RequiredNamedChannelKeys<TChannels>, AgentChannelDefinition> & Partial<Record<TChannels[number], AgentChannelDefinition>>
+  : TChannels
+
+type ChannelInputAt<TChannels, TKey> = TChannels extends object ? TKey extends keyof TChannels ? TChannels[TKey] : never : never
+
+type MergedChannelInput<TParent, TChild, TKey> = TKey extends RequiredChannelKeys<TChild>
+  ? ChannelInputAt<TChild, TKey>
+  : ChannelInputAt<TParent, TKey> | ChannelInputAt<TChild, TKey>
+
+type MergeChannelInputMaps<TParent, TChild, TKeys = KnownChannelKeys<TParent | TChild>, TRequired = RequiredChannelKeys<TParent> | RequiredChannelKeys<TChild>, TIndex = ChannelInputAt<TParent | TChild, string>> = {
+  [TKey in Extract<TKeys, TRequired & PropertyKey>]: Exclude<MergedChannelInput<TParent, TChild, TKey>, undefined>
+} & {
+  [TKey in Exclude<Extract<TKeys, PropertyKey>, TRequired>]?: MergedChannelInput<TParent, TChild, TKey>
+} & ([TIndex] extends [never] ? unknown : Partial<Record<string, TIndex>>)
+
+type MergeConfiguredChannels<TParent, TChild, TChildMap = ChannelInputMap<TChild>> = [TChildMap] extends [undefined]
+  ? TParent
+  : ([TParent] extends [undefined] ? MergeChannelInputMaps<undefined, NonNullable<TChildMap>> : MergeChannelInputMaps<TParent, TChildMap>)
+    | (undefined extends TParent & TChildMap ? undefined : never)
+
+type ChannelOptionsInput<TOptions, TChannels> = "channels" extends keyof TOptions ? TOptions["channels"] : TChannels
+
+type WithDeclaredAgentChannels<TDefinition, TChannels, TDeclared = DeclaredChannelInputs<NonNullable<TChannels>>> = [keyof TDeclared] extends [never]
+  ? TDefinition
+  : Omit<TDefinition, "channels"> & {
+      readonly channels: { readonly [TKey in keyof TDeclared]: DeclaredAgentChannel<TDeclared[TKey]> } | (undefined extends TChannels ? undefined : never)
+    }
 
 type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
 
@@ -2761,18 +2855,18 @@ type MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChan
     ? {
         workspace: TWorkspace extends WorkspaceAgentWorkspaceConfig ? true : TExplicit
         capabilities: MergeConfiguredCapabilities<TParentCapabilities, TCapabilities>
-        channels: TChannels extends object ? Omit<TParentChannels, keyof TChannels> & TChannels : TParentChannels
+        channels: MergeConfiguredChannels<TParentChannels, TChannels>
       }
     : never
 
 type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels,
   TState = MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels>> =
   TState extends { workspace: infer TExplicit, capabilities: infer TMergedCapabilities, channels: infer TMergedChannels }
-    ? ([TExplicit] extends [true]
+    ? WithDeclaredAgentChannels<[TExplicit] extends [true]
         ? ConfiguredWorkspaceDefinition<Omit<TDefinition, typeof configuredAgentWorkspace>, TCapabilities>
-        : true extends ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<TMergedChannels>
+        : true extends ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<DeclaredChannelInputs<TMergedChannels>>
           ? ConfiguredWorkspaceDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
-          : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
+          : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>, TMergedChannels>
       & { [configuredAgentWorkspace]: TState }
     : never
 
@@ -2793,152 +2887,12 @@ type ConfiguredWorkspaceDefinition<TDefinition, TCapabilities = ConfiguredAgentS
   : never
 
 export interface DefineAgent {
-  <
-    const TPreset extends string,
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    TContextValues extends object = AgentInvocationContextValues,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-    TParent extends WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, any, TOutput, unknown, unknown, unknown, unknown> = WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, any, TOutput, unknown, unknown, unknown, unknown>,
-    const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
-    TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
-    TIntercept = never,
-    const TDriver extends Partial<AgentDriver> = {},
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutputFor<TParent, TIntercept, TDriver>, AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerOutputFor<TParent, TIntercept, TDriver>>, LayerData<TParent, TSchema>, TIntercept, LayerDataInput<TParent, TSchema>>>, "driver" | "workspace" | "data" | "intercept" | "channels" | "hooks"> & {
-      preset: TPreset
-      presets: Record<NoInfer<TPreset>, TParent & { options?: never }> & Record<string, unknown>
-      extends?: never
-      driver?: TDriver & Partial<AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
-      channels?: TChannels
-      hooks?: ConfiguredAgentHooks<NoInfer<TParent>, TChannels, LayerData<TParent, TSchema>, LayerOutputFor<TParent, TIntercept, TDriver>>
-      data?: TSchema
-      intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerData<TParent, TSchema>, TIntercept>
-      workspace?: WorkspaceAgentWorkspaceConfig
-    },
-  ): ConfiguredAgentWorkspace<WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutput<TParent, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, LayerDriverOutput<TParent, TDriver>, LayerInterceptOutput<TParent, TIntercept, [TIntercept] extends [never] ? false : true>> & LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, TWorkspace, undefined, TChannels>
-
-  <
-    const TPreset extends string,
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    TContextValues extends object = AgentInvocationContextValues,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-    TParent extends AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown>,
-    const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
-    TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
-    TIntercept = never,
-    const TDriver extends Partial<AgentDriver> = {},
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutputFor<TParent, TIntercept, TDriver>, AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerOutputFor<TParent, TIntercept, TDriver>>, LayerData<TParent, TSchema>, TIntercept, LayerDataInput<TParent, TSchema>>>, "driver" | "workspace" | "data" | "intercept" | "channels" | "hooks"> & {
-      preset: TPreset
-      presets: Record<NoInfer<TPreset>, TParent & { options?: never }> & Record<string, unknown>
-      extends?: never
-      driver?: TDriver & Partial<AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
-      channels?: TChannels
-      hooks?: ConfiguredAgentHooks<NoInfer<TParent>, TChannels, LayerData<TParent, TSchema>, LayerOutputFor<TParent, TIntercept, TDriver>>
-      data?: TSchema
-      intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerData<TParent, TSchema>, TIntercept>
-      workspace: WorkspaceAgentWorkspaceConfig
-    },
-  ): ConfiguredAgentWorkspace<ConfiguredWorkspaceDefinition<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>, TWorkspace, undefined, TChannels>
-
-  <
-    const TPreset extends string,
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    TContextValues extends object = AgentInvocationContextValues,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-    const TPresets extends Record<string, AgentDefinitionConstraint> = Record<string, AgentDefinitionConstraint>,
-    const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
-    TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
-    TIntercept = never,
-    const TDriver extends Partial<AgentDriver> = {},
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutputFor<TPresets[TPreset], TIntercept, TDriver>, AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerOutputFor<TPresets[TPreset], TIntercept, TDriver>>, LayerData<TPresets[TPreset], TSchema>, TIntercept, LayerDataInput<TPresets[TPreset], TSchema>>>, "driver" | "workspace" | "data" | "intercept" | "channels" | "hooks"> & {
-      preset: TPreset
-      presets: TPresets & Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown> & { options?: never }>
-      extends?: never
-      driver?: TDriver & Partial<AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
-      channels?: TChannels
-      hooks?: ConfiguredAgentHooks<NoInfer<TPresets[TPreset]>, TChannels, LayerData<TPresets[TPreset], TSchema>, LayerOutputFor<TPresets[TPreset], TIntercept, TDriver>>
-      data?: TSchema
-      intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerData<TPresets[TPreset], TSchema>, TIntercept>
-      workspace?: TWorkspace
-    },
-  ): ConfiguredAgentWorkspace<TWorkspace extends WorkspaceAgentWorkspaceConfig
-    ? ConfiguredWorkspaceDefinition<LayerDefinition<TPresets[TPreset], LayerDataInput<TPresets[TPreset], TSchema>, LayerData<TPresets[TPreset], TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>
-    : LayerDefinition<TPresets[TPreset], LayerDataInput<TPresets[TPreset], TSchema>, LayerData<TPresets[TPreset], TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, TWorkspace, undefined, TChannels>
-
-  <
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    const TPreset extends string = string,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
-    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
-      preset: TPreset
-      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, TOutput, unknown, unknown> & { __vitehubWorkspaceAgent: true, options?: never }> & Record<string, unknown>
-      extends?: never
-      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
-      workspace?: WorkspaceAgentWorkspaceConfig
-    } & ValidateWorkspaceAgentOptions<{ workspace?: WorkspaceAgentWorkspaceConfig, capabilities?: TCapabilities }>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
-
-  <
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    const TPreset extends string = string,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
-    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
-      preset: TPreset
-      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown> & { options?: never }> & Record<string, unknown>
-      extends?: never
-      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
-      workspace: WorkspaceAgentWorkspaceConfig
-    } & ValidateWorkspaceAgentOptions<{ workspace: WorkspaceAgentWorkspaceConfig, capabilities?: TCapabilities }>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
-
-  <
-    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    const TPreset extends string = string,
-    CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
-    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    TOutput = unknown,
-  >(
-    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
-      preset: TPreset
-      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown> & { options?: never }> & Record<string, unknown>
-      extends?: never
-      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
-      workspace?: TWorkspace
-    } & ValidateWorkspaceAgentOptions<{ workspace?: TWorkspace, capabilities?: TCapabilities }>,
-  ): TWorkspace extends WorkspaceAgentWorkspaceConfig
-    ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
-    : AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
+  (options: ExternalAgentOptions): AgentDefinition
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     TContextValues extends object = AgentInvocationContextValues,
     TOutput = unknown,
     TParent extends WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, any, TOutput, unknown, unknown, unknown, unknown> = WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, any, TOutput, unknown, unknown, unknown, unknown>,
@@ -2946,6 +2900,7 @@ export interface DefineAgent {
     TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
     TIntercept = never,
     const TDriver extends Partial<AgentDriver> = {},
+    const TChannelOptions extends { channels?: unknown } = {},
   >(
     options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutputFor<TParent, TIntercept, TDriver>, AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerOutputFor<TParent, TIntercept, TDriver>>, LayerData<TParent, TSchema>, TIntercept, LayerDataInput<TParent, TSchema>>>, "driver" | "workspace" | "data" | "intercept" | "channels" | "hooks"> & {
       extends: TParent & { options?: never }
@@ -2955,13 +2910,13 @@ export interface DefineAgent {
       data?: TSchema
       intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerData<TParent, TSchema>, TIntercept>
       workspace?: WorkspaceAgentWorkspaceConfig
-    },
-  ): ConfiguredAgentWorkspace<ConfiguredWorkspaceDefinition<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>, undefined, undefined, TChannels>
+    } & TChannelOptions,
+  ): ConfiguredAgentWorkspace<ConfiguredWorkspaceDefinition<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>, undefined, undefined, ChannelOptionsInput<TChannelOptions, TChannels>>
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     TContextValues extends object = AgentInvocationContextValues,
     TOutput = unknown,
     TParent extends AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, unknown, unknown, unknown, unknown>,
@@ -2969,6 +2924,7 @@ export interface DefineAgent {
     TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
     TIntercept = never,
     const TDriver extends Partial<AgentDriver> = {},
+    const TChannelOptions extends { channels?: unknown } = {},
   >(
     options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, LayerOutputFor<TParent, TIntercept, TDriver>, AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerOutputFor<TParent, TIntercept, TDriver>>, LayerData<TParent, TSchema>, TIntercept, LayerDataInput<TParent, TSchema>>>, "driver" | "workspace" | "data" | "intercept" | "channels" | "hooks"> & {
       extends: TParent & { options?: never }
@@ -2978,42 +2934,18 @@ export interface DefineAgent {
       data?: TSchema
       intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, LayerData<TParent, TSchema>, TIntercept>
       workspace?: WorkspaceAgentWorkspaceConfig
-    },
-  ): ConfiguredAgentWorkspace<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, undefined, undefined, TChannels>
+    } & TChannelOptions,
+  ): ConfiguredAgentWorkspace<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, undefined, undefined, ChannelOptionsInput<TChannelOptions, TChannels>>
 
   <TOptions extends object, TDefinition extends AgentDefinitionConstraint, const TConfigKey extends string = never>(options: {
-    configKey?: TConfigKey & (TConfigKey extends keyof AgentSettings | "preset" | "presets" | "extends" | "options" | "configure" | "configKey" | "resolve" | "run" | "constructor" | "prototype" ? never : unknown)
+    configKey?: TConfigKey & (TConfigKey extends keyof AgentSettings | "extends" | "preset" | "presets" | "options" | "configure" | "configKey" | "resolve" | "run" | "constructor" | "prototype" ? never : unknown)
     options: TOptions & ConfiguredOptionsRecord<TOptions>
     configure: (options: TOptions) => TDefinition
   }): ConfiguredAgentDefinition<TOptions, TDefinition, TConfigKey>
 
   <
-    TPresets extends Record<string, AgentDefinitionConstraint>,
-    const TPreset extends keyof TPresets & string,
-    const TWorkspace extends { workspace?: WorkspaceAgentWorkspaceConfig } = {},
-    const TKeys extends PropertyKey = never,
-    const TCapabilities extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinitionConstraint>>>>["capabilities"] = undefined,
-    const TChannels extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinitionConstraint>>>>["channels"] = undefined,
-    TSchema extends StandardSchemaV1<any, any> | undefined = undefined,
-    TIntercept = never,
-    const TDriver extends Partial<AgentDriver> = {},
-  >(options:
-    Omit<Partial<ConfiguredLayerSettings<NoInfer<TPresets[TPreset]>, TSchema, TIntercept, TDriver>>, "driver" | "workspace" | "capabilities" | "channels" | "data" | "intercept" | "hooks"> & {
-      preset: TPreset
-      presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<any, AgentDefinitionConstraint>>
-      extends?: never
-      driver?: TDriver & Partial<AgentDriver>
-      hooks?: ConfiguredAgentHooks<NoInfer<TPresets[TPreset]>, TChannels, LayerData<TPresets[TPreset], TSchema>, LayerOutputFor<TPresets[TPreset], TIntercept, TDriver>>
-      data?: TSchema
-      intercept?: AgentInterceptHandler<AgentRuntimeConfig, unknown, AgentInvocationContextValues, LayerData<NoInfer<TPresets[TPreset]>, TSchema>, TIntercept>
-      capabilities?: TCapabilities
-      channels?: TChannels
-    } & ConfiguredNamedPresetSelection<TPresets[TPreset]> & ConfiguredAgentWorkspaceOptions<TWorkspace, TPresets[TPreset], TKeys>
-  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinitionConstraint>>>, ConfiguredAgentWorkspace<LayerDefinition<TPresets[TPreset], LayerDataInput<TPresets[TPreset], TSchema>, LayerData<TPresets[TPreset], TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, TWorkspace["workspace"], TCapabilities, TChannels>>
-
-  <
     TDefinition extends ConfiguredAgentDefinition<object, AgentDefinitionLike>,
-    const TWorkspace extends { workspace?: WorkspaceAgentWorkspaceConfig } = {},
+    const TWorkspace extends { workspace?: WorkspaceAgentWorkspaceConfig, channels?: unknown } = {},
     const TKeys extends PropertyKey = never,
     const TCapabilities extends ConfiguredAgentSettings<NoInfer<TDefinition>>["capabilities"] = undefined,
     const TChannels extends ConfiguredAgentSettings<NoInfer<TDefinition>>["channels"] = undefined,
@@ -3029,13 +2961,13 @@ export interface DefineAgent {
       capabilities?: TCapabilities
       channels?: TChannels
     } & ConfiguredPresetSelection<TDefinition, TDefinition> & ConfiguredAgentWorkspaceOptions<TWorkspace, TDefinition, TKeys>
-  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<LayerDefinition<TDefinition, LayerDataInput<TDefinition, TSchema>, LayerData<TDefinition, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, TWorkspace["workspace"], TCapabilities, TChannels>, TDefinition extends { configKey: infer TKey extends string } ? TKey : never>
+  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<LayerDefinition<TDefinition, LayerDataInput<TDefinition, TSchema>, LayerData<TDefinition, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, TWorkspace["workspace"], TCapabilities, ChannelOptionsInput<TWorkspace, TChannels>>, TDefinition extends { configKey: infer TKey extends string } ? TKey : never>
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     TOutput = unknown,
     const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
@@ -3069,12 +3001,12 @@ export interface DefineAgent {
     >, "hooks">,
   >(
     options: TOptions & { channels?: TChannels, hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>, data?: StandardSchemaV1<TDataInput, TData>, intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TData, TIntercept> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): ConfiguredAgentWorkspace<WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TData, TOutput, AgentInterceptOutput<TIntercept>>, TOptions["workspace"], TCapabilities, TChannels>
+  ): ConfiguredAgentWorkspace<WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TData, TOutput, AgentInterceptOutput<TIntercept>>, TOptions["workspace"], TCapabilities, ChannelOptionsInput<TOptions, TChannels>>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     TOutput = unknown,
     const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
@@ -3108,17 +3040,18 @@ export interface DefineAgent {
     >, "hooks">,
   >(
     options: TOptions & { channels?: TChannels, hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>, data?: StandardSchemaV1<TDataInput, TData>, intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TData, TIntercept> } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): ConfiguredAgentWorkspace<WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TData, TOutput, AgentInterceptOutput<TIntercept>>, TOptions["workspace"], TCapabilities, TChannels>
+  ): ConfiguredAgentWorkspace<WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, AgentInvokerProfileOf<TOptions>, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TData, TOutput, AgentInterceptOutput<TIntercept>>, TOptions["workspace"], TCapabilities, ChannelOptionsInput<TOptions, TChannels>>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
     const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
     TData = unknown,
     TIntercept = never,
     TDataInput = TData,
+    const TChannelOptions extends { channels?: unknown } = {},
   >(
     options: Omit<AgentSettings<
       TRuntimeConfig,
@@ -3131,18 +3064,19 @@ export interface DefineAgent {
       TData,
       TIntercept,
       TDataInput
-    >, "hooks"> & { hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never, channels?: TChannels },
-  ): ConfiguredAgentWorkspace<AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TOutput, TData, AgentInterceptOutput<TIntercept>>, undefined, TCapabilities, TChannels>
+    >, "hooks"> & { hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never, channels?: TChannels } & TChannelOptions,
+  ): ConfiguredAgentWorkspace<AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TOutput, TData, AgentInterceptOutput<TIntercept>>, undefined, TCapabilities, ChannelOptionsInput<TChannelOptions, TChannels>>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
     const TChannels extends AgentSettings<TRuntimeConfig>["channels"] = undefined,
     TData = unknown,
     TIntercept = never,
     TDataInput = TData,
+    const TChannelOptions extends { channels?: unknown } = {},
   >(
     options: Omit<AgentSettings<
       TRuntimeConfig,
@@ -3155,12 +3089,12 @@ export interface DefineAgent {
       TData,
       TIntercept,
       TDataInput
-    >, "hooks"> & { hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never, channels?: TChannels },
-  ): ConfiguredAgentWorkspace<AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TOutput, TData, AgentInterceptOutput<TIntercept>>, undefined, TCapabilities, TChannels>
+    >, "hooks"> & { hooks?: AgentDefinitionHooks<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, AgentChannelMessageOf<TChannels>, TData>, capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never, channels?: TChannels } & TChannelOptions,
+  ): ConfiguredAgentWorkspace<AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput | AgentInterceptOutput<TIntercept>, TDataInput, TOutput, TData, AgentInterceptOutput<TIntercept>>, undefined, TCapabilities, ChannelOptionsInput<TChannelOptions, TChannels>>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
     TData = unknown,
@@ -3183,7 +3117,7 @@ export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
-    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TInvokerProfile extends AgentInvoker = AgentInvoker,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
     TOutput = unknown,
     TData = unknown,
@@ -3210,7 +3144,7 @@ function createWorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TOutput = unknown,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined, TOutput>,
@@ -3247,23 +3181,22 @@ function createWorkspaceAgentDefinition<
 }
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-export const defineAgent: DefineAgent = ((options: unknown) => {
+const defineAgentDefinition: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
-  const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
+  const configured = createConfiguredAgentDefinition(options, settings => defineAgentDefinition(settings as never))
   if (configured) return configured
+  // Named lists follow the same per-key layering rules as inline Channel records.
+  if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
+    options = { ...options, channels: normalizeAgentChannels(options.channels) }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options, settings => {
     const channels = normalizeAgentChannels(settings.channels)
     settings.channels = channels
     return isWorkspaceAgentOptions(settings) || agentContributesWorkspace({ capabilities: settings.capabilities, channels })
   }, name => {
-    throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
+    throw agentDiagnostics.AGENT_PRESET_UNKNOWN({ name })
   }) as AgentSettings
-  const invocations: unknown = agentOptions.invocations
-  // Host settings, such as a journal name, must be resolved by the host's defineAgent().
-  if (hasRuntimeType(invocations, "string") || hasRuntimeType(invocations, "boolean") || (isRuntimeRecord(invocations) && "store" in invocations)) {
-    throw new TypeError("[vitehub] Agent invocations must be a journal from defineAgentInvocations(). Import defineAgent from vite-hub/agent to select a journal by name.")
-  }
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
@@ -3296,13 +3229,60 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
 }) as DefineAgent
 
+function inheritsDisabledInvocations(parent: unknown): boolean {
+  return Object(parent) === parent && Reflect.get(Object(parent), agentInvocationsDisabledKey) === true
+}
+
+// SAFETY: The journal setting is resolved before the Agent definition normalization above.
+export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) => {
+  const setting: AgentInvocationsSetting | undefined = options.invocations
+  const invocations = resolveAgentInvocationsSetting(setting)
+  let agentOptions = options
+  if (setting !== invocations) {
+    const { invocations: _setting, ...rest } = options
+    agentOptions = invocations ? { ...rest, invocations } : rest
+  }
+  const agent = defineAgentDefinition(agentOptions as never)
+  rememberDeclaredAgentWorkspace(agent, options)
+  const disabled = setting === false || (setting === undefined && agent.invocations === undefined
+    && (inheritsDisabledInvocations(agent) || ("extends" in options && inheritsDisabledInvocations(options.extends))))
+  if (!disabled) Reflect.deleteProperty(agent, agentInvocationsDisabledKey)
+  if (!disabled && agent.invocations !== undefined) {
+    Reflect.deleteProperty(agent, agentInvocationsFallbackKey)
+    return agent
+  }
+
+  // Without its own journal, the Agent records in the app-wide journal that the generated server installs.
+  let assignedInvocations: AgentInvocations | undefined
+  if (disabled) Object.defineProperty(agent, agentInvocationsDisabledKey, { configurable: true, enumerable: false, value: true })
+  Object.defineProperty(agent, agentInvocationsFallbackKey, {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return assignedInvocations === undefined
+    },
+  })
+  Object.defineProperty(agent, "invocations", {
+    configurable: true,
+    enumerable: false,
+    get() {
+      if (assignedInvocations || disabled) return assignedInvocations
+      return resolveFallbackAgentInvocations()
+    },
+    set(value: AgentInvocations | undefined) {
+      assignedInvocations = value
+    },
+  })
+  return agent
+}) as DefineAgent
+
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
   if (instructions === undefined || !hasAgentDefinition(agent)) return agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "run" || driver.kind === "ask") return agent
+  if (driver.kind === "run" || driver.kind === "ask" || driver.kind === "external") return agent
   // An explicitly declared Workspace instruction Source remains authoritative for
   // Provider Drivers, even when a colocated instructions.md is present.
   const workspaceOptions = (agent as AgentDefinition & {
@@ -3313,7 +3293,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   // Provider Driver gets the document as instructions instead. Authored options hold only what
   // the author declared.
   const hasExplicitWorkspaceInstructions = (value: unknown, normalized: boolean): boolean => {
-    if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
+    if (typeof value !== "object" || !isRuntimeRecord(value)) return false
     const sources = isRuntimeRecord(value.sources) ? value.sources : value
     return (Object.hasOwn(sources, "__vitehubAgentInstructions")
       && !(normalized && isColocatedAgentInstructionsBuildSource(sources.__vitehubAgentInstructions)))
@@ -3324,7 +3304,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
     || hasExplicitWorkspaceInstructions((agent as AgentDefinition & { sources?: unknown }).sources, true)
   if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
-  const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
+  const template = configured && typeof configured === "object" && !Array.isArray(configured)
     && "template" in configured && !("mode" in configured)
     ? configured
     : undefined
@@ -3347,7 +3327,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   // It also owns its Sources: a Provider Driver with instructions needs no AGENTS.md Source.
   if (decorations.__vitehubWorkspaceAgent) delete decorations.sources
   const originalRun: unknown = decorations.run?.value
-  if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
+  if (typeof originalRun === "function" && syntheticWorkspaceRun in originalRun) delete decorations.run
   // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.
   for (const [property, marker] of [["health", baseAgentDefinitionHealth], ["status", baseAgentDefinitionStatus]] as const) {
     // SAFETY: Agent definitions are object values, so this assertion is required for reflective property access.
@@ -3376,7 +3356,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   return definition
 }
 
-export async function resolveAgent<TContext extends AgentRuntimeContext>(
+async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   context: TContext,
 ): Promise<AgentAdapter> {
@@ -3404,7 +3384,8 @@ async function resolveAgentForRun<
   return await resolveAgent(agent, context) as AgentAdapter<CALL_OPTIONS>
 }
 
-export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>(
+/** Load an Agent Definition from the generated registry by its discovered name. */
+export async function loadAgent<TContext extends AgentRuntimeContext>(
   name: string,
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
@@ -3420,15 +3401,6 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   }
 
   return agent
-}
-
-export async function resolveAgentTriggers<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
-): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
-  return await resolveAgentTriggersWithResolvedContext(agent, createResolvedRuntimeContext(context))
 }
 
 export async function resolveAgentTriggerInvocation<
@@ -3483,7 +3455,7 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS>,
 ): agent is AgentDefinition<TRuntimeConfig, any> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
   return hasAgentDefinition(agent)
-    && hasRuntimeType(agent.run, "function")
+    && typeof agent.run === "function"
     && !(syntheticWorkspaceRun in agent.run)
 }
 
@@ -3550,7 +3522,6 @@ type AgentInvocationContext<
   telemetryScheduler: AgentTelemetryScheduler
   instructions?: string
   startedAt: number
-  actor: AgentInvoker
   invoker: AgentInvoker
   handledResponse?: Response
   /** Output returned by `defineAgent({ intercept })`. The Driver does not run. */
@@ -3594,7 +3565,7 @@ function toAgentAdapterRunContext<
 
 async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
   try {
-    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+    return await (await import("@vite-hub/workspace/runtime")).resolveRegisteredWorkspaceDefinition(name)
   }
   catch (error) {
     if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
@@ -3649,7 +3620,7 @@ function resolveOwnedAgentWorkspaceDefinition(
   configured: WorkspaceDefinition | undefined,
 ): WorkspaceDefinition | undefined {
   const resolved = configured ? { ...configured, name } : undefined
-  if (!hasRuntimeType(agent, "object") || agent === null) return resolved
+  if (typeof agent !== "object" || agent === null) return resolved
   const definitions = ownedAgentWorkspaceDefinitions.get(agent) || new Map<string, WorkspaceDefinition>()
   const existing = definitions.get(name)
   if (existing) return existing
@@ -3658,7 +3629,7 @@ function resolveOwnedAgentWorkspaceDefinition(
 }
 
 function ownedAgentWorkspaceKey(agent: unknown): object {
-  if (!isRuntimeObject(agent)) throw agentDiagnostics.AGENT_R0432({ message: "[vitehub] Owned Agent Workspace state requires an object owner." })
+  invariant(isRuntimeObject(agent), "every caller checks that the Workspace owner is an object first")
   return agent
 }
 
@@ -3872,7 +3843,7 @@ type AgentTelemetryMessageContentClass = "inputs" | "instructions" | "outputs"
 
 function agentTelemetryMessageContentClass(value: unknown): AgentTelemetryMessageContentClass | undefined {
   try {
-    if (!value || !hasRuntimeType(value, "object")) return
+    if (!value || typeof value !== "object") return
     // SAFETY: The guarded record is read only to classify its finite public role contract.
     const role = (value as { role?: unknown }).role
     if (role === "user") return "inputs"
@@ -3909,7 +3880,7 @@ function agentTelemetryAttributeForContent(
     const messages = agentTelemetryMessagesForContent(value, policy)
     return messages ? { selected: true, value: messages } : undefined
   }
-  if (key === "input.message" && !hasRuntimeType(value, "string")) {
+  if (key === "input.trigger.message" || (key === "input.message" && typeof value !== "string")) {
     const contentClass = agentTelemetryMessageContentClass(value)
     return contentClass !== undefined && policy[contentClass] === true
       ? { selected: true, value }
@@ -3943,7 +3914,7 @@ function agentTelemetryMetadataForContent(
       return selected === undefined ? [] : [selected]
     })
   }
-  if (!value || !hasRuntimeType(value, "object")) return value
+  if (!value || typeof value !== "object") return value
   return Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
     const childPath = path ? `${path}.${key}` : key
     const contentClass = agentTelemetryContentClass(childPath)
@@ -3993,7 +3964,7 @@ function withAgentTelemetryContentAttributes(
   })
   const allowedKeys = new Set(allowedEntries.map(([key]) => key))
   const omitted = Array.isArray(safe?.["content.omitted"])
-    ? safe["content.omitted"].filter(key => !hasRuntimeType(key, "string") || !allowedKeys.has(key))
+    ? safe["content.omitted"].filter(key => typeof key !== "string" || !allowedKeys.has(key))
     : undefined
   return {
     ...safeAttributes,
@@ -4165,7 +4136,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
       await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, signal: "traces", spans })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
   }))
   throwAgentTelemetryFailures(exports)
@@ -4204,7 +4175,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
       const conversionEvents = anchor && anchor.sequence <= afterSequence ? [anchor, ...events] : events
       const currentRecords = (records: OpenTelemetryLogRecordView[]) => records.filter(record => {
         const sequence = record.attributes?.["vitehub.event.sequence"]
-        return hasRuntimeType(sequence, "number") && sequence > afterSequence
+        return typeof sequence === "number" && sequence > afterSequence
       })
       const metadataRecords = currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "metadata" }))
       const records = registration.content && agentTelemetryUsesContent(registration)
@@ -4227,7 +4198,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
         })
       }
       catch (error) {
-        throw new AgentTelemetryCapabilityError(capabilityId, error)
+        throw agentTelemetryCapabilityError(capabilityId, error)
       }
       afterSequence = events.at(-1)!.sequence
       cursors.set(item, afterSequence)
@@ -4283,7 +4254,7 @@ async function exportAgentTelemetryConfiguration<TRuntimeConfig extends AgentRun
       })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
     configurationDelivered.add(item)
   }))
@@ -4296,19 +4267,13 @@ function throwAgentTelemetryFailures(exports: PromiseSettledResult<void>[]): voi
   if (failures.length > 1) throw new AggregateError(failures, "Multiple Agent telemetry exports failed.")
 }
 
-class AgentTelemetryCapabilityError extends Diagnostic {
-  readonly capabilityId: string
+function agentTelemetryCapabilityError(capabilityId: string, cause: unknown) {
+  return Object.assign(agentDiagnostics.AGENT_R0890({ cause, message: `[vitehub] Capability "${capabilityId}" telemetry export failed.` }), { capabilityId })
+}
 
-  constructor(capabilityId: string, cause: unknown) {
-    super({
-      cause,
-      code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0890",
-      why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
-    }, AgentTelemetryCapabilityError)
-    this.name = "AgentTelemetryCapabilityError"
-    this.capabilityId = capabilityId
-  }
+/** The Capability id of an `AGENT_R0890` telemetry export error. */
+function telemetryCapabilityId(error: unknown): string | undefined {
+  return isRuntimeRecord(error) && error.code === "AGENT_R0890" && typeof error.capabilityId === "string" ? error.capabilityId : undefined
 }
 
 function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -4318,14 +4283,15 @@ function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
   invocationId: string,
   phase: "live" | "terminal",
 ): void {
-  const failure = error instanceof AgentTelemetryCapabilityError ? error.cause : error
+  const capabilityId = telemetryCapabilityId(error)
+  const failure = capabilityId !== undefined && error instanceof Error ? error.cause : error
   const name = agentInvocationName(agent, runtime)
   const capabilityIds = error instanceof AggregateError
-    ? error.errors.flatMap(item => item instanceof AgentTelemetryCapabilityError ? [item.capabilityId] : [])
+    ? error.errors.flatMap(item => telemetryCapabilityId(item) ?? [])
     : []
   console.error({
     agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
-    ...(error instanceof AgentTelemetryCapabilityError ? { capability_id: error.capabilityId } : {}),
+    ...(capabilityId !== undefined ? { capability_id: capabilityId } : {}),
     ...(capabilityIds.length ? { capability_ids: capabilityIds } : {}),
     component: "@vite-hub/agent",
     error: normalizeRuntimeDiagnosticError(failure, { includeStack: true }),
@@ -4622,7 +4588,6 @@ async function createAgentInvocationContext<
           ...agentInvocationCallbackContextValues(invocationContext),
           ...callbackContext,
           abortSignal: input.abortSignal,
-          actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },
           input,
@@ -4663,7 +4628,7 @@ async function createAgentInvocationContext<
     const registeredWorkspaceDefinition = workspaceName
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
-    if (workspaceName && ownsWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+    if (workspaceName && ownsWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
       await awaitOwnedAgentWorkspaceRegistration(workspaceDefinition, workspaceName)
     }
     const usesRegisteredOwnedDefinition = Boolean(
@@ -4681,13 +4646,13 @@ async function createAgentInvocationContext<
         : mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     if (workspaceName && ownsWorkspaceDefinition && resolvedWorkspaceDefinition && !registeredWorkspaceDefinition) {
-      if (resolvedWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
         resolvedWorkspaceDefinition = await registerOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
       }
       else {
         resolvedWorkspaceDefinition = await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
       }
-      if (resolvedWorkspaceDefinition && hasRuntimeType(workspaceDefinition, "object") && workspaceDefinition !== null) {
+      if (resolvedWorkspaceDefinition && typeof workspaceDefinition === "object" && workspaceDefinition !== null) {
         setOwnedAgentWorkspaceDefinition(workspaceDefinition, workspaceName, resolvedWorkspaceDefinition)
       }
     }
@@ -4815,7 +4780,6 @@ async function createAgentInvocationContext<
       const observedHooks = definition?.hooks as AgentHookObserverHooks | undefined
       const hookContext = () => ({
         ...callbackContext,
-        actor: invoker,
         context: invocationContext,
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
@@ -4886,7 +4850,7 @@ async function createAgentInvocationContext<
     else {
       try {
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
-        if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
+        if (collisions.length) throw agentDiagnostics.AGENT_INVOCATION_TOOL_NAME_TAKEN({ names: collisions })
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
         // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
         transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
@@ -4912,8 +4876,8 @@ async function createAgentInvocationContext<
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object")
-      && !(Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string"))
+    const workspaceAutoCommit = configuredWorkspace && typeof configuredWorkspace === "object"
+      && !(Object.hasOwn(configuredWorkspace, "name") && typeof configuredWorkspace.name === "string")
       ? configuredWorkspace.commit
       : undefined
     const workspaceInstructions = workspaceOptions && activeWorkspace
@@ -4950,6 +4914,10 @@ async function createAgentInvocationContext<
       ...tool,
       ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
     }))
+    // Provider Drivers record the revision materialized by their Workspace Session after Source setup.
+    const workspaceRevision = (capabilities.registries.telemetry.length || invocationJournal) && activeWorkspace && driverKind !== "provider"
+      ? await observeAgentWorkspaceRevision(activeWorkspace)
+      : undefined
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
@@ -4982,6 +4950,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
+              ...(workspaceRevision ? { ref: workspaceRevision.ref, revision: workspaceRevision.id } : {}),
               ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }
@@ -4998,7 +4967,6 @@ async function createAgentInvocationContext<
 
     const invocation = {
       ...callbackContext,
-      actor: invoker,
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
@@ -5035,7 +5003,7 @@ async function createAgentInvocationContext<
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
       output: internalDefinition?.[baseAgentOutput],
       outputRenderers: capabilities.registries.outputRenderers,
-      prompt: hasRuntimeType(capabilities.input.prompt, "string") ? capabilities.input.prompt : undefined,
+      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
@@ -5155,7 +5123,6 @@ type InvocationRunContext<
   output?: AgentOutputDefinition
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   startTask?: Promise<void>
-  actor: AgentInvoker
   invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
@@ -5302,12 +5269,12 @@ function immediateAgentUsageRecord(
   value: unknown,
   run: Partial<AgentRunMetadata> | undefined,
 ): ReturnType<typeof usageRecordFromStreamChunk> {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   // SAFETY: The runtime object guard establishes a record-shaped value for property inspection.
   const record = value as Record<string, unknown>
   // SAFETY: The runtime object guard establishes a record-shaped candidate before reading `then`.
   const isPending = (candidate: unknown): candidate is PromiseLike<unknown> =>
-    Boolean(candidate && hasRuntimeType(candidate, "object") && hasRuntimeType((candidate as Record<string, unknown>).then, "function"))
+    Boolean(candidate && typeof candidate === "object" && typeof (candidate as Record<string, unknown>).then === "function")
   const usageRecord = record.usageRecord
   if (usageRecord && !isPending(usageRecord)) {
     const resolved = usageRecordFromStreamChunk({ type: "usage", usageRecord }, value, run)
@@ -5341,7 +5308,6 @@ function withEagerStreamUsageExtensions<
       extensionsRun = true
       const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
-        actor: context.actor,
         input: context.input,
         invoker: context.invoker,
         invocation: {
@@ -5370,7 +5336,7 @@ function withEagerStreamUsageExtensions<
           continue
         }
         const usage = { ...await runExtensions(usageRecord) }
-        if (chunk && hasRuntimeType(chunk, "object")) {
+        if (chunk && typeof chunk === "object") {
           const prototype = Object.getPrototypeOf(chunk)
           if (prototype !== Object.prototype && prototype !== null) {
             if (Object.isExtensible(chunk)) {
@@ -5414,7 +5380,7 @@ function withEagerStreamUsageExtensions<
     }
     finally {
       if (!extensionsRun) {
-        const immediateUsage = !sourceCompleted && result && hasRuntimeType(result, "object") && "usageRecord" in result
+        const immediateUsage = !sourceCompleted && result && typeof result === "object" && "usageRecord" in result
           ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
           : undefined
         const usageRecord = immediateUsage ?? (sourceCompleted
@@ -5460,7 +5426,7 @@ function withEagerUiMessageStreamUsageExtensions<
 }
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
-  if (!hasRuntimeType(stream, "object") || stream === null || !hasRuntimeType(result, "object") || result === null) return stream
+  if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
     configurable: true,
     enumerable: true,
@@ -5471,11 +5437,11 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
 }
 
 function resultWithStreamedText(result: unknown, text: string): unknown {
-  if (!text || hasRuntimeType(result, "string")) return result
-  if (result && hasRuntimeType(result, "object") && !(result instanceof Response)) {
+  if (!text || typeof result === "string") return result
+  if (result && typeof result === "object" && !(result instanceof Response)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
-    if (hasRuntimeType(current, "string") && current) return result
+    if (typeof current === "string" && current) return result
     if (!Object.isExtensible(result)) {
       return { ...toAgentRunResultWithInheritedProperties(result), raw: result, text }
     }
@@ -5504,7 +5470,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
 }
 
 function toAgentRunResultWithInheritedProperties(result: unknown, readInherited = true): AgentRunResult {
-  if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
+  if (!result || typeof result !== "object") return toAgentRunResult(result)
   let normalized: AgentRunResult
   try {
     normalized = toAgentRunResult(result)
@@ -5518,7 +5484,7 @@ function toAgentRunResultWithInheritedProperties(result: unknown, readInherited 
     try {
       if (!Reflect.has(result, key)) continue
       const value = Reflect.get(result, key)
-      if (key === "text" && !hasRuntimeType(value, "string")) continue
+      if (key === "text" && typeof value !== "string") continue
       // SAFETY: The key list is limited to writable AgentRunResult properties.
       normalized[key] = value as never
     }
@@ -5531,10 +5497,10 @@ function toAgentRunResultWithInheritedProperties(result: unknown, readInherited 
 
 function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || !hasRuntimeType(result, "object")) {
+  if (!result || typeof result !== "object") {
     return {
       raw: result,
-      ...(hasRuntimeType(result, "string") && result ? { text: result } : {}),
+      ...(typeof result === "string" && result ? { text: result } : {}),
       usage: usageRecord.usage,
       usageRecord,
     }
@@ -5561,17 +5527,17 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
 }
 
 function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): void {
-  if (!usageRecord || !result || !hasRuntimeType(result, "object") || result instanceof Response || !Object.isExtensible(result)) return
+  if (!usageRecord || !result || typeof result !== "object" || result instanceof Response || !Object.isExtensible(result)) return
   try {
     const assignable = (property: "usage" | "usageRecord") => {
       const descriptor = Object.getOwnPropertyDescriptor(result, property)
-      return !descriptor || ("value" in descriptor ? descriptor.writable === true : hasRuntimeType(descriptor.set, "function"))
+      return !descriptor || ("value" in descriptor ? descriptor.writable === true : typeof descriptor.set === "function")
     }
     if (!assignable("usage") || !assignable("usageRecord")) return
     Reflect.set(result, "usageRecord", usageRecord)
     const currentUsage = Reflect.get(result, "usage")
     const replaceUsage = currentUsage === undefined
-      || (hasRuntimeType(currentUsage, "object") && currentUsage !== null && hasRuntimeType(Reflect.get(currentUsage, "then"), "function"))
+      || (typeof currentUsage === "object" && currentUsage !== null && typeof Reflect.get(currentUsage, "then") === "function")
     if (replaceUsage && usageRecord.usage) Reflect.set(result, "usage", usageRecord.usage)
   }
   catch {
@@ -5583,7 +5549,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
   settleCancellation: (reason?: unknown) => Promise<void>
 } {
   let readableCancelTask: Promise<void> | undefined
-  const readableReader = isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+  const readableReader = isRuntimeRecord(stream) && typeof stream.getReader === "function"
     // SAFETY: The runtime guard establishes the ReadableStream reader contract used below.
     ? stream.getReader() as ReadableStreamDefaultReader<unknown>
     : undefined
@@ -5648,7 +5614,7 @@ function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): 
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
-  if (!result || !hasRuntimeType(result, "object")) return resultWithUsageRecord(result, usageRecord)
+  if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null) {
     if (Object.isExtensible(result)) {
@@ -5705,7 +5671,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
 }
 
 function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
-  if (!isRuntimeObject(result)) throw agentDiagnostics.AGENT_R0433({ message: "[vitehub] Preserving Agent result properties requires an object result." })
+  invariant(isRuntimeObject(result), "every caller passes an object result that has stream properties")
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -5720,7 +5686,7 @@ function resultWithPreservedProperties(result: unknown, descriptors: PropertyDes
 }
 
 function definedObjectProperties(value: unknown): Record<string, unknown> {
-  if (!value || !hasRuntimeType(value, "object")) return {}
+  if (!value || typeof value !== "object") return {}
   try {
     return Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value))
       .filter(([, descriptor]) => descriptor.enumerable && "value" in descriptor && descriptor.value !== undefined)
@@ -5733,7 +5699,7 @@ function definedObjectProperties(value: unknown): Record<string, unknown> {
 
 function definedObjectPropertiesWithInherited(value: unknown, keys: readonly string[]): Record<string, unknown> {
   const properties = definedObjectProperties(value)
-  if (!value || !hasRuntimeType(value, "object")) return properties
+  if (!value || typeof value !== "object") return properties
   for (const key of keys) {
     if (properties[key] !== undefined) continue
     try {
@@ -5749,9 +5715,9 @@ function definedObjectPropertiesWithInherited(value: unknown, keys: readonly str
 }
 
 function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return undefined
+  if (!value || typeof value !== "object") return undefined
   try {
-    if (hasRuntimeType(Reflect.get(value, "then"), "function")) return undefined
+    if (typeof Reflect.get(value, "then") === "function") return undefined
   }
   catch {
     // Ignore provider then getters that cannot be read during usage normalization.
@@ -5802,7 +5768,7 @@ function mergedAgentUsageScalars(...values: (AgentUsage | undefined)[]): AgentUs
     if (!value) continue
     for (const key of ["inputTokens", "outputTokens", "totalTokens"] as const) {
       const tokens = value[key]
-      if (!hasRuntimeType(tokens, "number") || !Number.isFinite(tokens)) continue
+      if (typeof tokens !== "number" || !Number.isFinite(tokens)) continue
       usage[key] = tokens
       if (key === "totalTokens") latestTotalIndex = index
       else latestComponentIndex = index
@@ -5824,7 +5790,7 @@ function mergedFiniteNumberObjects(...values: unknown[]): Record<string, number>
   const merged: Record<string, number> = {}
   for (const value of values) {
     for (const [key, item] of Object.entries(mergedReadableObjects(value))) {
-      if (hasRuntimeType(item, "number") && Number.isFinite(item)) merged[key] = item
+      if (typeof item === "number" && Number.isFinite(item)) merged[key] = item
     }
   }
   return merged
@@ -5833,7 +5799,7 @@ function mergedFiniteNumberObjects(...values: unknown[]): Record<string, number>
 function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
   return Object.assign({}, ...values.map((value) => {
     const properties = definedObjectProperties(value)
-    if (!value || !hasRuntimeType(value, "object")) return properties
+    if (!value || typeof value !== "object") return properties
     let source: object | null = value
     while (source && source !== Object.prototype) {
       let descriptors: PropertyDescriptorMap
@@ -5895,10 +5861,10 @@ async function resultWithStreamedTextAndUsage(
 ): Promise<unknown> {
   if (result instanceof Response) return result
   const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
-  const hasDeferredUsage = hasRuntimeType(result, "object") && result !== null && ["usage", "totalUsage"].some((property) => {
+  const hasDeferredUsage = typeof result === "object" && result !== null && ["usage", "totalUsage"].some((property) => {
     try {
       const value = Reflect.get(result, property)
-      if (!isRuntimeObject(value) || !hasRuntimeType(Reflect.get(value, "then"), "function")) return false
+      if (!isRuntimeObject(value) || typeof Reflect.get(value, "then") !== "function") return false
       void Promise.resolve(value).catch(() => {})
       return true
     }
@@ -5906,7 +5872,7 @@ async function resultWithStreamedTextAndUsage(
       return false
     }
   })
-  if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
+  if (typeof result === "object" && result !== null && (isAsyncIterable(result)
     || hasTraceableStreamResult(result)
     || ((streamedUsageRecord !== undefined || hasDeferredUsage) && isUIMessageStreamResult(result)))) {
     const normalized = toAgentRunResultWithInheritedProperties(result, resolveUsage)
@@ -5926,7 +5892,7 @@ async function resultWithStreamedTextAndUsage(
         // Ignore provider totalUsage getters that cannot be read during finalization.
       }
     }
-    if (resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
+    if (resolvedUsage && typeof resolvedUsage === "object") {
       let then: unknown
       try {
         then = Reflect.get(resolvedUsage, "then")
@@ -5934,7 +5900,7 @@ async function resultWithStreamedTextAndUsage(
       catch {
         // Keep normalizing readable usage fields when a provider exposes an unreadable then getter.
       }
-      if (hasRuntimeType(then, "function")) {
+      if (typeof then === "function") {
         const pendingUsage = Symbol("pending usage")
         try {
           resolvedUsage = await Promise.race([
@@ -6048,11 +6014,11 @@ function withStreamedResult(
   let finalizedUsageRecord: AgentUsageRecord | undefined
   return {
     async finishResult(resultOverride: unknown = result, resolveUsage = true) {
-      const resolvedFallbackUsageRecord = hasRuntimeType(fallbackUsageRecord, "function")
+      const resolvedFallbackUsageRecord = typeof fallbackUsageRecord === "function"
         ? await fallbackUsageRecord(resolveUsage)
         : fallbackUsageRecord
       const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, resolvedFallbackUsageRecord, resolveUsage)
-      finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+      finalizedUsageRecord = finishResult && typeof finishResult === "object"
         ? toAgentRunResult(finishResult).usageRecord
         : undefined
       return finishResult
@@ -6070,7 +6036,7 @@ function withStreamedResult(
             toolName: event.name,
           })
         }
-        const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
+        const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -6087,7 +6053,7 @@ function withStreamedResult(
           }
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        const attachedUsageRecord = chunk && hasRuntimeType(chunk, "object") && "usageRecord" in chunk
+        const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
           : undefined
@@ -6133,7 +6099,7 @@ async function finishStreamAgentInvocation<
       : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = context.output ? result : resultWithResolvedUsageRecord(result, usageRecord)
-    if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
+    if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
           configurable: true,
@@ -6162,7 +6128,7 @@ async function finishStreamAgentInvocation<
   if (outcome.usageResolved) finishOutcome.usageResolved = true
   await lifecycle.finish(finishOutcome)
   assignResolvedUsageRecord(result, finishUsage)
-  const rawDescriptor = result && hasRuntimeType(result, "object")
+  const rawDescriptor = result && typeof result === "object"
     ? Object.getOwnPropertyDescriptor(result, "raw")
     : undefined
   if (rawDescriptor && "value" in rawDescriptor && rawDescriptor.value !== result) {
@@ -6295,14 +6261,14 @@ type AgentInvocationFinishOutcome =
 function finishOutcomeFromCleanup(outcome: { completed?: boolean, failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
   if (outcome.failed) return { error: outcome.error, status: "error" }
   if (outcome.completed !== false) return { result, status: "success" }
-  const usage = result && hasRuntimeType(result, "object")
+  const usage = result && typeof result === "object"
     ? toAgentRunResult(result).usageRecord
     : undefined
   return { result, status: "cancelled", usage, usageResolved: true }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
-  return Boolean(workspace && hasRuntimeType(workspace, "object") && "diff" in workspace && "snapshot" in workspace)
+  return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
 }
 
 function hasWorkspaceAutoCommit<
@@ -6336,7 +6302,7 @@ async function commitWorkspaceChanges<
   if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
 
   const diff = await context.workspace.diff()
-  const { isWorkspaceConflict, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+  const [{ isWorkspaceConflict }, { resolveWorkspaceAutoCommit }] = await Promise.all([import("@vite-hub/workspace"), import("@vite-hub/workspace/internal/workspace")])
   const commit = resolveWorkspaceAutoCommit(
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,
@@ -6367,7 +6333,7 @@ async function applyFinalOutputRenderers<
 
 function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChannelDeliveryEffectIntent {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  if (!value || !hasRuntimeType(value, "object") || !hasRuntimeType((value as { kind?: unknown }).kind, "string") || !(value as { kind: string }).kind.trim()) {
+  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string" || !(value as { kind: string }).kind.trim()) {
     throw agentDiagnostics.AGENT_R0434({ message: "[vitehub] Channel finish delivery effect resolvers must return an effect intent with a non-empty kind." })
   }
 }
@@ -6394,7 +6360,7 @@ async function resolveFinishDeliveryEffectIntents<
   let firstError: unknown
   for (const provider of providers) {
     try {
-      const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
+      const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
       if (!intent) continue
       appendDeliveryEffectIntent(intents, intent)
     }
@@ -6495,7 +6461,7 @@ function createFinishDeliveryEffectContext<
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
-    const inputArtifacts = hasRuntimeType(input, "object") && input !== null && "artifacts" in input
+    const inputArtifacts = typeof input === "object" && input !== null && "artifacts" in input
       ? input.artifacts
       : undefined
     return createReplyDeliveryEffectIntent(input, {
@@ -6505,7 +6471,6 @@ function createFinishDeliveryEffectContext<
   }
   return {
     ...context.runtimeContext,
-    actor: context.actor,
     ...(active ? { channel: active.channel } : {}),
     context: context.context,
     ...(event.error !== undefined ? { error: event.error } : {}),
@@ -6576,7 +6541,7 @@ function activeFinishDeliveryEffectProviders<
   if (!context.finishDeliveryEffectProviders.length) return []
   const active = createFinishDeliveryEffectContext(event, context)
   return context.finishDeliveryEffectProviders.filter((provider) => {
-    if (!hasRuntimeType(provider, "function") || !provider.active) return true
+    if (typeof provider !== "function" || !provider.active) return true
     return provider.active(active)
   })
 }
@@ -6598,14 +6563,14 @@ function provisionalFinishEvent<
 
 function hasTitleDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
   return providers.some((provider) => {
-    if (hasRuntimeType(provider, "function")) return provider.kind === "title"
+    if (typeof provider === "function") return provider.kind === "title"
     const effects = Array.isArray(provider) ? provider : [provider]
     return effects.some(effect => effect.kind === "title")
   })
 }
 
 function hasDeferredFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
-  return providers.some(provider => hasRuntimeType(provider, "function") && (provider.kind === undefined || Boolean(provider.active)))
+  return providers.some(provider => typeof provider === "function" && (provider.kind === undefined || Boolean(provider.active)))
 }
 
 async function prepareProvisionalTitleDeliverySupport<
@@ -6741,7 +6706,6 @@ async function finishAgentInvocation<
       const eventBase = {
         ...(failed ? { error } : {}),
         ...(details ? { errorMessage: details.message } : {}),
-        actor: context.actor,
         input: context.input,
         invoker: context.invoker,
         invocation: {
@@ -6782,7 +6746,7 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0436({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = await runFinishActivity(
             deliveryActivity,
@@ -6844,7 +6808,7 @@ async function finishAgentInvocation<
           },
         )
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0437({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           await runFinishActivity(
             deliveryActivity,
             async () => {
@@ -7034,7 +6998,7 @@ async function finalizeAgentInvocationResult<
             cancelOnAbort: source.cancel,
           })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          return hasRuntimeType((result as ReadableStream<unknown>).getReader, "function")
+          return typeof (result as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(value)
             : value
         }
@@ -7049,7 +7013,7 @@ async function finalizeAgentInvocationResult<
           cancelOnAbort: source.cancel,
         })
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        return hasRuntimeType((result as ReadableStream<unknown>).getReader, "function")
+        return typeof (result as ReadableStream<unknown>).getReader === "function"
           ? toReadableAsyncIterableStream(value)
           : value
       }
@@ -7075,7 +7039,7 @@ async function materializeAgentStructuredOutput(
   let streamResult = result
   const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
   if (!isAsyncIterable(streamResult)) {
-    if (!streamResult || !hasRuntimeType(streamResult, "object")) return result
+    if (!streamResult || typeof streamResult !== "object") return result
     const descriptors: PropertyDescriptorMap = {}
     let hasStream = false
     try {
@@ -7128,7 +7092,7 @@ async function materializeAgentStructuredOutput(
     if (event.type === "error") {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
-      const rejectedText = hasRuntimeType(streamError?.text, "string") ? streamError.text : text
+      const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
       if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
       throw streamError ?? agentDiagnostics.AGENT_R0438({ message: event.error })
     }
@@ -7201,7 +7165,6 @@ async function deliverUnpreparedWorkflowFailure<TRuntimeConfig extends AgentRunt
     if (abortSignal.aborted || !intents.length) return
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     await applyChannelDeliveryEffectIntents({
-      actor: invoker,
       channels: definition?.channels,
       context: invocationContext,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -7309,10 +7272,10 @@ async function executeAgentInvocationWithCapacityLease<
     // adapter preparation, and cancellation setup above may yield while a
     // renewal confirms a claim loss; do not start a Driver after that loss.
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.dispatchAllowed()) {
-      throw new Error("Could not persist the Invocation running state.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     }
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
-      throw new Error("Could not persist the Invocation running state.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     }
     // An Invocation that the Driver starts with `runAgent()` becomes a child of this one.
     const scope = agentInvocationScope(invocation)
@@ -7475,7 +7438,7 @@ async function executeAgentInvocationWithCapacityLease<
     && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
-      const synthesizedRaw = hasRuntimeType(result, "object") && result !== null
+      const synthesizedRaw = typeof result === "object" && result !== null
         && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
         ? Object.getOwnPropertyDescriptor(result, "raw")?.value
         : undefined
@@ -7487,11 +7450,11 @@ async function executeAgentInvocationWithCapacityLease<
   const outputExtensions = new Map<string, unknown>()
   const rawDriverResult = result
   const rawDriverUsageObserved = isAsyncIterable(result)
-  const rawDriverHasDeferredUsage = rawDriverUsageObserved && hasRuntimeType(rawDriverResult, "object") && rawDriverResult !== null && ["usage", "totalUsage"].some((property) => {
+  const rawDriverHasDeferredUsage = rawDriverUsageObserved && typeof rawDriverResult === "object" && rawDriverResult !== null && ["usage", "totalUsage"].some((property) => {
     try {
       const usage = Reflect.get(rawDriverResult, property)
       if (!isRuntimeObject(usage)) return false
-      if (!hasRuntimeType(Reflect.get(usage, "then"), "function")) return false
+      if (typeof Reflect.get(usage, "then") !== "function") return false
       void Promise.resolve(usage).catch(() => {})
       return true
     }
@@ -7598,11 +7561,11 @@ async function executeAgentInvocationWithCapacityLease<
             if (finishTask) return await finishTask
             finishTask = (async () => {
               const resolveUsage = !outcome.failed && outcome.completed === true
-              const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
+              const resolvedDriverUsageRecord = typeof driverUsageFallback === "function"
                 ? await driverUsageFallback(resolveUsage)
                 : driverUsageFallback
               const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
-              const finishUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+              const finishUsageRecord = finishResult && typeof finishResult === "object"
                 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                 ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                 : undefined
@@ -7620,7 +7583,7 @@ async function executeAgentInvocationWithCapacityLease<
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              const finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+              const finalizedUsageRecord = finishResult && typeof finishResult === "object"
                 ? toAgentRunResult(finishResult).usageRecord
                 : finishUsageRecord
               assignResolvedUsageRecord(preserved, finalizedUsageRecord)
@@ -7821,7 +7784,7 @@ async function executeAgentInvocationWithCapacityLease<
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          const preservedStream = hasRuntimeType((renderedStream as ReadableStream<unknown>).pipeThrough, "function")
+          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
             : value
           preservedStreams.set(renderedStream, preservedStream)
@@ -8109,7 +8072,7 @@ async function executeAgentInvocationWithCapacityLease<
     const driverUsageFallback = rawDriverUsageObserved ? resolveRawDriverUsageRecord : driverUsageRecord
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
-      const projection = hasRuntimeType(definition?.uiMessageStream, "function")
+      const projection = typeof definition?.uiMessageStream === "function"
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
       let uiMessageSource: ReturnType<typeof nonBlockingPendingAsyncIterableSource> | undefined
@@ -8200,12 +8163,12 @@ async function executeAgentInvocationWithCapacityLease<
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
         const resolveUsage = !outcome.failed && outcome.completed === true
-        const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
+        const resolvedDriverUsageRecord = typeof driverUsageFallback === "function"
           ? await driverUsageFallback(resolveUsage)
           : driverUsageFallback
         const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
         if (!outcome.failed && !outcome.completed) {
-          const usage = finishResult && hasRuntimeType(finishResult, "object")
+          const usage = finishResult && typeof finishResult === "object"
             ? toAgentRunResult(finishResult).usageRecord
             : undefined
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
@@ -8217,7 +8180,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
         else {
           const finishOutcome = finishOutcomeFromCleanup(outcome)
-          const usage = finishResult && hasRuntimeType(finishResult, "object")
+          const usage = finishResult && typeof finishResult === "object"
             ? toAgentRunResult(finishResult).usageRecord
             : undefined
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcome.status === "success"
@@ -8259,7 +8222,7 @@ async function executeAgentInvocationWithCapacityLease<
     let isStreamResult = hasTraceableStreamResult(rendered)
     let streamResult = rendered
     const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
-    if (isStreamResult && options.holdCapacity === true && rendered && hasRuntimeType(rendered, "object")) {
+    if (isStreamResult && options.holdCapacity === true && rendered && typeof rendered === "object") {
       const descriptors: PropertyDescriptorMap = {}
       let selectedStream = false
       try {
@@ -8360,7 +8323,7 @@ async function executeAgentInvocationWithCapacityLease<
     finalizeResponse: options.output === "ui-message-stream"
       ? async (response) => {
           if (!isUIMessageStreamResponse(response)) return
-          const projection = hasRuntimeType(definition?.uiMessageStream, "function")
+          const projection = typeof definition?.uiMessageStream === "function"
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
           const renderedResponseStream = await applyOutputRenderers({
@@ -8433,9 +8396,9 @@ function invocationCancellationDriver(definition: unknown): AgentInvocationCance
   // SAFETY: Agent definition normalization stores the Driver kind and normalized Driver under these internal symbols.
   const internal = definition as { [baseAgentDriver]?: unknown, [baseAgentDriverKind]?: AgentDriverKind } | undefined
   const driver = internal?.[baseAgentDriver]
-  const provider = isRuntimeRecord(driver) && hasRuntimeType(driver.provider, "string") ? driver.provider : undefined
+  const provider = isRuntimeRecord(driver) && typeof driver.provider === "string" ? driver.provider : undefined
   const kind = internal?.[baseAgentDriverKind] ?? "model"
-  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" ? "run" : kind }
+  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" || kind === "external" ? "run" : kind }
   if (provider) cancellationDriver.provider = provider
   return agentInvocationCancellationDriver(cancellationDriver)
 }
@@ -8450,6 +8413,7 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  assertAgentRunsInApp(agent, context)
   await loadAgentHost()
   // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
   context = withForgeAccess(agent.channels, context)
@@ -8461,6 +8425,8 @@ async function executeAgentInvocation<
   const inheritedClaim = (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim]
   // SAFETY: The webhook queue installs this private attempt metadata on its runtime context.
   const queuedAttempt = (context as AgentRuntimeContext & { [queuedAgentInvocation]?: { reopenFailed: boolean, retryPending: boolean } })[queuedAgentInvocation]
+  // SAFETY: Only the Agent Workflow handler installs this private boolean marker.
+  const workflowAttempt = (context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey] === true
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   let activity = exclusive || inheritedClaim ? undefined : createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
@@ -8487,20 +8453,30 @@ async function executeAgentInvocation<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         agentName: agentInvocationName(definition as AgentDefinition, context),
         cancellationDriver: invocationCancellationDriver(definition),
+        executionMode: workflowAttempt ? "workflow" : "inline",
+        // A Workflow turn runs its Driver at most once. A retry must not take over the record of an interrupted Driver.
+        ...(workflowAttempt ? { driverAtMostOnce: true } : {}),
         // Channel replay depends on the journal claim to prevent duplicate runs.
         ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
         ...(queuedAttempt ? { reopenFailed: queuedAttempt.reopenFailed, retryPending: queuedAttempt.retryPending } : {}),
       })
       : undefined
+    // An earlier attempt reached the Driver. A claimed replay keeps its handoff conflict below while another owner holds the claim.
+    if (invocationJournal?.driverInterrupted && (invocationJournal.claimStatus === "owned" || !(exclusive || inheritedClaim))) {
+      const error = Object.assign(agentDiagnostics.AGENT_INVOCATION_DRIVER_INTERRUPTED({ id: invocationJournal.id }), { isRetryable: false as const })
+      // While the earlier claim is still held, the failed state is written in the background when that claim expires.
+      await invocationJournal.finish("failed", error)
+      throw error
+    }
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {
-      if (invocationJournal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-      throw new Error("Could not acquire the Invocation execution claim.")
+      if (invocationJournal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+      throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     // SAFETY: Workflow execution installs this private binding on the runtime context before handing off the claimed Invocation.
     if (inheritedClaim && !await invocationJournal?.confirmWorkflowDispatch((context as AgentRuntimeContext & { [agentInvocationWorkflowBinding]?: AgentInvocationWorkflowBinding })[agentInvocationWorkflowBinding])) {
       await invocationJournal?.releaseClaim()
-      throw new Error("Could not confirm the Workflow Invocation handoff.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the Workflow Invocation handoff" })
     }
   }
   catch (error) {
@@ -8557,7 +8533,7 @@ async function executeAgentInvocation<
     if (preparedInvocation?.handledResponse) {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
       await activity?.update("running")
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
@@ -8585,7 +8561,7 @@ async function executeAgentInvocation<
     try {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
       await activity?.update("running")
       input.abortSignal?.throwIfAborted()
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
@@ -8612,7 +8588,7 @@ async function executeAgentInvocation<
   try {
     const runningPersisted = await invocationJournal?.running()
     input.abortSignal?.throwIfAborted()
-    if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+    if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     await activity?.update("running")
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
@@ -8673,7 +8649,7 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
       : run.status
   if (!status) return undefined
   return {
-    ...(run.status === "failed" && run.metadata !== undefined ? { error: run.metadata } : {}),
+    ...(run.status === "failed" && run.error !== undefined ? { error: run.error } : {}),
     id: run.id,
     ...(run.result !== undefined ? { output: run.result } : {}),
     status,
@@ -8681,7 +8657,7 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
 }
 
 function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
-  return hasRuntimeType(error, "object")
+  return typeof error === "object"
     && error !== null
     && "code" in error
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -8709,15 +8685,19 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
+      const [error, cancelled] = await handle.cancel(run.id)
+      if (error) throw error
+      const snapshot = agentInvocationSnapshotFromWorkflow(cancelled as AgentWorkflowRun<TOutput>)
       return await reconcileJournal(snapshot)
     },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
-    inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
+    inspect: async () => {
+      const [error, found] = await handle.getRun(run.id)
+      if (error) throw error
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
-    )),
+      return await reconcileJournal(agentInvocationSnapshotFromWorkflow(found as AgentWorkflowRun<TOutput>))
+    },
     result: Promise.resolve(run),
   }
   if (settled) {
@@ -9002,7 +8982,7 @@ function toUIMessageStreamResponse(output: unknown): Response {
   if (isResponse(output)) return output
   if (output instanceof ReadableStream) return createAgentUIMessageStreamResponse({ stream: output })
   if (isAsyncIterable(output)) return createAgentUIMessageStreamResponse({ stream: ReadableStream.from(output) })
-  throw new TypeError("[vitehub] The Agent did not return a UI message stream.")
+  throw agentDiagnostics.AGENT_UI_STREAM_MISSING()
 }
 
 /** Invocation tools and Capabilities hold functions that a Workflow cannot serialize, so they need an inline run. */
@@ -9042,9 +9022,7 @@ async function runAgentWithContext<
   const binding = resolveAgentWorkflowRuntimeBinding(agent)
   const runsInline = requiresInlineInvocation(options)
   if (runsInline && binding && !("discoveryDefault" in binding)) {
-    throw new Error(options.capabilities?.length
-      ? "[vitehub] Invocation capabilities cannot be used with an explicit Agent Workflow. They require inline execution."
-      : "[vitehub] Invocation tools cannot be used with an explicit Agent Workflow. Callable tools require inline execution.")
+    throw agentDiagnostics.AGENT_INLINE_INVOCATION_WORKFLOW({ capabilities: Boolean(options.capabilities?.length) })
   }
   // Discovered Workflows are optional host defaults. Invocation-scoped functions
   // require an inline run because they cannot be serialized into Workflow input.
@@ -9118,20 +9096,13 @@ installAgentRunners({
   streamAgentInline: streamAgentInlineWithContext,
 })
 
-export async function getAgent<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext>,
-  context: TContext,
-): Promise<AgentAdapter> {
-  return await resolveAgent(agent, context)
-}
-
 /** Publish a scheduler wait or progress update without creating an invocation. */
 export async function publishAgentActivity(
   agent: Pick<AgentDefinition, 'name' | 'channels'>,
   options: { channelId: string, target: AgentActivityTarget, activity: AgentActivityUpdate, abortSignal?: AbortSignal },
 ): Promise<void> {
   const channel = agent.channels?.[options.channelId]
-  if (!channel?.activity) throw new Error(`Agent channel ${options.channelId} does not support activity.`)
+  if (!channel?.activity) throw agentDiagnostics.AGENT_CHANNEL_ACTIVITY_UNSUPPORTED({ channelId: options.channelId })
   const pending: Promise<unknown>[] = []
   const memoized = new Map<string, unknown>()
   await channel.activity.update({

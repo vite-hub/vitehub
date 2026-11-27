@@ -1,15 +1,12 @@
-import { existsSync } from "node:fs"
-import { readdir, readFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 
 import { createVercelProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
-import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { createDeployRun, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString, withTemporaryOutput } from "./host.ts"
+import { createDeployRun, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
-import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 /** Check the CLI's saved session without reading its auth files or exposing a token. */
 export async function hasVercelLogin(root: string, context: ViteHubCliContext): Promise<boolean> {
@@ -24,14 +21,6 @@ export async function hasVercelLogin(root: string, context: ViteHubCliContext): 
   }
 }
 
-/** Every `.vc-config.json` of a Vercel Build Output API function. */
-async function functionConfigs(folder: string): Promise<string[]> {
-  if (!existsSync(folder)) return []
-  const entries = await readdir(folder, { recursive: true, withFileTypes: true })
-  return entries.filter(entry => entry.isFile() && entry.name === ".vc-config.json").map(entry => join(entry.parentPath, entry.name))
-}
-
-/** Reads `claimUrl` and `expiresAt` that `vercel deploy --temporary` keeps in `.vercel/anonymous.json`. Its token stays there. */
 async function readClaim(root: string): Promise<DeployResult["claim"]> {
   let value: unknown
   try {
@@ -45,15 +34,12 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
   return { url, ...(typeof value.expiresAt === "number" ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}) }
 }
 
-// Vercel CLI 65.11: `vercel deploy --help`, `vercel env add --help`, `vercel env ls --help`. Recorded in
-// test/fixtures/host-cli-help/. The CLI reads VERCEL_TOKEN from the environment, so no token goes in argv.
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
   const credentialTeam = context.credentials.ok ? context.credentials.teamId : optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
   const team = (context.link?.host === "vercel" ? context.link.account?.id : undefined) ?? credentialTeam
   const project = context.link?.host === "vercel" ? context.link.project.id ?? context.projectName : context.projectName
   const target = context.temporary ? [] : ["--project", project, ...(team ? ["--scope", team] : [])]
-  const environment = context.preview ? "preview" : "production"
   const run = (args: readonly string[], options: { stdin?: string, show?: boolean } = {}) =>
     context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...options })
 
@@ -65,40 +51,52 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
       if (context.commit) args.push("--meta", `vitehubCommit=${context.commit.sha}`, "--meta", `vitehubDirty=${context.commit.dirty}`)
       const result = await run(args, { show: true })
       if (result.exitCode !== 0) throw hostCliFailed("vercel deploy", result, context.secrets)
-      // Without a terminal the CLI wraps the deployment in `{ status, deployment }`.
       const json = lastJsonObject(result.stdout)
       const deployment = isRecord(json?.deployment) ? json.deployment : json
-      const url = context.preview ? optionalString(deployment?.url) : optionalString(deployment?.productionUrl) ?? optionalString(deployment?.url)
+      const productionUrl = context.preview ? undefined : optionalString(deployment?.productionUrl)
+      const url = productionUrl ?? optionalString(deployment?.url)
       if (!url) throw hostCliFailed("vercel deploy printed no URL", result, context.secrets)
       const id = optionalString(deployment?.id)
       const claim = context.temporary ? await readClaim(context.root) : undefined
-      return { url, ...(id ? { deploymentId: id } : {}), ...(claim ? { claim } : {}), ...(context.temporary ? {} : { project: { name: context.projectName, ...(team ? { accountId: team } : {}) } }) }
+      return { url, ...(productionUrl ? { productionUrl } : {}), ...(id ? { deploymentId: id } : {}), ...(claim ? { claim } : {}), ...(context.temporary ? {} : { project: { name: context.projectName, ...(team ? { accountId: team } : {}) } }) }
     },
-    async setSecret(name, value) {
-      // `vercel env add` reads the value from stdin. `--force` replaces the value of an earlier deploy.
-      const result = await run(["env", "add", name, "--environment", environment, "--sensitive", "--force", "--yes", ...target], { stdin: value })
+  }
+}
+
+/**
+ * The Environment Variables of the linked project for `production` or `preview`. Vercel CLI 65.11 (`vercel env add
+ * --help`, `vercel env ls --help`, in test/fixtures/host-cli-help/). `env add` reads the value from stdin, and `--force`
+ * replaces the value in the same environment. `env ls --json` prints readable values too, so its stdout never goes
+ * into an error.
+ */
+export function vercelEnv(context: HostEnvContext): HostEnv {
+  const vercel = hostCli("vercel", "vercel", context.root, context.env)
+  const team = context.link.account?.id ?? optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
+  const project = ["--project", context.link.project.id ?? context.link.project.name, ...(team ? ["--scope", team] : [])]
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+
+  return {
+    async listSecretNames() {
+      const result = await run(["env", "ls", "--environment", context.target, "--json", ...project])
+      if (result.exitCode !== 0) throw hostListFailed("vercel env ls", result, context.secrets)
+      const envs = lastJsonObject(result.stdout)?.envs
+      if (!Array.isArray(envs)) throw hostListFailed("vercel env ls printed no envs", result, context.secrets)
+      return envs.flatMap((item) => {
+        if (!isRecord(item) || typeof item.key !== "string") return []
+        const targets = Array.isArray(item.target) ? item.target : typeof item.target === "string" ? [item.target] : undefined
+        return !targets || targets.includes(context.target) ? [item.key] : []
+      })
+    },
+    async setSecret(name, value, { secret }) {
+      const result = await run(["env", "add", name, "--environment", context.target, secret ? "--sensitive" : "--no-sensitive", "--force", "--yes", ...project], value)
       if (result.exitCode !== 0) throw hostCliFailed(`vercel env add ${name}`, result, context.secrets)
-    },
-    async hasSecret(name) {
-      const result = await run(["env", "ls", "--environment", environment, "--json", ...target])
-      if (result.exitCode !== 0) return false
-      return listsName(lastJsonObject(result.stdout), ["key"], name)
-    },
-    // `vitehub link` confirmed the project through the Vercel API. Else the first deploy creates it.
-    projectExists: async () => context.link?.host === "vercel" && context.link.verified,
-    async withTemporaryVar(name, value, deploy) {
-      // A temporary deploy has no project to hold an env var. The Build Output API reads `environment` from each
-      // function's `.vc-config.json`, so the hash goes there as a plain var. The project files do not change.
-      const files = await functionConfigs(join(context.outputDir, "functions"))
-      if (!files.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(context.outputDir, "functions/**/.vc-config.json") }), setupExitCodes.error)
-      return await withTemporaryOutput(files, "environment", name, value, deploy)
     },
   }
 }
 
 const gitSources = new Set(["git", "git-deploy-hook", "api-trigger-git-deploy", "import/repo", "clone/repo"])
 
-/** `source` of a deployment: https://vercel.com/docs/rest-api/reference/endpoints/deployments/list-deployments */
 function vercelSource(value: unknown, commit: HostDeployment["commit"]): HostDeploymentSource {
   if (value === "cli") return "cli"
   if (typeof value === "string" && gitSources.has(value)) return "git"
@@ -114,7 +112,6 @@ function vercelState(value: unknown): HostDeployment["state"] {
   return "unknown"
 }
 
-/** `vitehubCommit` and `vitehubDirty` from `vercel deploy --meta`, else the commit of a Git integration build. */
 function vercelCommit(meta: unknown): HostDeployment["commit"] {
   if (!isRecord(meta)) return
   const marked = optionalString(meta.vitehubCommit)
@@ -152,7 +149,6 @@ function parseVercelDeployments(value: unknown, production: string | undefined):
  */
 export const listVercelDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const linked = context.link.account?.id
-  // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
   const teamId = linked ? (linked.startsWith("team_") ? linked : undefined) : context.credentials.teamId
   const client = createVercelProvisionClient({ teamId, token: context.credentials.token }, context.fetch)
   const project = context.link.project.id ?? context.link.project.name

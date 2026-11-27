@@ -1,12 +1,20 @@
 import { featureSupport, features, impliedFeatures } from "@vite-hub/internal/features";
 import type { FeatureHost, FeatureId, HostSupport } from "@vite-hub/internal/features";
 
-import { supportHosts } from "./support-proof";
-import type { SupportHost, SupportProofState, SupportProofTier } from "./support-proof";
+export const supportHosts = [
+  "local",
+  "cloudflare",
+  "vercel",
+  "netlify",
+  "deno",
+  "nitro",
+  "node",
+] as const;
 
-/** How a host supports a contract. Proof rows use the states of the proof ledger instead. */
+export type SupportHost = (typeof supportHosts)[number];
+
+/** How a host supports a contract. */
 export type SupportLevel = "available" | "package" | "local" | "none";
-export type SupportMatrixStatus = SupportLevel | SupportProofState;
 
 export type SupportMatrixCell = {
   detail: string;
@@ -26,11 +34,8 @@ export type SupportMatrixRow = {
   description: string;
   id: string;
   label: string;
-} & (
-  | { values: Record<SupportHost, SupportMatrixCell> }
-  /** Proof rows read their cells from the proof ledger, because their state changes with time. */
-  | { proof: SupportProofTier }
-);
+  values: Record<SupportHost, SupportMatrixCell>;
+};
 
 export type SupportMatrixGroup = {
   anchor?: string;
@@ -84,7 +89,7 @@ const cell = (status: SupportLevel, detail: string, display?: string): SupportMa
   status,
 });
 
-/** The catalog host of each column. Nitro is not a ViteHub preset, so its cells are written by hand. */
+/** The catalog host of each column. Nitro is not a ViteHub host, so its cells are written by hand. */
 export const supportMatrixCatalogHosts: Record<Exclude<SupportHost, "nitro">, FeatureHost> = {
   local: "dev",
   cloudflare: "cloudflare",
@@ -103,7 +108,7 @@ export function supportLevel(support: HostSupport): SupportLevel {
 function catalogCell(feature: FeatureId, host: FeatureHost): SupportMatrixCell {
   const support = featureSupport(feature, host, "node");
   const display = support.level === "unsupported" ? "—" : support.display;
-  const requirements = impliedFeatures([feature], host === "dev" ? "node" : host)
+  const requirements = impliedFeatures([feature])
     .map((id) => ({ id, support: featureSupport(id, host, "node") }))
     .filter((entry) => entry.support.level !== "native");
   if (!requirements.length || support.level === "unsupported") {
@@ -151,7 +156,7 @@ const serverPrimitives: SupportMatrixGroup = {
   rows: [
     featureRow("browser", "Provider-backed browser operations", cell(
       "none",
-      "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+      "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
       "—",
     )),
     featureRow("blob", "Object storage", cell(
@@ -191,8 +196,8 @@ const serverPrimitives: SupportMatrixGroup = {
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
-      "Cloudflare Nitro output uses Durable Objects. A single-process Node server can select memory explicitly.",
-      "Host authority",
+      "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
+      "Host driver",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(
       "package",
@@ -248,22 +253,27 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console endpoint runs in the Nitro output of the selected host. The Console at console.vitehub.dev calls it with signed requests.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
       "package",
-      "Variables are validated at build and in the Nitro output of the selected preset.",
+      "Variables are validated at build and in the Nitro output of the selected host.",
       "Nitro runtime",
     )),
-    featureRow("logs", "Log sources and the development buffer", cell(
-      "package",
-      "Logs read the log source that the app configures for the deployment host.",
-      "Host source",
+    featureRow("i18n", "Source-text messages in the request locale", cell(
+      "available",
+      "Requires Nitro 3 with request async context, or Nuxt 5.",
+      "Nitro 3",
     )),
-    featureRow("observability", "Agent telemetry and request logs", cell(
+    featureRow("mcp", "The app's own MCP server", cell(
       "package",
-      "Evlog runs in the Nitro output of the selected preset.",
+      "The MCP route runs in the Nitro output of the selected host.",
+      "Nitro route",
+    )),
+    featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
+      "package",
+      "Evlog runs in the Nitro output of the selected host.",
       "Evlog",
     )),
   ],
@@ -284,11 +294,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent add package-owned support.",
+            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace have Cloudflare providers. Browser and Agent add package-owned support.",
           ),
           vercel: cell(
             "package",
-            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output.",
+            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace have Vercel providers. Agent routes have separate package output.",
           ),
           netlify: cell(
             "package",
@@ -319,11 +329,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Pull requests build Cloudflare output and run the primitive playground locally. Browser has output contract tests.",
+            "CI on main builds Cloudflare output and runs the primitive playground locally. Browser has output contract tests.",
           ),
           vercel: cell(
             "package",
-            "Pull requests build Vercel output and run the primitive playground against local service adapters.",
+            "CI on main builds Vercel output and runs the primitive playground against local service adapters.",
           ),
           netlify: cell("package", "CI runs the real-project fixture through Netlify CLI."),
           deno: cell(
@@ -345,15 +355,9 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
   serverPrimitives,
   applicationFeatures,
   {
-    anchor: "deployment-and-proof",
+    anchor: "deployment",
     label: "Output",
     rows: [
-      {
-        id: "provider-output",
-        label: "Provider output",
-        description: "Generated deployment files",
-        proof: "generated-output",
-      },
       {
         id: "provisioning",
         label: "Provisioning",
@@ -373,29 +377,6 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           nitro: cell("none", "ViteHub does not provide Nitro provisioning."),
           node: cell("none", "ViteHub does not provide one self-hosted provisioning plan."),
         },
-      },
-    ],
-  },
-  {
-    label: "Proof",
-    rows: [
-      {
-        id: "contract-tests",
-        label: "Contract tests",
-        description: "Source and generated-output assertions",
-        proof: "contract",
-      },
-      {
-        id: "local-run",
-        label: "Local provider run",
-        description: "Built output exercised in CI",
-        proof: "local-provider-run",
-      },
-      {
-        id: "live-smoke",
-        label: "Live smoke",
-        description: "Shared playground deployed nightly",
-        proof: "deployed-runtime",
       },
     ],
   },
@@ -425,7 +406,6 @@ export function renderSupportMatrixMarkdownTable(anchor: keyof typeof markdownTa
     `| --- | ${supportHosts.map(() => "---").join(" | ")} |`,
   ];
   for (const row of group.rows) {
-    if (!("values" in row)) continue;
     const cells = supportHosts.map((host) => row.values[host].display ?? "—");
     lines.push(`| ${row.label} | ${cells.join(" | ")} |`);
   }
@@ -433,19 +413,8 @@ export function renderSupportMatrixMarkdownTable(anchor: keyof typeof markdownTa
 }
 
 export const supportLevels: SupportLevel[] = ["available", "package", "local", "none"];
-export const supportProofStates: SupportProofState[] = [
-  "current",
-  "stale",
-  "incomplete",
-  "failed",
-  "unpublished",
-  "not-applicable",
-];
 
-export const supportMatrixStatuses: Record<
-  SupportMatrixStatus,
-  { description: string; label: string }
-> = {
+export const supportMatrixStatuses: Record<SupportLevel, { description: string; label: string }> = {
   available: {
     label: "Available",
     description: "A built-in provider or generated output works on this host.",
@@ -462,29 +431,5 @@ export const supportMatrixStatuses: Record<
   none: {
     label: "Not provided",
     description: "ViteHub has no provider or output for this host.",
-  },
-  current: {
-    label: "Current proof",
-    description: "The latest owned run succeeded and is newer than its freshness limit.",
-  },
-  stale: {
-    label: "Stale proof",
-    description: "The latest successful run is older than its freshness limit.",
-  },
-  incomplete: {
-    label: "Stage-incomplete proof",
-    description: "The live run stopped before its runtime stage, for example at provision.",
-  },
-  failed: {
-    label: "Failed proof",
-    description: "The latest owned run failed.",
-  },
-  unpublished: {
-    label: "Proof not published",
-    description: "No owned run publishes evidence for this host yet.",
-  },
-  "not-applicable": {
-    label: "Not applicable",
-    description: "This proof tier does not apply to this host.",
   },
 };

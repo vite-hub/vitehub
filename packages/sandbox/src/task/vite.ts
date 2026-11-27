@@ -1,14 +1,16 @@
 import { ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
+import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
-import { configureCloudflareSandboxNitro } from './cloudflare'
+import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName } from './cloudflare'
+import { sandboxTaskErrorDiagnostics } from './error-diagnostics'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
+  sandboxTaskRuntimeLocalProviderSpecifier,
   sandboxTaskRuntimeProviderSpecifiers,
   sandboxTaskRuntimeSpecifier,
   sandboxTaskRuntimeStateSpecifier,
@@ -16,7 +18,9 @@ import {
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
 import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
-import { inspectSandboxTaskDefinitions } from './inspect'
+import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources, type SandboxTaskResourceInspectionOptions } from './inspect'
+import { sandboxDeploymentEnv } from './deployment-env'
+import type { DeploymentEnvContribution } from '@vite-hub/internal/build/deployment-plan-output'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
 import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
@@ -26,24 +30,34 @@ export { discoverSandboxTaskDefinitions } from './discovery'
 export type { DiscoveredSandboxTaskDefinition } from './discovery'
 export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandboxTaskConsoleSection } from './inspect'
 
-export type SandboxTaskPublicOptions = AgentSandboxTaskConfig | false
+export type SandboxTaskOptions = AgentSandboxTaskConfig | false
+type SandboxTaskNitroBuildConfig = {
+  builder: string
+  rolldown?: { resolve?: { alias?: Record<string, string | string[] | false> } }
+}
+type SandboxTaskNitroHost = {
+  hooks: {
+    hook(name: 'build:before', callback: () => void): void
+    hook(name: 'build:config', callback: (nitro: unknown, config: SandboxTaskNitroBuildConfig) => void): void
+  }
+  options: { alias?: unknown, dev?: boolean, devServer?: unknown, noExternals?: unknown }
+}
 export type SandboxTaskVitePlugin = Plugin & {
+  /** The variables that Sandbox Tasks read on the deployed host. See `sandboxDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
     name: string
-    setup: (nitro: {
-      hooks: { hook: (name: 'build:before', callback: () => void) => void }
-      options: Record<string, unknown>
-    }) => void
+    setup: (nitro: SandboxTaskNitroHost) => void
   }
 }
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox/task'
-// Vite and Nitro match noExternal entries against package names, and Sandbox Tasks ship in @vite-hub/sandbox.
 const SANDBOX_PACKAGE_NAME = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-task-provider-loader'
 const SANDBOX_STATE_ID = '#vitehub/sandbox-task'
 const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox-task:state'
+const SANDBOX_STATE_ID_PATTERN = /^(?:#vitehub\/sandbox-task|\0vitehub:sandbox-task:state)$/
 
 type AliasMap = Record<string, string>
 interface SandboxTaskViteInternalOptions {
@@ -54,8 +68,9 @@ type SandboxTaskAlias = Alias & { replacement: string }
 type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeDependencyByProvider
 
 function mergeSandboxTaskNitroProviderAliases(
-  nitro: Record<string, unknown>,
+  nitro: SandboxTaskNitroHost['options'],
   aliases: AliasMap,
+  frameworkSpecifier: string | undefined,
 ) {
   const providerAliases = Object.fromEntries(
     sandboxTaskProviderLoaderSpecifiers.flatMap((specifier) => {
@@ -63,6 +78,9 @@ function mergeSandboxTaskNitroProviderAliases(
       return replacement ? [[specifier, replacement]] : []
     }),
   )
+  const facade = aliases[SANDBOX_PACKAGE_ID]
+  if (frameworkSpecifier && facade)
+    providerAliases[frameworkSpecifier] = facade
   if (!Object.keys(providerAliases).length)
     return
 
@@ -71,7 +89,7 @@ function mergeSandboxTaskNitroProviderAliases(
 }
 
 function mergeSandboxTaskNitroNoExternals(
-  nitro: Record<string, unknown>,
+  nitro: SandboxTaskNitroHost['options'],
   provider: string | undefined,
 ) {
   if (provider !== 'cloudflare' && provider !== 'vercel')
@@ -96,11 +114,15 @@ function sandboxTaskProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox/task', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
+/** The path of the Sandbox Task runtime state module. Generated code of other owners imports it by path. */
+export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
+
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
+  [sandboxTaskRuntimeLocalProviderSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/local', 'runtime/providers/local.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
-  [sandboxTaskRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
+  [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }
 
 function toSandboxTaskAliasEntries(aliases: AliasMap): SandboxTaskAlias[] {
@@ -186,14 +208,11 @@ function invalidateGeneratedSandboxTaskModules(files: string[], moduleGraph: { g
   }
 }
 
-// Vite resolves the `runtime` link to a generation folder, and importers keep that path in
-// their transformed code. Move server environments to the current generation before it is pruned.
 async function reloadStaleSandboxTaskGenerations(
   environments: Record<string, DevEnvironment> | undefined,
   rootDir: string,
   facadeFile: string,
 ) {
-  // Vite keys modules by real path.
   const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).then(normalize).catch(() => undefined)
   const currentGeneration = generationsDir && await readSandboxTaskRuntimeGeneration(facadeFile, generationsDir)
   if (!generationsDir || !currentGeneration)
@@ -217,9 +236,9 @@ async function resolveGeneratedSandboxTaskModuleIds(files: string[]) {
   return Promise.all(files.map(async file => normalize(await realpath(file).catch(() => file))))
 }
 
-function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskPublicOptions {
+function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskOptions {
   // SAFETY: Removing the two package-private integration fields leaves the declared public Sandbox options.
-  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskPublicOptions
+  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskOptions
 }
 
 function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof configureCloudflareSandboxNitro>[0] {
@@ -227,9 +246,9 @@ function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof config
   return value as Parameters<typeof configureCloudflareSandboxNitro>[0]
 }
 
-export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskVitePlugin {
+export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlugin {
   // SAFETY: ViteHub adds these package-private integration fields before composing the Sandbox plugin.
-  const internalOptions = options as SandboxTaskPublicOptions & SandboxTaskViteInternalOptions | undefined
+  const internalOptions = options as SandboxTaskOptions & SandboxTaskViteInternalOptions | undefined
   const integrationOptions = internalOptions
     ? publicSandboxTaskOptions(internalOptions)
     : internalOptions
@@ -244,25 +263,43 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
   let sandboxTaskEnabled = integrationOptions !== false
+  let localDev = false
+  let nitroOptions: SandboxTaskNitroHost['options'] | undefined
   let selectedProvider: SandboxTaskHostingProvider | undefined
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
+  let cloudflareSandbox: SandboxTaskResourceInspectionOptions | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
-  const sandboxTaskNitroModule = (nitro: {
-    hooks: { hook: (name: 'build:before', callback: () => void) => void }
-    options: object
-  }) => {
-    // SAFETY: Nitro options are a plain object; the merges below only read and set its alias and noExternals keys.
-    const options = nitro.options as Record<string, unknown>
+
+  function assertLocalDevRunner() {
+    const devServer = nitroOptions?.devServer
+    const runner = (isPlainRecord(devServer) && devServer.runner) || process.env.NITRO_DEV_RUNNER
+    if (localDev && nitroOptions?.dev && runner === 'miniflare')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NITRO_RUNNER()
+  }
+
+  const sandboxTaskNitroModule = (nitro: SandboxTaskNitroHost) => {
+    const { options } = nitro
+    nitroOptions = options
+    assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
-      mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+      mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     nitro.hooks.hook('build:before', () => {
       mergeSandboxTaskNitroNoExternals(options, selectedProvider)
       if (selectedProvider)
-        mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+        mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     })
+    if (options.dev) {
+      nitro.hooks.hook('build:config', (_nitro, config) => {
+        const resolver = config.builder === 'rolldown' ? config.rolldown?.resolve : undefined
+        const specifier = internalOptions?.providerImportSpecifier
+        const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+        if (resolver && selectedProvider && specifier && facade)
+          resolver.alias = { ...resolver.alias, [specifier]: facade }
+      })
+    }
   }
 
   function cloneConfigValue<T>(value: T): T {
@@ -288,6 +325,8 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
       writeArtifacts,
     })
     sandboxTaskStateModule = prepared.stateModule
+    localDev = prepared.localDev
+    assertLocalDevRunner()
     return prepared
   }
 
@@ -335,14 +374,20 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxTaskRuntime>>,
     finalizeWrangler = false,
   ) {
-    if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
+    if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare') {
+      cloudflareSandbox = undefined
       return false
-    config.nitro = await configureCloudflareSandboxNitro(
+    }
+    const nitro = await configureCloudflareSandboxNitro(
       mutableSandboxTaskNitroTarget(config.nitro),
       prepared.rootDir,
       prepared.cloudflare,
       finalizeWrangler,
     )
+    config.nitro = nitro
+    const className = prepared.cloudflare.className || defaultCloudflareSandboxClassName
+    const container = nitro.cloudflare?.wrangler?.containers?.find(entry => entry.class_name === className)
+    cloudflareSandbox = { ...prepared.cloudflare, name: container?.name, instanceType: container?.instance_type, maxInstances: container?.max_instances }
     return true
   }
 
@@ -350,6 +395,11 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
     name: '@vite-hub/sandbox/task/vite',
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/task/provider-runtime', setup: sandboxTaskNitroModule },
+    api: {
+      deploymentEnv: context => sandboxTaskEnabled && definitions.length
+        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.driver : undefined), context)
+        : [],
+    },
     vitehub: {
       inspect: () => sandboxTaskEnabled ? ({
         definitions: [{
@@ -360,6 +410,7 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
             return inspectSandboxTaskDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxTaskRoot), rootDir: sandboxTaskRoot })
           },
         }],
+        resources: () => cloudflareSandbox ? inspectSandboxTaskResources(cloudflareSandbox) : [],
       }) : undefined,
     },
     async config(config, env) {
@@ -367,7 +418,7 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
       rawConfig = config as Record<string, unknown>
       rawEnv = env
       const prepared = await prepareCurrentSandboxTaskRuntime(false)
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       watchFiles = prepared.watchFiles
@@ -390,22 +441,28 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         },
       }
     },
-    resolveId(id) {
-      if (!sandboxTaskStateModule)
-        return
-      if (id === SANDBOX_STATE_ID)
-        return RESOLVED_SANDBOX_STATE_ID
-      if (id === RESOLVED_SANDBOX_STATE_ID)
-        return id
+    resolveId: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (!sandboxTaskStateModule)
+          return
+        if (id === SANDBOX_STATE_ID)
+          return RESOLVED_SANDBOX_STATE_ID
+        if (id === RESOLVED_SANDBOX_STATE_ID)
+          return id
+      },
     },
-    load(id) {
-      if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
-        return sandboxTaskStateModule
+    load: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
+          return sandboxTaskStateModule
+      },
     },
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxTaskRuntime()
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       selectedProvider = prepared.provider
       const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
@@ -459,11 +516,5 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         },
       }
     },
-  }
-}
-
-declare module 'vite' {
-  interface UserConfig {
-    sandboxTask?: SandboxTaskPublicOptions
   }
 }

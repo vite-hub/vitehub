@@ -1,10 +1,17 @@
-import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
+import type { SandboxTaskDefinitionOptions, VercelSandboxTaskDriverOptions } from '../../module-types'
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
+import { loadVercelSandbox, type VercelSandboxCreateOptions, type VercelSandboxInstance } from '../../../vercel.ts'
+import { resolveVercelSandboxTaskVcpus } from '../../size.ts'
 import { readEnv } from '@vite-hub/internal/env'
+import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
+import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
+import { vercelCredentialEnv } from '../../vercel-credentials.ts'
+
+const VERCEL_TASK_SANDBOX_HEADROOM_MS = 30_000
 
 type SandboxTaskOptions = {
   local: SandboxTaskDefinitionOptions
-  provider: VercelSandboxTaskProviderOptions
+  provider: VercelSandboxTaskDriverOptions
 }
 
 function readConfigCredential(value: string | undefined) {
@@ -14,9 +21,9 @@ function readConfigCredential(value: string | undefined) {
 
 function resolveEnvCredentials() {
   const env = typeof process !== 'undefined' ? process.env : {}
-  const token = readEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
-  const teamId = readEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
-  const projectId = readEnv(env, 'VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID')
+  const token = readEnv(env, ...vercelCredentialEnv.token.names)
+  const teamId = readEnv(env, ...vercelCredentialEnv.teamId.names)
+  const projectId = readEnv(env, ...vercelCredentialEnv.projectId.names)
 
   return {
     token,
@@ -25,7 +32,7 @@ function resolveEnvCredentials() {
   }
 }
 
-function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
+function resolveCredentials(provider: VercelSandboxTaskDriverOptions) {
   const env = resolveEnvCredentials()
   const token = readConfigCredential(provider.token) || env.token
   const teamId = readConfigCredential(provider.teamId) || env.teamId
@@ -44,11 +51,9 @@ function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
 export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const credentials = resolveCredentials(options.provider)
   const sandboxOptions = {
-    runtime: options.provider.runtime || 'node24',
-    timeout: typeof options.local.timeout === 'number'
-      ? options.local.timeout
-      : options.provider.timeout,
-    cpu: options.provider.cpu,
+    runtime: options.provider.runtime,
+    timeout: (options.local.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS) + VERCEL_TASK_SANDBOX_HEADROOM_MS,
+    cpu: resolveVercelSandboxTaskVcpus(options.provider),
     ports: options.provider.ports,
     source: options.provider.source,
     networkPolicy: options.provider.networkPolicy,
@@ -57,8 +62,27 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   return {
     provider: 'vercel' as const,
     resolveSandbox: async (requirements: readonly string[]) => await resolveVercelSandbox(
-      sandboxOptions,
+      { ...sandboxOptions, create: withPlanLimitError(await loadVercelSandbox()) },
       requirements,
     ),
   }
+}
+
+function withPlanLimitError(create: (options: VercelSandboxCreateOptions) => Promise<VercelSandboxInstance>) {
+  return async (createOptions: VercelSandboxCreateOptions) => {
+    try {
+      return await create(createOptions)
+    }
+    catch (error) {
+      const limit = error instanceof Error ? vercelTimeoutLimit(error.message) : undefined
+      if (limit && createOptions.timeout !== undefined)
+        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT({ cause: error, limit, timeout: createOptions.timeout })
+      throw error
+    }
+  }
+}
+
+function vercelTimeoutLimit(message: string) {
+  // provider-message-match: the Vercel API answers a timeout above the plan maximum with a plain 400 and no error code.
+  return /`timeout` restricted to [^\n]+/.exec(message)?.[0]
 }

@@ -1,10 +1,12 @@
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
+import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
+import commentSend from "@vite-hub/ui/comment-send.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
 import { normalizeCommentPage } from "../page.ts"
 import { api } from "./api.ts"
 import { hostIsDark, mountOverlay } from "./app.ts"
-import { documentStyles, pillBarStyles } from "./styles.ts"
+import { areaStyles, documentStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { Mode, OverlayControl } from "./app.ts"
@@ -23,11 +25,19 @@ function style(text: string): HTMLStyleElement {
 class CommentsOverlay extends HTMLElement {
   /** The page tools context that started the overlay. */
   context?: ViteHubPageToolContext
-  private readonly documentStyle = style(documentStyles)
+  /**
+   * The highlights of commented text, and edit mode. The marks stay in the components layer, as `@vite-hub/ui/styles.css`
+   * puts them, so the page's own rules win over them.
+   */
+  private readonly documentStyle = style(`@layer components {\n${commentMarks}\n}\n${documentStyles}`)
+  /** The areas of threads, under the page's floating controls. See `areaStyles`. */
+  private readonly areas = document.createElement("vitehub-comment-areas")
   private readonly toolbar = document.createElement("div")
   private control?: OverlayControl
   private mode: Mode = "view"
   private frame = 0
+  /** Whether the DOM of the page changed since the last layout frame. */
+  private changed = false
   private lastCursor = 0
   private readonly cleanups: Array<() => void> = []
 
@@ -50,13 +60,17 @@ class CommentsOverlay extends HTMLElement {
       busy.disabled = true
       busy.setAttribute("aria-busy", "true")
       busy.textContent = this.context?.tool.label ?? "Comments"
-      segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles), this.toolbar)
+      segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles + commentSend), this.toolbar)
       this.toolbar.replaceChildren(busy)
     }
-    this.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
-    this.followTheme()
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
+    const areaRoot = this.areas.shadowRoot ?? this.areas.attachShadow({ mode: "open" })
+    areaRoot.replaceChildren(style(commentMarks + areaStyles))
+    this.areas.setAttribute("data-comments-ui", "")
+    document.documentElement.append(this.areas)
+    this.cleanups.push(() => this.areas.remove())
+    this.followTheme()
 
     const [error, session] = await api.session(normalizeCommentPage(location.pathname))
     const allowed = this.active && !error && session.can.read
@@ -67,14 +81,27 @@ class CommentsOverlay extends HTMLElement {
       host: this,
       ...(this.context ? { context: this.context } : {}),
       ...(bar ? { toolbar: this.toolbar } : {}),
+      areas: areaRoot,
       ...(error ? { failure: error } : { session }),
       onMode: (mode) => {
         this.mode = mode
         this.restoreDocumentState()
       },
       exit: () => this.context?.exit(),
+      prompt: this.context?.open !== false,
     })
-    if (!allowed) return
+    if (!allowed) {
+      // Someone who may sign in, or switch accounts, keeps the tool's button, as before it loaded. Pressing it says how.
+      if (bar && session && this.active && !this.context?.open && (session.signIn || session.signOut)) {
+        const launch = document.createElement("button")
+        launch.type = "button"
+        launch.textContent = this.context?.tool.label ?? "Comments"
+        launch.addEventListener("click", () => this.control?.promptAccess())
+        this.toolbar.replaceChildren(launch)
+        bar.hidden = false
+      }
+      return
+    }
     this.listen()
     this.context?.onOpen(() => this.control?.showPanel())
     this.context?.beforeExit(() => !this.control?.hasUnsentComment() || window.confirm("Turn off tools without sending your comment?"))
@@ -95,7 +122,13 @@ class CommentsOverlay extends HTMLElement {
       const dark = hostIsDark()
       this.style.colorScheme = dark ? "dark" : "light"
       this.classList.toggle("dark", dark)
+      this.areas.classList.toggle("dark", dark)
       this.dataset.theme = dark ? "dark" : "light"
+      // The page can select a scheme with CSS alone. Give document highlights the same default as the area host,
+      // while keeping the page's comment and theme token overrides. No host page attributes need to change.
+      const ink = getComputedStyle(this.areas).getPropertyValue("--vh-comment-default-ink").trim()
+      const text = `@layer components {\n${commentMarks}\n:root { --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, ${ink})); }\n}\n${documentStyles}`
+      if (this.documentStyle.textContent !== text) this.documentStyle.textContent = text
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -115,7 +148,11 @@ class CommentsOverlay extends HTMLElement {
 
   private schedule() {
     cancelAnimationFrame(this.frame)
-    this.frame = requestAnimationFrame(() => this.control?.layout())
+    this.frame = requestAnimationFrame(() => {
+      const changed = this.changed
+      this.changed = false
+      this.control?.layout(changed)
+    })
   }
 
   private listen() {
@@ -130,6 +167,7 @@ class CommentsOverlay extends HTMLElement {
       // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
       // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
       this.restoreDocumentState()
+      this.changed = true
       schedule()
     })
     // Follow the new page as well when its router replaces the body.
@@ -157,6 +195,16 @@ class CommentsOverlay extends HTMLElement {
     }
     this.on(window, "popstate" as keyof DocumentEventMap, navigate)
 
+    // The bar over selected text: shown once the selection settles, so it does not chase a drag.
+    let selectionTimer: ReturnType<typeof setTimeout> | undefined
+    const selectionChanged = (delay: number) => {
+      clearTimeout(selectionTimer)
+      selectionTimer = setTimeout(() => this.control?.selectionChanged(), delay)
+    }
+    this.on(document, "selectionchange", () => selectionChanged(200))
+    this.on(document, "pointerup", () => selectionChanged(0))
+    this.cleanups.push(() => clearTimeout(selectionTimer))
+
     this.on(document, "pointermove", event => this.pointerMoved(event), { passive: true })
     this.on(document, "pointerleave" as keyof DocumentEventMap, () => this.control?.leave())
     this.on(document, "click", event => this.clicked(event), { capture: true })
@@ -164,7 +212,6 @@ class CommentsOverlay extends HTMLElement {
     this.on(document, "visibilitychange", () => {
       if (document.visibilityState === "visible") this.control?.refresh()
     })
-    // Writes from the server API (Console, Agents) reach open pages within 30 seconds.
     const poll = setInterval(() => {
       if (document.visibilityState === "visible") this.control?.refresh()
     }, 30_000)

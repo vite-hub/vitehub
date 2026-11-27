@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { looksMergeReady, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
-import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"
+import { createLibsqlAgentState } from "@vite-hub/agent/state"
 
 const repository = 'vite-hub/vitehub'
 const pr = (number: number, patch: Record<string, unknown> = {}) => ({ number, state: 'open', user: { login: 'onmax' },
@@ -121,6 +121,28 @@ it('prunes delivery payloads and old delivery IDs', async () => {
   now = 14 * 24 * 60 * 60_000
   await inbox.pruneDeliveries()
   expect(db.prepare('SELECT id FROM vitehub_babysitter_deliveries').all().map(row => row.id)).toEqual([])
+  db.close()
+  await inbox.close()
+})
+
+it('prunes only the delivery payloads that crossed the window since the last prune', async () => {
+  const day = 24 * 60 * 60_000
+  let now = 0
+  const path = join(await directory(), 'inbox.sqlite')
+  const inbox = new PullRequestInbox({ path, repositories: [repository], clock: () => now })
+  await inbox.seed(repository, pr(7))
+  const comment = (id: number) => ({ repository: { full_name: repository }, action: 'created', issue: { number: 7, pull_request: {} }, comment: { id, body: 'Fix', user: { login: 'human' } } })
+  await inbox.ingest('old', 'issue_comment', comment(1))
+  now = 2 * day
+  await inbox.ingest('recent', 'issue_comment', comment(2))
+  await inbox.pruneDeliveries()
+  const db = new DatabaseSync(path)
+  // A payload below the last cutoff can only come from outside the store, so a later prune leaves it.
+  db.prepare(`UPDATE vitehub_babysitter_deliveries SET payload='{}' WHERE id='old'`).run()
+  now = 3.5 * day
+  await inbox.pruneDeliveries()
+  const rows = db.prepare('SELECT id, payload IS NULL AS pruned FROM vitehub_babysitter_deliveries ORDER BY id').all()
+  expect(rows.map(row => ({ ...row }))).toEqual([{ id: 'old', pruned: 0 }, { id: 'recent', pruned: 1 }])
   db.close()
   await inbox.close()
 })

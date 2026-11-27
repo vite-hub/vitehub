@@ -9,6 +9,7 @@ const labels: Record<AuthConsoleEvent["type"], string> = {
   "user.signed_out": "Signed out",
   "sign_in.failed": "Sign-in failed",
   "session.revoked": "Session revoked",
+  "session.expired": "Session expired",
   "user.banned": "User banned",
   "user.unbanned": "User unbanned",
   "user.role_changed": "Role changed",
@@ -44,7 +45,7 @@ const labels: Record<AuthConsoleEvent["type"], string> = {
             params: { page: 'users' },
             query: { user: event.actor.id },
           }"
-          class="break-all rounded-sm text-toned underline decoration-default underline-offset-2 focus-visible:outline-(--vitehub-console-focus)"
+          class="break-all rounded-md text-toned underline decoration-default underline-offset-2"
           >{{ event.actor.name }}</RouterLink
         >
         <span
@@ -61,7 +62,7 @@ const labels: Record<AuthConsoleEvent["type"], string> = {
             params: { page: 'users' },
             query: { user: event.subject.id },
           }"
-          class="break-all rounded-sm text-toned underline decoration-default underline-offset-2 focus-visible:outline-(--vitehub-console-focus)"
+          class="break-all rounded-md text-toned underline decoration-default underline-offset-2"
           >{{ event.subject.name }}</RouterLink
         >
         <span

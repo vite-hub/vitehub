@@ -120,11 +120,13 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     installFakeWrangler()
     writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
 
-    const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ FAKE_WRANGLER_MODE: "project-state" }) })
+    const context = { cwd: dir, env: env({ FAKE_WRANGLER_MODE: "project-state" }) }
+    const result = await resolveHostCredentials("cloudflare", context)
+    const fromEnv = await resolveHostCredentials("cloudflare", { ...context, env: { ...context.env, CLOUDFLARE_API_TOKEN: "env-token" } })
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
-    const fromEnv = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
     expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+    expect(calls()).toEqual([["auth", "token", "--json", ...isolatedFlags], ["whoami", "--json", ...isolatedFlags]])
   })
 
   it("uses PATH instead of Wrangler available only through NODE_PATH", () => {

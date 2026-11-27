@@ -1,4 +1,5 @@
 import {
+  areOptionsEqual,
   CodeView as PierreCodeViewModel,
   DIFFS_TAG_NAME,
   File as PierreFileModel,
@@ -9,12 +10,14 @@ import {
   type FileContents,
   type FileDiffMetadata,
   type FileDiffOptions,
+  type SelectedLineRange,
 } from "@pierre/diffs";
 import {
   computed,
   defineComponent,
   h,
   onBeforeUnmount,
+  shallowRef,
   toRaw,
   type VNodeRef,
   watchEffect,
@@ -25,6 +28,121 @@ const selectedLinesProp = {
   default: undefined,
   type: pierrePropTypes.selectedLines,
 };
+
+const scrollToSelectedLinesProp = { default: false, type: Boolean };
+
+// Pierre can keep the previous source rendered while a replacement's highlighter loads.
+class SelectionFileModel extends PierreFileModel<unknown> {
+  isSourceRendered() {
+    const file = this.getWorkingFile();
+    const rendered = this.getRenderedFile();
+    if (!file || !rendered) return false;
+    if (file.cacheKey != null || rendered.cacheKey != null) return file.cacheKey === rendered.cacheKey;
+    return file.name === rendered.name && file.contents === rendered.contents && file.lang === rendered.lang;
+  }
+}
+
+class SelectionDiffModel extends PierreFileDiffModel<unknown> {
+  isSourceRendered() {
+    return sameDiffSource(this.getWorkingDiff(), this.getRenderedDiff());
+  }
+}
+
+class SelectionUnresolvedFileModel extends PierreUnresolvedFileModel<unknown> {
+  isSourceRendered() {
+    return sameDiffSource(this.getWorkingDiff(), this.getRenderedDiff());
+  }
+}
+
+function useOwnerRender() {
+  const requests = shallowRef(0);
+  return {
+    request: () => {
+      requests.value++;
+    },
+    track: () => requests.value,
+  };
+}
+
+function sameDiffSource(diff: FileDiffMetadata | undefined, rendered: FileDiffMetadata | undefined) {
+  return diff === rendered || (diff?.cacheKey != null && diff.cacheKey === rendered?.cacheKey);
+}
+
+/**
+ * Centers `row` in the nearest ancestor of the view that scrolls, else in the page. `scrollIntoView` alone also moves
+ * each `overflow: hidden` ancestor, such as an app shell.
+ */
+function scrollToRow(host: HTMLElement, row: HTMLElement) {
+  let scroller: HTMLElement | null = host;
+  while (
+    scroller &&
+    !(/auto|scroll|overlay/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)
+  )
+    scroller = scroller.parentElement;
+  if (!scroller || scroller === document.body || scroller === document.documentElement) {
+    row.scrollIntoView({ block: "center", inline: "nearest" });
+    return;
+  }
+  const rect = row.getBoundingClientRect();
+  scroller.scrollTop += rect.top - scroller.getBoundingClientRect().top - (scroller.clientHeight - rect.height) / 2;
+}
+
+/**
+ * Scrolls the first selected line into view, once for each new range or `source`. Pierre marks the selected rows in a
+ * later frame and renders the file after its highlighter loads, so this waits for the row of the new selection.
+ */
+function createSelectionScroll(getHost: () => HTMLElement | null, isSourceRendered: () => boolean) {
+  let key: readonly unknown[] | undefined;
+  let observer: MutationObserver | undefined;
+  const stop = () => {
+    observer?.disconnect();
+    observer = undefined;
+  };
+  const sync = (range: SelectedLineRange | null | undefined, source: readonly unknown[]) => {
+    const next = range ? [...source, ...rangeKey(range)] : undefined;
+    const previous = key;
+    const host = getHost();
+    const root = host?.shadowRoot;
+    key = root ? next : undefined;
+    if (next && previous?.length === next.length && next.every((value, index) => Object.is(value, previous[index])))
+      return;
+    stop();
+    if (!range || !host || !root) return;
+    const scroll = () => {
+      if (!isSourceRendered()) return;
+      const rows = root.querySelectorAll<HTMLElement>(
+        '[data-line][data-selected-line="first"], [data-line][data-selected-line="single"]',
+      );
+      const row = Array.from(rows).find((row) => {
+        const line = Number(row.dataset.line);
+        const side = row.closest("[data-deletions]") || row.dataset.lineType === "change-deletion" ? "deletions"
+          : row.closest("[data-additions]") || row.dataset.lineType === "change-addition" ? "additions" : undefined;
+        return (line === range.start && (!side || side === (range.side ?? "additions")))
+          || (line === range.end && (!side || side === (range.endSide ?? range.side ?? "additions")));
+      });
+      if (!row) return;
+      stop();
+      scrollToRow(host, row);
+    };
+    observer = new MutationObserver(scroll);
+    observer.observe(root, {
+      attributeFilter: ["data-selected-line"],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    scroll();
+  };
+  return { stop, sync };
+}
+
+function rangeKey(range: SelectedLineRange) {
+  return [range.start, range.end, range.side, range.endSide];
+}
+
+function snapshotSelection(range: SelectedLineRange | null) {
+  return range === null ? null : { ...range };
+}
 
 function controlledOptions<T extends { controlledSelection?: boolean }>(
   options: T | undefined,
@@ -69,6 +187,14 @@ function trackArrayItems<T extends readonly unknown[] | undefined>(values: T): T
   return toRaw(values);
 }
 
+/**
+ * The annotations to pass to Pierre. Pierre compares annotation lists by reference, so the list is a new array only
+ * when the prop or one of its items changes, and the same array when the view renders for another reason.
+ */
+function useLineAnnotations<T>(read: () => readonly T[] | undefined) {
+  return computed(() => [...(trackArrayItems(read()) ?? [])]);
+}
+
 function copyFile(file: FileContents | null): FileContents | null {
   return file === null ? null : { ...file };
 }
@@ -91,47 +217,70 @@ export const PierreDiff = defineComponent({
     oldFile: { type: pierrePropTypes.nullableFileContents },
     options: { type: pierrePropTypes.fileDiffOptions },
     patch: { type: String },
+    scrollToSelectedLines: scrollToSelectedLinesProp,
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreFileDiffModel<unknown> | undefined;
-    const fileDiff = computed<FileDiffMetadata | undefined>(() => {
-      if (props.fileDiff) return trackShallow(props.fileDiff);
-      if (props.patch !== undefined) return getSingularPatch(props.patch);
+    let instance: SelectionDiffModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
+    const diffInput = computed(() => {
+      if (props.fileDiff) return { diff: trackShallow(props.fileDiff) };
+      if (props.patch !== undefined) return { diff: getSingularPatch(props.patch) };
       if (props.oldFile !== undefined && props.newFile !== undefined) {
-        return parseDiffFromFile(
+        const diff = parseDiffFromFile(
           copyFile(props.oldFile),
           copyFile(props.newFile),
           copyParseDiffOptions(props.options?.parseDiffOptions),
         );
+        return { diff };
       }
     });
+    let renderedInput: typeof diffInput.value;
 
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
-      if (!fileDiff.value) {
+      const input = diffInput.value;
+      if (!input) {
         instance?.cleanUp();
         instance = undefined;
+        renderedInput = undefined;
         return;
       }
-      const options = accessibleDiffOptions(props.options, props.selectedLines, fileDiff.value);
-      if (!instance) instance = new PierreFileDiffModel(options, undefined, true);
+      const options = accessibleDiffOptions(props.options, props.selectedLines, input.diff);
+      if (!instance) instance = new SelectionDiffModel(options, undefined, ownerRender.request);
+      const diffChanged = renderedInput !== undefined && renderedInput !== input;
+      const forceRender = diffChanged || !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         fileContainer: host,
-        fileDiff: fileDiff.value,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        fileDiff: input.diff,
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
+      renderedInput = input;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
+      selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
+        toRaw(props.fileDiff),
+        props.patch,
+        props.oldFile?.name,
+        props.oldFile?.contents,
+        props.newFile?.name,
+        props.newFile?.contents,
+      ]);
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
     };
     watchEffect(render, { flush: "post" });
-    onBeforeUnmount(() => instance?.cleanUp());
+    onBeforeUnmount(() => {
+      selectionScroll.stop();
+      instance?.cleanUp();
+    });
     expose({ getInstance: () => instance });
     return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
@@ -144,13 +293,18 @@ export const PierreFile = defineComponent({
     file: { type: pierrePropTypes.fileContents },
     lineAnnotations: { type: pierrePropTypes.lineAnnotations },
     options: { type: pierrePropTypes.fileOptions },
+    scrollToSelectedLines: scrollToSelectedLinesProp,
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreFileModel<unknown> | undefined;
+    let instance: SelectionFileModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
       if (!file.value) {
         instance?.cleanUp();
@@ -158,22 +312,31 @@ export const PierreFile = defineComponent({
         return;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new PierreFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionFileModel(options, undefined, ownerRender.request);
+      // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
+      const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         file: file.value,
         fileContainer: host,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
+      selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
+        file.value.name,
+        file.value.contents,
+      ]);
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
     };
     watchEffect(render, { flush: "post" });
-    onBeforeUnmount(() => instance?.cleanUp());
+    onBeforeUnmount(() => {
+      selectionScroll.stop();
+      instance?.cleanUp();
+    });
     expose({ getInstance: () => instance });
     return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
@@ -186,14 +349,19 @@ export const PierreUnresolvedFile = defineComponent({
     file: { type: pierrePropTypes.fileContents },
     lineAnnotations: { type: pierrePropTypes.diffLineAnnotations },
     options: { type: pierrePropTypes.unresolvedFileOptions },
+    scrollToSelectedLines: scrollToSelectedLinesProp,
     selectedLines: selectedLinesProp,
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let instance: PierreUnresolvedFileModel<unknown> | undefined;
+    let instance: SelectionUnresolvedFileModel | undefined;
+    const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     let renderedFile: FileContents | undefined;
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
       if (!file.value) {
         instance?.cleanUp();
@@ -206,23 +374,32 @@ export const PierreUnresolvedFile = defineComponent({
         instance = undefined;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new PierreUnresolvedFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionUnresolvedFileModel(options, undefined, ownerRender.request);
+      // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
+      const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         file: file.value,
         fileContainer: host,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
       renderedFile = file.value;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
+      selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
+        file.value.name,
+        file.value.contents,
+      ]);
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;
     };
     watchEffect(render, { flush: "post" });
-    onBeforeUnmount(() => instance?.cleanUp());
+    onBeforeUnmount(() => {
+      selectionScroll.stop();
+      instance?.cleanUp();
+    });
     expose({ getInstance: () => instance });
     return () => h(DIFFS_TAG_NAME, { ...attrs, ref: setHost });
   },
@@ -234,6 +411,7 @@ export const PierreCodeView = defineComponent({
   props: {
     items: { required: true, type: pierrePropTypes.codeViewItems },
     options: { type: pierrePropTypes.codeViewOptions },
+    scrollToSelectedLines: scrollToSelectedLinesProp,
     selectedLines: {
       default: undefined,
       type: pierrePropTypes.codeViewSelection,
@@ -242,6 +420,7 @@ export const PierreCodeView = defineComponent({
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
     let instance: PierreCodeViewModel<unknown> | undefined;
+    let scrolledTo: readonly unknown[] | undefined;
     const render = () => {
       if (!host) return;
       const options = accessibleOptions(props.options, props.selectedLines);
@@ -255,6 +434,13 @@ export const PierreCodeView = defineComponent({
         instance.setSelectedLines(trackShallow(props.selectedLines), { notify: false });
       }
       instance.render(true);
+      const selection = props.scrollToSelectedLines ? props.selectedLines : undefined;
+      const key = selection ? [selection.id, ...rangeKey(selection.range)] : undefined;
+      const changed = key?.some((value, index) => value !== scrolledTo?.[index]);
+      scrolledTo = key;
+      // The list renders only the rows in view, so Pierre finds the place of the lines.
+      if (selection && changed)
+        instance.scrollTo({ align: "center", id: selection.id, range: selection.range, type: "range" });
     };
     const setHost: VNodeRef = (node) => {
       host = node instanceof HTMLElement ? node : null;

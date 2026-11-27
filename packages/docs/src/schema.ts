@@ -1,13 +1,50 @@
 import { z } from "zod"
 
+import type { ConnectProviderName } from "@vite-hub/web-container/connect"
+
 /**
  * How a page renders. `article` is prose with an outline, `tutorial` numbers its steps, `landing` is a wide Overview,
  * and `home` is the page's own blocks at full width under the site header, without the docs sidebar, such as a
- * product home page.
+ * product home page. `playground` and `learn` fill the page with a code workspace: `playground` opens the apps of
+ * `examples`, and `learn` runs the `::tutorial-step` blocks of a lesson on its `fixture`.
  */
-export const docsLayouts = ["article", "tutorial", "landing", "home"] as const
+export const docsLayouts = ["article", "tutorial", "landing", "home", "playground", "learn"] as const
 
 export type DocsLayout = (typeof docsLayouts)[number]
+
+/** An app of a `layout: playground` page. */
+export interface DocsPlaygroundExample {
+  /** The `?example=` value and the id in share links. */
+  id: string
+  label: string
+  /** The heading of the example in the examples menu. */
+  group?: string
+  /** One line under the label in the examples menu and on the start screen. */
+  description?: string
+  /** The folder of the app, relative to the app root, such as `examples/hello`. */
+  dir: string
+  /** The file that the editor opens first. Defaults to the first file. */
+  open?: string
+  /** The path that the preview opens when the dev server is ready. Defaults to `/`. */
+  preview?: string
+  /**
+   * Text files of `dir` that the editor does not let the reader change, such as `["model.ts"]`. Code can still change
+   * them. A path that is not a text file of `dir` fails the build with `DOCS_WORKSPACE_READONLY_MISSING`.
+   */
+  readonly?: string[]
+}
+
+/** An output tab of a `layout: playground` page. */
+export interface DocsPlaygroundTab {
+  /** Names the component that draws the tab: `messages` is `app/components/playground/PlaygroundTabMessages.vue`. */
+  value: string
+  label: string
+}
+
+/** An account that a playground page can connect: each one takes a token in its Connect tab. */
+export type DocsConnectProvider = Exclude<ConnectProviderName, "cloudflare">
+
+const connectProviders = ["anthropic", "github", "netlify", "openai", "vercel"] as const satisfies readonly DocsConnectProvider[]
 
 /** Navigation fields of a page. `false` keeps the page out of the sidebar. */
 export type DocsPageNavigation = false | {
@@ -44,11 +81,41 @@ export interface DocsPageFrontmatter {
   tutorial?: "project" | "quickstart"
   /** Tutorials only. Shows the file tree and code of the current step beside the prose. */
   codePanel?: boolean
-  /** `false` hides the navigation sidebar on this page. */
-  sidebar?: boolean
+  /**
+   * `false` hides the navigation sidebar on this page. `"collapsed"` shows a narrow strip instead, with a button that opens
+   * the sidebar, for a page that needs the width, such as a playground. Code panel tutorials start collapsed.
+   */
+  sidebar?: boolean | "collapsed"
   /** `false` hides the "On this page" outline. */
   toc?: boolean
   navigation?: DocsPageNavigation
+  /** `layout: playground` only. The apps that the workspace opens, in menu order. */
+  examples?: DocsPlaygroundExample[]
+  /** `layout: playground` only. More output tabs after the tabs of the runner. */
+  tabs?: DocsPlaygroundTab[]
+  /**
+   * `layout: playground` only. A module, relative to the app root, such as `app/playground/render.ts`, whose default
+   * export renders the files to HTML in the page. Without it, the examples run in a WebContainer.
+   */
+  render?: string
+  /**
+   * `layout: playground` without `render`. The accounts that the reader can connect in a Connect tab, such as
+   * `[github, vercel]`. A credential stays in the browser tab and reaches the app as an environment variable.
+   */
+  connect?: DocsConnectProvider[]
+  /** `playground` and `learn` without `render`. The port of the dev server of the app. Defaults to `3000`. */
+  port?: number
+  /** `layout: learn` only. The folder of the app after the last step, in the `docs.runnable.fixtures` folder. */
+  fixture?: string
+  /** `layout: learn` only. Where the step text goes: `side` in a column beside the code (the default), or `top` over it. */
+  guide?: "top" | "side"
+  /**
+   * `layout: learn` only. The URL of the docs page whose `::tutorial-step` blocks are the steps, such as
+   * `/docs/getting-started/first-agent`. Defaults to this page, so the steps can live in the page itself.
+   */
+  lesson?: string
+  /** `layout: learn` only. The path that the preview opens when the dev server is ready. Defaults to `/`. */
+  preview?: string
   /**
    * Search and share fields, when they differ from the page's own. `image` is the share image: a path in `public/` or a
    * URL, or `false` for none. Without it the build renders one from the title and description. `index: false` asks
@@ -106,6 +173,17 @@ const seoFields: Fields<NonNullable<DocsPageFrontmatter["seo"]>> = {
   index: z.boolean().optional(),
 }
 
+const exampleFields: Fields<DocsPlaygroundExample> = {
+  id: z.string().regex(/^[\w-]+$/, "Use letters, digits, `-`, or `_`"),
+  label: z.string(),
+  group: z.string().optional(),
+  description: z.string().optional(),
+  dir: z.string(),
+  open: z.string().optional(),
+  preview: z.string().startsWith("/").optional(),
+  readonly: z.array(z.string()).optional(),
+}
+
 const pageFields: Fields<DocsPageFrontmatter> = {
   title: z.string(),
   description: z.string().optional(),
@@ -117,10 +195,50 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   layout: z.enum(docsLayouts).optional(),
   tutorial: z.enum(["project", "quickstart"]).optional(),
   codePanel: z.boolean().optional(),
-  sidebar: z.boolean().optional(),
+  sidebar: z.union([z.boolean(), z.literal("collapsed")]).optional(),
   toc: z.boolean().optional(),
   navigation: z.union([z.literal(false), z.strictObject(navigationFields)]).optional(),
   seo: z.strictObject(seoFields).optional(),
+  examples: z.array(z.strictObject(exampleFields)).optional(),
+  tabs: z.array(z.strictObject({ value: z.string().regex(/^[a-z][\w-]*$/i, "Use letters, digits, `-`, or `_`, starting with a letter"), label: z.string() })).optional(),
+  render: z.string().optional(),
+  connect: z.array(z.enum(connectProviders)).min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  fixture: z.string().optional(),
+  guide: z.enum(["top", "side"]).optional(),
+  lesson: z.string().startsWith("/").optional(),
+  preview: z.string().startsWith("/").optional(),
+}
+
+const layoutFields = {
+  examples: ["playground"],
+  tabs: ["playground"],
+  render: ["playground"],
+  connect: ["playground"],
+  port: ["playground", "learn"],
+  fixture: ["learn"],
+  guide: ["learn"],
+  lesson: ["learn"],
+  preview: ["learn"],
+} as const satisfies Partial<Record<keyof DocsPageFrontmatter, readonly DocsLayout[]>>
+
+function checkLayoutFields(page: DocsPageFrontmatter, context: z.RefinementCtx) {
+  const layout = page.layout ?? "article"
+  for (const [field, layouts] of Object.entries(layoutFields)) {
+    if (page[field as keyof typeof layoutFields] === undefined || (layouts as readonly string[]).includes(layout)) continue
+    context.addIssue({ code: "custom", path: [field], message: `Only a page with \`layout: ${layouts.join("` or `layout: ")}\` reads \`${field}\`` })
+  }
+  if (layout === "playground") {
+    if (!page.examples?.length) context.addIssue({ code: "custom", path: ["examples"], message: "A playground page needs at least one example" })
+    const ids = new Set<string>()
+    for (const [index, example] of (page.examples ?? []).entries()) {
+      if (ids.has(example.id)) context.addIssue({ code: "custom", path: ["examples", index, "id"], message: `Two examples have the id \`${example.id}\`` })
+      ids.add(example.id)
+    }
+    if (page.render !== undefined && page.port !== undefined) context.addIssue({ code: "custom", path: ["port"], message: "A `render` page runs in the browser page and has no dev server port" })
+    if (page.render !== undefined && page.connect !== undefined) context.addIssue({ code: "custom", path: ["connect"], message: "A `render` page runs no app, so it has no accounts to connect" })
+  }
+  if (layout === "learn" && page.fixture === undefined) context.addIssue({ code: "custom", path: ["fixture"], message: "A learn page needs the `fixture` folder of its app" })
 }
 
 /**
@@ -141,8 +259,11 @@ export const docsPageFields: Fields<DocsPageFile> = {
   "seo.index": seoFields.index,
 }
 
-/** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
-export const docsPageSchema: z.ZodType<DocsPageFrontmatter> = z.strictObject(pageFields)
+/**
+ * The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. It also checks
+ * that the workspace fields sit on the layouts that read them.
+ */
+export const docsPageSchema: z.ZodType<DocsPageFrontmatter> = z.strictObject(pageFields).superRefine(checkLayoutFields)
 
 export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.strictObject({
   title: z.string().optional(),

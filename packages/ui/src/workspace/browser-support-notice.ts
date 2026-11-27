@@ -1,5 +1,8 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, useId } from "vue";
-import { icon } from "./icons.ts";
+import { useCopy } from "../components/copy-button.ts";
+import { MorphText, SwapIcon } from "../components/motion.ts";
+import { ring } from "../motion/helpers/ring.ts";
+import { icon, type WorkspaceIconName } from "./icons.ts";
 
 export type UnsupportedBrowser = "safari" | "unknown";
 
@@ -36,7 +39,8 @@ export const BrowserSupportNotice = defineComponent({
     const mounted = ref(false);
     const detected = ref<UnsupportedBrowser>("unknown");
     const why = ref(false);
-    const copied = ref(false);
+    // The notice keeps its own buttons, so it shares only the clipboard logic of CopyButton.
+    const { copied, copy: copyText } = useCopy();
     const whyId = useId();
     const root = ref<HTMLElement | null>(null);
 
@@ -50,17 +54,13 @@ export const BrowserSupportNotice = defineComponent({
     });
     onBeforeUnmount(() => document.removeEventListener("pointerdown", closeOnOutside));
 
-    async function copy() {
+    async function copy(event: MouseEvent) {
+      const button = event.currentTarget;
       const url = props.url ?? location.href;
-      try {
-        await navigator.clipboard.writeText(url);
-        copied.value = true;
-        setTimeout(() => { copied.value = false; }, 2000);
-        emit("copied", url);
-      }
-      catch {
-        // Some browsers block the clipboard. The link is still in the address bar.
-      }
+      // Some browsers block the clipboard. The link is still in the address bar.
+      if (!await copyText(url)) return;
+      emit("copied", url);
+      if (button instanceof HTMLElement) ring(button);
     }
 
     return () => {
@@ -75,7 +75,10 @@ export const BrowserSupportNotice = defineComponent({
             ? "This tutorial still works as text. The site owner needs to enable cross-origin isolation for the live workspace."
             : props.description),
           h("div", { class: "vh-ws-actions" }, [
-            h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [icon(copied.value ? "check" : "copy"), copied.value ? "Copied" : "Copy link"]),
+            h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [
+              h(SwapIcon, { name: copied.value ? "check" : "copy", enter: copied.value ? "draw" : "blur" }, { default: ({ name }: { name: WorkspaceIconName }) => icon(name) }),
+              h(MorphText, { text: copied.value ? "Copied" : "Copy link" }),
+            ]),
             h("div", { class: "vh-ws-popover-anchor" }, [
               h("button", {
                 "aria-controls": whyId,

@@ -1,5 +1,5 @@
 import { toAgentPublicError } from "./agent-error.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
@@ -8,6 +8,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
 export const agentInvocationStreamHeaderValue = "1"
+export const agentDevLoopTokenScopeHeader = "x-vitehub-agent-dev-token-scope"
 
 export interface AgentDevLoopAgentSummary {
   aliases?: string[]
@@ -17,6 +18,8 @@ export interface AgentDevLoopAgentSummary {
 
 export interface AgentDevLoopDiscoveryResponse {
   agents: AgentDevLoopAgentSummary[]
+  /** The AI emulator that answers Agent models, when `VITEHUB_MODELS=emulate` is set in the dev server. */
+  emulator?: { url: string }
   inspection?: AgentInspectionMetadata
   root: string
   workspaceDevTokenServerId?: string
@@ -40,7 +43,7 @@ export type AgentInvocationStreamEvent =
 
 function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEvent {
   const event: unknown = JSON.parse(line)
-  if (!isRuntimeRecord(event) || !hasRuntimeType(event.type, "string")) {
+  if (!isRuntimeRecord(event) || typeof event.type !== "string") {
     throw agentDiagnostics.AGENT_R0607({ message: "Invalid Agent Invocation Stream event." })
   }
   // SAFETY: The stream endpoint owns the event payloads; the reader validates their shared discriminated-union boundary.

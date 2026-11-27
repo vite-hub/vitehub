@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { ButtonProps } from "@nuxt/ui";
-import { computed, onBeforeUnmount, ref } from "vue";
+import { CopyButton } from "@vite-hub/ui";
+import { computed } from "vue";
 
 import { consoleProblem } from "../client/problem";
-import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
 import ConsoleCodeText from "./console-code-text.vue";
 
@@ -45,6 +45,13 @@ const stateIcon = computed(() => {
   return props.icon ?? "i-lucide-inbox";
 });
 
+// A compact state takes the color of its status: red for a failure, amber for access that the person must fix by
+// signing in or asking for a role, and neutral for an empty or unconfigured state.
+const alertColor = computed(() => {
+  if (!problem.value) return "neutral";
+  return problem.value.action === "sign-in" || problem.value.status === 401 || problem.value.status === 403 ? "warning" : "error";
+});
+
 function reload(): void {
   window.location.reload();
 }
@@ -65,19 +72,18 @@ const stateActions = computed<ButtonProps[]>(() => {
   const main: ButtonProps[] = [];
   const action = problem.value?.action;
   if (action === "sign-in") {
-    // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
-    const signIn = consoleSignInURL({ document, location: window.location });
-    main.push(signIn ? { label: "Sign in again", icon: "i-lucide-log-in", to: signIn, external: true } : { label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
+    main.push({ label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
   }
   else if (action === "reload") main.push({ label: "Reload", icon: "i-lucide-refresh-cw", onClick: reload });
   else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-lucide-refresh-cw", onClick: () => void props.retry?.() });
+  // A full state replaces the page, so its first button is the main action of the view. A compact state sits beside
+  // other content, so its first button is an outline button. Later buttons are ghost buttons.
+  const lead: ButtonProps = props.compact ? { variant: "outline", size: "xs" } : {};
+  const rest: ButtonProps = props.compact ? { variant: "ghost", size: "xs" } : { variant: "ghost" };
   const first = main[0];
-  const buttons: ButtonProps[] = first ? [{ color: "neutral", variant: "soft", size: "xs", ...first }] : [];
-  // Later buttons are ghost buttons, so every button in the row has the same height and padding.
-  if (docsAction.value) {
-    buttons.push({ color: "neutral", variant: buttons.length ? "ghost" : "soft", size: "xs", ...docsAction.value });
-  }
-  for (const extra of props.actions ?? []) buttons.push({ color: "neutral", variant: "ghost", size: "xs", ...extra });
+  const buttons: ButtonProps[] = first ? [{ ...lead, ...first }] : [];
+  if (docsAction.value) buttons.push({ ...(buttons.length ? rest : lead), ...docsAction.value });
+  for (const extra of props.actions ?? []) buttons.push({ ...rest, ...extra });
   return buttons;
 });
 
@@ -86,83 +92,59 @@ const fix = computed(() => {
   const text = problem.value?.fix;
   return text && text.replace(/\.$/, "") === stateActions.value[0]?.label ? undefined : text;
 });
-
-const copied = ref(false);
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-async function copyCode(): Promise<void> {
-  if (!problem.value) return;
-  try {
-    await navigator.clipboard.writeText(problem.value.code);
-    copied.value = true;
-  } catch {
-    copied.value = false;
-    return;
-  }
-  if (copiedTimer) clearTimeout(copiedTimer);
-  copiedTimer = setTimeout(() => (copied.value = false), 2_000);
-}
-onBeforeUnmount(() => {
-  if (copiedTimer) clearTimeout(copiedTimer);
-});
 </script>
 
 <template>
-  <!-- Compact: an inline alert for sidebars and panels. The icon has its own column; everything else starts on one edge. -->
-  <div
+  <!-- Compact: an inline alert for sidebars and panels. -->
+  <UAlert
     v-if="compact"
     :role="problem ? 'alert' : 'status'"
-    class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs"
+    :icon="stateIcon"
+    :title="title"
+    :color="alertColor"
   >
-    <UIcon :name="stateIcon" class="mt-0.5 size-4 text-muted" />
-    <div class="grid min-w-0 gap-1">
-      <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
-      <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
-      <p v-if="fix" class="leading-5 text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
+    <template v-if="problem?.why || description || fix || $slots.default" #description>
+      <p v-if="problem?.why || description" class="text-pretty"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
+      <p v-if="fix" class="text-pretty"><ConsoleCodeText :text="fix" /></p>
       <slot />
-      <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
-        <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
-      </div>
-      <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
-        <button
-          type="button"
-          class="-mx-1 max-w-full justify-self-start rounded px-1 text-start font-mono text-[11px] text-dimmed outline-none [overflow-wrap:anywhere] hover:text-muted focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
+    </template>
+    <template v-if="stateActions.length || problem" #actions>
+      <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
+      <UTooltip v-if="problem" text="Copy error code">
+        <CopyButton
+          :value="problem.code"
+          size="xs"
+          class="max-w-full text-start font-mono [overflow-wrap:anywhere]"
           :aria-label="`Copy error code ${problem.code}`"
-          @click="copyCode"
         >
           {{ problem.code }} <span v-if="problem.status" class="whitespace-nowrap">· {{ problem.status }}</span>
-        </button>
+        </CopyButton>
       </UTooltip>
-    </div>
-  </div>
-  <div
+    </template>
+  </UAlert>
+  <UEmpty
     v-else
     :role="problem ? 'alert' : 'status'"
-    class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+    :icon="stateIcon"
+    :title="title"
+    variant="naked"
+    class="min-h-0 flex-1"
   >
-    <div class="grid justify-items-center gap-2">
-      <UIcon :name="stateIcon" class="size-5 text-muted" />
-      <div class="grid max-w-sm gap-1">
-        <h2 class="text-sm font-medium text-highlighted">{{ title }}</h2>
-        <p v-if="problem?.why || description" class="text-xs leading-5 text-pretty text-muted">
-          <ConsoleCodeText :text="problem?.why ?? description ?? ''" />
-        </p>
-        <p v-if="fix" class="text-xs leading-5 text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
+    <template v-if="problem?.why || description || fix" #description>
+      <p v-if="problem?.why || description" class="text-pretty"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
+      <p v-if="fix" class="text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
+    </template>
+    <template #body>
+      <!-- Extra content for the state, such as a code example for an empty state. -->
+      <slot />
+      <div v-if="stateActions.length || problem" class="flex flex-wrap items-center justify-center gap-1">
+        <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
+        <UTooltip v-if="problem" text="Copy error code">
+          <CopyButton :value="problem.code" class="font-mono text-dimmed" :aria-label="`Copy error code ${problem.code}`">
+            {{ problem.code }}<span v-if="problem.status"> · {{ problem.status }}</span>
+          </CopyButton>
+        </UTooltip>
       </div>
-    </div>
-    <!-- Extra content for the state, such as a code example for an empty state. -->
-    <slot />
-    <div v-if="stateActions.length || problem" class="flex flex-wrap items-center justify-center gap-1">
-      <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
-      <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
-        <button
-          type="button"
-          class="ms-1 whitespace-nowrap rounded px-1 font-mono text-[11px] text-dimmed outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
-          :aria-label="`Copy error code ${problem.code}`"
-          @click="copyCode"
-        >
-          {{ problem.code }}<span v-if="problem.status"> · {{ problem.status }}</span>
-        </button>
-      </UTooltip>
-    </div>
-  </div>
+    </template>
+  </UEmpty>
 </template>

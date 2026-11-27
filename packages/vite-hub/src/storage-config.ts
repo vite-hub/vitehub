@@ -2,7 +2,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
-import type { ViteHubOptions } from "./index.ts"
+import type { ViteHubOptions } from "./plugins.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
@@ -12,7 +12,7 @@ import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
   if (typeof options.dataDir !== "string" || !options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
-  if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
+  if (options.host !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node host and a persistent filesystem. Configure remote stores for other hosts." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"
@@ -27,8 +27,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     : options.cache
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
-  const state = agent && agent.providers?.state
-  const consoleOptions = options.console === true ? { auth: "app" as const } : options.console
+  const state = agent ? agent.providers?.state ?? {} : undefined
+  const sqlState = state && state.driver !== "cloudflare" && state.driver !== "memory" ? state : undefined
   return {
     ...options,
     ...(cache ? { cache } : {}),
@@ -42,23 +42,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
-          providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(sqlState ? {
+          providers: { ...agent.providers, state: { ...sqlState, driver: sqlState.driver ?? "libsql", url: sqlState.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
         } : {}),
       },
     } : {}),
-    ...(consoleOptions === undefined ? {} : {
-      console: consoleOptions === false ? false : {
-        ...consoleOptions,
-        auth: consoleOptions.auth instanceof Object && "provider" in consoleOptions.auth && consoleOptions.auth.provider === "github" ? {
-          ...consoleOptions.auth,
-          databasePath: consoleOptions.auth.databasePath ?? join(root, "console-auth.sqlite"),
-        } : consoleOptions.auth,
-      },
-    }),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
@@ -67,11 +58,24 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
 }
 
 /**
+ * The `file:` Agent State URL that the default journal goes next to on the node host, so one writable directory holds
+ * both. Undefined for other hosts, remote or memory State, and a journal with its own `databaseUrl`.
+ */
+export function agentJournalStateUrl(options: ViteHubOptions): string | undefined {
+  const agent = options.agent
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
+  const state = agent.providers?.state
+  if (!state || (state.driver === "memory" || state.driver === "cloudflare") || typeof state.url !== "string") return
+  const url = state.url.trim()
+  return /^file:/i.test(url) ? url : undefined
+}
+
+/**
  * The D1 binding of the Database primitive on Cloudflare, where the default Agent Invocation journal lives.
  * Read the binding of the default or only Database Definition before integration defaults.
  */
 export function defaultDatabaseD1Binding(
-  preset: string,
+  host: string,
   database: ViteHubOptions["database"],
   definitions?: {
     /** Use the implicit default Database when the app has no Database Definition, as the Vite Database plugin does. */
@@ -80,7 +84,7 @@ export function defaultDatabaseD1Binding(
     serverDirs?: string[]
   },
 ): string | undefined {
-  if (preset !== "cloudflare" || !database) return
+  if (host !== "cloudflare" || !database) return
   if (!definitions) return
   const { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const options = database === true ? undefined : database
@@ -93,19 +97,22 @@ export function defaultDatabaseD1Binding(
   const definition = config?.definitions.find(item => item.name === target.name)
   if (definition && isImplicitDefaultDatabase(definition)) return config?.definitionDefaults.cloudflareProjections[target.name]?.binding
   return config?.databases[target.name]?.cloudflare?.binding
-    ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
+    ?? (options?.driver === "cloudflare" ? options.binding?.trim() || "DB" : undefined)
 }
 
 /**
  * The `comments` option turns Comments on. It keeps threads in the Database, so it enables `database` when it is unset.
  * `database: false` with Comments on fails. The Console does not turn Comments on.
+ *
+ * When nothing changes, it returns the same object. `vitehub()` calls it again on the options that the Nuxt module
+ * passed to `markCmsPresetFeaturesResolved()`, and a copy would lose that mark.
  */
 export function withComments(options: ViteHubOptions): ViteHubOptions {
   if (!options.comments) return options
   if (options.database === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: "[vitehub] Comments keeps its threads in the Database, and the `comments` option turns Comments on, but `database` is false. Remove `database: false`, or set `comments: false`." })
   }
-  return { ...options, database: options.database ?? true }
+  return options.database === undefined ? { ...options, database: true } : options
 }
 
 /**

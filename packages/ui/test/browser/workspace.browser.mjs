@@ -1,4 +1,4 @@
-// Mounts the workspace demo page with a real WebContainer in headless Chromium, through the built package.
+// Mounts the Workspace demo page with the webContainer() runner and a real WebContainer in headless Chromium, through the built package.
 // It needs network access to StackBlitz and the npm registry.
 // Run: pnpm --filter @vite-hub/ui test:browser
 // Set WORKSPACE_SCREENSHOTS=<dir> to save screenshots of each state.
@@ -7,8 +7,9 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import nuxtUi from "@nuxt/ui/vite"
 import vue from "@vitejs/plugin-vue"
-import { hubWebContainer } from "@vite-hub/web-container/vite"
+import { webContainerVitePlugin } from "@vite-hub/web-container/vite"
 import { chromium } from "playwright-core"
 import { createServer } from "vite"
 
@@ -31,11 +32,12 @@ async function waitForFrame(page, origin) {
   throw new Error(`No frame loaded ${origin}`)
 }
 
-test("boots the workspace shell with a real WebContainer, edits a file, and shows the preview", { timeout: 8 * 60_000 }, async (t) => {
+test("boots Workspace with a real WebContainer, edits a file, and shows the preview", { timeout: 8 * 60_000 }, async (t) => {
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
-    plugins: [vue(), hubWebContainer({ routes: ["/**"] })],
+    // The tab strip and the fields are Nuxt UI components, so the page builds with Nuxt UI like an app does.
+    plugins: [vue(), nuxtUi({ dts: false }), webContainerVitePlugin({ routes: ["/**"] })],
     resolve: {
       alias: [
         { find: "@vite-hub/ui/styles.css", replacement: join(dist, "styles.css") },
@@ -59,8 +61,8 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
   const started = performance.now()
   await page.goto(base)
   await page.waitForFunction(() => window.workspace)
-  // The checklist is on screen while the container installs.
-  await page.waitForSelector(".vh-ws-boot [data-state='running']")
+  // The checklist takes the place of the preview while the container installs.
+  await page.waitForSelector(".vh-workspace-boot .vh-ws-boot [data-state='running']")
   await page.waitForFunction(() => ["installing", "starting"].includes(window.workspace.status.value), undefined, { timeout: 120_000 })
   assert.equal(await page.locator(".vh-ws-step").count(), 5)
   await shot(page, "boot")
@@ -68,13 +70,14 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
   await page.waitForFunction(() => window.workspace.previewUrl.value, undefined, { timeout: 180_000 })
   const previewUrl = await page.evaluate(() => window.workspace.previewUrl.value)
   console.log("ready in", Math.round(performance.now() - started), "ms", previewUrl)
-  assert.equal(await page.locator(".vh-ws-overlay").count(), 0, "the overlay closes when the server is ready")
+  await page.waitForSelector(".vh-workspace-boot", { state: "detached" })
+  assert.match(await page.locator(".vh-workspace-run-state").innerText(), /Running/)
 
   const frame = await waitForFrame(page, new URL(previewUrl).origin)
   await frame.waitForFunction(() => document.body?.textContent?.includes("Hello from /"), undefined, { timeout: 60_000 })
-  // CodeMirror replaced the fallback text, and the tabs are 44px high.
+  // CodeMirror replaced the fallback text, and UTabs shows Preview, Terminal and Connect.
   await page.waitForSelector(".vh-ws-editor .cm-content")
-  assert.ok((await page.locator("[role='tab']").first().boundingBox()).height >= 44)
+  assert.deepEqual(await page.locator("[role='tab']").allInnerTexts(), ["Preview", "Terminal", "Connect"])
 
   // Edit through the editor, then restart the server and reload the preview.
   await page.locator(".vh-ws-file-tree").evaluate(element => element.shadowRoot.querySelector("[data-item-path='lib/greeting.js'], [data-item-path='lib/greeting.js/']")?.click())
@@ -107,6 +110,7 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
   await failing.waitForFunction(() => window.workspace?.failure.value?.kind === "install", undefined, { timeout: 180_000 })
   await failing.getByRole("button", { name: "Retry install" }).waitFor()
   assert.match(await failing.locator(".vh-ws-boot").innerText(), /Install failed/)
+  assert.match(await failing.locator(".vh-workspace-run-state").innerText(), /Install failed/)
   await shot(failing, "error-install")
   await failing.close()
 

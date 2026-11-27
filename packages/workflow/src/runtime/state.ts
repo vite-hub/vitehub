@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { setWorkflowDevRecorder } from "./dev-recorder.ts"
+import { resetInlineWorkflowSignals } from "./signals.ts"
 
 const RUNS_LIMIT = 1024
 const RUNS_TTL_MS = 5 * 60 * 1000
@@ -25,17 +26,14 @@ export interface WorkflowRunState<TResult = unknown> {
   payload?: unknown
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>
   result?: TResult
+  /** Set while a delayed inline run waits for its start time, in milliseconds. The run reports `queued` until then. */
+  startAt?: number
   status: "running" | "completed" | "failed"
 }
 
-// Execution retains its state through the completion callback. When GC APIs
-// exist, inspection does not keep an abandoned promise and its payload alive.
 type ActiveRunReference = WeakRef<WorkflowRunState> | WorkflowRunState
 const runs = new Map<string, ActiveRunReference>()
-// Keep pending runs strongly reachable so explicit-id deduplication remains
-// reliable even when callers do not retain an inspection or waitUntil handle.
 const inFlightRuns = new Map<string, WorkflowRunState>()
-// Without GC APIs, bound strong inspection ownership independently of history.
 const fallbackRunKeys = new Set<string>()
 let collectedRuns: FinalizationRegistry<{ key: string, reference: WeakRef<WorkflowRunState> }> | undefined
 const completedRuns = new Map<string, WorkflowRunState>()
@@ -98,13 +96,13 @@ function isWorkflowHandle(value: unknown): value is { name: string } {
     name?: unknown
     defer?: unknown
     getRun?: unknown
-    run?: unknown
+    start?: unknown
   }
 
   if (typeof candidate.name !== "string") return false
   if (typeof candidate.defer !== "function") return false
   if (typeof candidate.getRun !== "function") return false
-  return typeof candidate.run === "function"
+  return typeof candidate.start === "function"
 }
 
 function findExportedInlineWorkflowDefinition(
@@ -220,9 +218,6 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
       loaded = await loadingGenerationStorage.run(generation, () => loadingInlineRegistryStorage.run(loadingInlineDefinitions, entry))
     }
     catch (error) {
-      // A failed module load must not leave definitions registered by that
-      // module available to a later load. Keep definitions from a newer
-      // generation or concurrent load intact.
       for (const [definitionName, definition] of loadingInlineDefinitions) {
         if (inlineRegistry.get(definitionName) === definition) inlineRegistry.delete(definitionName)
       }
@@ -235,13 +230,13 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
       ?? (generation === runtimeRegistryGeneration ? consumeInlineWorkflowDefinition(name) : undefined)
     if (registeredInlineDefinition) {
       consumeInlineWorkflowDefinition(name, registeredInlineDefinition)
-      return registeredInlineDefinition
     }
     // SAFETY: Registry module exports are validated as WorkflowDefinitions at this boundary.
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
       return definition
     }
+    if (registeredInlineDefinition) return registeredInlineDefinition
     const exportedInlineDefinition = findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)
     if (!exportedInlineDefinition) return undefined
     consumeInlineWorkflowDefinition(exportedInlineDefinition.name, exportedInlineDefinition.definition)
@@ -288,9 +283,6 @@ export function setWorkflowRun<TResult = unknown>(
       state.result = resolved.result
       state.error = resolved.error
       state.expiresAt = Date.now() + RUNS_TTL_MS
-      // An active run may have been evicted from the inspection map while it
-      // was pending. Drop its strong deduplication reference independently so
-      // settlement cannot retain abandoned state indefinitely.
       if (inFlightRuns.get(key) === state) inFlightRuns.delete(key)
       const active = runs.get(key)
       const activeState = active && isWeakReference(active) ? active.deref() : active
@@ -350,5 +342,6 @@ export function resetWorkflowRuntime(): void {
   inFlightRuns.clear()
   fallbackRunKeys.clear()
   completedRuns.clear()
+  resetInlineWorkflowSignals()
   setWorkflowDevRecorder(undefined)
 }

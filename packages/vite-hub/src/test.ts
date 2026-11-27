@@ -1,8 +1,8 @@
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
-import type { DeliverChannelOptions, TestEmailMessage, TestScheduleDefinition, TestScheduleRunRecord } from "./internal/test-types.ts"
+import type { DeliverChannelOptions, SignInTestUser, TestEmailMessage, TestScheduleDefinition, TestScheduleRunRecord, TestSignIn } from "./internal/test-types.ts"
 
-export type { DeliverChannelOptions }
+export type { DeliverChannelOptions, SignInTestUser, TestSignIn }
 
 export interface ViteHubTestOptions {
   /** The app folder that has `server/`. Database reads its migrations from there. Defaults to the current folder. */
@@ -36,9 +36,9 @@ export interface RunScheduleTestOptions {
 export interface ViteHubTest {
   /** Messages that `email.send()` accepted during the current test. No provider runs. */
   readonly emails: readonly TestEmailMessage[]
-  /** Jobs that `runQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
+  /** Jobs that `sendQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
   readonly jobs: readonly ViteHubTestJob[]
-  /** Runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
+  /** Runs that `startWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
   readonly workflows: readonly ViteHubTestWorkflowRun[]
   /**
    * Sends one webhook delivery to a Channel of an Agent, as the provider would, and waits for the work that it starts.
@@ -50,6 +50,12 @@ export interface ViteHubTest {
    * Returns the run record. A handler error rejects the promise.
    */
   runSchedule: (definition: TestScheduleDefinition, options?: RunScheduleTestOptions) => Promise<TestScheduleRunRecord>
+  /**
+   * Signs in a user of the app's Auth Definition and returns headers with its session cookie, so `requireAuth()` accepts
+   * the request. Auth creates the user when no user has this email. Needs Auth with a database, or Auth's default
+   * memory database.
+   */
+  signIn: (user?: SignInTestUser) => Promise<TestSignIn>
   /** Empties every in-memory backend and clears the `setEnv()` values. Call it in `beforeEach`. */
   reset: () => Promise<void>
   /** Sets Server Env values until the next reset. `undefined` removes a value. They win over `process.env`. */
@@ -57,7 +63,7 @@ export interface ViteHubTest {
 }
 
 /**
- * Turns on test mode for this test file. KV, Blob, Database, Queue, Workflow, Email, and Rate Limit then use local backends that
+ * Turns on test mode for this test file. KV, Blob, Database, Queue, Workflow, Email, Rate Limit, and Auth then use local backends that
  * `reset()` empties, so a test runs the app's own server code with no mocks and no provider account.
  */
 export function setupViteHubTest(options: ViteHubTestOptions = {}): ViteHubTest {
@@ -89,6 +95,11 @@ export function setupViteHubTest(options: ViteHubTestOptions = {}): ViteHubTest 
         ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}),
         target: name,
       })
+    },
+    async signIn(user) {
+      // Only a test that signs in loads the Auth package.
+      const { signIn } = await import("@vite-hub/auth/test")
+      return await signIn(user)
     },
     reset: () => mode.reset(),
     setEnv(values) {

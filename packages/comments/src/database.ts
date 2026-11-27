@@ -1,4 +1,7 @@
-export { commentCounters, commentForge, commentMessages, commentsSchema, commentThreads } from "./operations-core/database.ts"
+export { commentCounters, commentForge, commentMessages, commentsSchema, commentsSqliteTables, commentThreads } from "./operations-core/database.ts"
+export type { CommentsSqliteTablesOptions } from "./operations-core/database.ts"
+export { commentSends, commentSendsSchema, commentSendsTables } from "./send/database.ts"
+export type { CommentSendState } from "./send/database.ts"
 export { commentsTables } from "./tables.ts"
 export { commentsMigrationSql, commentsSchemaState, liveThreadsBackup, migrateComments } from "./migrate.ts"
 export type { CommentsMigration, CommentsMigrationOptions, CommentsSchemaState } from "./migrate.ts"

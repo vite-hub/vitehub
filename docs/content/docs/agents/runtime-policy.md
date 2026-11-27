@@ -37,16 +37,15 @@ build your own entry point, your app must:
 The built-in HTTP Chat route does this for you. It stores pending approvals in
 its Chat state, rebuilds the tool call on the server, and uses each response
 once under a session lock. Client chat history and Invocation context cannot
-grant approval. Read [Chat capability](/docs/agents/capabilities/chat) and the
-[Capability approval contract](/docs/agents/capabilities#use-an-eve-extension)
-before you show approval controls in your app.
+grant approval. Read [Chat capability](/docs/agents/capabilities/chat) before
+you show approval controls in your app.
 
 ## Inspect what happened
 
 The Invocation ID links a decision, pending approval, tool call, and final
-result. The [Console](/docs/development/console) shows them.
+result. The [Console](/docs/console) shows them.
 [Invocation APIs](/docs/agents/invocations) and
-[runtime events](/docs/reference/runtime-events) show them from code.
+[runtime events](/docs/runtime/events) show them from code.
 
 > [!WARNING]
 > An in-memory trace is lost on restart. Use an Invocation journal or an

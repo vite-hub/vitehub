@@ -3,7 +3,7 @@
     <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>

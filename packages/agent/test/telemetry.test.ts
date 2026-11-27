@@ -6,7 +6,6 @@ import { defineAgent, defineCapability, type AgentTelemetry } from "../src/index
 import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -752,6 +751,34 @@ describe("Agent telemetry", () => {
       .toBe(configuration(inputs).fingerprint)
   })
 
+  it.each(["system", "assistant"] as const)("requires the role's content opt-in for a %s trigger message", async (role) => {
+    const inputs = vi.fn()
+    const permitted = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "inputs", telemetry: { content: { inputs: true }, exporter: inputs } }),
+        defineCapability({ id: "permitted", telemetry: { content: { [role === "system" ? "instructions" : "outputs"]: true }, exporter: permitted } }),
+      ],
+      driver: { run: () => "reply" },
+    })
+    await runAgentWithContext(agent, {
+      memo: vi.fn(),
+      run: { messageId: "selected", runId: `trigger-${role}` },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { messages: [
+      { id: "selected", parts: [{ type: "text", text: "Private trigger content" }], role },
+      { id: "user", parts: [{ type: "text", text: "User input" }], role: "user" },
+    ] })
+    await Promise.all(tasks)
+
+    expect(JSON.stringify(inputs.mock.calls)).toContain("User input")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("Private trigger content")
+    expect(JSON.stringify(permitted.mock.calls)).toContain('"input.trigger.message"')
+    expect(JSON.stringify(permitted.mock.calls)).toContain("Private trigger content")
+  })
+
   it.each([false, true])("classifies steered message telemetry by role (live: %s)", async (live) => {
     const inputs = vi.fn()
     const outputs = vi.fn()
@@ -982,7 +1009,7 @@ describe("Agent telemetry", () => {
     const traces = exports.filter(exported => exported.signal === "traces")
     const sequences = logs.flatMap(exported => exported.records)
       .map(record => record.attributes?.["vitehub.event.sequence"])
-      .filter(sequence => hasRuntimeType(sequence, "number"))
+      .filter(sequence => typeof sequence === "number")
     expect(new Set(sequences).size).toBe(sequences.length)
     expect(logs[1]?.records).toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.second" })]))
     expect(logs[1]?.records).not.toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.first" })]))

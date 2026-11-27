@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
-import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
+import type { ConsoleContributedSection, ConsoleOperationAction, ConsoleOperationView } from "../definitions";
+import { Status } from "@vite-hub/ui";
+
+import { loadOperationItems, operationActionCall, operationActionQuestion, operationActions, operationActionUrl, operationCell, operationLink, operationStatus, operationSwitchCall, operationTime, operationValue } from "../client/operation-view";
+import { isConsoleSectionReadOnly } from "../client/read-only";
+import { requestConsoleOperation } from "../client/request";
+import { useConsoleToast } from "../client/toast";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import ConsoleCodeText from "./console-code-text.vue";
+import ConsoleConfirm from "./console-confirm.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
@@ -34,6 +43,7 @@ const error = ref<unknown>();
 let controller: AbortController | undefined;
 
 const filters = computed(() => view.value.filters ?? []);
+const filterItems = computed(() => filters.value.map((filter) => ({ label: filter.label, value: filter.id })));
 const activeFilter = computed(() => filters.value.find((filter) => filter.id === filterId.value) ?? filters.value[0]);
 /** Match full column values and their displayed text, such as the page, the author, or the comment. */
 const visibleItems = computed(() => {
@@ -66,6 +76,71 @@ async function load(): Promise<void> {
   }
 }
 
+// A `switch` column flips a value with its operation. The row stays disabled until the list loads again.
+const toast = useConsoleToast();
+const readOnly = ref(false);
+const switching = ref(new Set<string>());
+async function flip(item: Record<string, unknown>, column: ConsoleOperationView["columns"][number], checked: boolean): Promise<void> {
+  const call = operationSwitchCall(item, column, checked);
+  const id = itemId(item);
+  if (!call || switching.value.has(id)) return;
+  switching.value = new Set([...switching.value, id]);
+  try {
+    await requestConsoleOperation(call.operation, call.input);
+    await load();
+  } catch {
+    toast.error(`Couldn't change ${column.label.toLowerCase()}. Try again.`);
+  } finally {
+    const next = new Set(switching.value);
+    next.delete(id);
+    switching.value = next;
+  }
+}
+
+// A row action calls its operation, then loads the list again. The row stays disabled until then.
+const acting = ref(new Set<string>());
+const asking = ref<{ action: ConsoleOperationAction, item: Record<string, unknown> }>();
+const askOpen = computed({ get: () => Boolean(asking.value), set: (open) => { if (!open) asking.value = undefined; } });
+const hasActions = computed(() => Boolean(view.value.actions?.length));
+
+function ask(item: Record<string, unknown>, action: ConsoleOperationAction): void {
+  if (action.confirm) asking.value = { action, item };
+  else void act(item, action);
+}
+
+async function act(item: Record<string, unknown>, action: ConsoleOperationAction): Promise<void> {
+  asking.value = undefined;
+  const call = operationActionCall(item, action);
+  const id = itemId(item);
+  if (!call || acting.value.has(id)) return;
+  // The tab opens during the click, so the browser does not block it while the operation runs.
+  const tab = action.tab ? window.open("about:blank", "_blank") : undefined;
+  if (tab) tab.opener = null;
+  if (action.tab && !tab) {
+    toast.error(`The browser blocked the new tab. Allow pop-ups for this site to ${action.label.toLowerCase()}.`);
+    return;
+  }
+  acting.value = new Set([...acting.value, id]);
+  try {
+    const result = await requestConsoleOperation(call.operation, call.input);
+    const url = tab ? operationActionUrl(result) : undefined;
+    if (tab && url) {
+      tab.location.href = url;
+      // The person finishes in the other tab. The list loads again when they come back.
+      window.addEventListener("focus", () => void load(), { once: true });
+    }
+    else tab?.close();
+    await load();
+  } catch (cause) {
+    tab?.close();
+    toast.error(cause instanceof Error && cause.message ? cause.message : `Couldn't ${action.label.toLowerCase()}. Try again.`);
+  } finally {
+    const next = new Set(acting.value);
+    next.delete(id);
+    acting.value = next;
+  }
+}
+
 const detail = computed(() => view.value.detail);
 // The row button holds the text of the item, such as the comment, so a screen reader names what it opens.
 const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
@@ -88,45 +163,44 @@ function choose(id: string): void {
   filterId.value = id === filters.value[0]?.id ? undefined : id;
 }
 
-onMounted(() => void load());
+onMounted(() => {
+  void load();
+  if (hasActions.value || view.value.columns.some(column => column.format === "switch")) void isConsoleSectionReadOnly(props.sectionsBase, props.details.id).then((value) => { readOnly.value = value; });
+});
 watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
+    <UDashboardPanel :id="`console-${details.id}`">
       <template #header>
-        <ConsolePageHeader :title="details.label" :description="details.description" :toggle="false">
+        <ConsolePageHeader :title="details.label" :toggle="false">
           <template #right>
             <UTooltip text="Refresh">
-              <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="xs" variant="ghost" color="neutral" :loading="loading" @click="load" />
+              <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="load" />
             </UTooltip>
           </template>
         </ConsolePageHeader>
-        <div class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2">
+        <ConsolePageToolbar>
+          <template v-if="filters.length" #tabs>
+            <UTabs
+              :model-value="activeFilter?.id"
+              :items="filterItems"
+              :content="false"
+              class="w-max"
+              aria-label="Filter"
+              @update:model-value="choose(String($event))"
+            />
+          </template>
           <UInput
             v-model="search"
             class="w-full sm:w-56"
             icon="i-lucide-search"
-            size="sm"
             :placeholder="`Filter ${details.label.toLowerCase()}…`"
             :aria-label="`Filter ${details.label}`"
-            :ui="{ base: 'text-base sm:text-sm' }"
           />
-          <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter">
-            <UButton
-              v-for="filter in filters"
-              :key="filter.id"
-              size="xs"
-              :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
-              :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
-              :aria-pressed="activeFilter?.id === filter.id"
-              :label="filter.label"
-              @click="choose(filter.id)"
-            />
-          </div>
-        </div>
+        </ConsolePageToolbar>
       </template>
       <template #body>
         <div class="flex flex-1 flex-col p-4">
@@ -144,42 +218,102 @@ onBeforeUnmount(() => controller?.abort());
             :description="`Nothing matches “${search.trim()}”.`"
             :actions="[{ label: 'Clear search', color: 'neutral', variant: 'outline', onClick: () => { search = '' } }]"
           />
-          <table v-else class="w-full text-left text-sm">
-            <thead class="text-xs text-muted">
-              <tr>
-                <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
-                <th v-if="view.link" class="px-2 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in visibleItems"
-                :key="itemId(item)"
-                class="border-t border-default"
-                :class="detail ? 'relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50' : undefined"
-              >
-                <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
-                  <!-- The button overlay makes the whole row open the item. Focus shows as the row fill. -->
-                  <button
-                    v-if="detail && column === openColumn"
-                    type="button"
-                    class="text-left outline-none after:absolute after:inset-0"
-                    @click="selectThread(itemId(item))"
-                  >{{ operationCell(item, column) }}</button>
-                  <template v-else>{{ operationCell(item, column) }}</template>
-                </td>
-                <td v-if="view.link" class="px-2 py-2 text-right">
-                  <!-- Above the row button, so the link still opens the page. -->
-                  <a v-if="operationLink(item, view)" class="relative text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- A phone scrolls the table sideways instead of wrapping every cell to one word per line. -->
+          <div v-else class="-mx-4 overflow-x-auto px-4">
+            <table class="w-full min-w-xl text-left text-sm">
+              <thead class="text-xs text-muted">
+                <tr>
+                  <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
+                  <th v-if="hasActions && !readOnly" class="px-2 py-1.5"><span class="sr-only">Actions</span></th>
+                  <th v-if="view.link" class="w-10 px-2 py-1.5"><span class="sr-only">{{ view.link.label ?? "Open" }}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in visibleItems"
+                  :key="itemId(item)"
+                  class="border-t border-default"
+                  :class="detail ? 'relative hover:bg-elevated' : undefined"
+                >
+                  <td
+                    v-for="column in view.columns"
+                    :key="column.key"
+                    class="px-2 py-2 align-top"
+                    :class="{ 'whitespace-nowrap text-muted tabular-nums': column.format === 'datetime', 'whitespace-nowrap': column.format === 'status' }"
+                  >
+                    <!-- The button overlay makes the whole row open the item. The theme rings the button itself. -->
+                    <button
+                      v-if="detail && column === openColumn"
+                      type="button"
+                      class="rounded-md text-left after:absolute after:inset-0"
+                      @click="selectThread(itemId(item))"
+                    >{{ operationCell(item, column) }}</button>
+                    <!-- Above the row button, so a flip does not open the item. The first column names the row. -->
+                    <USwitch
+                      v-else-if="column.format === 'switch'"
+                      class="relative"
+                      size="sm"
+                      :model-value="operationValue(item, column.key) === true"
+                      :disabled="readOnly || switching.has(itemId(item))"
+                      :aria-label="`${column.label}: ${operationCell(item, view.columns[0] ?? column)}`"
+                      @update:model-value="flip(item, column, $event === true)"
+                    />
+                    <template v-else-if="column.format === 'status' && operationStatus(item, column)">
+                      <Status :tone="operationStatus(item, column)!.tone" :label="operationStatus(item, column)!.label" />
+                    </template>
+                    <!-- Above the row button, so the tooltip with the exact time opens on hover. -->
+                    <span v-else-if="column.format === 'datetime' && operationTime(item, column)" class="relative"><ConsoleRelativeTime :value="operationTime(item, column)!" /></span>
+                    <template v-else>{{ operationCell(item, column) }}</template>
+                  </td>
+                  <td v-if="hasActions && !readOnly" class="px-2 py-1 text-right align-top whitespace-nowrap">
+                    <!-- Above the row button, so an action does not open the item. -->
+                    <UButton
+                      v-for="action in operationActions(item, view)"
+                      :key="action.label"
+                      class="relative"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      :label="action.label"
+                      :disabled="acting.has(itemId(item))"
+                      :aria-label="`${action.label} ${operationCell(item, view.columns[0]!)}`"
+                      @click="ask(item, action)"
+                    />
+                  </td>
+                  <td v-if="view.link" class="px-2 py-1 text-right align-top">
+                    <!-- Above the row button, so the link still opens the page. One icon keeps the row on one line. -->
+                    <UTooltip v-if="operationLink(item, view)" :text="view.link.label ?? 'Open'">
+                      <UButton
+                        class="relative"
+                        icon="i-lucide-external-link"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        :aria-label="view.link.label ?? 'Open'"
+                        :href="operationLink(item, view)"
+                        external
+                        target="_blank"
+                        rel="noreferrer"
+                      />
+                    </UTooltip>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <!-- The notice sits at the bottom of the pane while the list loads and when it is short, so it does not move. -->
-          <p class="mt-auto pt-4 text-xs text-muted">{{ view.notice }}</p>
+          <p class="mt-auto pt-4 text-xs text-muted"><ConsoleCodeText :text="view.notice" /></p>
         </div>
       </template>
     </UDashboardPanel>
+    <ConsoleConfirm
+      v-model:open="askOpen"
+      :title="asking ? `${asking.action.label}?` : ''"
+      :description="asking ? operationActionQuestion(asking.item, asking.action) : undefined"
+      :confirm-label="asking?.action.label ?? ''"
+      destructive
+      @confirm="asking && act(asking.item, asking.action)"
+    />
     <ConsoleCommentThread
       ref="threadPanel"
       v-if="detail?.kind === 'comment-thread'"

@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
+import { titleCase } from "./title-case.ts"
 
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
+import { isWorkspaceConflict, registerWorkspaceKV, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 import { lineageDigest, readDerivedFrom } from "@vite-hub/workspace/lineage"
 
 import {
@@ -24,11 +24,13 @@ import {
   warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
-import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
+import { contentKV } from "./kv.ts"
+import { contentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { mergeContentDocument } from "./merge.ts"
 import { contentLeaseHeld, contentLeasesHeld, createContentSessions } from "./sessions.ts"
+import { publishBranchPrefix } from "./source-access.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
@@ -60,10 +62,6 @@ const listMaxLimit = 1_000
 const titleFieldNames = ["title", "name", "label", "heading"]
 const lineageDigestPattern = /^sha256-[0-9a-f]{64}$/
 
-/** `blog-posts` → `Blog Posts`. */
-function titleCase(name: string): string {
-  return name.split(/[-_/\s]+/).filter(Boolean).map(part => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
-}
 
 /** The first of `title`, `name`, `label`, and `heading` that is a string field, then the first required string field. */
 function defaultTitleField(schema: Record<string, unknown>): string | undefined {
@@ -318,7 +316,7 @@ export interface ContentStatusOptions {
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
 export interface ContentPublishExpectation {
-  /** Collection name. An unknown name throws `CONTENT_R0008`. */
+  /** Collection name. An unknown name throws `CONTENT_COLLECTION_UNKNOWN`. */
   collection: string
   /** Document id. Omit it for a singleton defined with `singleton()`. */
   id?: string
@@ -377,14 +375,27 @@ export interface ContentRevision {
   createdAt: string
   message?: string
   metadata?: Record<string, unknown>
-  files: number
-  bytes: number
+  /** How many files the revision has, and their size. The GitHub store leaves them out of lists. */
+  files?: number
+  bytes?: number
 }
 
 /** A pull request that a publish opened. */
 export interface ContentPullRequest {
   number: number
   url: string
+}
+
+/** The preview link of one page that a pull request publishes. */
+export interface ContentPublishPreview {
+  collection: string
+  id: string
+  /** The locale of the document, in a collection with `locales`. */
+  locale?: string
+  /** The `/pr/<number>/<path>` URL of the document `url`, with a signed `?vitehub-content-token`. Absolute with `seo.site`. */
+  url: string
+  /** When the signed link stops working: one hour after the publish, as for `content.preview`. */
+  expiresAt: Date
 }
 
 export interface ContentPublishResult {
@@ -395,6 +406,11 @@ export interface ContentPublishResult {
   pullRequest?: ContentPullRequest
   /** `true` while `pullRequest` is open. `onPublish()` listeners run when `published` changes, not now. */
   pending?: true
+  /**
+   * With `pullRequest` and `defineContent({ previews: true })`: a signed `/pr/<number>/<path>` link for each published
+   * document with a `url`. The pull request is private, as every CMS publish branch is, so the link carries a token.
+   */
+  previews?: ContentPublishPreview[]
 }
 
 /** The document that an app path shows. */
@@ -501,7 +517,7 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
 
 /**
  * One editable document at a fixed path, defined with `singleton()`, such as site settings. Every method works without
- * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_R0008`.
+ * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_SINGLETON_ID_MISMATCH`.
  * `list()` and the read-only Collection contract return at most this one document.
  */
 export interface ContentSingleton<TFields extends ContentFields = ContentFields>
@@ -707,7 +723,7 @@ function conflictRef(error: unknown): unknown {
 function assertRef(ref: unknown, fallback: ContentRef): ContentRef {
   if (ref === undefined) return fallback
   if (String(ref) !== ref || !contentRefs.has(ref)) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content ref must be "draft" or "published", received ${JSON.stringify(ref)}.` })
+    throw contentErrorDiagnostics.CONTENT_REF_INVALID({ ref })
   }
   // SAFETY: Membership in contentRefs proves the literal.
   return ref as ContentRef
@@ -770,11 +786,10 @@ function pullRequestTitle(message: string): string {
 }
 
 /** Publish branches of `publish: 'pr'` start with this. */
-const publishBranchPrefix = "vitehub/publish/"
 
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
   if (metadata !== undefined && (metadata === null || Object(metadata) !== metadata || Array.isArray(metadata))) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revision metadata must be an object." })
+    throw contentErrorDiagnostics.CONTENT_REVISION_METADATA_INVALID()
   }
   return { ...metadata, content }
 }
@@ -782,7 +797,7 @@ function writeMetadata(metadata: Record<string, unknown> | undefined, content: R
 /** The text of a write, or undefined when it has no content or its bytes are not UTF-8. */
 function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   if (content === undefined) return
-  if (hasRuntimeType(content, "string")) return content
+  if (typeof content === "string") return content
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(content)
   }
@@ -829,6 +844,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   function history(): Promise<WorkspaceRetainedHistory> {
     historyPromise ??= (async () => {
+      // A GitHub Workspace store keeps the GitHub answers that never change in the same KV store, for every server instance.
+      registerWorkspaceKV(contentKV())
       // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
       const workspace = useWorkspaceFiles(workspaceName as never, { mode: "write" })
       const capabilities = await workspace.capabilities()
@@ -874,7 +891,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
    * `schedules` ref holds files that are not documents, so schedules open every file.
    */
   async function openRevision(revision: WorkspaceRevision | string, scope: "documents" | "all" = "documents"): Promise<OpenedRevision> {
-    const id = hasRuntimeType(revision, "string") ? revision : revision.id
+    const id = typeof revision === "string" ? revision : revision.id
     return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
@@ -893,6 +910,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     // An empty draft mirrors the published ref until the first save.
     const head = await retained.head({ ref }) ?? (ref === "draft" ? await retained.head({ ref: "published" }) : null)
     return head ? { revision: head, opened: await openRevision(head) } : { revision: null }
+  }
+
+  /**
+   * Read the files of `paths` that no cache holds yet in one go, where the Store can. On GitHub that is one archive of the
+   * commit instead of a request per document.
+   */
+  async function preload(opened: OpenedRevision, paths: readonly string[]): Promise<void> {
+    if (!opened.view.preload) return
+    const missing = paths.filter((path) => {
+      const digest = opened.files.get(path)
+      return digest !== undefined && texts.get(digest) === undefined
+    })
+    if (missing.length) await opened.view.preload(missing)
   }
 
   async function readText(opened: OpenedRevision, path: string): Promise<string> {
@@ -916,7 +946,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     })
   }
 
-  const updatedAtMaps = new BoundedCache<Promise<ReadonlyMap<string, string | null>>>(16)
+  /** The `updatedAt` of document paths, by revision id. Each walk adds the paths it resolved. */
+  const updatedAtKnown = new BoundedCache<Map<string, string | null>>(16)
 
   /** The folders that hold documents: the folder of each glob, without a folder inside another. "" is the Workspace root. */
   function documentFolders(): string[] {
@@ -957,56 +988,79 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   /**
-   * When each document in a revision last changed on its ref. Walks the ref backwards: Content commits name the
-   * documents they changed, and any other commit is compared with its parent. A cached older revision ends the walk.
+   * When each of `paths` last changed on the ref of a revision. Walks the ref backwards: Content commits name the
+   * documents they changed, and any other commit is compared with its parent. A revision whose answer for a path is
+   * already known ends the walk for that path. Only the asked paths cost a walk, so reading one document does not compare
+   * the history of every document. Use proven `lastChanged()` results when available. Walk first parents directly for
+   * unresolved GitHub paths, since a GitHub history page can also contain side commits.
    */
-  function updatedAtMap(opened: OpenedRevision): Promise<ReadonlyMap<string, string | null>> {
-    return memoize(updatedAtMaps, opened.revision.id, async () => {
-      const result = new Map<string, string | null>()
-      const pending = new Map<string, string>()
-      for (const [path, digest] of opened.files) {
-        if (isDocumentPath(path)) pending.set(path, digest)
+  async function updatedAtOf(opened: OpenedRevision, paths: Iterable<string>): Promise<ReadonlyMap<string, string | null>> {
+    const id = opened.revision.id
+    const known = updatedAtKnown.get(id) ?? new Map<string, string | null>()
+    updatedAtKnown.set(id, known)
+    const asked = [...new Set(paths)]
+    const pending = new Map<string, string>()
+    for (const path of asked) {
+      const digest = opened.files.get(path)
+      if (known.has(path)) continue
+      if (digest === undefined) known.set(path, null)
+      else pending.set(path, digest)
+    }
+    if (pending.size && opened.view.lastChanged) {
+      const changes = await opened.view.lastChanged([...pending.keys()]).catch(() => undefined)
+      for (const [path, change] of changes ?? []) {
+        if (pending.delete(path)) known.set(path, change?.createdAt ?? null)
       }
-      const retained = await history()
-      const ref = opened.revision.ref
-      let queue: WorkspaceRevision[] = [opened.revision]
-      let cursor: string | undefined = opened.revision.id
-      let scanned = 0
-      while (pending.size && scanned < maxUpdatedAtScan) {
-        if (!queue.length) {
+    }
+    const retained = pending.size ? await history() : undefined
+    const ref = opened.revision.ref
+    let queue: WorkspaceRevision[] = [opened.revision]
+    let cursor: string | undefined = opened.revision.id
+    let parentId: string | null = null
+    let scanned = 0
+    while (retained && pending.size && scanned < maxUpdatedAtScan) {
+      if (!queue.length) {
+        if (opened.view.lastChanged) {
+          if (!parentId) break
+          queue = [(await openRevision(parentId)).revision]
+        }
+        else {
           if (!cursor) break
           const page = await retained.list({ ref, cursor, limit: 100 })
           queue = page.revisions
           cursor = page.cursor
           if (!queue.length) break
         }
-        const revision = queue.shift()!
-        scanned++
-        const cached = revision.id === opened.revision.id ? undefined : updatedAtMaps.get(revision.id)
-        if (cached) {
-          // Pending documents did not change after this revision, so they keep its answer.
-          const earlier = await cached
-          for (const path of pending.keys()) result.set(path, earlier.get(path) ?? null)
-          pending.clear()
-          break
-        }
-        const touched = contentCommitPaths(revision)
-        if (touched) {
-          for (const path of touched) {
-            if (pending.delete(path)) result.set(path, revision.createdAt)
-          }
-          continue
-        }
-        const parent = revision.parentId ? await openRevision(revision.parentId) : undefined
-        for (const [path, digest] of pending) {
-          if (parent?.files.get(path) === digest) continue
-          result.set(path, revision.createdAt)
+      }
+      const revision = queue.shift()!
+      parentId = revision.parentId
+      scanned++
+      const earlier = revision.id === id ? undefined : updatedAtKnown.get(revision.id)
+      if (earlier) {
+        // Pending documents did not change after this revision, so they keep its answer.
+        for (const path of pending.keys()) {
+          if (!earlier.has(path)) continue
+          known.set(path, earlier.get(path) ?? null)
           pending.delete(path)
         }
+        if (!pending.size) break
       }
-      for (const path of pending.keys()) result.set(path, null)
-      return result
-    })
+      const touched = contentCommitPaths(revision)
+      if (touched) {
+        for (const path of touched) {
+          if (pending.delete(path)) known.set(path, revision.createdAt)
+        }
+        continue
+      }
+      const parent = revision.parentId ? await openRevision(revision.parentId) : undefined
+      for (const [path, digest] of pending) {
+        if (parent?.files.get(path) === digest) continue
+        known.set(path, revision.createdAt)
+        pending.delete(path)
+      }
+    }
+    for (const path of pending.keys()) known.set(path, null)
+    return new Map(asked.map(path => [path, known.get(path) ?? null]))
   }
 
   /** Recover tracking through ordinary Git/Workspace commits; missing metadata never permits an unguarded publish. */
@@ -1393,16 +1447,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     /**
      * The locale a read or write takes: the source locale when omitted, and undefined in a collection without locales.
-     * An unknown locale throws `CONTENT_R0008`.
+     * An unknown locale throws `CONTENT_LOCALE_UNKNOWN`.
      */
     function localeOf(locale: unknown): string | undefined {
       if (!locales) {
         if (locale === undefined) return
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has no locales, so it takes no locale. Received ${JSON.stringify(locale)}.` })
+        throw contentErrorDiagnostics.CONTENT_LOCALE_UNKNOWN({ collection: name, locale, locales: undefined })
       }
       if (locale === undefined) return sourceLocale
       if (String(locale) !== locale || !locales.includes(locale)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the locales ${JSON.stringify(locales)}, received ${JSON.stringify(locale)}.` })
+        throw contentErrorDiagnostics.CONTENT_LOCALE_UNKNOWN({ collection: name, locale, locales })
       }
       return locale
     }
@@ -1425,18 +1479,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function pathFor(id: unknown, requested?: unknown): string {
       if (single) {
         if (id !== single.id) {
-          throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(single.id)} (${single.path}). Omit the id, or pass ${JSON.stringify(single.id)}; received ${JSON.stringify(id)}.` })
+          throw contentErrorDiagnostics.CONTENT_SINGLETON_ID_MISMATCH({ name, id: single.id, path: single.path, received: id })
         }
         return single.path
       }
       if (String(id) !== id || !id || id.startsWith("/") || id.endsWith("/") || id.includes("\\")
         || id.split("/").some(segment => !segment || segment === "." || segment === "..")) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.` })
+        throw contentErrorDiagnostics.CONTENT_DOCUMENT_ID_INVALID({ id })
       }
       const own = compiledFor(localeOf(requested))
       const path = `${own.base}${id}${own.extension}`
       if (!own.match(path)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document ${JSON.stringify(id)} is outside collection ${JSON.stringify(name)} (${definition.path}).` })
+        throw contentErrorDiagnostics.CONTENT_DOCUMENT_OUTSIDE_COLLECTION({ id, collection: name, path: definition.path })
       }
       return path
     }
@@ -1463,6 +1517,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function parseEntry(opened: OpenedRevision, entry: CollectionEntry): Promise<ParsedText> {
       return await memoize(parsedTexts, entry.digest, async () => await parseText(await readText(opened, entry.path)))
+    }
+
+    /** Parse many entries, after one preload of the files that no parse has read yet. */
+    async function parseEntries(opened: OpenedRevision, list: readonly CollectionEntry[]): Promise<void> {
+      await preload(opened, list.filter(entry => parsedTexts.get(entry.digest) === undefined).map(entry => entry.path))
     }
 
     function documentOf(
@@ -1494,16 +1553,25 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function index(opened: OpenedRevision, locale: string | undefined = sourceLocale): Promise<IndexedDocument[]> {
       return await memoize(indexes, `${opened.revision.id}\0${locale ?? ""}`, async () => {
-        const updated = await updatedAtMap(opened)
-        const documents = await mapLimit([...entries(opened.files, locale)], 8, async ([id, entry]) => {
+        const listed = [...entries(opened.files, locale)]
+        await parseEntries(opened, listed.map(([, entry]) => entry))
+        const documents = await mapLimit(listed, 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null, locale)
+          // list() fills `updatedAt` for the documents it returns.
+          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, null, locale)
           // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
         })
         return documents.filter(document => document !== undefined).sort((left, right) => left.id.localeCompare(right.id))
       })
+    }
+
+    /** Documents with the `updatedAt` of their path in `opened`. The preview frame's draft keeps its own. */
+    async function withUpdatedAt<T extends { id: string, path: string, updatedAt: string | null }>(opened: OpenedRevision, items: readonly T[], framedItem?: { id: string }): Promise<T[]> {
+      const dated = items.filter(item => item.id !== framedItem?.id)
+      const dates = await updatedAtOf(opened, dated.map(item => item.path))
+      return items.map(item => item.id === framedItem?.id ? item : { ...item, updatedAt: dates.get(item.path) ?? null })
     }
 
     function queryOf(options: ContentListOptions): Record<string, string | string[]> {
@@ -1545,15 +1613,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function frameDraft(target: { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } }): Promise<IndexedDocument | null> {
       const opened = (await refState("draft")).opened
       if (!opened) return null
-      const updatedAt = (await updatedAtMap(opened)).get(target.path) ?? null
-      if (target.document) {
+      const updatedAt = (await updatedAtOf(opened, [target.path])).get(target.path) ?? null
+      const frontmatter = target.document && normalizeFrontmatter(target.document.data)
+      // Fields that are not data render the stored draft.
+      if (target.document && frontmatter && "data" in frontmatter) {
         try {
-          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
+          const text = renderDocumentFile(inFieldOrder(frontmatter.data), format === "markdown" ? target.document.body ?? "" : "", format)
           const parsed = await parseText(text)
           if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt, sourceLocale)
         }
         catch {
-          // Fields that are not data render the stored draft.
+          // A draft that its format cannot write renders the stored draft too.
         }
       }
       const digest = opened.files.get(target.path)
@@ -1575,10 +1645,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       const target = framed(options)
       const draftItem = target && await frameDraft(target)
+      const query = queryOf(options)
+      // `updatedAt` walks the history of each document. Read it for the page only, unless the order, a filter, or a facet uses it.
+      const allDates = options.sort?.field === "updatedAt" || Object.hasOwn(query, "updatedAt") || options.facets?.includes("updatedAt") === true
+      if (allDates && state.opened) stored = await withUpdatedAt(state.opened, stored)
       const items = target
         ? [...stored.filter(item => item.id !== target.id), ...draftItem ? [draftItem] : []].sort((left, right) => left.id.localeCompare(right.id))
         : stored
-      const digest = `${name}:${locale ? `${locale}:` : ""}${state.revision?.id ?? "empty"}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
+      const digest = `${name}:${locale ? `${locale}:` : ""}${state.revision?.id ?? "empty"}${allDates ? ":dated" : ""}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
       const listed = defineCollection({
         source: array(() => ({ digest, items }), {
           defaultLimit: listDefaultLimit,
@@ -1587,18 +1661,20 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           search: searchFields,
           sort: options.sort ? { direction: options.sort.direction, field: fieldPath(options.sort.field) } : undefined,
         }),
+        route: false,
         transform: ({ body: _body, ...summary }: IndexedDocument): ContentDocumentSummary => summary,
       })
-      const page = await listed.page({ cursor: options.cursor, limit: options.limit, query: queryOf(options), signal: options.signal })
+      const page = await listed.page({ cursor: options.cursor, limit: options.limit, query, signal: options.signal })
       const facets = page.facets && Object.fromEntries(Object.entries(page.facets).map(([path, values]) => [path.replace(/^data\./, ""), values]))
-      const result: ContentPage = { items: page.items, nextCursor: page.nextCursor, total: page.total ?? page.items.length }
+      const dated = allDates || !state.opened ? page.items : await withUpdatedAt(state.opened, page.items, draftItem ?? undefined)
+      const result: ContentPage = { items: dated, nextCursor: page.nextCursor, total: page.total ?? page.items.length }
       if (facets) result.facets = facets
       return result
     }
 
     async function openFor(method: string, options: ContentReadOptions): Promise<OpenedRevision | undefined> {
       if (options.revision !== undefined && options.ref !== undefined) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content ${method}() takes ref or revision, not both.` })
+        throw contentErrorDiagnostics.CONTENT_READ_REF_CONFLICT({ method })
       }
       return options.revision !== undefined
         ? await openRevision(String(options.revision))
@@ -1654,7 +1730,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const entry = { path, digest }
       const parsed = await parseEntry(opened, entry)
       if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) throw contentInvalid(name, id, path, parsed.issues)
-      return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null, locale)
+      return documentOf(id, entry, parsed, opened.revision, (await updatedAtOf(opened, [path])).get(path) ?? null, locale)
     }
 
     async function raw(id: string, options: ContentReadOptions = {}): Promise<ContentRawDocument | null> {
@@ -1675,16 +1751,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       locale: string | undefined,
     ): Promise<IndexedDocument | undefined> {
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
+        throw contentErrorDiagnostics.CONTENT_DIGEST_INVALID({ option: "ifDigest" })
       }
       if (writeOptions.ifPublishedDigest !== undefined && writeOptions.ifPublishedDigest !== null && String(writeOptions.ifPublishedDigest) !== writeOptions.ifPublishedDigest) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifPublishedDigest must be a digest string or null." })
+        throw contentErrorDiagnostics.CONTENT_DIGEST_INVALID({ option: "ifPublishedDigest" })
       }
       if (writeOptions.session !== undefined && (String(writeOptions.session) !== writeOptions.session || !writeOptions.session)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write session must be the content.sessions token of the caller." })
+        throw contentErrorDiagnostics.CONTENT_WRITE_SESSION_INVALID()
       }
       if (writeOptions.lease !== undefined && writeOptions.lease !== "override") {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write lease must be 'override' or omitted." })
+        throw contentErrorDiagnostics.CONTENT_WRITE_LEASE_INVALID()
       }
       const documents = [{ collection: name, id, ...localeKey(locale) }]
       const metadata = writeMetadata(writeOptions.metadata, { action, documents })
@@ -1740,7 +1816,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (!("delete" in change) && current === change.digest && opened && writeOptions.ifPublishedDigest === undefined) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
-          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null, locale)
+          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtOf(opened, [path])).get(path) ?? null, locale)
         }
         try {
           const release = await acquireMutation()
@@ -1799,19 +1875,15 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (format !== "markdown" && body) {
         throw contentInvalid(name, id, path, [{ message: `${format === "json" ? "JSON" : "YAML"} documents have no body. Store the value in a field.`, path: ["body"] }])
       }
-      let frontmatter: Record<string, unknown>
-      try {
-        frontmatter = normalizeFrontmatter(input.data)
-      }
-      catch (cause) {
-        throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
-      }
+      const normalized = normalizeFrontmatter(input.data)
+      if ("issue" in normalized) throw contentInvalid(name, id, path, [{ message: normalized.issue, path: [] }])
+      const frontmatter = normalized.data
       const { sourceDigest } = writeOptions
       if (sourceDigest !== undefined && (locale === undefined || locale === sourceLocale)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })
+        throw contentErrorDiagnostics.CONTENT_SOURCE_DIGEST_INVALID({ problem: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })
       }
       if (sourceDigest !== undefined && (String(sourceDigest) !== sourceDigest || !lineageDigestPattern.test(sourceDigest))) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest must be the source.digest of the get() you translated, "sha256-" and 64 hex characters. Received ${JSON.stringify(sourceDigest)}.` })
+        throw contentErrorDiagnostics.CONTENT_SOURCE_DIGEST_INVALID({ problem: `[vitehub] Content sourceDigest must be the source.digest of the get() you translated, "sha256-" and 64 hex characters. Received ${JSON.stringify(sourceDigest)}.` })
       }
       if (locales) {
         // derivedFrom is reserved in a collection with locales: Content writes it, never the fields.
@@ -1892,17 +1964,24 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
     function status(options?: ContentStatusOptions): Promise<ContentDocumentStatus[]>
     async function status(first?: string | ContentStatusOptions, second?: ContentStatusOptions): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
-      const id = hasRuntimeType(first, "string") ? first : undefined
+      const id = typeof first === "string" ? first : undefined
       const statusOptions: unknown = id === undefined ? first : second
       const locale = localeOf(statusOptions !== null && Object(statusOptions) === statusOptions ? Reflect.get(Object(statusOptions), "locale") : undefined)
       if (id !== undefined) pathFor(id, locale)
-      const [draft, published, scheduled, pending] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules(), pendingPublishes()])
+      const [draft, published, scheduled, pending] = await Promise.all([
+        refState("draft"),
+        refState("published"),
+        // The GitHub Store keeps no schedules, so it asks for no `schedules` ref.
+        supportsScheduling().then(supported => supported ? schedules.documentSchedules() : new Map<string, ContentDocumentSchedule>()),
+        pendingPublishes(),
+      ])
       const bases = (await history().then(retained => retained.forksFrom?.("draft"))) === undefined ? undefined : await trackedDraftBases(draft.revision, published.opened)
       const draftEntries = draft.opened ? entries(draft.opened.files, locale) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files, locale) : new Map<string, CollectionEntry>()
       // Issue counts of the drafts, from the parse cache that list() shares.
       const issueCounts = new Map<string, number>()
       const counted = id === undefined ? [...draftEntries] : draftEntries.has(id) ? [[id, draftEntries.get(id)!] as const] : []
+      if (draft.opened) await parseEntries(draft.opened, counted.map(([, entry]) => entry))
       await mapLimit(counted, 8, async ([documentId, entry]) => {
         const parsed = await parseEntry(draft.opened!, entry)
         if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
@@ -1970,6 +2049,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           return await list({ cursor, limit, search, signal, filter })
         },
       },
+      route: false,
     })
 
     const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
@@ -2072,7 +2152,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   function requireCollection(name: unknown): CollectionRuntime {
     const collection = String(name) === name ? collections.get(name) : undefined
     if (!collection) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Unknown Content collection ${JSON.stringify(name)}. Define it in defineContent({ collections }).` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTION_UNKNOWN({ name })
     }
     return collection
   }
@@ -2272,7 +2352,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           return { revision, documents }
         }
         if (!retained.openPullRequest) {
-          throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] publish: 'pr' needs a Workspace Store with pull requests, but Workspace ${JSON.stringify(workspaceName)} has none. Use the GitHub store.` })
+          throw contentErrorDiagnostics.CONTENT_PUBLISH_PR_UNSUPPORTED({ workspace: workspaceName })
         }
         // A document that an open pull request already publishes is not published a second time.
         const pending = await pendingPublishes()
@@ -2341,7 +2421,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           // may occur while the provider constructs the transaction.
           draftExpectation = undefined
         }
-        if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+        if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
         return await land(draftExpectation)
       }
       catch (error) {
@@ -2350,7 +2430,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actualDraft = actualHead ? await openRevision(actualHead) : undefined
           const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
           if (!moved) {
-            if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+            if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
             return await land(undefined)
           }
           throw contentConflict("[vitehub] The draft Content changed before publish().", {
@@ -2371,7 +2451,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   const routeIndexes = new BoundedCache<Promise<ReadonlyMap<string, ContentResolved>>>(8)
 
   async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
-    if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
+    if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_RESOLVE_PATH_INVALID()
     const target = normalizeRoute(path)
     const state = await refState(assertRef(resolveOptions.ref, defaultRef()))
     if (!state.opened) return null
@@ -2396,11 +2476,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const ref = assertRef(revisionOptions.ref, "draft")
     const limit = revisionOptions.limit ?? 20
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
+      throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "limit" })
     }
     const scanLimit = revisionOptions.scanLimit ?? maxRevisionScan
     if (!Number.isSafeInteger(scanLimit) || scanLimit < 1 || scanLimit > maxRevisionScan) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() scanLimit must be an integer from 1 to 1,000." })
+      throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "scanLimit" })
     }
     const retained = await history()
     const found: WorkspaceRevision[] = []
@@ -2431,7 +2511,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // A pull request merged by squash or rebase leaves a commit without Content metadata, so read the history of the file itself.
       const limit = revisionOptions.limit ?? 20
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
+        throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "limit" })
       }
       const page = await retained.list({ ref: "published", path: runtime.pathFor(touched, locale), limit, cursor: revisionOptions.cursor })
       return { revisions: page.revisions, ...(page.cursor ? { cursor: page.cursor } : {}), scanned: page.revisions.length }

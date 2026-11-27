@@ -1,6 +1,7 @@
 import type { DrainContext } from "evlog";
 import * as v from "valibot";
-import { LogCursorExpiredError, logEntrySchema, parseLogQuery } from "./source.ts";
+import { logCursorExpiredError, logEntrySchema, parseLogQuery } from "./source.ts";
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts";
 import type { LogEntry, LogSource } from "./source.ts";
 
 export interface LogBuffer {
@@ -18,10 +19,11 @@ export function createLogBuffer(
   const maxEntries = options.maxEntries ?? 256;
   const maxEntryBytes = options.maxEntryBytes ?? 16_384;
   if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > 10_000)
-    throw new TypeError("logs.maxEntries must be an integer from 1 to 10000.");
+    throw viteHubErrorDiagnostics.VITE_HUB_LOGS_MAX_ENTRIES_INVALID();
   if (!Number.isSafeInteger(maxEntryBytes) || maxEntryBytes < 256 || maxEntryBytes > 262_144)
-    throw new TypeError("logs.maxEntryBytes must be an integer from 256 to 262144.");
+    throw viteHubErrorDiagnostics.VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID();
   const entries: LogEntry[] = [];
+  const retainedIds = new Set<string>();
   let dropped = 0;
   const encoder = new TextEncoder();
   function append(entry: LogEntry): void {
@@ -32,10 +34,11 @@ export function createLogBuffer(
         return;
       }
       const snapshot = v.parse(logEntrySchema, JSON.parse(serialized));
-      if (entries.some((item) => item.id === snapshot.id)) return;
+      if (retainedIds.has(snapshot.id)) return;
+      retainedIds.add(snapshot.id);
       entries.push(snapshot);
       if (entries.length > maxEntries) {
-        entries.shift();
+        retainedIds.delete(entries.shift()!.id);
         dropped++;
       }
     } catch {
@@ -55,24 +58,20 @@ export function createLogBuffer(
       const cursorIndex = query.cursor
         ? entries.findIndex((entry) => entry.id === query.cursor)
         : entries.length;
-      if (cursorIndex === -1) throw new LogCursorExpiredError();
+      if (cursorIndex === -1) throw logCursorExpiredError();
       const text = query.text?.toLowerCase();
-      const filtered = entries
-        .slice(0, cursorIndex)
-        .reverse()
-        .filter(
-          (entry) =>
-            (!query.level || entry.level === query.level) &&
-            (!query.service || entry.service === query.service) &&
-            (!text || JSON.stringify(entry).toLowerCase().includes(text)),
-        );
-      const page = filtered.slice(0, query.limit);
-      const last = page.at(-1);
-      return structuredClone({
-        entries: page,
-        ...(filtered.length > query.limit && last ? { cursor: last.id } : {}),
-        dropped,
-      });
+      const page: LogEntry[] = [];
+      for (let index = cursorIndex - 1; index >= 0; index--) {
+        const entry = entries[index]!;
+        if (query.level && entry.level !== query.level) continue;
+        if (query.service && entry.service !== query.service) continue;
+        if (text && !JSON.stringify(entry).toLowerCase().includes(text)) continue;
+        if (page.length === query.limit) {
+          return structuredClone({ entries: page, cursor: page[page.length - 1]!.id, dropped });
+        }
+        page.push(entry);
+      }
+      return structuredClone({ entries: page, dropped });
     },
   };
   return {
@@ -85,7 +84,7 @@ export function createLogBuffer(
       append({
         id: crypto.randomUUID(),
         timestamp: event.timestamp,
-        level: event.level,
+        level: event.level === "trace" ? "debug" : event.level === "fatal" ? "error" : event.level,
         service: event.service,
         message: typeof message === "string" ? message : "Event",
         data: event,
@@ -93,6 +92,7 @@ export function createLogBuffer(
     },
     clear() {
       entries.length = 0;
+      retainedIds.clear();
       dropped = 0;
     },
   };

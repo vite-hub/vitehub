@@ -9,6 +9,7 @@ import { Headers as ForeignHeaders, Request as ForeignRequest } from "undici"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../src/internal/cloudflare-resource-name.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from "../src/runtime/hosted.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
@@ -21,7 +22,7 @@ import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEv
 
 import type { VercelQueueCallbackOptions, VercelQueueSDK } from "../src/types.ts"
 
-const { run: runQueue, defer: deferQueue } = dynamicQueue
+const { send: sendQueue, defer: deferQueue } = dynamicQueue
 
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
@@ -84,7 +85,7 @@ afterEach(() => {
 
 describe("cloudflare queue runtime", () => {
   it("clears the selected client factory when Queue support is disabled", () => {
-    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel" }, createVercelQueueRuntimeClient)
     expect(getQueueRuntimeClientFactory()).toBe(createVercelQueueRuntimeClient)
 
     setQueueRuntimeConfig(false)
@@ -93,14 +94,14 @@ describe("cloudflare queue runtime", () => {
 
   it("selects an explicit Queue client without generated runtime state", async () => {
     const cloudflareSend = vi.fn(async () => {})
-    const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
-    expect(await cloudflare.send("cloudflare")).toEqual([undefined, { messageId: expect.any(String), status: "queued" }])
+    const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, driver: "cloudflare" })
+    expect(await cloudflare.send("cloudflare")).toEqual([undefined, { status: "queued" }])
     expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
 
     const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))
     const vercel = await createQueueClient({
       client: { handleCallback: vi.fn(), send: vercelSend },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic",
     })
     expect(await vercel.send("vercel")).toEqual([undefined, { messageId: "message-1", status: "queued" }])
@@ -115,14 +116,14 @@ describe("cloudflare queue runtime", () => {
 
     expect(() => createCloudflareQueueClient({
       binding: Object.create(inherited),
-      provider: "cloudflare",
+      driver: "cloudflare",
     })).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_BINDING" }))
   })
 
   it("names only identifier bindings in a missing binding error", () => {
     let error: unknown
     try {
-      createCloudflareQueueClient({ binding: "../not a binding", provider: "cloudflare" })
+      createCloudflareQueueClient({ binding: "../not a binding", driver: "cloudflare" })
     }
     catch (cause) {
       error = cause
@@ -142,7 +143,7 @@ describe("cloudflare queue runtime", () => {
 
     const client = createCloudflareQueueClient({
       binding: new QueueBinding(),
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
 
     await expect(client.send("message")).resolves.toMatchObject([undefined, { status: "queued" }])
@@ -153,7 +154,7 @@ describe("cloudflare queue runtime", () => {
     const sendBatch = vi.fn(async () => {})
     const client = createCloudflareQueueClient({
       binding: { send, sendBatch },
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
 
     const unsupportedRegion = [{
@@ -165,8 +166,8 @@ describe("cloudflare queue runtime", () => {
     expect(send).not.toHaveBeenCalled()
     expect(sendBatch).not.toHaveBeenCalled()
 
-    expect((await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 }))[0]).toBeUndefined()
-    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })).toEqual([undefined, [{ status: "queued" }]])
+    expect((await client.send({ id: 3 }, { contentType: "json", delay: "1s" }))[0]).toBeUndefined()
+    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delay: "2s" })).toEqual([undefined, [{ status: "queued" }]])
     expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
@@ -176,7 +177,7 @@ describe("cloudflare queue runtime", () => {
     const sendBatch = vi.fn(() => new Promise<void>((resolve) => { acceptBatch = resolve }))
     const client = createCloudflareQueueClient({
       binding: { send: vi.fn(async () => {}), sendBatch },
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
     const items = [{ body: "one" }, { body: "two" }]
     const result = client.sendBatch(items)
@@ -204,7 +205,7 @@ describe("cloudflare queue runtime", () => {
   })
 
   it("points direct Node scripts at generated provider output when no registry is loaded", async () => {
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_DEFINITION_NOT_FOUND",
       fix: expect.stringContaining("The generated server output loads the Queue Definitions"),
     })
@@ -215,9 +216,9 @@ describe("cloudflare queue runtime", () => {
     setQueueRuntimeConfig(false)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: { handler } }) })
 
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
     setQueueRuntimeRegistry(undefined)
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -308,8 +309,8 @@ describe("cloudflare queue runtime", () => {
     ["ack", true, "ack"],
     ["retry", false, "retry"],
     ["retry", true, "retry"],
-    [{ retry: { delaySeconds: 30 } }, false, "retry"],
-    [{ retry: { delaySeconds: 30 } }, true, "retry"],
+    [{ retry: { delay: "30s" } }, false, "retry"],
+    [{ retry: { delay: "30s" } }, true, "retry"],
   ] as const)("preserves the message receiver for action %j with non-retryable error %s", async (action, nonRetryable, expected) => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
@@ -328,8 +329,7 @@ describe("cloudflare queue runtime", () => {
     expect(message.retry).toHaveBeenCalledTimes(expected === "retry" ? 1 : 0)
     expect(message[expected].mock.contexts).toEqual([message])
     if (typeof action === "object") {
-      expect(message.retry).toHaveBeenCalledWith(action.retry)
-      expect(message.retry.mock.calls[0]![0]).toBe(action.retry)
+      expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 30 })
     } else {
       expect(message[expected]).toHaveBeenCalledWith()
     }
@@ -354,6 +354,18 @@ describe("cloudflare queue runtime", () => {
     expect(onError).toHaveBeenCalledOnce()
     expect(retry).toHaveBeenCalledOnce()
     expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports a removed Cloudflare retry option and uses the fallback", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError: () => ({ retry: { delaySeconds: 60 } }) as never,
+      onMessage: async () => { throw new Error("handler failed") },
+    })
+    await batchHandler({ ackAll: vi.fn(), messages: [message], queue: "queue--666f6f", retryAll: vi.fn() })
+    expect(report).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ error: expect.objectContaining({ code: "QUEUE_UNSUPPORTED_OPTION" }) }))
+    expect(message.retry).toHaveBeenCalledExactlyOnceWith()
   })
 
   it("acknowledges non-retryable Cloudflare errors when the onError hook throws", async () => {
@@ -382,9 +394,9 @@ describe("cloudflare queue runtime", () => {
   })
 
   it.each([
-    ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
-    ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
-    ["array", Object.assign([], { retry: { delaySeconds: 30 } })],
+    ["inherited", Object.create({ retry: { delay: "30s" } })],
+    ["callable", Object.assign(() => undefined, { retry: { delay: "30s" } })],
+    ["array", Object.assign([], { retry: { delay: "30s" } })],
   ].flatMap(([kind, action]) => [false, true].map(nonRetryable => ({ kind, action, nonRetryable }))))("ignores $kind Cloudflare retry directives with non-retryable error $nonRetryable", async ({ action, nonRetryable }) => {
     const ack = vi.fn()
     const retry = vi.fn()
@@ -416,7 +428,7 @@ describe("cloudflare queue runtime", () => {
       send: vi.fn().mockRejectedValue(cause),
       sendBatch: vi.fn().mockRejectedValue(cause),
     }
-    const client = createCloudflareQueueClient({ binding, provider: "cloudflare" })
+    const client = createCloudflareQueueClient({ binding, driver: "cloudflare" })
 
     const [sendError] = await client.send({ email: "ava@example.com" })
     const [batchError] = await client.sendBatch([{ body: { email: "ava@example.com" } }])
@@ -442,7 +454,7 @@ describe("cloudflare queue runtime", () => {
       .mockRejectedValueOnce(custom)
     const client = createCloudflareQueueClient({
       binding: { send, sendBatch: vi.fn(async () => {}) },
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
 
     await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject([{ cause: abort, code: "QUEUE_PROVIDER_FAILED" }, undefined])
@@ -452,7 +464,7 @@ describe("cloudflare queue runtime", () => {
   it("redacts unsafe queue identifiers from definition lookup failures", async () => {
     const name = "https://user:secret-token@queue.example/private"
 
-    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+    const error = await sendQueue(name, { email: "ava@example.com" }).catch(error => error)
 
     expect(error).toMatchObject({
       code: "QUEUE_DEFINITION_NOT_FOUND",
@@ -467,7 +479,7 @@ describe("cloudflare queue runtime", () => {
       inherited: async () => Object.create({ default: { handler } }),
     })
 
-    await expect(runQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+    await expect(sendQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -477,7 +489,7 @@ describe("cloudflare queue runtime", () => {
       inherited: async () => Object.create({ handler }),
     })
 
-    await expect(runQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+    await expect(sendQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -486,7 +498,7 @@ describe("cloudflare queue runtime", () => {
     const name = "https://user:secret-token@queue.example/private"
     setQueueRuntimeRegistry({ [name]: async () => Promise.reject(cause) })
 
-    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+    const error = await sendQueue(name, { email: "ava@example.com" }).catch(error => error)
 
     expect(error).toMatchObject({
       cause,
@@ -499,7 +511,7 @@ describe("cloudflare queue runtime", () => {
   it("defaults omitted queue config to the Cloudflare provider", async () => {
     const send = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      app: async () => Response.json((await runQueue("welcome", { email: "ava@example.com" }))[1]),
+      app: async () => Response.json((await sendQueue("welcome", { email: "ava@example.com" }))[1]),
       registry: {
         welcome: async () => ({
           default: {
@@ -524,7 +536,7 @@ describe("cloudflare queue runtime", () => {
   })
 
   it("reports a missing Cloudflare binding without deployment runtime defaults", async () => {
-    setQueueRuntimeConfig({ cache: true, namePrefix: "", provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ cache: true, namePrefix: "", driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: { handler: async () => {} },
@@ -532,7 +544,7 @@ describe("cloudflare queue runtime", () => {
     })
 
     const binding = getCloudflareQueueBindingName("welcome")
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
       fix: expect.stringContaining("generated binding"),
       why: `The Cloudflare queue binding "${binding}" is not in the Worker env.`,
@@ -624,7 +636,7 @@ describe("cloudflare queue runtime", () => {
   it("dispatches prefixed physical names in manually constructed Cloudflare workers", async () => {
     const handler = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      queue: { namePrefix: "preview-", provider: "cloudflare" },
+      queue: { namePrefix: "preview-", driver: "cloudflare" },
       registry: {
         abcdefghijklmnop: async () => ({
           default: { handler },
@@ -673,10 +685,33 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
   })
 
+  it.each([
+    ["a prefixed name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a bounded name", { queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" as const } }, getCloudflareQueueName("welcome", `${"deployment".repeat(8)}-`), "welcome", "welcome"],
+    ["a generated mapping", { definitions: { "preview-queue--77656c636f6d65": "welcome" } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a non-ASCII name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--636166c3a9", "café", "preview-queue--636166c3a9"],
+  ])("identifies the queue in delivery reports of %s", async (_case, options, physicalName, definitionName, reportedName) => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const handler = vi.fn(async () => { throw new Error("SMTP down") })
+    const worker = createQueueCloudflareWorker({ ...options, registry: { [definitionName]: async () => ({ default: { handler } }) } })
+    const retry = vi.fn()
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: {}, id: "1", retry }],
+      queue: physicalName,
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: reportedName })
+  })
+
   it("derives bounded physical names from manual worker registries", async () => {
     const handler = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      queue: { namePrefix: `${"deployment".repeat(8)}-`, provider: "cloudflare" },
+      queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" },
       registry: {
         "images/nested/optimization-aaaaaaaa": async () => ({ default: { handler } }),
       },
@@ -713,7 +748,7 @@ describe("cloudflare queue runtime", () => {
     const waitUntil = vi.fn()
     const sendBatch = vi.fn(async () => {})
 
-    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -753,7 +788,7 @@ describe("cloudflare queue runtime", () => {
       },
     }
 
-    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -786,7 +821,7 @@ describe("cloudflare queue runtime", () => {
     const sendBatch = vi.fn(async () => {})
     const waitUntil = vi.fn()
 
-    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -816,23 +851,21 @@ describe("cloudflare queue runtime", () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it("uses Node request Cloudflare context for deferred dispatch", async () => {
+  it("uses request runtime Cloudflare context for deferred dispatch", async () => {
     const send = vi.fn(async () => {})
     const waitUntil = vi.fn()
 
-    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => {} } }),
     })
 
     await runWithQueueRuntimeEvent({
-      node: {
-        req: {
-          runtime: {
-            cloudflare: {
-              context: { waitUntil },
-              env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
-            },
+      req: {
+        runtime: {
+          cloudflare: {
+            context: { waitUntil },
+            env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
           },
         },
       },
@@ -848,16 +881,16 @@ describe("cloudflare queue runtime", () => {
 
   it("clears the active Cloudflare env for an explicitly unbound request", async () => {
     const send = vi.fn(async () => {})
-    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => {} } }),
     })
 
     enterQueueRuntimeEvent({ env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } } })
-    expect((await runQueue("welcome", { email: "first@example.com" }))[0]).toBeUndefined()
+    expect((await sendQueue("welcome", { email: "first@example.com" }))[0]).toBeUndefined()
     enterQueueRuntimeEvent({ env: undefined })
 
-    await expect(runQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
+    await expect(sendQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
     })
     expect(send).toHaveBeenCalledTimes(1)
@@ -880,49 +913,14 @@ describe("vercel provider", () => {
       return "handled"
     })
     const definition = { handler: async () => undefined }
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(await (await handleHostedVercelQueueCallback(request, "welcome", definition)).json()).toBe("handled")
     expect(captured).toBe(request)
     expect(request.bodyUsed).toBe(state === "consumed")
     reader?.releaseLock()
     if (state !== "consumed") expect(await request.text()).toBe("payload")
-  })
-
-  it("converts spoofed Request-shaped objects through H3", async () => {
-    const request = runInNewContext(`
-      const headers = { get() { return null } }
-      const request = { headers, method: "POST", url: "https://queue.example.test/callback" }
-      Object.defineProperty(request, Symbol.toStringTag, { value: "Request" })
-      request
-    `, { Symbol })
-    let captured: unknown
-    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
-      captured = values[0]
-      return "handled"
-    })
-    const definition = { handler: async () => undefined }
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
-    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
-
-    const h3Request = new Request("https://queue.example.test/callback", {
-      headers: { "content-type": "text/plain" },
-      method: "POST",
-      body: "payload",
-    })
-    await expect(handleHostedVercelQueueCallback({
-      method: "POST",
-      req: h3Request,
-      request,
-    } as never, "welcome", definition)).resolves.toBe("handled")
-    expect(captured).not.toBe(request)
-    expect(captured).toBeInstanceOf(Request)
-    const normalized = captured as Request
-    expect(normalized.url).toBe(h3Request.url)
-    expect(normalized.method).toBe("POST")
-    expect(normalized.headers.get("content-type")).toBe("text/plain")
-    expect(await normalized.text()).toBe("payload")
   })
 
   it("uses the sdk send and callback contract", async () => {
@@ -933,7 +931,7 @@ describe("vercel provider", () => {
         handleCallback,
         send,
       },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -953,21 +951,38 @@ describe("vercel provider", () => {
       : { messageId: `message-${index}`, status: "sent" as const }))
     const client = await createVercelQueueClient({
       client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
     await expect(client.sendBatch([
-      { body: { email: "ava@example.com" } },
-      { body: { email: "ben@example.com" }, delaySeconds: 5, idempotencyKey: "welcome-ben" },
-    ], { delaySeconds: 60, retentionSeconds: 3600 })).resolves.toEqual([undefined, [
+      { body: { email: "ava@example.com" }, retention: undefined },
+      { body: { email: "ben@example.com" }, delay: "4500ms", idempotencyKey: "welcome-ben", retention: "60.5s" },
+    ], { delay: "1m", retention: 60.5 })).resolves.toEqual([undefined, [
       { messageId: "message-0", status: "queued" },
       { messageId: undefined, status: "queued" },
     ]])
     expect(sendBatch).toHaveBeenCalledExactlyOnceWith("topic--77656c636f6d65", [
-      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 3600 },
-      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 3600 },
+      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 61 },
+      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 61 },
     ])
+  })
+
+  it.each([Number.NaN, -60, Number.POSITIVE_INFINITY])("returns RUNTIME_DURATION_INVALID for a retention of %s seconds and does not call Vercel", async (retention) => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    const sendBatch = vi.fn(async () => [{ messageId: "message-1", status: "sent" as const }])
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send, sendBatch },
+      driver: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [sendError] = await client.send({}, { retention })
+    const [batchError] = await client.sendBatch([{ body: {} }], { retention })
+    expect(sendError).toMatchObject({ code: "RUNTIME_DURATION_INVALID", why: expect.stringContaining(`\`retention\` is ${retention}`) })
+    expect(batchError).toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
+    expect(send).not.toHaveBeenCalled()
+    expect(sendBatch).not.toHaveBeenCalled()
   })
 
   it("returns QUEUE_PROVIDER_FAILED with the per-job results when Vercel rejects a batch job", async () => {
@@ -977,7 +992,7 @@ describe("vercel provider", () => {
     ]
     const client = await createVercelQueueClient({
       client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch: vi.fn(async () => results) },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1002,7 +1017,7 @@ describe("vercel provider", () => {
     }
     const client = await createVercelQueueClient({
       client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
     const items = [{ body: 1, idempotencyKey: "job-1" }, { body: 2, idempotencyKey: "job-2" }]
@@ -1031,7 +1046,7 @@ describe("vercel provider", () => {
       ])
     const client = await createVercelQueueClient({
       client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
     const items = [{ body: 1 }, { body: 2 }]
@@ -1053,7 +1068,7 @@ describe("vercel provider", () => {
   it("fails a Vercel batch explicitly when the client has no sendBatch", async () => {
     const client = await createVercelQueueClient({
       client: { handleCallback: vi.fn(), send: vi.fn() },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1074,7 +1089,7 @@ describe("vercel provider", () => {
 
     await expect(createVercelQueueClient({
       client: Object.create(inherited),
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })).rejects.toMatchObject({
       code: "QUEUE_VERCEL_SDK_INVALID",
@@ -1082,7 +1097,7 @@ describe("vercel provider", () => {
 
     await expect(createVercelQueueClient({
       client: null as never,
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })).rejects.toMatchObject({ code: "QUEUE_VERCEL_SDK_INVALID" })
 
@@ -1090,7 +1105,7 @@ describe("vercel provider", () => {
     revoked.revoke()
     await expect(createVercelQueueClient({
       client: revoked.proxy as never,
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })).rejects.toMatchObject({ code: "QUEUE_VERCEL_SDK_INVALID" })
   })
@@ -1108,7 +1123,7 @@ describe("vercel provider", () => {
 
     const client = await createVercelQueueClient({
       client: new QueueClient(),
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1125,7 +1140,7 @@ describe("vercel provider", () => {
         handleCallback: vi.fn(() => async () => new Response("queued")),
         send,
       },
-      provider: "vercel",
+      driver: "vercel",
       region: "fra1",
       topic: "topic--77656c636f6d65",
     })
@@ -1150,7 +1165,7 @@ describe("vercel provider", () => {
         handleCallback: vi.fn(() => async () => new Response("queued")),
         send: vi.fn().mockRejectedValue(cause),
       },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1171,7 +1186,7 @@ describe("vercel provider", () => {
         handleCallback: vi.fn(() => async () => new Response("queued")),
         send: vi.fn().mockResolvedValue(response),
       },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1187,7 +1202,7 @@ describe("vercel provider", () => {
         handleCallback: vi.fn(() => async () => new Response("queued")),
         send: vi.fn().mockResolvedValue({}),
       },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1207,7 +1222,7 @@ describe("vercel provider", () => {
         handleCallback: vi.fn(() => async () => new Response("queued")),
         send: vi.fn().mockResolvedValue(response),
       },
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1232,7 +1247,7 @@ describe("vercel provider", () => {
       value: Object.create(inherited),
     })
 
-    await expect(createVercelQueueClient({ provider: "vercel", region: "iad1", topic: "topic--77656c636f6d65" })).rejects.toMatchObject({
+    await expect(createVercelQueueClient({ driver: "vercel", region: "iad1", topic: "topic--77656c636f6d65" })).rejects.toMatchObject({
       code: "QUEUE_VERCEL_SDK_INVALID",
     })
   })
@@ -1247,7 +1262,7 @@ describe("vercel provider", () => {
     })
 
     const error = await createVercelQueueClient({
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     }).catch(error => error)
 
@@ -1264,10 +1279,9 @@ describe("vercel provider", () => {
     const acknowledge = vi.fn()
     const definition = {
       handler: async () => new Response("failed", { status }),
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
-    // The Vercel SDK acknowledges resolved handlers and retries only rejections.
     vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
       try {
         await (handler as (payload: unknown, metadata: unknown) => Promise<unknown>)({}, metadata)
@@ -1276,14 +1290,14 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
     expect(acknowledge).not.toHaveBeenCalled()
     expect(retry).toHaveBeenCalledWith(expect.objectContaining({ message: `Queue handler returned HTTP ${status}`, status }), metadata)
-    expect(result).toEqual({ afterSeconds: 30 })
+    expect(await result.json()).toEqual({ afterSeconds: 30 })
   })
 
   it.each([undefined, 200, 204])("accepts a successful Vercel handler with status %s", async (status) => {
@@ -1292,10 +1306,10 @@ describe("vercel provider", () => {
       await (handler as (payload: unknown) => Promise<unknown>)({})
       return "acknowledged"
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await expect(handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)).resolves.toBe("acknowledged")
+    expect(await (await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)).json()).toBe("acknowledged")
   })
 
   it.each([
@@ -1306,7 +1320,7 @@ describe("vercel provider", () => {
     const response = new Response(new ReadableStream({ cancel }), { status })
     const retry = vi.fn(() => ({ afterSeconds: 30 }))
     const acknowledge = vi.fn()
-    const definition = { handler: async () => response, options: { callbackOptions: { retry } } }
+    const definition = { handler: async () => response, callbackOptions: { retry } }
     vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
       try {
         await (handler as (payload: unknown) => Promise<unknown>)({})
@@ -1315,10 +1329,10 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, {})
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
     expect(cancel).toHaveBeenCalledTimes(1)
     expect(acknowledge).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
@@ -1333,7 +1347,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.", { cause: new Error("private provider detail") })
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 3, messageId: "message-3" }
 
@@ -1344,12 +1358,12 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
-    expect(result).toBeUndefined()
+    expect(result.status).toBe(204)
     expect(retry).toHaveBeenCalledTimes(1)
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[1]).toMatchObject({
@@ -1369,7 +1383,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
 
@@ -1380,12 +1394,12 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
-    expect(result).toEqual({ afterSeconds: 30 })
+    expect(await result.json()).toEqual({ afterSeconds: 30 })
     expect(retry).toHaveBeenCalledTimes(1)
   })
 
@@ -1393,7 +1407,7 @@ describe("vercel provider", () => {
     process.env.VERCEL_REGION = "iad1"
 
     const client = await createVercelQueueClient({
-      provider: "vercel",
+      driver: "vercel",
       topic: "topic--77656c636f6d65",
     })
 
@@ -1405,10 +1419,10 @@ describe("vercel provider", () => {
     }))
   })
 
-  it("infers the sdk region from Nitro node request headers", async () => {
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::iad1::request" } } } }, async () => {
+  it("infers the sdk region from Nitro request headers", async () => {
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::iad1::request" } } }, async () => {
       const client = await createVercelQueueClient({
-        provider: "vercel",
+        driver: "vercel",
         topic: "topic--77656c636f6d65",
       })
 
@@ -1419,14 +1433,14 @@ describe("vercel provider", () => {
   })
 
 it("does not cache regions inferred from Vercel requests", async () => {
-    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ handler: async () => {} }),
     })
 
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "iad1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "iad1" })
   })
 
@@ -1437,27 +1451,27 @@ it("does not cache regions inferred from Vercel requests", async () => {
   ])("shares globally selected region $expected across request contexts", async ({ explicit, queue, runtime, expected }) => {
     if (queue) process.env.QUEUE_REGION = queue;
     process.env.VERCEL_REGION = runtime;
-    setQueueRuntimeConfig({ provider: "vercel", region: explicit }, createVercelQueueRuntimeClient);
+    setQueueRuntimeConfig({ driver: "vercel", region: explicit }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
-    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.get("welcome"));
-    const second = await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "hnd1::request" } } } }, () => dynamicQueue.get("welcome"));
+    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.use("welcome"));
+    const second = await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "hnd1::request" } } }, () => dynamicQueue.use("welcome"));
     expect(first).toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: expected });
   });
 
   it("prefers the queue-region header while keeping request-selected clients separate", async () => {
-    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient);
+    setQueueRuntimeConfig({ driver: "vercel" }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
-    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "fra1", "x-vercel-id": "iad1::request" } }) }, () => dynamicQueue.get("welcome"));
+    const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "fra1", "x-vercel-id": "iad1::request" } }) }, () => dynamicQueue.use("welcome"));
     expect(vercelQueueMock.options).toEqual({ region: "fra1" });
-    const second = await runWithQueueRuntimeEvent({ req: { headers: new Headers({ "ce-vqsregion": "hnd1" }) } }, () => dynamicQueue.get("welcome"));
+    const second = await runWithQueueRuntimeEvent({ req: { headers: new Headers({ "ce-vqsregion": "hnd1" }) } }, () => dynamicQueue.use("welcome"));
     expect(first).not.toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: "hnd1" });
   });
 
   it("uses Vercel waitUntil for deferred dispatch", async () => {
     process.env.VERCEL_REGION = "iad1"
-    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeConfig({ driver: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       "welcome-email": async () => ({
         default: {
@@ -1466,7 +1480,6 @@ it("does not cache regions inferred from Vercel requests", async () => {
       }),
     })
 
-    // The Nitro queue middleware gives each Vercel request the same `waitUntil`.
     runWithQueueRuntimeEvent({ waitUntil: hostedVercelWaitUntil }, () => deferQueue("welcome-email", { email: "ava@example.com" }))
 
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)
@@ -1503,72 +1516,4 @@ it("falls back to Vercel ID when a request has no queue-region header", () => {
     headers: { "x-vercel-id": "iad1::request" },
   })
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
-})
-
-it("reads regions when the branding probe header is present", () => {
-  const request = new Request("https://example.com", {
-    headers: {
-      "x-vitehub-brand-probe": "present",
-      "ce-vqsregion": "ams1",
-    },
-  })
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
-})
-
-it("reads headers through a deep Fetch prototype chain", () => {
-  const request = new Request("https://example.com", {
-    headers: { "ce-vqsregion": "ams1" },
-  })
-  let prototype = Object.getPrototypeOf(request)
-  for (let index = 0; index < 300; index++) {
-    const layer = Object.create(prototype)
-    prototype = layer
-  }
-  Object.setPrototypeOf(request, prototype)
-
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
-})
-
-it("ignores proxies around ordinary header methods", () => {
-  const get = new Proxy(() => "evil", {})
-  const request = { headers: { get } }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-
-it("rejects receiver-dependent header method proxies", () => {
-  const headers = Object.create(Headers.prototype) as Headers
-  const get = new Proxy(() => "evil", {
-    apply(_target, thisArg) {
-      if (thisArg === headers) return "evil"
-      throw new TypeError("invalid receiver")
-    },
-  })
-  Object.defineProperty(headers, "get", { value: get })
-  const request = { headers }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-it("rejects header proxies that only impersonate real receivers", () => {
-  const headers = Object.create(Headers.prototype) as Headers
-  const get = new Proxy(() => null, {
-    apply(_target, thisArg) {
-      if (thisArg === headers) return "evil"
-      if (thisArg && Object.getPrototypeOf(thisArg) === Headers.prototype) return null
-      throw new TypeError("invalid receiver")
-    },
-  })
-  Object.defineProperty(headers, "get", { value: get })
-  const request = { headers }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-
-
-it("ignores request objects that only spoof Web API brands", () => {
-  const request = runInNewContext(`({
-    headers: {
-      get: () => "evil",
-      get [Symbol.toStringTag]() { return "Headers" },
-    },
-    get [Symbol.toStringTag]() { return "Request" },
-  })`)
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
 })

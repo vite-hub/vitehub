@@ -1,9 +1,15 @@
 import * as v from "valibot"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
+import { foldName } from "../fold-name.ts"
 import { guestIdPrefix } from "../identity.ts"
+import { replyMessageId } from "../reply-id.ts"
 
 import type {
   CommentsAuthorizeContext,
@@ -80,8 +86,23 @@ export interface CommentsRuntime {
   /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
   attachments?: CommentsAttachmentStore
   forge?: CommentsForgeHooks
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. Guest writes
+   * then count under the Rate Limit name `comments`. Without it, they count in the memory of this process.
+   */
+  rateLimit?: SharedRateLimit
   /** Work that runs after the answer, such as `onMention`. `flush()` of the server API waits for it. */
   background?: (task: Promise<unknown>) => void
+  /** Runs after someone opens a thread again. With Send, it puts back the sends that carried the thread. */
+  reopened?: (thread: CommentThread) => Promise<unknown>
+  /** Tells the open pages of a thread that it changed, such as through a Realtime notice to its page room. */
+  changed?: (thread: CommentThread) => Promise<void>
+}
+
+/** Runs the hooks that follow a change of a thread: the pull request sync and the notice to its open pages. */
+export async function threadChanged(runtime: CommentsRuntime, thread: CommentThread): Promise<void> {
+  runtime.forge?.changed(thread.id)
+  await runtime.changed?.(thread).catch(() => undefined)
 }
 
 /** An error with the HTTP status that the operation RPC answers. */
@@ -121,15 +142,17 @@ export function scopeOf(runtime: CommentsRuntime, target: CommentSubject): strin
 
 /**
  * The one access policy of every surface: `authorize`, else `defaultPolicy()`. Only `true` allows. `gate` says what the
- * server checked before, such as the Console's section access; `development` defaults to the runtime's.
+ * server checked before, such as the Console's section access; `development` defaults to the runtime's. `authorize`
+ * gets `development` from it. It gets `console` only from `context`: a mention check keeps the writer's gate, but the
+ * mentioned person was not admitted by the Console.
  */
 export async function can(runtime: Pick<CommentsRuntime, "definition" | "development">, context: CommentsAuthorizeContext, gate: CommentsPolicyGate = {}): Promise<boolean> {
   const { authorize } = runtime.definition
   const subject = context.subject ?? context.thread?.subject
-  const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
+  const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}), development: checked.development }
   if (authorize) return await authorize(full) === true
-  if (defaultPolicy(full.user, checked)) return true
+  if (defaultPolicy(full.user, checked, full.action)) return true
   if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()
   return false
 }
@@ -167,10 +190,10 @@ async function mayMention(runtime: CommentsRuntime, user: CommentsUser | null, f
 }
 
 /** Where `@` finds people: `people`, else Auth, else the authors of threads that `reader` may read. */
-function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: CommentsPolicyGate): CommentsPeople {
+function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: CommentsPolicyGate, console?: boolean): CommentsPeople {
   const explicit = runtime.definition.people ?? runtime.users
   if (explicit) return explicit
-  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader }, gate).catch(() => false)
+  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader, ...(console ? { console: true } : {}) }, gate).catch(() => false)
   return {
     byIds: ids => runtime.store.knownUsersByIds(ids, readable),
     search: (query, limit) => runtime.store.knownUsers(query, limit, readable),
@@ -178,13 +201,14 @@ function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: 
 }
 
 /** People that `@` suggests to `user`, without the ones that may not be mentioned in the thread. */
-export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
-  const found = await peopleOf(runtime, input.user, input.gate).search(input.query, input.limit * 2)
-  const needle = input.query.trim().toLowerCase()
+export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate, console?: boolean }): Promise<CommentUser[]> {
+  const found = await peopleOf(runtime, input.user, input.gate, input.console).search(input.query, input.limit * 2)
+  // Accents and case do not count, as in the menu, so an app's `search` that finds "José" for "jose" keeps him.
+  const needle = foldName(input.query.trim())
   const people: CommentUser[] = []
   for (const person of found) {
     if (people.length >= input.limit) break
-    if (isGuestId(person.id) || (needle && !(person.name ?? person.id).toLowerCase().includes(needle))) continue
+    if (isGuestId(person.id) || (needle && !foldName(person.name ?? person.id).includes(needle))) continue
     if (await mayMention(runtime, input.user, person, input)) people.push(personOf(person))
   }
   return people
@@ -202,11 +226,11 @@ function escapeRegExp(value: string): string {
 }
 
 /** The mentioned ids must be real people that `user` may mention there, and the text must name each one with `@name`. */
-export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
+export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate, console?: boolean }): Promise<CommentUser[]> {
   const unique = [...new Set(input.ids ?? [])]
   if (!unique.length) return []
   if (unique.length > maximumMentions) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `A message mentions at most ${maximumMentions} people.` }), 400)
-  const found = new Map((await peopleOf(runtime, input.user, input.gate).byIds(unique)).map(person => [person.id, person]))
+  const found = new Map((await peopleOf(runtime, input.user, input.gate, input.console).byIds(unique)).map(person => [person.id, person]))
   const people: CommentUser[] = []
   for (const mentioned of unique) {
     const person = found.get(mentioned)
@@ -262,6 +286,8 @@ export const contextSchema = v.object({
 })
 
 const revisionSchema = v.pipe(v.number(), v.integer(), v.minValue(0))
+/** The retry key of `comments.create` and `comments.reply`, such as `crypto.randomUUID()`. */
+export const requestIdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200))
 const attachmentKey = v.pipe(v.string(), v.minLength(1), v.maxLength(500))
 
 function invalid(issues: readonly v.BaseIssue<unknown>[], field: string): Error {
@@ -299,7 +325,7 @@ function newId(prefix: string): string {
  * Runs `onComment` before the answer and `onMention` after it, for one saved message. A failure is logged and never
  * fails the comment.
  */
-async function announce(runtime: CommentsRuntime, thread: CommentThread, message: CommentMessage | undefined, mentions: CommentUser[], fresh: CommentUser[], options: { comment: boolean, waitUntil?: (task: Promise<unknown>) => void }): Promise<void> {
+async function announce(runtime: CommentsRuntime, thread: CommentThread, message: CommentMessage | undefined, mentions: CommentUser[], fresh: CommentUser[], options: { comment: boolean, request?: Request, waitUntil?: (task: Promise<unknown>) => void }): Promise<void> {
   if (!message) return
   const { onComment, onMention } = runtime.definition
   if (options.comment && onComment) {
@@ -307,17 +333,21 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
       await onComment({ mentions, message, thread })
     }
     catch (error) {
-      globalThis.console.error("[vitehub] Comments onComment failed:", error)
+      logFailure({ field: "comments", fields: { hook: "onComment", thread: thread.id }, message: "Comments onComment failed", error, ...(options.request ? { request: options.request } : {}) }, () => globalThis.console.error("[vitehub] Comments onComment failed:", error))
     }
   }
   if (!onMention || !fresh.length) return
   const link = subjectDefinition(runtime, thread.subject.kind)?.link?.(thread)
+  const keep = (promise: Promise<unknown>) => {
+    options.waitUntil?.(promise)
+    runtime.background?.(promise)
+  }
   const task = (async () => {
     try {
       await onMention({ message, thread, users: fresh, ...(link ? { link } : {}) })
     }
     catch (error) {
-      globalThis.console.error("[vitehub] Comments onMention failed:", error)
+      logFailure({ field: "comments", fields: { hook: "onMention", thread: thread.id }, message: "Comments onMention failed", error, waitUntil: keep }, () => globalThis.console.error("[vitehub] Comments onMention failed:", error))
     }
   })()
   options.waitUntil?.(task)
@@ -335,6 +365,8 @@ export interface CreateThreadInput {
   metadata?: CommentMetadata
   context?: CommentContext
   revision?: number
+  /** A retry with the same key in the same scope gets the thread of the first call. */
+  requestId?: string
 }
 
 export interface WriteOptions {
@@ -342,37 +374,64 @@ export interface WriteOptions {
   user?: CommentsUser | null
   /** What the server checked about `user`, for the mention checks. */
   gate?: CommentsPolicyGate
+  /** Console admission of the calling reader, never of a mentioned recipient. */
+  console?: boolean
   waitUntil?: (task: Promise<unknown>) => void
+  /** The request of the call. A failed `onComment` goes on its evlog wide event. */
+  request?: Request
+  /** Whether the caller may read the thread that a retry of `createThread` gets back. Default: yes. */
+  canRead?: (thread: CommentThread) => Promise<boolean>
+}
+
+/** The thread that an earlier `createThread` with this `requestId` stored. A retry gets it back before the create checks. */
+export async function earlierThread(runtime: CommentsRuntime, input: Pick<CreateThreadInput, "requestId" | "subject">): Promise<CommentThread | undefined> {
+  if (input.requestId === undefined) return undefined
+  return await runtime.store.getByRequestId(scopeOf(runtime, input.subject), check(requestIdSchema, input.requestId, "requestId")) ?? undefined
+}
+
+/** Only the author of the first call gets its thread back, for the same subject, and only while they may read it. */
+export async function retried(thread: CommentThread, input: Pick<CreateThreadInput, "author" | "subject">, canRead?: WriteOptions["canRead"]): Promise<CommentThread> {
+  const sameSubject = thread.subject.kind === input.subject.kind && thread.subject.id === input.subject.id
+  if (!sameSubject || thread.author.id !== personOf(input.author).id || (canRead && !(await canRead(thread)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+  return thread
 }
 
 /** Starts a thread. The caller checked access. */
 export async function createThread(runtime: CommentsRuntime, input: CreateThreadInput, options: WriteOptions = {}): Promise<CommentThread> {
+  const earlier = await earlierThread(runtime, input)
+  if (earlier) return retried(earlier, input, options.canRead)
   const scope = scopeOf(runtime, input.subject)
   const metadata = input.metadata === undefined ? undefined : check(metadataSchema, input.metadata, "metadata")
   const context = input.context === undefined ? undefined : check(contextSchema, input.context, "context")
   const revision = input.revision === undefined ? undefined : check(revisionSchema, input.revision, "revision")
+  const requestId = input.requestId === undefined ? undefined : check(requestIdSchema, input.requestId, "requestId")
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: input.subject, ...(metadata ? { metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const author = personOf(input.author)
+  const threadId = newId("thread")
   const created = await runtime.store.createThread({
     anchor: input.anchor ?? { kind: "page" },
     attachments,
-    author: personOf(input.author),
+    author,
     body,
     id: newId("message"),
     mentions: mentioned.map(person => person.id),
     now: Date.now(),
     scope,
     subject: input.subject,
-    threadId: newId("thread"),
+    threadId,
     ...(input.actor ? { actor: input.actor } : {}),
     ...(metadata ? { metadata } : {}),
     ...(context ? { context } : {}),
     ...(revision === undefined ? {} : { revision }),
+    ...(requestId === undefined ? {} : { requestId }),
   })
-  await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  runtime.forge?.changed(created.id)
+  // A retry won the race: the first call stored the thread and sent its notifications.
+  if (created.id !== threadId) return retried(created, input, options.canRead)
+  await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
+  await threadChanged(runtime, created)
   return created
 }
 
@@ -382,16 +441,33 @@ export interface ReplyInput {
   actor?: CommentActor
   mentions?: readonly string[]
   attachments?: readonly string[]
+  /** A retry with the same key in the same thread gets the message of the first call. */
+  requestId?: string
+}
+
+/** The message that an earlier reply with this `requestId` stored in the thread. A retry gets it back before the reply checks. */
+export async function earlierReply(thread: CommentThread, requestId: string | undefined): Promise<CommentMessage | undefined> {
+  if (requestId === undefined) return undefined
+  const id = await replyMessageId(thread.id, check(requestIdSchema, requestId, "requestId"))
+  return thread.messages.find(message => message.id === id)
+}
+
+/** Only the author of the first call gets its message back. */
+export function retriedReply(thread: CommentThread, message: CommentMessage, author: CommentUser): { thread: CommentThread, message: CommentMessage } {
+  if (message.author.id !== personOf(author).id) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+  return { message, thread }
 }
 
 /** Adds a message to a thread. The caller checked access. */
 export async function replyToThread(runtime: CommentsRuntime, thread: CommentThread, input: ReplyInput, options: WriteOptions & { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
+  const earlier = await earlierReply(thread, input.requestId)
+  if (earlier) return retriedReply(thread, earlier, input.author)
   if (thread.status === "resolved" && !options.allowResolved) throw fail(commentsErrorDiagnostics.COMMENTS_R0016(), 409)
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
-  const id = newId("message")
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const id = input.requestId === undefined ? newId("message") : await replyMessageId(thread.id, input.requestId)
   let next: CommentThread
   try {
     next = await runtime.store.addMessage(thread.id, {
@@ -405,13 +481,20 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
     }, { allowResolved: options.allowResolved === true })
   }
   catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0022") {
+      // A retry with the same key won the race: the first call stored the message and sent its notifications.
+      const stored = await runtime.store.getById(thread.id)
+      const winner = stored?.messages.find(message => message.id === id)
+      if (stored && winner) return retriedReply(stored, winner, input.author)
+      throw fail(error, 409)
+    }
     if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0016") throw fail(error, 409)
     if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0002") throw fail(error, 404)
     throw error
   }
   const message = next.messages.find(entry => entry.id === id)!
-  await announce(runtime, next, message, mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  runtime.forge?.changed(next.id)
+  await announce(runtime, next, message, mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
+  await threadChanged(runtime, next)
   return { message, thread: next }
 }
 
@@ -420,11 +503,11 @@ export async function editMessage(runtime: CommentsRuntime, thread: CommentThrea
   const target = thread.messages.find(entry => entry.id === messageId)
   if (!target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId }), 404)
   const body = cleanBody(runtime, { attachments: target.attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user: options.user, ...(options.gate ? { gate: options.gate } : {}) })
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, thread, user: options.user, ...(options.gate ? { gate: options.gate } : {}) })
   const next = await runtime.store.editMessage(thread.id, target.id, { body, mentions: mentioned.map(person => person.id), now: Date.now() })
   const fresh = mentioned.filter(person => !target.mentions.includes(person.id))
   await announce(runtime, next, next.messages.find(entry => entry.id === target.id), mentioned, fresh, { comment: false, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  runtime.forge?.changed(next.id)
+  await threadChanged(runtime, next)
   return next
 }
 
@@ -489,6 +572,13 @@ export async function attachmentThread(runtime: CommentsRuntime, key: string, re
     cursor = page.cursor
   } while (cursor)
   throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+}
+
+/** The Base64 text of the bytes of an attachment, for the operations and the MCP tools. */
+export function base64(bytes: Uint8Array): string {
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
 }
 
 /**

@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import { createShellRuntime } from "../src/index.ts"
-import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createJustBashDriver } from "../src/providers/just-bash.ts"
 import { createWritableWorkspaceFs, workspaceMountPoint } from "../src/workspace/index.ts"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
-// Workspace stores accept trailing separators and return canonical entry paths.
 class DirectoryWorkspace extends MemoryWorkspace {
   override stat(path: string) {
     return super.stat(path.replace(/\/+$/, ""))
@@ -44,7 +43,7 @@ describe("Workspace directory paths", () => {
 
   it("lists a directory with a trailing slash through Just Bash", async () => {
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands: ["ls"],
         cwd: workspaceMountPoint,
         fs: createWritableWorkspaceFs(createWorkspace()),

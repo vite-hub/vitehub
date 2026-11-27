@@ -1,6 +1,13 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import memoryDriver from "unstorage/drivers/memory"
 
+import type { KVStorage } from "../src/types.ts"
+
+const deletes: string[] = []
 const puts: Array<{ key: string, options: unknown }> = []
 
 vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
@@ -8,6 +15,10 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
     const driver = memoryDriver()
     return {
       ...driver,
+      async removeItem(key: string) {
+        deletes.push(key)
+        await driver.removeItem!(key, {})
+      },
       async setItem(key: string, value: string, options: unknown) {
         puts.push({ key, options })
         await driver.setItem!(key, value, {})
@@ -20,20 +31,44 @@ vi.mock("unstorage/drivers/fs-lite", () => ({ default: vi.fn(() => memoryDriver(
 
 const mib = 1024 * 1024
 
+function hook<T>(value: unknown): T {
+  // SAFETY: The test calls the plugin hooks with the subset of Vite arguments that they read.
+  return (Reflect.has(Object(value), "handler") ? Reflect.get(Object(value), "handler") : value) as T
+}
+
 describe("Cloudflare KV limits", () => {
   beforeEach(() => {
     vi.resetModules()
     puts.length = 0
+    deletes.length = 0
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    delete process.env.VITEHUB_HOSTING
+    delete process.env.VITEHUB_HOST
   })
 
   async function cloudflareKV() {
-    process.env.VITEHUB_HOSTING = "cloudflare"
+    process.env.VITEHUB_HOST = "cloudflare"
     return (await import("../src/runtime/storage.ts")).kv
+  }
+
+  async function cloudflareBuildRuntimeKV(): Promise<KVStorage> {
+    const { hubKV } = await import("../src/vite.ts")
+    const directory = await mkdtemp(join(process.env.TMPDIR || tmpdir(), "vitehub-kv-cloudflare-runtime-"))
+    try {
+      const plugin = hubKV(undefined, { hosting: "cloudflare-module" })
+      await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro: {}, root: directory }, { command: "build" })
+      await hook<(config: object) => unknown>(plugin.configResolved)({ build: { outDir: "dist" }, command: "build", nitro: {}, root: directory })
+      const load = hook<(id: string, options: { ssr: boolean }) => Promise<string>>(plugin.load)
+      const file = join(directory, "runtime.mjs")
+      await writeFile(file, await load("\0#vitehub/kv/runtime", { ssr: true }))
+      // SAFETY: The generated runtime exports `kv` with the public KVStorage shape.
+      return (await import(/* @vite-ignore */ file)).kv as KVStorage
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   }
 
   it("returns KV_KEY_TOO_LONG for a key above 512 UTF-8 bytes, before the provider call", async () => {
@@ -47,17 +82,61 @@ describe("Cloudflare KV limits", () => {
     })
     expect(puts).toEqual([])
 
-    // Two bytes per character in UTF-8, so 257 characters are 514 bytes.
     const [multibyteError] = await kv.set("é".repeat(257), "value")
     expect(multibyteError?.code).toBe("KV_KEY_TOO_LONG")
 
-    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.del("k".repeat(513))]) {
+    for (const [error] of [await kv.get("k".repeat(513)), await kv.has("k".repeat(513)), await kv.delete("k".repeat(513))]) {
       expect(error?.code).toBe("KV_KEY_TOO_LONG")
     }
 
     const [error] = await kv.set("k".repeat(512), "value")
     expect(error).toBeUndefined()
     expect(puts).toHaveLength(1)
+  })
+
+  it.each(["cloudflare", "local"])("preflights mixed writes and deletions on %s stores", async (host) => {
+    process.env.VITEHUB_HOST = host
+    const { createKVStorage } = await import("../src/runtime/create-storage.ts")
+    const { default: createDriver } = await import("../src/runtime/cloudflare-kv.ts")
+    const { default: createLocalDriver } = await import("../src/runtime/cloudflare-kv-local.ts")
+    const driver = host === "cloudflare" ? createDriver({ binding: "KV" }) : createLocalDriver({ driver: "cloudflare", binding: "KV", localBase: "/tmp/kv-batch-preflight" })
+    const storage = createKVStorage(driver)
+    await storage.setItem("keep", "original")
+    puts.length = 0
+    for (const entries of [
+      [{ key: "keep", value: undefined }, { key: "k".repeat(513), value: "bad" }],
+      [{ key: "write", value: "good" }, { key: "k".repeat(513), value: undefined }],
+      [{ key: "k".repeat(513), value: undefined }],
+    ]) {
+      await expect(storage.setMany(entries)).rejects.toMatchObject({ code: "KV_KEY_TOO_LONG" })
+      expect(puts).toEqual([])
+      expect(deletes).toEqual([])
+      expect(await storage.getItem("keep")).toBe("original")
+      expect(await storage.getItem("write")).toBeNull()
+    }
+    await storage.dispose()
+  })
+
+  it("returns the limit codes from getMany() and setMany() before any provider call", async () => {
+    const kv = await cloudflareKV()
+
+    const [getError] = await kv.getMany(["a", "k".repeat(513)])
+    expect(getError?.code).toBe("KV_KEY_TOO_LONG")
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    const [setError] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "1" }], { expirationTtl: 30 } as { ttl?: number })
+    expect(setError?.code).toBe("KV_INVALID_OPTION")
+    const [keyError] = await kv.setMany([{ key: "a", value: "1" }, { key: "k".repeat(513), value: "1" }])
+    expect(keyError?.code).toBe("KV_KEY_TOO_LONG")
+    expect(puts).toEqual([])
+
+    // SAFETY: JavaScript callers can pass a value that the types reject.
+    await expect(kv.getMany("a" as unknown as string[])).rejects.toMatchObject({ code: "KV_INVALID_BATCH" })
+    // SAFETY: As above.
+    await expect(kv.setMany({ key: "a", value: 1 } as unknown as [])).rejects.toMatchObject({ code: "KV_INVALID_BATCH" })
+
+    const [error] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "2" }])
+    expect(error).toBeUndefined()
+    expect(puts.map(put => put.key).sort()).toEqual(["a", "b"])
   })
 
   it("returns KV_VALUE_TOO_LARGE for a value above 25 MiB", async () => {
@@ -74,70 +153,57 @@ describe("Cloudflare KV limits", () => {
     expect(fits).toBeUndefined()
   })
 
-  it("returns KV_METADATA_TOO_LARGE for metadata above 1024 bytes as JSON", async () => {
+  it("raises a ttl below 60 seconds to 60 before the provider call", async () => {
     const kv = await cloudflareKV()
 
-    const [error] = await kv.set("meta", "value", { metadata: "x".repeat(1023) })
-    expect(error).toMatchObject({ code: "KV_METADATA_TOO_LARGE", why: "The metadata is 1025 bytes as JSON. Cloudflare KV accepts metadata of at most 1024 bytes." })
-    expect(puts).toEqual([])
-
-    const [fits] = await kv.set("meta", "value", { metadata: "x".repeat(1022) })
-    expect(fits).toBeUndefined()
+    expect((await kv.set("short", "value", { ttl: 30 }))[0]).toBeUndefined()
+    expect((await kv.set("long", "value", { ttl: 300 }))[0]).toBeUndefined()
+    expect(puts).toEqual([{ key: "short", options: { ttl: 60 } }, { key: "long", options: { ttl: 300 } }])
   })
 
-  it("returns KV_TTL_TOO_SHORT for an expirationTtl below 60 seconds", async () => {
+  it.each([{ expirationTtl: 60 }, { expiration: 1_800_000_000 }, { metadata: "x" }])("returns KV_INVALID_OPTION for the Cloudflare option %o", async (options) => {
     const kv = await cloudflareKV()
 
-    const [error] = await kv.set("ttl", "value", { expirationTtl: 59 })
-    expect(error).toMatchObject({ code: "KV_TTL_TOO_SHORT", why: "`expirationTtl` is 59 seconds. Cloudflare KV needs at least 60 seconds." })
-    expect(puts).toEqual([])
-
-    // The `ttl` option is raised to 60 seconds before the provider call, as before.
-    expect((await kv.set("ttl", "value", { ttl: 30 }))[0]).toBeUndefined()
-    expect((await kv.set("ttl", "value", { expirationTtl: 60 }))[0]).toBeUndefined()
-  })
-
-  it.each([-1, 0, 59])("returns KV_TTL_TOO_SHORT for an expiration %i seconds from now before the provider call", async (seconds) => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
-    const kv = await cloudflareKV()
-
-    const [error] = await kv.set("expiration", "value", { expiration: now + seconds })
-    expect(error).toMatchObject({
-      code: "KV_TTL_TOO_SHORT",
-      why: `\`expiration\` is ${seconds} seconds from now. Cloudflare KV needs at least 60 seconds.`,
-    })
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    const [error] = await kv.set("key", "value", options as { ttl?: number })
+    expect(error).toMatchObject({ code: "KV_INVALID_OPTION", docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_option" })
     expect(puts).toEqual([])
   })
 
-  it.each([60, 61])("passes an expiration %i seconds from now unchanged to the provider", async (seconds) => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
-    const kv = await cloudflareKV()
-    const options = { expiration: now + seconds }
+  it("passes a duration ttl to the provider in seconds from the generated Cloudflare runtime", async () => {
+    const kv = await cloudflareBuildRuntimeKV()
 
-    expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
-    expect(puts).toEqual([{ key: "expiration", options }])
+    expect((await kv.set("day", "value", { ttl: "24h" }))[0]).toBeUndefined()
+    expect((await kv.setMany([{ key: "many", value: "value" }], { ttl: "5m" }))[0]).toBeUndefined()
+    expect((await kv.set("plain", "value"))[0]).toBeUndefined()
+    expect(puts).toEqual([
+      { key: "day", options: { ttl: 86_400 } },
+      { key: "many", options: { ttl: 300 } },
+      { key: "plain", options: {} },
+    ])
+
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    expect((await kv.set("key", "value", { expirationTtl: 60 } as { ttl?: number }))[0]?.code).toBe("KV_INVALID_OPTION")
+    expect((await kv.set("key", "value", { ttl: "soon" } as unknown as { ttl?: number }))[0]?.code).toBe("KV_INVALID_TTL")
+    expect(puts).toHaveLength(3)
   })
 
-  it("keeps relative expiration precedence over a short absolute expiration", async () => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000)
-    const kv = await cloudflareKV()
+  it.each(["set", "setMany"] as const)("throws KV_STORE_NOT_FOUND before validating TTL in generated %s", async (operation) => {
+    const kv = await cloudflareBuildRuntimeKV()
+    const store = kv.store("missing")
 
-    for (const relative of [{ expirationTtl: 60 }, { ttl: 30 }]) {
-      const options = { expiration: now + 1, ...relative }
-      expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
-      expect(puts.at(-1)).toEqual({ key: "expiration", options })
-    }
-    expect(puts).toHaveLength(2)
+    const write = operation === "set"
+      ? store.set("key", "value", { ttl: 0 })
+      : store.setMany([{ key: "key", value: "value" }], { ttl: 0 })
+    await expect(write).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
+    expect(puts).toEqual([])
   })
 
   it("keeps local stores without a host unchanged", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
-    const [error] = await kv.set("k".repeat(513), "value", { expirationTtl: 1 })
+    const [error] = await kv.set("k".repeat(513), "value", { ttl: 1 })
     expect(error).toBeUndefined()
   })
 })

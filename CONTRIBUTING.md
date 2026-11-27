@@ -14,6 +14,7 @@ Use this guide to turn a requested behavior into a tested change. [AGENTS.md](AG
 | Other `packages/*/src/` | Each Server Primitive or integration |
 | `playground/console/` | Real Console UI with synthetic API data |
 | `fixtures/`, `test/consumer/`, `test/output/` | Consumer applications and generated output proof |
+| `test/multi-instance/` | One app on three Node instances against Postgres and Redis |
 | `docs/` | User documentation and the first-party website |
 
 Use these names consistently: Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Runtime policy belongs in its owner package.
@@ -22,13 +23,15 @@ Use these names consistently: Server Primitives, Agent Definitions, Drivers, Inv
 
 Use the Node version required by `package.json`. For the full verification gate, install the Deno version in `.deno-version` with the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/). CI reads the same pin.
 
-The checkout requires Node.js 22.22+ on 22.x, or 24.11 or newer, to support its development tools and Nitro. Most standalone packages retain their Node.js 22.18 minimum; Queue requires Node.js 22.19. The compatibility CI job installs dependencies on Node.js 24 before switching to 22.18 for its tests.
+The checkout and every package require Node.js 24.15 or newer. The `node 24.15` CI job runs the tests for Node built-ins on exactly that version.
 
 From a clean checkout, let Corepack select pnpm from `package.json` and install the workspace dependencies. This also installs Vite+.
 
 ```sh
 corepack pnpm install --frozen-lockfile
 ```
+
+The install then builds the packages that the docs site uses and runs `nuxi prepare`. When one of these steps fails on your machine, the install still finishes and prints the failed command. Fix the package, then run `corepack pnpm --dir docs run postinstall`. That retry exits nonzero if preparation fails again. In CI (`CI` is set), the failure stops the install.
 
 Check the contributor tools without running tests:
 
@@ -56,7 +59,7 @@ Keep one owner responsible for integration and completion. Record commands and i
 
 ## Verify the changed behavior
 
-Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) and [`test/tasks.ts`](test/tasks.ts) define root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
+Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) defines root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
 
 Start with the affected package's full `test` script so every package-owned test invocation runs, including suites with a separate configuration:
 
@@ -64,7 +67,7 @@ Start with the affected package's full `test` script so every package-owned test
 corepack pnpm --dir packages/vite-hub run test
 ```
 
-For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run --cache -t <package>#build` commands (or the same commands without `--cache`) for builds it already completed.
 
 The package `typecheck` script builds the package and its workspace dependencies first. It works from a fresh install without a manual build:
 
@@ -88,20 +91,34 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
+| A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
+| Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Repository guides only | Review the changed instructions and verify their links and command examples |
+| Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
+| Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
+| What the Console adds to an app | `corepack pnpm exec vp run console:weight` after `vp run build` (not in CI, see below) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
-Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
+`console:weight` builds a small app with the Console off and on, on Cloudflare and Node, and prints what the Console adds: startup code, page HTML, public files, server size, tables, Auth schema, env and memory. It fails while any row misses its target, so it is not a CI job; add `--json <file>` for machine output.
+
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:8` service containers, so a new file needs no CI change.
+
+Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
-A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke deployments also require successful CI for the exact `main` commit. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke runs test the newest `main` commit with successful CI from the last 48 hours, and fail when there is none. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
 
 The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
 
 Report the observed user result, exact commands, failures, and unverified parts. Separate setup and infrastructure failures from product failures. Stop when the requested outcome and relevant checks pass; do not broaden testing without a new concern.
 
 ## Load relevant guidance
+
+Use the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md) for every change to this repository. It holds the judgment behind these rules: when to add a primitive, how to keep the public API small, when to break a contract, and what proof a pull request needs. Agents find it in `.agents/skills/`, Claude Code through the `.claude/skills` link, and every agent through `AGENTS.md`. Add repository skills to `.agents/skills/` only.
 
 Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
 
@@ -123,7 +140,7 @@ A check that guards a sensitive action returns a grant, and the action requires 
 
 Familiar interfaces such as filesystems, tools, and shells are useful. Keep their contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
 
-Keep changes small. Use existing code or a suitable library before building infrastructure. Prefer inferred types that make invalid states hard to represent. Avoid cast-only wrappers. Comments should explain use or a non-obvious constraint. Measure before and after when claiming a performance improvement.
+Keep changes small. Use existing code or a suitable library before building infrastructure. Prefer inferred types that make invalid states hard to represent. Avoid cast-only wrappers. Write no comments: [AGENTS.md](AGENTS.md#comments) gives the rule. Measure before and after when claiming a performance improvement.
 
 ViteHub is in active development. Breaking changes and removal of unused compatibility are welcome when they clarify the final contract. Use Better Auth as a composition reference and UnJS for host-independent behavior. Document public behavior in `docs/content/docs/` and the affected package README.
 
@@ -133,9 +150,10 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
 2. Definition and config errors throw, at build time, at define time, or when an operation starts.
-3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
-5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
+6. Every thrown error is a diagnostic. For a state that only a ViteHub bug can reach, call `invariant(condition, what)` or throw `invariantError(what)` from `@vite-hub/internal/invariant`. Both raise `INTERNAL_INVARIANT_FAILED`, whose fix asks for a bug report. When a developer can cause the error or fix it, throw a code from the package catalog instead.
 
 ### Documentation structure
 
@@ -160,7 +178,7 @@ corepack pnpm exec vp run build
 corepack pnpm exec vp run --filter vitehub-docs test:snippets
 ```
 
-Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
+Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. When a page shows a file several times, an import gets the last full version of it above the importing block. If no full version appears above the importer, it uses the first full version on the page so the blocks can still be copied together as one project. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/default.ts]`, the Auth plugins of `[server/auth.ts]`, and the Env values that `[vite.config.ts]` or `[nuxt.config.ts]` declares. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. A block that shows a type error on purpose, such as the invalid example of a Doctor rule, names the errors it must fail with: ```` ```ts [server/auth.ts] fails=TS2769 ````. The check fails when such a block passes or fails with other errors. The site does not show either marker. `docs/scripts/check-snippets.baseline.json` lists blocks that are correct but fail because a package type is wrong. Fix the type and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
 
 Run `corepack pnpm --dir docs run test:snippets --update-baseline` to remove fixed entries. The command leaves the baseline unchanged and fails if it finds a new or changed failure.
 
@@ -170,7 +188,7 @@ Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and 
 
 ```md
 ::agent-only
-Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+Run `pnpm vitehub schedule run weekday-report` to start a Schedule Definition with `manual: true`, the same run that the Console button starts.
 ::
 ```
 
@@ -179,6 +197,42 @@ The site renders nothing for `::agent-only`. Use it only for content that helps 
 A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
 
 Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
+
+### Site parity
+
+When a change can alter what vitehub.dev serves without a content edit, such as how `@vite-hub/docs` loads pages, prove that no page changed. `docs/scripts/parity.mjs` fetches every URL the site serves: each page as HTML, as negotiated Markdown, as its `.md` twin, at `/raw`, and as page JSON, and through the MCP `get-page` tool. It also fetches the sitemaps, llms.txt, llms-full.txt, `search.json`, the skills, and the links it finds in them. It removes build hashes and timestamps, and it keeps text, headings, links, and head tags. Record the base, then the change, from the same kind of build:
+
+```sh
+# On the base commit, then again on your branch
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+cd docs && ../node_modules/.bin/wrangler dev --config .output/server/wrangler.json --port 4791 &
+node docs/scripts/parity.mjs crawl http://127.0.0.1:4791 /tmp/parity/base --site https://vitehub.dev
+node docs/scripts/parity.mjs compare /tmp/parity/base /tmp/parity/branch
+```
+
+`compare` lists added, removed, and changed URLs with the changed lines, and exits with 1 when there is a difference. The snapshots are large (about 150 MB of bodies), so keep them out of the repository. `crawl https://vitehub.dev` records the live site in the same format.
+
+`crawl` and `compare` also exit with 1 when requests fail after retries or the request limit skips URLs. These snapshots have `complete: false` and are only for diagnosis. Fix the request failure or increase `--limit` (default: 20000), then crawl again. HTTP responses such as 404s remain comparable. Record both snapshots again if they predate completeness tracking.
+
+### Worker bench
+
+When a change can make the docs Worker bigger or slower, such as how `@vite-hub/docs` loads pages, measure the built Worker before and after. `docs/scripts/bench-worker.mjs` reports:
+
+- Worker bytes from `wrangler deploy --dry-run --outdir`, and aggregate gzip bytes from Wrangler's rounded upload report. Per-module gzip sizes are separate diagnostics.
+- Start time: how long a fresh `workerd` takes to emit its control-pipe `listen` event after module compilation and top-level initialization, minus the same for an empty Worker. No request is sent.
+- Cold latency: a fresh `wrangler dev` per sample, and the first request for each of 20 fixed pages.
+- Warm latency: one `wrangler dev`, two warmup rounds, then ten measured rounds.
+- Memory: the RSS that the loaded Worker adds to `workerd`, and the peak RSS of the `wrangler dev` `workerd`. These are process numbers, not the isolate heap that the 128 MB limit counts.
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/base.json
+# Build your branch the same way, then
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/branch.json
+node docs/scripts/bench-worker.mjs compare /tmp/bench/base.json /tmp/bench/branch.json
+```
+
+A run takes about two minutes and uses port 4813 (`--port` changes it). `compare` prints ratios and exits with 1 when cold p95 is more than 1.5 times the base. On a busy machine, two runs of the same build gave cold p95 values 1.8 times apart, so run each side twice and compare the per-page cold p50 values, which stayed within 15% for pages above 10 ms. Start time and bytes are stable.
 
 ## Downstream patch loop
 
@@ -196,7 +250,7 @@ The fix is complete when the consumer works without the patch. Retire combined p
 - Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
 - Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
-- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Prefer dense layouts, small icons, minimal copy, a near black page in dark mode (the tokens of `@vite-hub/ui/theme.css`), white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
@@ -206,17 +260,51 @@ The fix is complete when the consumer works without the patch. Retire combined p
 
 ViteHub publishes all public packages at one version. The checked-in root and public package versions are the release baseline. A push to `main` uses conventional commits since the latest `v*` tag to open or update a draft `release/vX.Y.Z` PR. The required checks run on that release branch even though GitHub creates the PR with `GITHUB_TOKEN`.
 
+A release PR is always open. We release every Friday when we merge it. Never push commits to a `release/v*` branch. uppt owns these branches and rebuilds them from `main` on each push. It does not rebuild a branch that has other commits, so the PR stops updating. For the same reason, a workspace package names another ViteHub package with a `workspace:` range, or with `*` when a `workspace:` range makes a build cycle. Never use a version range. The release workflow writes the exact version when it packs, and `.github/scripts/check-release-candidate.mjs` fails on a version range.
+
 Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
 
-If merge verification fails permanently before a tag is created, merge a correction PR directly after the failed release merge. Then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version, even if later commits have reached `main`. Use the ordinary rerun path for transient failures.
+Before the publish job publishes a package, it checks each package that npm does not yet show at the release version. The package must exist on npm, and npm must accept the identity of `release.yml` in a trusted publisher OIDC exchange. The job discards the token. If a check fails, the job lists each failed package and publishes nothing. The exchange checks identity, not permission to publish directly: a stage-only publisher can pass preflight and fail later, after other packages have published.
 
-An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Each public npm package must trust `vite-hub/vitehub` with workflow `release.yml` and environment `npm-release`. npm adds a trusted publisher only to a package that already exists, so publish a new package once by hand before the first release that includes it. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+If merge verification fails before the tag exists, rerun the failed jobs when the failure is transient. Otherwise, roll back the release:
+
+1. Cancel all queued and running **prepare release** runs that could tag this release, including manual `recover_failed_release` runs. Wait for them to stop. Do not start or rerun verification or legacy recovery for the discarded release once you choose rollback.
+2. Confirm the tag still does not exist on GitHub, for example with `git ls-remote --tags origin refs/tags/vX.Y.Z`. If the tag exists, do not revert. Use [Recover a failed npm publication](#recover-a-failed-npm-publication) instead.
+3. Delete the old `release/vX.Y.Z` branch to get fresh CI on the reopened PR. Revert the release PR and merge the revert only after the first two steps are complete.
+
+The release PR opens again at the same version, and fixes merge as normal PRs. The tag job checks `main` before creating the tag, but a run that already passed that check can still create it. That's why the rollback must wait for in-flight runs to stop.
+
+The older recovery path still works while no other PR has merged after the failed release merge: merge a correction PR directly after it, then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version.
+
+An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+
+Before releasing, check in npm package settings that each public package trusts `vite-hub/vitehub` with workflow `release.yml`, environment `npm-release`, and **Allow npm publish** enabled. As a package maintainer signed in with `npm login`, you can run `node .github/scripts/claim-npm-packages.mjs <package>` to check and repair the trusted publisher, including its direct-publish permission (`createPackage`). Pass the package name to limit the script to that package; without names it checks all publishable packages. For a missing package it reserves the name as `0.0.0-claim` under the `claim` dist-tag before setting up trust. Never publish the release version by hand to reserve a name.
+
+### Recover a failed npm publication
+
+Do not move, delete, or create again a release tag. The publish job stops when the tag does not point to the verified commit. Recover from the same tag:
+
+- **Preflight or direct-publish permission failure.** Use the package settings or the claim script above to fix each affected package. Use the claim script for missing packages. Confirm **Allow npm publish** on the matching trusted publisher before rerunning the failed jobs of the release run.
+- **Failure after some packages were published.** Rerun the failed jobs of the same release run. The job skips each version that npm shows with the same integrity and with provenance from this tag. It publishes the other packages in release order. If the run artifact expired, run `gh workflow run release.yml --ref vX.Y.Z`. That run packs the tag again and must produce the same tarballs.
+- **Staged version.** npm returns `E409 Cannot publish over previously staged version` when a version waits for approval in staging. The job stops at that package and prints the dist-tag, provenance source, and tarball integrity that the release expects. A package maintainer checks the staged metadata and tarball:
+
+  ```sh
+  npm stage list <package>
+  npm stage view <stage-id>
+  npm stage download <stage-id>
+  node -p "'sha512-' + require('node:crypto').createHash('sha512').update(require('node:fs').readFileSync(process.argv[1])).digest('base64')" <downloaded-file>
+  ```
+
+  Run `npm stage approve <stage-id>` only if the staged dist-tag and tarball integrity match and you can verify provenance from `release.yml` at the exact release tag and commit. If you cannot verify all three before approval, run `npm stage reject <stage-id>`. Then rerun the failed jobs. The rerun still verifies npm provenance from this release tag. After a reject, the rerun publishes the version again.
+- **A version that does not verify.** npm does not let you replace a published version. If npm shows the version with other contents or without provenance from this tag, do not tag again. Release the fix as the next version through the release PR.
 
 ## Pull requests
 
 - A request to fix or build something includes a pushed branch and an open pull request, unless the request says to explore, review, plan, or hold.
 - Confirm the destination repository and check for an existing pull request before you open one.
 - Rebase onto the latest `main` before opening a pull request.
+- Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](#verify-the-changed-behavior). CI must not be the first check of your change.
+- Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 - Open a real pull request, not a draft.
 - Keep one concern per pull request unless the task asks to combine work.
 - Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.
@@ -228,5 +316,9 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - Force-push only when the task grants it, only to your own task branch, and only with `--force-with-lease`.
 
 Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
+
+Before you open a pull request that removes public API, commit the change and run `vp run consumers:check`. It finds the package subpaths and exported names that the branch removes compared with `origin/main`, and searches your own projects for them, in the working tree and on the default branch. Add `--name <text>` for what the diff cannot find, such as a config key, a CLI flag, an env var, or a diagnostic code. The list of projects stays on your machine: put one path per line in `~/.config/vitehub/consumer-roots`, or set `VITEHUB_CONSUMER_ROOTS`. The check fails with the project, file, and line of each use. A hit inside `patches/` does not fail, but read the patch: a patch that edits the removed feature is a use. CI does not run this check, because it has no consumer checkouts.
+
+When an entry loses its default export, the check searches its module specifier, since default imports can use any local name. Missing roots or failed searches exit 2. Fix the setup and run the check again.
 
 Do not commit temporary plans, raw thread exports, or scratch files. Keep durable, cited research in the issue or pull request that supports a project decision. Remove task-created temporary files and worktrees after their remote state is safe; never remove pre-existing work without authorization.

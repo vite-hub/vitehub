@@ -52,9 +52,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               rel="noopener noreferrer"
               :label="example.action.label"
               :icon="kind === 'project' ? 'i-simple-icons-github' : 'i-lucide-copy'"
-              color="neutral"
               variant="outline"
-              size="sm"
             />
             <UButton
               v-if="example.kind === 'template'"
@@ -62,9 +60,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               target="_blank"
               rel="noopener noreferrer"
               label="View source"
-              color="neutral"
               variant="ghost"
-              size="sm"
             />
             <UButton
               v-if="example.website"
@@ -73,9 +69,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
               rel="noopener noreferrer"
               label="Open app"
               trailing-icon="i-lucide-arrow-up-right"
-              color="neutral"
               variant="ghost"
-              size="sm"
             />
           </div>
         </div>
@@ -112,9 +106,7 @@ const upcoming = computed(() => examples.filter((example): example is PendingExa
         rel="noopener noreferrer"
         label="Open a pull request"
         trailing-icon="i-lucide-arrow-up-right"
-        color="neutral"
         variant="outline"
-        size="sm"
       />
     </section>
   </main>

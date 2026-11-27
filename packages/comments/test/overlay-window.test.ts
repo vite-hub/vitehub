@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
-import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { press, serveComments, type } from "./overlay-harness.ts"
+import { commentsButton, openList, press, serveComments, type } from "./overlay-harness.ts"
 
 import type { ElementAnchor } from "../src/types.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
+  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
 }))
 
 const ada = { id: "ada", name: "Ada Lovelace" }
@@ -22,7 +22,7 @@ async function site(lazy = false) {
   const tools = [lazy ? tool : { ...tool, lazy: false }]
   server.fetch.mockImplementation(async (input, init) => {
     const url = new URL(String(input), location.href)
-    if (url.pathname !== "/_vitehub/page/session") return await api(input, init)
+    if (url.pathname !== "/_vitehub/page/tools") return await api(input, init)
     expect(url.searchParams.get("page")).toBe(location.pathname)
     return Response.json({ tools })
   })
@@ -32,9 +32,9 @@ async function site(lazy = false) {
 async function openPanel() {
   await loadViteHubPageTools({ load: () => import("../src/overlay/index.ts") })
   const bar = document.querySelector("vitehub-pill")!.querySelector<HTMLElement>("vitehub-tool[slot=comments]")!
-  const list = () => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"Comments on this page\"]")
-  await vi.waitFor(() => expect(list()).toBeTruthy())
-  list()!.click()
+  await vi.waitFor(() => expect(commentsButton(bar)).toBeTruthy())
+  await openList(bar)
+  const list = () => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"All comments on this page\"]")
   const window = document.querySelector<HTMLElement>("vitehub-window")!
   const panel = window.shadowRoot!.querySelector(".body > div")!.shadowRoot!
   return { bar, list, window, panel }
@@ -49,9 +49,11 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.mocked(window.confirm).mockReturnValue(true)
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  stopViteHubPageTools()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-window, vitehub-tools-off")) element.remove()
   localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
@@ -96,7 +98,7 @@ describe("the Comments list in the pill's window", () => {
     const input = panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
     await type(input, "Unsent reply")
     pageWindow.shadowRoot!.querySelector<HTMLButtonElement>(".hide")!.click()
-    await vi.waitFor(() => expect(list()!.getAttribute("aria-pressed")).toBe("false"))
+    await vi.waitFor(() => expect(list()!.getAttribute("aria-expanded")).toBe("false"))
     window.dispatchEvent(new Event("scroll"))
     await new Promise(resolve => setTimeout(resolve, 50))
     list()!.click()
@@ -120,7 +122,7 @@ describe("the Comments list in the pill's window", () => {
     await type(input, "Sent reply")
     press(input, "Enter")
     await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-reply"]')).toHaveLength(2))
-    expect((await comments.get(thread!.id))[1]!.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"])
+    await vi.waitFor(async () => expect((await comments.get(thread!.id))[1]!.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"]))
     await vi.waitFor(() => expect(panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!.value).toBe(""))
     document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
     expect(window.confirm).not.toHaveBeenCalled()

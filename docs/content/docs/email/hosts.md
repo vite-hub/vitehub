@@ -17,12 +17,12 @@ In `vite dev`, `hubEmail()` wraps the provider driver with a development outbox.
 The outbox records:
 
 - the sender, recipients, `cc`, `bcc`, and `replyTo`
-- the subject, preheader, text body, and HTML body
+- the subject, text body, and HTML body
 - the headers after ViteHub adds unsubscribe headers
 - attachment names, content types, and sizes, but not attachment content
 - tags, metadata, the provider driver name, and the delivery result
 
-For a single personalization, the outbox stores its recipients and subject. Messages show as Sending while the provider is pending, in the order they were sent.
+Messages show as Sending while the provider is pending, in the order they were sent.
 
 By default, a dev send stays in the outbox. The provider gets no request, `email.send()` returns an `outbox-<n>` id with `driver: 'outbox'`, and ViteHub does not read the provider options. So a signup flow you test in `vite dev` sends no real email.
 
@@ -98,23 +98,23 @@ Set `outbox: false` to turn the outbox off. A dev send then goes straight to the
 - The outbox hides header and metadata values with secret names, and credentials in delivery errors.
 - It keeps message bodies as your app rendered them.
 
-Inspect the outbox with the [CLI](/docs/development/cli#inspect-the-email-development-outbox) or in the [Console](/docs/development/console) **Email** section:
+Inspect the outbox with the [CLI](/docs/cli/primitives#inspect-the-email-development-outbox) or in the [Console](/docs/console) **Email** section:
 
 ```bash [Terminal]
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html > message.html
+pnpm vitehub email outbox get outbox-1 --html > message.html
 pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
-`vitehub email outbox` runs the `email.outbox-*` [operations](/docs/development/operations) in the app, so it needs this project's dev server running. With `--url`, it reads the outbox of a deployed app with the Console on, but only `vite dev` captures messages. `vitehub email preview` needs no server. The Console never renders captured HTML. It shows the HTML source as text.
+`vitehub email outbox` runs the `email.outbox-*` [operations](/docs/console/operations) in the app, so it needs this project's dev server running. With `--url`, it reads the outbox of a deployed app with the Console on, but only `vite dev` captures messages. `vitehub email preview` needs no server. The Console never renders captured HTML. It shows the HTML source as text.
 
 ## Requirements
 
-- `vite-hub/email` needs Node.js 22.22 or later. The standalone `@vite-hub/email` package needs Node.js 22.18 or later.
+- `vite-hub/email` and the standalone `@vite-hub/email` package need Node.js 24.15 or later.
 - Provider config needs Vite 8 or later. `createEmail()` clients do not need Vite.
-- Runtime support comes from the built-in or custom driver you pick.
+- Runtime support comes from the built-in or custom driver you pick. The `smtp` driver needs a Node host and the `nodemailer` package.
 
-Email owns the driver contract, the built-in Resend and Cloudflare Email transports, delivery, errors, Markdown templates, and test capture. To run work later or in steps, use Queue, Workflow, and Schedule.
+Email owns the driver contract, the built-in Resend, SMTP, and Cloudflare Email transports, delivery, errors, Markdown templates, and test capture. To run work later or in steps, use Queue, Workflow, and Schedule.
 
 ## Related guides
 

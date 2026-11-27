@@ -9,7 +9,7 @@ import { normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { hasCurrentSourceSnapshot, hasFreshSourceSnapshot, materializeWorkspaceSources, readCurrentSourceSnapshot, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { provideWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { useWorkspace } from "../src/core/use-tools.ts"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
@@ -93,7 +93,7 @@ it.each([
   const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
   const definition = {
     name: `metadata-facade-${crypto.randomUUID()}`,
-    store: { provider: "local" as const, root },
+    store: { driver: "local" as const, root },
     sources: {
       docs: {
         cache: { maxAge: 3600 },
@@ -149,7 +149,7 @@ it.each([
 
 it.each(["cloudflare-artifacts", "vercel-blob", "github"])("preserves legacy %s snapshots when the upstream source is unavailable", async (provider) => {
   const store = createMemoryWorkspaceStore()
-  Object.assign(store, { [workspaceStoreTarget]: () => ({ provider }) })
+  provideWorkspaceStoreTarget(store, () => ({ provider }))
   const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
   const getKeys = vi.fn(async () => ["file.txt"])
   const definition = {
@@ -188,7 +188,7 @@ it.each(["cloudflare-artifacts", "vercel-blob", "github"])("preserves legacy %s 
 
 it("adopts an unscoped hosted cache without contacting an unavailable Source", async () => {
   const store = createMemoryWorkspaceStore()
-  Object.assign(store, { [workspaceStoreTarget]: () => ({ provider: "cloudflare-artifacts" }) })
+  provideWorkspaceStoreTarget(store, () => ({ provider: "cloudflare-artifacts" }))
   const getKeys = vi.fn(async () => ["ready.md"])
   const getItem = vi.fn(async (key: string) => ({ key, content: "cached" }))
   const definition = {
@@ -288,7 +288,7 @@ it.each([3600, 0])("restores legacy materialization ownership with cache maxAge 
     expect(getItem).toHaveBeenCalledTimes(2)
   }
   finally {
-    await Promise.all([root, sidecars, `${root}.meta.json`, `${root}.vitehub-locks`, `${root}.vitehub-lock`]
+    await Promise.all([root, sidecars, `${root}.meta.json`]
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })
@@ -348,7 +348,7 @@ it.each([3600, 0])("converges scoped legacy materialization ownership with cache
     await expect(createLocalWorkspaceStore(root).getMeta!(snapshotKey)).resolves.toMatchObject({ status: "ready", files: 2 })
   }
   finally {
-    await Promise.all([root, sidecars, `${root}.meta.json`, `${root}.vitehub-locks`, `${root}.vitehub-lock`]
+    await Promise.all([root, sidecars, `${root}.meta.json`]
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })

@@ -7,9 +7,9 @@ const files = ["server/api/chat.post.ts", "server/agents/reviewer.ts", "nuxt.con
     <USlideover title="Explored 4 files" description="Files read while preparing the response.">
       <button type="button">
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-folder-open-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-folder-open" /></TraceIcon>
           <TraceTitle>Explored {{ files.length }} files</TraceTitle>
-          <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
         </TraceLine>
       </button>
       <template #body>

@@ -1,14 +1,11 @@
-import { fileURLToPath } from "node:url"
-
+import { kvStorageDriver as kvCacheDriver } from "@vite-hub/kv/vite"
 import { describe, expect, it } from "vitest"
 
-import { applyCacheStorage, resolveCacheStorage } from "../src/cache.ts"
-
-const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
+import { applyCacheStorage, resolveCacheStorage } from "../src/cache-storage.ts"
 
 describe("resolveCacheStorage", () => {
   it("applies explicit binding, namespace, and base options", () => {
-    expect(resolveCacheStorage({ binding: "PAGE_CACHE", driver: "cloudflare-kv-binding", namespaceId: "ns-1" }, "cloudflare")).toEqual({
+    expect(resolveCacheStorage({ binding: "PAGE_CACHE", driver: "cloudflare", namespaceId: "ns-1" }, "cloudflare")).toEqual({
       cloudflareNamespace: { binding: "PAGE_CACHE", id: "ns-1" },
       devStorage: { base: ".vitehub/data/cache", driver: "fs-lite" },
       storage: { binding: "PAGE_CACHE", driver: "cloudflare-kv-binding" },
@@ -18,24 +15,37 @@ describe("resolveCacheStorage", () => {
       storage: { base: "/var/cache/app", driver: "fs-lite" },
     })
     expect(resolveCacheStorage({ base: "pages", driver: "deno-kv" }, "deno").storage).toEqual({ base: "pages", driver: "deno-kv" })
+    expect(resolveCacheStorage({ driver: "vercel" }, "vercel").storage).toEqual({ driver: "vercel-runtime-cache" })
   })
 
   it("rejects unknown drivers", () => {
     // SAFETY: The test passes an unsupported driver to exercise runtime validation of user config.
     expect(() => resolveCacheStorage({ driver: "redis" } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
-      .toThrow("`cache.driver` must be")
+      .toThrow("It must be \"cloudflare\"")
+  })
+
+  it.each([
+    ["cloudflare-kv-binding", "cloudflare", "cloudflare"],
+    ["vercel-runtime-cache", "vercel", "vercel"],
+  ] as const)("names the new driver for the former %s", (driver, renamed, host) => {
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => resolveCacheStorage({ driver } as unknown as Parameters<typeof resolveCacheStorage>[0], host)).toThrow(expect.objectContaining({
+      code: "VITE_HUB_C0004",
+      fix: expect.stringContaining(`cache: { driver: "${renamed}" }`),
+      why: expect.stringContaining(`renamed this driver to "${renamed}"`),
+    }))
   })
 
   it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])("rejects inherited driver name %s", driver => {
     // SAFETY: The test passes an unsupported inherited property to exercise runtime validation of user config.
     expect(() => resolveCacheStorage({ driver } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
-      .toThrow("`cache.driver` must be")
+      .toThrow("It must be \"cloudflare\"")
   })
 })
 
 describe("applyCacheStorage", () => {
   it("adds the Cloudflare namespace once", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     const once = applyCacheStorage({}, cache)
     const twice = applyCacheStorage({ ...once, kv: {} }, cache)
 
@@ -43,7 +53,7 @@ describe("applyCacheStorage", () => {
   })
 
   it("preserves an explicit Cloudflare namespace ID when the binding already exists", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     const config = applyCacheStorage({
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE" }] } },
     }, cache)
@@ -53,14 +63,14 @@ describe("applyCacheStorage", () => {
 
   it("rejects a Cloudflare cache without a namespace ID", () => {
     expect(() => applyCacheStorage({}, resolveCacheStorage(true, "cloudflare")))
-      .toThrow("needs a namespace ID")
+      .toThrow(expect.objectContaining({ code: "CACHE_NAMESPACE_ID_MISSING", fix: expect.stringContaining("cache.namespaceId") }))
   })
 
   it("rejects a conflicting existing Cloudflare namespace ID", () => {
-    const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
+    const cache = resolveCacheStorage({ driver: "cloudflare", namespaceId: "cache-id" }, "cloudflare")
     expect(() => applyCacheStorage({
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE", id: "other-id" }] } },
-    }, cache)).toThrow("already uses namespace")
+    }, cache)).toThrow(expect.objectContaining({ code: "CACHE_NAMESPACE_ID_CONFLICT" }))
   })
 
   it("uses Nitro KV mounts in production, development and prerendering", () => {
@@ -91,9 +101,13 @@ describe("KV cache storage", () => {
   it("mounts Nitro's cache on the app's KV store on any preset", () => {
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
     for (const preset of ["cloudflare", "netlify", "node"] as const) {
-      expect(resolveCacheStorage({ driver: "kv" }, preset, true)).toEqual({ devStorage: mount, storage: mount })
+      expect(resolveCacheStorage({ driver: "kv" }, preset, kvCacheDriver)).toEqual({ devStorage: mount, storage: mount })
     }
-    expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", true).storage).toEqual({ base: "pages", driver: kvCacheDriver })
+    expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", kvCacheDriver).storage).toEqual({ base: "pages", driver: kvCacheDriver })
+  })
+
+  it.each(["", ":", "/", ":://", "?", "/?cache", "\\?cache"])("keeps the default prefix for a base %j without a key segment", (base) => {
+    expect(resolveCacheStorage({ base, driver: "kv" }, "node", kvCacheDriver).storage).toEqual({ base: "nitro-cache", driver: kvCacheDriver })
   })
 
   it("requires kv", () => {
@@ -101,7 +115,7 @@ describe("KV cache storage", () => {
   })
 
   it("keeps an app's own cache mount and adds no Wrangler namespace", () => {
-    const config = applyCacheStorage({ storage: { cache: { driver: "memory" } } }, resolveCacheStorage({ driver: "kv" }, "cloudflare", true))
+    const config = applyCacheStorage({ storage: { cache: { driver: "memory" } } }, resolveCacheStorage({ driver: "kv" }, "cloudflare", kvCacheDriver))
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
     expect(config).toEqual({
       $development: { kv: { cache: mount } },

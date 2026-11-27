@@ -33,6 +33,16 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
+  it("limits the registry to the configured root instead of the host server directories", async () => {
+    const root = await createTempProject()
+    const expected = await writeChannel(root, "custom/server/channels/alerts.ts")
+    await writeChannel(root, "server/channels/ignored.ts")
+    const plugin = hubChannels({ projectRoot: "custom" })
+    const config = { root, configFile: false as const, plugins: [plugin], [VITEHUB_SERVER_DIRS]: [join(root, "server")] }
+    await resolveConfig(config, "serve")
+    expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ handler: expected })])
+  })
+
   it("aliases the discovered Channel registry into Nitro builds", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")
@@ -42,7 +52,6 @@ describe("hubChannels", () => {
       logLevel: "silent" as const,
       nitro: {
         cloudflare: { wrangler: { secrets: { required: ["VITEHUB_TOKEN"] } } },
-        externals: { inline: ["existing-package"], trace: false },
         plugins: ["/app/plugin.ts"],
       },
       plugins: [plugin],
@@ -52,10 +61,9 @@ describe("hubChannels", () => {
     }
     const resolved = await resolveConfig(inlineConfig, "build")
     // SAFETY: Vite keeps the open `nitro` key of the inline config on its resolved config.
-    const nitro = (resolved as typeof resolved & { nitro: { alias: Record<string, string>, cloudflare: { wrangler: { secrets: { required: string[] } } }, externals: { inline: string[], trace: boolean }, plugins: string[] } }).nitro
+    const nitro = (resolved as typeof resolved & { nitro: { alias: Record<string, string>, cloudflare: { wrangler: { secrets: { required: string[] } } }, plugins: string[] } }).nitro
     const registryFile = nitro.alias["#vitehub/channels/registry"]!
 
-    expect(nitro.externals).toEqual({ inline: ["existing-package", "vite-hub", "@vite-hub/channels"], trace: false })
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(nitro.plugins).toEqual(["/app/plugin.ts"])
     expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/channels"])
@@ -75,17 +83,17 @@ describe("hubChannels", () => {
   })
 
   it.each([
-    ["server/channels/payments.ts", "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })"],
-    ["src/payments.channel.ts", "import * as channels from 'vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.stripe() })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.webhook() })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels['webhook']() })"],
+    ["server/channels/payments.ts", "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: stripe() })"],
+    ["src/payments.channel.ts", "import { defineChannel } from 'vite-hub/channels'\nimport * as adapters from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: adapters.stripe() })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/channels/adapters'\nexport default channels.defineChannel({ adapter: adapters.webhook({ secret: false }) })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/agent/channels'\nexport default channels.defineChannel({ adapter: adapters['webhook']() })"],
   ])("requires the Agent plugin for inbound Channels in %s: %s", async (path, source) => {
     const root = await createTempProject()
     await mkdir(dirname(join(root, path)), { recursive: true })
     await writeFile(join(root, path), source)
     const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
-    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
+    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_WEBHOOK_HOST_OFF", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
   })
 
@@ -103,8 +111,13 @@ describe("hubChannels", () => {
 
     await resolvePlugin(plugin, root)
 
-    expect((plugin.resolveId as (id: string) => string | undefined)(CHANNELS_REGISTRY_ID)).toBe(`\0${CHANNELS_REGISTRY_ID}`)
-    expect((plugin.load as (id: string) => string | undefined)(`\0${CHANNELS_REGISTRY_ID}`)).toContain(JSON.stringify(definition))
+    const resolveId = plugin.resolveId as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const load = plugin.load as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+
+    expect([CHANNELS_REGISTRY_ID, `${CHANNELS_REGISTRY_ID}.ts`, "@vite-hub/channels"].map(id => resolveId.filter.id.test(id))).toEqual([true, false, false])
+    expect([`\0${CHANNELS_REGISTRY_ID}`, CHANNELS_REGISTRY_ID].map(id => load.filter.id.test(id))).toEqual([true, false])
+    expect(resolveId.handler(CHANNELS_REGISTRY_ID)).toBe(`\0${CHANNELS_REGISTRY_ID}`)
+    expect(load.handler(`\0${CHANNELS_REGISTRY_ID}`)).toContain(JSON.stringify(definition))
     expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "alerts" })])
     await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain(
       `"alerts": typeof import(${JSON.stringify(definition)})`,
@@ -118,7 +131,7 @@ describe("hubChannels", () => {
 
     await resolvePlugin(plugin, root)
 
-    const registry = (plugin.load as (id: string) => string)(`\0${CHANNELS_REGISTRY_ID}`)
+    const registry = (plugin.load as { handler: (id: string) => string }).handler(`\0${CHANNELS_REGISTRY_ID}`)
     expect(registry).toContain("const registry = Object.create(null)")
     expect(registry).toContain('registry["__proto__"] =')
   })

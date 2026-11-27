@@ -235,8 +235,9 @@ describe("text anchors", () => {
     const anchor = createAnchor(select(text, 33, 40), { context: 8 })
     expect(anchor).toEqual({ kind: "text", selector: "#copy", exact: "Ship it", prefix: "morrow. ", suffix: " never." })
 
+    // Without a measured range, the pin sits in the gutter right of the element's box, in the middle of it.
     const position = resolved(resolveAnchor(anchor))
-    expect(position).toMatchObject({ kind: "text", element: copy, x: 10, y: 20 })
+    expect(position).toMatchObject({ kind: "text", element: copy, x: 318, y: 40 })
   })
 
   it("picks the quote whose surroundings match when the text repeats", () => {
@@ -252,7 +253,8 @@ describe("text anchors", () => {
 
     const anchor = createAnchor(select(copy.firstChild!, 10, 13), { context: 6 })
     expect(anchor).toMatchObject({ exact: "Go.", prefix: "Stop. ", suffix: " Stop." })
-    expect(resolved(resolveAnchor(anchor)).x).toBe(100)
+    // The pin sits in the gutter right of the quote: the matching range starts at 100 and is 20 wide.
+    expect(resolved(resolveAnchor(anchor))).toMatchObject({ x: 128, y: 10 })
   })
 
   it("quotes text across elements using the nearest common element", () => {
@@ -346,7 +348,7 @@ describe("quote matching", () => {
 
   it("accepts a repeated quote when enough of its context still matches", () => {
     const position = quote("Go now. Stop now. Go later.", { exact: "Go", prefix: "now. Stop now. ", suffix: " later." })
-    expect(resolved(position).x).toBe(0)
+    expect(resolved(position).x).toBe(108)
     expect(position.detached).toBe(false)
   })
 

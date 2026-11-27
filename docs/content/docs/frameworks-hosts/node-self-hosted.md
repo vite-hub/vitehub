@@ -1,19 +1,19 @@
 ---
 title: Node and self-hosted
-description: Build a Node.js server with the node preset and choose storage that survives restarts.
+description: Build a Node.js server with the node host and choose storage that survives restarts.
 navigation.order: 47
 navigation.group: Deployment hosts
 icon: i-lucide-server-cog
 ---
 
-The `node` preset runs your app as a Node.js server on your own machine, a
+The `node` host runs your app as a Node.js server on your own machine, a
 container, or a virtual machine. Nitro builds one server entry at
 `.output/server/index.mjs`. Server code uses the same Runtime Helpers as on
-hosted presets.
+the hosted platforms.
 
-## Configure the preset
+## Configure the host
 
-Select the `node` preset and turn on the features you use. This example stores
+Select the `node` host and turn on the features you use. This example stores
 KV values in local files.
 
 ::tabs{sync="framework"}
@@ -22,7 +22,7 @@ KV values in local files.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     kv: {
       driver: 'fs-lite',
       base: '.vitehub/data/kv',
@@ -41,7 +41,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: {
         driver: 'fs-lite',
         base: '.vitehub/data/kv',
@@ -61,7 +61,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: {
         driver: 'fs-lite',
         base: '.vitehub/data/kv',
@@ -98,20 +98,331 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
-## Defaults on the node preset
+## Run behind a reverse proxy
 
-| Feature | Default provider | Durability |
+A reverse proxy, such as Caddy or nginx, often ends HTTPS and sends plain HTTP
+to Node. The server then sees `http://` request URLs, so callback URLs and
+links that your code builds from the request start with `http://`.
+
+Set `trustProxy: true` to read the first `X-Forwarded-Proto` value. When it is
+`https`, the request URL becomes `https://` before any middleware or route
+runs. The client address also becomes the last `X-Forwarded-For` value, which
+the proxy adds. Auth's rate limiter, `session.ipAddress`, and Rate Limit read
+it. Set `sameOriginWrites: true` to refuse browser writes with cookies that
+come from another origin.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    trustProxy: true,
+    sameOriginWrites: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+  ],
+})
+```
+:::
+::
+
+- `trustProxy` never reads `X-Forwarded-Host`. The proxy must send the
+  client's `Host` header to Node. Caddy does this by default. In nginx, set
+  these directives so the proxy sets the protocol and appends the client address:
+
+  ```nginx
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  ```
+- `sameOriginWrites` answers `403` to a request that is not `GET`, `HEAD`, or
+  `OPTIONS`, has a `Cookie` header, and has `Sec-Fetch-Site: same-site` or
+  `cross-site`, or an `Origin` that is not the app's origin. A sibling
+  subdomain is same-site, so the browser still sends `SameSite=Lax` cookies
+  from it. Requests without cookies, such as API clients with bearer tokens and
+  webhooks, pass.
+- `sameOriginWrites: { exclude: ['/api/forms/contact'] }` lets a route take
+  writes from other sites, such as a [Form](/docs/forms/server-api) with `origins`. A
+  prefix matches the path and the paths below it.
+
+::warning
+Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`
+and overwrites `X-Forwarded-For` or appends its peer address. Keep Node reachable
+only through that proxy. If clients can supply either trusted value, they can
+make the server build `https://` URLs for plain HTTP requests or spoof the
+address used by Auth and Rate Limit to bypass IP-based rate limits and set
+`session.ipAddress`. If you already use `trustProxy`, check both headers in
+your proxy configuration before upgrading.
+::
+
+Only the Node host reads `X-Forwarded-For` through `trustProxy`. Cloudflare,
+Vercel, and Netlify keep the address that their Nitro preset reports. Deno
+Deploy keeps the peer address, which can be the edge server instead of the
+client. The request URL on these hosts is already `https://`.
+
+## Check health
+
+Set `health: true` in `vitehub()` to add `/_vitehub/health`. It tells
+which app version, commit, and ViteHub version are live, and whether each
+Database, KV store, and Blob store of the app answers:
+
+```json
+{
+  "ok": true,
+  "version": "1.4.0",
+  "commit": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f",
+  "vitehub": "0.1.0",
+  "checks": { "database": { "default": true }, "kv": { "default": true }, "blob": { "default": true } }
+}
+```
+
+A Database runs `SELECT 1`, and a KV store checks for one key. For an `fs` Blob
+store, the check opens the root directory without reading objects. A directory
+that does not exist yet passes, but a file in place of the directory fails. For
+an `s3` store, the check lists up to one object, so a missing bucket fails. The
+credential needs `s3:ListBucket`. Other Blob drivers check object metadata
+without listing. Each check has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+error goes to the server log, never to the response. The
+[generated Dockerfile](#run-the-server-with-docker) checks this route. For
+your own image or a load balancer, point the health check at it:
+
+```dockerfile [Dockerfile]
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+```
+
+To check only some primitives, list them in `checks`. For example, if the app
+already enables Database and KV, but its S3 credential cannot list the bucket,
+add this option to `vitehub` in `nuxt.config.ts` or to the `vitehub()` options
+in `vite.config.ts` for Nitro and Vite:
+
+```ts fragment
+health: { checks: ['database', 'kv'] },
+```
+
+A Docker build context often has no `.git`. Pass the commit as
+`VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See
+[`health` options](/docs/reference/config-options#vite-integration-options).
+
+## Run the server with systemd
+
+A production build on the `node` host also writes a systemd unit to
+`.output/<name>.service`. The name is the deployment name: `vitehub({ name })`,
+else the `package.json` name.
+
+```ini [.output/my-app.service]
+[Unit]
+Description=my-app (ViteHub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/my-app
+ExecStart=/usr/bin/env node .output/server/index.mjs
+EnvironmentFile=-/srv/my-app/.env
+Environment="NODE_ENV=production"
+SyslogIdentifier=my-app
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target default.target
+```
+
+The unit starts the server in the project root of the build, so relative data
+paths such as `.vitehub/data` stay where they were. It reads `.env` from that
+directory when the file exists. `node` comes from the unit's `PATH`, so a
+Node.js upgrade does not make the unit stale. On stop, systemd sends `SIGTERM`
+and ViteHub [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+`TimeoutStopSec` is the `agent.shutdown.drainMs` budget (0 by default) plus 30 seconds, which
+covers the 15-second settle time, the 10-second close hooks, and 5 seconds more.
+
+Link the unit and start it:
+
+```bash [Terminal]
+sudo systemctl link /srv/my-app/.output/my-app.service
+sudo systemctl enable --now my-app
+```
+
+`systemctl restart my-app` drains the old process before it starts the new one.
+After a new build, run `sudo systemctl daemon-reload` before the restart, so
+systemd reads the new file. As a user service, use `systemctl --user` with the
+same commands; the unit then starts at login, or at boot with
+`loginctl enable-linger`.
+
+Set the deploy path, the system user, and fixed variables in `vitehub()`. Use
+`systemd: false` to write no unit:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+      systemd: {
+        user: 'app',
+        workingDirectory: '/srv/my-app',
+        environment: { PORT: '3000' },
+      },
+    }),
+  ],
+})
+```
+
+Each build replaces the unit, so put other settings in a drop-in. A drop-in
+stays when the unit changes:
+
+```bash [Terminal]
+sudo systemctl edit my-app
+```
+
+```ini [/etc/systemd/system/my-app.service.d/override.conf]
+[Service]
+Environment="PATH=/opt/node/bin:/usr/bin"
+MemoryMax=2G
+```
+
+Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
+`.env`, because the build cannot read that file.
+
+## Run the server with Docker
+
+A production build on the `node` host also writes `.output/Dockerfile`. It is a
+runtime image for the build output. Build the image from `.output` and run it:
+
+```bash [Terminal]
+pnpm build
+docker build -t my-app .output
+docker run --init --stop-timeout 30 -p 3000:3000 --env-file .env -v my-app-data:/app/.vitehub my-app
+```
+
+```dockerfile [.output/Dockerfile]
+FROM node:24-slim
+WORKDIR /app
+COPY . .output/
+RUN ["install","-d","-o","node","-g","node","/app","/app/.vitehub"]
+USER node
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+EXPOSE 3000
+VOLUME ["/app/.vitehub"]
+STOPSIGNAL SIGTERM
+CMD ["node",".output/server/index.mjs"]
+```
+
+- The server runs as the `node` user in `/app`, as the systemd unit runs in
+  the project root. Relative data paths, such as `.vitehub/data`, resolve
+  there. Keep a named volume at `/app/.vitehub` for default stores such as the
+  Database and Queue. A separate `dataDir`, such as `/var/lib/app`, gets its
+  own named volume. Use all the mounts shown in the generated `docker run`
+  command when you replace a container. Do not mount over `/app` or
+  `/app/.output`; the server files there must come from the new image.
+- The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
+- Docker sends `SIGTERM` on stop, and ViteHub
+  [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+  A Dockerfile cannot set the stop timeout, so the comment at the top of the file
+  shows the build-time default: the `agent.shutdown.drainMs` budget rounded up
+  to seconds, plus 30. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, use
+  that budget instead. For example, `45000` needs `--stop-timeout 75`.
+  `--init` collects the child processes that Agents start.
+- When `health` is on, `HEALTHCHECK` calls the health route over plain HTTP.
+  It uses `NITRO_HOST` before `HOST` and `NITRO_PORT` before `PORT`. If you
+  change the container port, update `-p` to match. For TLS, a Unix socket, or
+  listener overrides in Nitro's server configuration, pass `--no-healthcheck`
+  to `docker run` or replace `HEALTHCHECK` in your own Dockerfile.
+- Nitro copies native packages, such as the libSQL binary, into
+  `.output/server/node_modules` for the build machine. When the output has
+  them, the image uses the CPU of the build machine (`--platform`) and its C
+  library family: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
+  build on macOS or Windows with native packages prints
+  [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
+  Matching the C library family does not guarantee binary compatibility. In a
+  clean checkout, install dependencies and build inside the Linux Node image
+  named by `ARG VITEHUB_NODE_IMAGE`, on the target CPU. Then build the generated
+  Dockerfile with that same image. For example, use `node:24-slim` on
+  `linux/amd64` for both steps. To pin the base, build the app in a Linux Node
+  image pinned to a digest and pass the same reference to
+  `docker build --build-arg VITEHUB_NODE_IMAGE="$NODE_IMAGE" -t my-app .output`,
+  where `NODE_IMAGE` holds that reference. Changing the runtime base alone
+  does not rebuild the native packages. If the app needs extra system libraries
+  or a different image layout, set `docker: false` and use your own Dockerfile.
+
+Each build replaces the file. To add system packages, such as `git`, start your
+own Dockerfile `FROM` the image that you built. Set `docker: false` in
+`vitehub()` to write no Dockerfile.
+
+## Defaults on the node host
+
+"Several instances" means two or more Node processes behind one load balancer,
+on one host or on many. Today most Node defaults keep state in one process or on
+one disk, so they do not work across several instances.
+
+| Primitive | Node default | Works across several instances today |
 | --- | --- | --- |
-| Blob | `fs` under `.vitehub/data/blob` | Local files on one host. |
-| KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time. |
-| Rate Limit | `memory` | One process. Resets on restart. |
-| Queue | None | `queue: true` fails the build. |
-| Sandbox | None | `sandboxTask: true` fails the build. |
+| Blob | `s3` when `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET` are set during the build, else `fs` under `.vitehub/data/blob` | With a shared remote store, such as `s3`. `fs` keeps files on one host, so a server with `VITEHUB_INSTANCES` above 1 fails at boot with `RUNTIME_R0017`. |
+| KV | `database` with a Postgres Default Database, else `fs-lite` under `.vitehub/data/kv`. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. | Yes with Postgres, Redis, or Upstash. Redis requires `kv: { driver: 'redis' }`, with the same `REDIS_URL` on every server. `fs-lite` keeps local files on one host. See [Node picks a shared store](/docs/kv/configure#node-picks-a-shared-store). |
+| Cache | None. Nitro keeps its cache in memory in each process. `cache: true` selects `fs-lite` under `.vitehub/data/cache`. | Only with `cache: { driver: 'kv' }` and a shared KV store, such as Postgres, Redis, or Upstash. |
+| Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres, remote libSQL, or [D1 over HTTP](/docs/database/hosts#use-cloudflare-d1-over-http). |
+| Database `migrateOnStart` | On for Postgres. `true` also migrates local SQLite files and D1 over HTTP; `false` turns it off. `{ backup: true }` copies each SQLite file before its migrations. | Yes for Postgres and D1 over HTTP. On Postgres, an advisory lock lets one instance migrate while the others wait. On D1, when every instance has the same migration history, the unique row of each migration lets only one instance apply it. For SQLite, migrate once before starting several processes. See [Startup migrations](/docs/database/configure#migrate-when-the-server-starts). |
+| Queue | `postgres` with a Postgres Default Database, else `local` with files under `.vitehub/data/queue`. | Yes with Postgres: every instance shares the jobs and claims due jobs from the same table. With `local`, a job runs only on the instance that accepted it. A shared volume has no lock between processes, so two instances can run the same job. |
+| Rate Limit | `kv` with shared KV, otherwise `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory` counts in one process and resets on restart. Explicit `driver: 'kv'` fails with a store that cannot share counts, such as `fs-lite`. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
+| Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
+| Schedule | The Process Runtime runs Schedules in the server process. Set `providerOutput: false` to wake Schedules yourself. | Yes with a Postgres or remote libSQL Default Database. Servers claim occurrences in `vitehub_leases`. A run can repeat if its lease expires. With a local SQLite file or no Database, run one instance. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server). |
+| Workflow | OpenWorkflow. It picks storage in this order: `workflow.sqlite.path` or `workflow.postgres.url`, then `OPENWORKFLOW_SQLITE_PATH`, `OPENWORKFLOW_POSTGRES_URL`, a Postgres Default Database, and last `.vitehub/data/openworkflow.sqlite.db`. A Postgres `DATABASE_URL` alone fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` instead of using the SQLite file. See [Select OpenWorkflow storage](/docs/workflows/hosts#select-openworkflow-storage). | Yes with Postgres. Each server starts the OpenWorkflow worker, and the workers share the runs. `workflow: { worker: false }` turns the worker off. The SQLite file keeps runs on one host. See [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node). |
+| Agent State | `VITEHUB_AGENT_STATE_URL` or `agent.providers.state.url`. A `file:` URL keeps a SQLite file on one host. | Only with a remote libSQL URL, such as Turso or `sqld`. Every instance then shares Chat History, locks, the Chat queue, and queued webhook deliveries. Expiry uses the database clock, so host clock differences do not change when an entry expires. |
+| Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
+
+Schedule needs one instance unless the Default Database is Postgres or remote libSQL.
+Queue needs one instance unless it uses Postgres. Workflow needs Postgres to share runs. Realtime needs one
+instance unless it uses Redis or Postgres. Rate Limit needs shared KV to
+share counts. Agent State needs remote libSQL to share State. Run features without shared storage on one instance, or run
+the whole app as one instance.
 
 Set `dataDir` in `vitehub()`, for example `dataDir: '/var/lib/app'`, to keep
 local state in one persistent directory. It holds KV `fs-lite` data, Blob `fs`
 data, the Agent State database, the Agent Invocation journal, and Workspace files.
-`dataDir` works only with the `node` preset.
+`dataDir` works only with the `node` host.
 
 ## Mount a server handler
 
@@ -146,18 +457,67 @@ uses it for per-client rate limiting and `session.ipAddress`.
 
 A plain Web `Request` has no peer address. Without the host context, those
 requests share one rate-limit bucket. Requests from srvx already carry the
-host address as `ip`. Behind a trusted proxy, configure
-[`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
-Do not import a generated Nitro route.
+host address as `ip`. Behind a proxy you run, pass the last
+`X-Forwarded-For` value, which the proxy adds, as `clientAddress`. Values
+before it come from the client. Do not import a generated Nitro route.
+
+## Durability and instances
+
+When the server starts, it prints one line for each enabled primitive. The
+line shows the store and where its state lives.
+
+```txt [Terminal]
+[vitehub] Durability (1 instance. Set VITEHUB_INSTANCES when you run more):
+  kv          fs-lite  host     Files in .vitehub/data/kv on this host.
+  rate-limit  memory   process  Counters live in the memory of this process. Each instance counts on its own.
+```
+
+| Scope | Meaning |
+| --- | --- |
+| `shared` | All instances read and write the same store, such as Postgres or Upstash Redis. |
+| `host` | Files on this host. They survive a restart, but another host or container does not see them. |
+| `process` | Memory of this process. A restart loses it, and other processes do not see it. |
+
+Each primitive reports the driver that it uses in this server, so a driver
+that an environment variable or the Default Database selects at boot shows
+correctly. Agent state, the Agent Invocation journal, and Workspace files
+report too. Run
+`vitehub durability list` to read the same report from the dev server. It is
+the `durability.list` [operation](/docs/console/operations). On a
+deployment, `--url` works when the app enables the Console, with credentials
+for the `durability` section. Server code can read the report with
+`getDurabilityReport()` from `vite-hub/runtime/durability`.
+
+Tell the server how many instances run this build. Set `VITEHUB_INSTANCES`
+where you start the server, or set `node.instances` in `vitehub()`.
+`VITEHUB_INSTANCES` wins. The default is 1.
+
+```bash [Terminal]
+VITEHUB_INSTANCES=3 node .output/server/index.mjs
+```
+
+When the count is greater than 1 and a primitive is `host` or `process`
+scoped, the server does not start. The error (`RUNTIME_R0017`) lists each
+primitive and how to make it shared. For example, the default `fs-lite` KV store
+fails with 3 instances. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` at build
+time to use Upstash Redis.
 
 ## Production notes
 
 Local files and memory belong to one process on one host. Replicas do not
 share them. Use a persistent volume for `dataDir`, or remote stores when you
-run more than one process.
+run more than one process. Set `VITEHUB_INSTANCES` so the server checks this
+at boot.
+The [table above](#defaults-on-the-node-host) shows which features have a
+remote store today.
 
-Keep runtime secrets in [Server Env](/docs/env). Check the deployed app by
-starting the built server, not only by typechecking.
+The Schedule Process Runtime runs each occurrence on one server when the app has
+a Postgres or remote libSQL Default Database. The servers claim each occurrence in the
+`vitehub_leases` table. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
+
+Keep runtime secrets in [Server Env](/docs/env). Verify the
+deployed application by starting the built server, not only by typechecking
+package code.
 
 ## Next steps
 

@@ -1,9 +1,4 @@
 import { Buffer } from "node:buffer"
-import { execFile } from "node:child_process"
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { promisify } from "node:util"
 import { describe, expect, it, vi } from "vitest"
 
 import { git } from "../src/capabilities.ts"
@@ -14,7 +9,6 @@ import type { AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const pullRequestHeadSha = "a".repeat(40)
-const execFileAsync = promisify(execFile)
 
 function gitSession(options: { remotes?: string, status?: string } = {}) {
   const session = {
@@ -331,7 +325,7 @@ describe("git capability", () => {
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "vite-hub/vitehub" })
+    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "vite-hub/vitehub", minLifetime: 55 * 60_000 })
     const setup = session.exec.mock.calls.find(([command]) => command === "sh")
     expect(setup?.[2]).toMatchObject({
       env: {
@@ -356,8 +350,8 @@ describe("git capability", () => {
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenNthCalledWith(1, expect.anything(), { repository: "vite-hub/vitehub" })
-    expect(access).toHaveBeenNthCalledWith(2, expect.anything(), { repository: "contributor/vitehub" })
+    expect(access).toHaveBeenNthCalledWith(1, expect.anything(), { repository: "vite-hub/vitehub", minLifetime: 55 * 60_000 })
+    expect(access).toHaveBeenNthCalledWith(2, expect.anything(), { repository: "contributor/vitehub", minLifetime: 55 * 60_000 })
     const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
     const basic = (token: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
     expect(fetch?.[2]).toMatchObject({
@@ -411,36 +405,6 @@ describe("git capability", () => {
     expect(setupScript).toContain("cd -- .")
     expect(setupScript).toContain("git reset -q --hard refs/vitehub/head")
     expect(setupScript).not.toContain("rm -rf")
-  })
-
-  it("attaches root Git metadata to an already materialized exact-head tree", async () => {
-    const fixture = await mkdtemp(join(tmpdir(), "vitehub-root-pr-"))
-    const source = join(fixture, "source")
-    const workspace = join(fixture, "workspace")
-    try {
-      await mkdir(source)
-      await mkdir(workspace)
-      await execFileAsync("git", ["init", "-q"], { cwd: source })
-      await writeFile(join(source, "README.md"), "exact head\n")
-      await execFileAsync("git", ["add", "README.md"], { cwd: source })
-      await execFileAsync("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@example.com", "commit", "-qm", "fixture"], { cwd: source })
-      const { stdout: headSha } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: source })
-
-      await copyFile(join(source, "README.md"), join(workspace, "README.md"))
-      await writeFile(join(workspace, "PULL_REQUEST.md"), "workspace artifact\n")
-      await execFileAsync("git", ["init", "-q"], { cwd: workspace })
-      await execFileAsync("git", ["remote", "add", "origin", source], { cwd: workspace })
-      await execFileAsync("git", ["fetch", "-q", "origin", `${headSha.trim()}:refs/vitehub/head`], { cwd: workspace })
-      await execFileAsync("git", ["reset", "-q", "--hard", "refs/vitehub/head"], { cwd: workspace })
-
-      expect(await readFile(join(workspace, "README.md"), "utf8")).toBe("exact head\n")
-      expect(await readFile(join(workspace, "PULL_REQUEST.md"), "utf8")).toBe("workspace artifact\n")
-      const { stdout: status } = await execFileAsync("git", ["status", "--porcelain"], { cwd: workspace })
-      expect(status).toBe("?? PULL_REQUEST.md\n")
-    }
-    finally {
-      await rm(fixture, { force: true, recursive: true })
-    }
   })
 
   it("does not prepare a pull request checkout when the channel disables it", async () => {

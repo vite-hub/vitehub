@@ -253,7 +253,9 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
           }
         })
       })
-      return Reflect.get(target, property, target)?.bind(target)
+      if (property === "writeFiles") return undefined
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
 }
@@ -269,7 +271,7 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 type TrackLifecycleOperation = <T>(operation: Promise<T>) => Promise<T>
 
-const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream", "writeFiles"])
 
 function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
   const active = new Set<Promise<unknown>>()
@@ -298,7 +300,7 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
   const fenced = new Proxy(store, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (!STORE_MUTATIONS.has(String(property))) return value?.bind(target)
+      if (!STORE_MUTATIONS.has(String(property))) return typeof value === "function" ? value.bind(target) : value
       if (value === undefined) return undefined
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
@@ -534,7 +536,7 @@ async function hasCompleteBundledBuildSource(
   bundledSourceByPath?: Map<string, string>,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
-  const probeKeys = source.source.probeKeys
+  const probeKeys = source.probeKeys
   if (!probeKeys?.length) {
     const paths = bundledFiles
       ?.filter(file => file.metadata?.source === source.key)

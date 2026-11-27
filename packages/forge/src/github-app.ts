@@ -2,17 +2,61 @@ import { createHash } from "node:crypto"
 
 import type { ForgeProvider } from "forges"
 import { forgeDiagnostics } from "./error-diagnostics.ts"
-import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
+import { abortError, forgeErrorStatus, forgeResponseError, withSignal } from "./provider.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 export interface GitHubAppCredentials {
   installationToken(
     installationId: number | string,
-    options?: { refresh?: boolean, signal?: AbortSignal },
+    options?: {
+      refresh?: boolean
+      signal?: AbortSignal
+      /** Mint a new token when the cached one expires within this many milliseconds. Default 60000. */
+      minLifetime?: number
+    },
   ): Promise<{ token: string, expiresAt: Date }>
   /** GET /repos/{repository}/installation with the app JWT. */
   installation(repository: string, signal?: AbortSignal): Promise<number>
-  /** GET /app. */
-  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
+  /**
+   * GET /app, and GET /users/{login} for the bot user's noreply `email`, the commit email that GitHub links to the
+   * App. Cached per App: an App's identity does not change.
+   */
+  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string, email: string }>
+  /**
+   * Every repository that the App's installations can access, from `GET /app/installations` and
+   * `GET /installation/repositories`, all pages. Suspended installations are skipped.
+   */
+  repositories(signal?: AbortSignal): Promise<GitHubAppRepository[]>
+  /**
+   * Webhook deliveries of the App that failed since `since` (epoch milliseconds) and that no later
+   * attempt delivered, oldest first, from `GET /app/hook/deliveries`. GitHub does not retry a failed
+   * delivery by itself.
+   */
+  failedDeliveries(since: number, signal?: AbortSignal): Promise<GitHubAppDelivery[]>
+  /** Asks GitHub to send a delivery again: `POST /app/hook/deliveries/{id}/attempts`. */
+  redeliver(id: string, signal?: AbortSignal): Promise<void>
+}
+
+/** One webhook delivery of a GitHub App. */
+export interface GitHubAppDelivery {
+  /** A decimal string: delivery IDs are larger than `Number.MAX_SAFE_INTEGER`. */
+  id: string
+  /** Shared by every attempt of the same event; the receiver's `X-GitHub-Delivery`. */
+  guid: string
+  event: string
+  action?: string
+  deliveredAt: number
+  statusCode: number
+  /** Attempts of this `guid` in the listed window. */
+  attempts: number
+}
+
+/** A repository that one App installation can access. */
+export interface GitHubAppRepository {
+  /** `owner/name`, as GitHub spells it. */
+  repository: string
+  installationId: number
+  archived: boolean
 }
 
 export interface GitHubAppInput {
@@ -24,9 +68,61 @@ export interface GitHubAppInput {
 }
 
 const appProviders = new Map<string, Promise<ForgeProvider>>()
-// Weak keys keep token retention bounded by the 128 cached providers.
-const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
+const installationTokens = new WeakMap<ForgeProvider, InstallationToken>()
+const tokenMints = new WeakMap<ForgeProvider, TokenMint>()
+
+interface InstallationToken {
+  token: string
+  expiresAt: number
+}
+
+interface TokenMint {
+  minted: Promise<InstallationToken>
+  waiters: number
+  stop(reason: unknown): void
+}
+
+function tokenMint(provider: ForgeProvider, installationId: string): TokenMint {
+  const shared = globalThis.navigator?.userAgent !== "Cloudflare-Workers"
+  const existing = shared ? tokenMints.get(provider) : undefined
+  if (existing) return existing
+  const controller = new AbortController()
+  let stopped = false
+  const forget = () => {
+    if (tokenMints.get(provider) === mint) tokenMints.delete(provider)
+  }
+  const mint: TokenMint = {
+    waiters: 0,
+    minted: provider.request<{ token?: string, expires_at: string }>("POST", `/app/installations/${installationId}/access_tokens`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
+        const minted = { token: response.data.token, expiresAt: new Date(response.data.expires_at).getTime() }
+        if (!stopped) installationTokens.set(provider, minted)
+        return minted
+      })
+      .finally(forget),
+    stop(reason) {
+      stopped = true
+      forget()
+      controller.abort(reason)
+    },
+  }
+  if (shared) tokenMints.set(provider, mint)
+  return mint
+}
+
+async function joinTokenMint(mint: TokenMint, signal: AbortSignal | undefined): Promise<InstallationToken> {
+  mint.waiters++
+  try {
+    return await withSignal(mint.minted, signal)
+  }
+  finally {
+    mint.waiters--
+    if (!mint.waiters && signal?.aborted) mint.stop(signal.reason)
+  }
+}
 const appProviderLimit = 128
+const appIdentities = new Map<string, ReturnType<typeof appIdentity>>()
 const fetchIds = new WeakMap<typeof fetch, number>()
 let nextFetchId = 0
 
@@ -46,10 +142,6 @@ function appProviderKey(input: GitHubAppInput, installationId: string): string {
     .digest("hex")
 }
 
-/**
- * One App provider per installation, so `refresh` replaces the token of that installation only.
- * App-level requests use the entry with an empty installation ID.
- */
 function appProvider(input: GitHubAppInput, installationId = "", refresh = false): Promise<ForgeProvider> {
   const key = appProviderKey(input, installationId)
   if (refresh) appProviders.delete(key)
@@ -67,12 +159,23 @@ function appProvider(input: GitHubAppInput, installationId = "", refresh = false
   return pending
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function positiveId(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+async function appIdentity(input: GitHubAppInput) {
+  const provider = await appProvider(input)
+  const response = await provider.request<unknown>("GET", "/app")
+  const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
+  const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
+  if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
+  if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
+  const login = `${slug}[bot]`
+  const { github } = await import("forges/github")
+  const userId = await github({ ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.fetch ? { fetch: input.fetch } : {}), userAgent: input.userAgent ?? "vitehub" })
+    .request<unknown>("GET", `/users/${encodeURIComponent(login)}`)
+    .then(user => positiveId(isRecord(user.data) ? user.data.id : undefined), () => undefined)
+  return { verified: userId !== undefined, identity: { id, slug, login, email: userId ? `${userId}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` } }
 }
 
 /**
@@ -85,16 +188,9 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const id = String(installationId)
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
-      if (cached && cached.expiresAt > Date.now() + 60_000) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
-      // installations.token() cannot forward a signal in the pinned forges version.
-      // Keep JWT signing in the provider and pass cancellation through its transport.
-      const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
-        "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
-      ), options.signal)
-      if (!response.data.token) throw new ForgeResponseError("GitHub App installation token response did not include token.")
-      const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
-      installationTokens.set(provider, { token: details.token, expiresAt: details.expiresAt.getTime() })
-      return details
+      if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
+      const minted = await joinTokenMint(tokenMint(provider, id), options.signal)
+      return { token: minted.token, expiresAt: new Date(minted.expiresAt) }
     },
     async installation(repository, signal) {
       const provider = await withSignal(appProvider(input), signal)
@@ -113,15 +209,67 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       }
     },
     async app(signal) {
+      const key = appProviderKey(input, "")
+      let pending = appIdentities.get(key)
+      if (!pending) {
+        const lookup = appIdentity(input)
+        const evict = () => {
+          if (appIdentities.get(key) === lookup) appIdentities.delete(key)
+        }
+        void lookup.then(({ verified }) => { if (!verified) evict() }, evict)
+        appIdentities.set(key, lookup)
+        pending = lookup
+        if (appIdentities.size > appProviderLimit) appIdentities.delete(appIdentities.keys().next().value!)
+      }
+      return (await withSignal(pending, signal)).identity
+    },
+    async repositories(signal) {
       const provider = await withSignal(appProvider(input), signal)
-      const response = await provider.request<unknown>("GET", "/app", { signal })
-      const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
-      const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
-      if (!id) throw new ForgeResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw new ForgeResponseError("GitHub App response did not include a slug.")
-      return { id, slug, login: `${slug}[bot]` }
+      const repositories: GitHubAppRepository[] = []
+      for await (const installation of provider.installations.list({ perPage: 100, signal })) {
+        const installationId = positiveId(Number(installation.id))
+        if (!installationId || (isRecord(installation.raw) && installation.raw.suspended_at)) continue
+        for await (const repo of provider.installations.repos(installation, { perPage: 100, signal })) {
+          repositories.push({ repository: `${repo.ref.owner}/${repo.ref.name}`, installationId, archived: repo.isArchived })
+        }
+      }
+      return repositories
+    },
+    async failedDeliveries(since, signal) {
+      const provider = await withSignal(appProvider(input), signal)
+      const attempts: GitHubAppDelivery[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 200; page++) {
+        const response = await provider.request("GET", "/app/hook/deliveries", { query: { per_page: 100, ...cursor ? { cursor } : {} }, signal, raw: true })
+        const data: unknown = JSON.parse((await new Response(response.body).text()).replace(/"id":\s*(\d+)/g, '"id":"$1"'))
+        const items = Array.isArray(data) ? data.flatMap(delivery) : []
+        attempts.push(...items)
+        cursor = /[?&]cursor=([^&>]+)[^>]*>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1]
+        if (!cursor || !items.length || items.at(-1)!.deliveredAt < since) break
+      }
+      const recent = attempts.filter(item => item.deliveredAt >= since)
+      const delivered = new Set(recent.filter(item => item.statusCode >= 200 && item.statusCode < 300).map(item => item.guid))
+      const failed = new Map<string, GitHubAppDelivery>()
+      for (const item of recent) {
+        if (delivered.has(item.guid)) continue
+        const seen = failed.get(item.guid)
+        failed.set(item.guid, seen ? { ...seen.deliveredAt > item.deliveredAt ? seen : item, attempts: seen.attempts + 1 } : item)
+      }
+      return [...failed.values()].sort((a, b) => a.deliveredAt - b.deliveredAt)
+    },
+    async redeliver(id, signal) {
+      const provider = await withSignal(appProvider(input), signal)
+      await provider.request("POST", `/app/hook/deliveries/${id}/attempts`, { signal })
     },
   }
+}
+
+function delivery(value: unknown): GitHubAppDelivery[] {
+  if (!isRecord(value)) return []
+  const id = typeof value.id === "string" && /^[1-9]\d*$/.test(value.id) ? value.id : undefined
+  const deliveredAt = typeof value.delivered_at === "string" ? Date.parse(value.delivered_at) : Number.NaN
+  if (!id || typeof value.guid !== "string" || typeof value.event !== "string" || typeof value.status_code !== "number" || Number.isNaN(deliveredAt)) return []
+  return [{ id, guid: value.guid, event: value.event, ...typeof value.action === "string" ? { action: value.action } : {}, deliveredAt, statusCode: value.status_code, attempts: 1 }]
 }
 
 /** Read a GitHub App private key from an inline value or a file path. Escaped "\\n" becomes a newline. */

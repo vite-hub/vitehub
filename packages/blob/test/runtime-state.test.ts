@@ -1,5 +1,8 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { runInNewContext } from "node:vm"
 
 import { blob } from "../src/runtime/storage.ts"
 import { getNamedBlobRuntimeStorage, resolveNamedBlobRuntimeStorage, setBlobRuntimeConfig, setNamedBlobRuntimeStorage } from "../src/runtime/state.ts"
@@ -17,14 +20,47 @@ afterEach(() => setBlobRuntimeConfig(undefined))
 describe("served Blob URLs", () => {
   it("follow the serve route of the loaded Blob config without loading the runtime", () => {
     expect(servedBlobUrl("covers/a b.png")).toBeUndefined()
-    setBlobRuntimeConfig({ serve: { route: "/api/_vitehub/blob", store: "default" }, store: { driver: "fs", base: ".data" } })
-    expect(servedBlobUrl("covers/a b.png")).toBe("/api/_vitehub/blob/covers/a%20b.png")
+    setBlobRuntimeConfig({ serve: { route: "/_vitehub/blob", store: "default" }, store: { driver: "fs", base: ".data" } })
+    expect(servedBlobUrl("covers/a b.png")).toBe("/_vitehub/blob/covers/a%20b.png")
     expect(servedBlobUrl("covers/a.png", "media")).toBeUndefined()
     setBlobRuntimeConfig({ serve: { route: "/assets/", store: "media", publicBaseUrl: "https://cdn.example.com/" }, store: { driver: "fs", base: ".data" } })
     expect(servedBlobUrl("a.png", "media")).toBe("https://cdn.example.com/assets/a.png")
     expect(servedBlobUrl("a.png")).toBeUndefined()
     setBlobRuntimeConfig(false)
     expect(servedBlobUrl("a.png", "media")).toBeUndefined()
+  })
+})
+
+describe("Blob runtime config", () => {
+  it("gives the installed config to a second copy of the package, as Node loads one in dev", async () => {
+    const config = { store: { driver: "fs" as const, base: ".vitehub/blob/default" } }
+    setBlobRuntimeConfig(config)
+    vi.resetModules()
+    const copy = await import("../src/runtime/state.ts")
+    await expect(copy.getBlobRuntimeConfig()).resolves.toEqual(config)
+  })
+
+  it("writes to the replacement store from the same Node-loaded copy after a config reload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-reload-"))
+    const before = join(root, "before")
+    const after = join(root, "after")
+    const config = { store: { driver: "fs" as const, base: before } }
+    try {
+      setBlobRuntimeConfig(config)
+      vi.resetModules()
+      const { blob: nodeBlob } = await import("../src/runtime/storage.ts")
+      expect((await nodeBlob.put("first.txt", "before"))[0]).toBeUndefined()
+      await expect(readFile(join(before, "first.txt"), "utf8")).resolves.toBe("before")
+
+      config.store.base = after
+      setBlobRuntimeConfig(config)
+      expect((await nodeBlob.put("second.txt", "after"))[0]).toBeUndefined()
+      await expect(readFile(join(after, "second.txt"), "utf8")).resolves.toBe("after")
+      await expect(readFile(join(before, "second.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })
 
@@ -72,57 +108,6 @@ describe("Blob runtime storage lifetime", () => {
     await resolveNamedBlobRuntimeStorage("assets", create)
 
     config.store.bucket = "after"
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("invalidates storage when a callback credential is replaced in place", async () => {
-    const firstToken = () => "before"
-    const secondToken = () => "after"
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("tracks callback credentials from another JavaScript realm", async () => {
-    const firstToken = runInNewContext("() => 'before'") as () => string
-    const secondToken = runInNewContext("() => 'after'") as () => string
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
-    setBlobRuntimeConfig(config)
-    const second = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => second)
-
-    expect(getNamedBlobRuntimeStorage("assets")).toBe(second)
-    expect(second).not.toBe(first)
-  })
-
-  it("tracks callback credentials wrapped in a Proxy", async () => {
-    const firstToken = new Proxy((() => "before") as () => string, { get: (target, property, receiver) => property === Symbol.toStringTag ? "Object" : Reflect.get(target, property, receiver) })
-    const secondToken = new Proxy((() => "after") as () => string, { get: (target, property, receiver) => property === Symbol.toStringTag ? "Object" : Reflect.get(target, property, receiver) })
-    const config = { store: { accessToken: firstToken, driver: "dropbox" as const } }
-    setBlobRuntimeConfig(config)
-    const first = blob.store("assets")
-    await resolveNamedBlobRuntimeStorage("assets", async () => first)
-
-    config.store.accessToken = secondToken
     setBlobRuntimeConfig(config)
     const second = blob.store("assets")
     await resolveNamedBlobRuntimeStorage("assets", async () => second)

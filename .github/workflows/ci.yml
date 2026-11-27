@@ -14,26 +14,45 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Pushes, manual dispatches and the main guardian's repair pull requests from
+# this repository run the full suite. Other pull requests skip the slow jobs.
+# Steps read env.FULL_SUITE. A job if cannot read env, so jobs use the alias.
+env:
+  FULL_SUITE: &full-suite ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+
 jobs:
   ci:
     name: ci
     needs:
       - checks
       - workflow-lint
+      - doctor
       - contracts-examples
       - contract-tests
       - package-tests
       - package-tests-success
+      - typecheck
+      - ui-sdk
+      - service-tests
+      - agent-codex-emulator
       - prepublish-contracts
+      - consumer-select
       - consumer-contracts
       - consumer-contracts-success
-      - windows-agent-credentials
-      - node-22
+      - consumer-nuxt-4-7
+      - node-floor
+      - codemods-node-22
       - docs
       - docs-snippets
       - docs-deploy
+      - docs-demo
+      - docs-demo-deploy
       - console
+      - console-pixels
       - console-deploy
+      - schedule-os-select
+      - schedule-os
+      - schedule-os-success
       - verify-providers
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -43,35 +62,40 @@ jobs:
       - name: Require successful verification
         env:
           CI_RESULTS: ${{ toJSON(needs) }}
-          REPAIR_MAIN: ${{ startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: bash
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
-          // Pull requests run the contract and package tests that their
-          // change can affect. The full integration matrix still runs on
-          // every push to main, and on the main guardian's repair PRs from
-          // this repository: a repair that passes only the PR checks merges
-          // and leaves main red.
+          // Pull requests run fast checks and the package tests their change
+          // can affect. The full integration matrix, the Node.js floor and the
+          // packed release contracts run on every push to main, and on the
+          // main guardian's repair PRs from this repository: a repair that
+          // passes only the PR checks merges and leaves main red. The release
+          // workflow repeats the strict checks before it publishes.
           // Keep this aggregate job required so skipped PR-only jobs never
           // leave a branch protection check pending.
           const skippedPullRequestJobs = new Set([
             "contracts-examples",
-            "consumer-contracts",
-            "consumer-contracts-success",
-            "windows-agent-credentials",
+            "node-floor",
+            "prepublish-contracts",
             "verify-providers",
           ])
-          const skippedPushJobs = new Set(["prepublish-contracts"])
           // Deploys run only on a push to main.
-          const deployJobs = new Set(["docs-deploy", "console-deploy"])
+          const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
+          // Doctor checks the lines that a pull request changes, so it runs only on pull requests.
+          const pullRequestOnlyJobs = new Set(["doctor"])
+          // OS timer checks run only when schedule-os-select says the change can affect them.
+          const scheduleOsJobs = new Set(["schedule-os", "schedule-os-success"])
+          const scheduleOsSelected = results["schedule-os-select"]?.outputs?.run === "true"
+          // Consumer contracts run on pull requests only when consumer-select says the change can affect them.
+          const consumerJobs = new Set(["consumer-contracts", "consumer-contracts-success", "consumer-nuxt-4-7"])
+          const consumerSelected = results["consumer-select"]?.outputs?.run === "true"
           const failures = Object.entries(results).filter(([name, job]) => {
-            const maySkip = (process.env.GITHUB_EVENT_NAME === "pull_request"
-              && process.env.REPAIR_MAIN !== "true"
-              && skippedPullRequestJobs.has(name))
-              || (process.env.GITHUB_EVENT_NAME === "push"
-                && skippedPushJobs.has(name))
+            const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
+              || (process.env.GITHUB_EVENT_NAME !== "pull_request" && pullRequestOnlyJobs.has(name))
+              || (!scheduleOsSelected && scheduleOsJobs.has(name))
+              || (process.env.FULL_SUITE !== "true" && !consumerSelected && consumerJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
           if (failures.length) {
@@ -98,6 +122,10 @@ jobs:
       # Formatting loads generated fixture configs, so it is excluded here.
       - run: vp check --no-fmt
 
+      # Unused files, unused and unlisted dependencies, and unresolved imports. knip.config.ts names the
+      # entries of each package, and the known findings that wait for a cleanup.
+      - run: vp exec knip --no-progress
+
       # zizmor and actionlint do not check these inputs. The script explains why.
       - name: Check transient package executors and Docker actions
         run: node .github/scripts/check-ci-inputs.mjs
@@ -113,7 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           version: 1.31.1
           advanced-security: false
@@ -122,11 +150,33 @@ jobs:
         with:
           args: -color
 
+  # Doctor reports unsound type evidence on the lines that a pull request
+  # changes. doctor.config.json selects the rules. The agent format gives each
+  # finding its fix and docs link. A push has no pull request base, so it skips
+  # this job.
+  doctor:
+    name: doctor
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check changed lines
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event.pull_request.base.sha }}
+        run: vp run doctor:typescript --format agent
+
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
   contracts-examples:
     name: contracts and examples
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -137,8 +187,6 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
 
-      # Run contracts first: examples:verify leaves generated example output
-      # that the repository contract tests would scan.
       - run: vp run build
 
       # vp pack rewrites each package's exports map in sorted order. Commit
@@ -153,15 +201,14 @@ jobs:
       - name: Validate packed package metadata
         run: vp run package:metadata
 
-      - run: vp run --ignore-depends-on examples:verify
-
   # Match Void's prepublish contract: install the exact tarballs a release
   # would publish and exercise them without workspace visibility. This runs
-  # for pull requests and manual dispatches; pushes already run the sharded
-  # consumer suite below.
+  # on pushes to main, manual dispatches and repair-main pull requests, so a
+  # packing problem shows up on main before the release workflow repeats it.
+  # Other pull requests skip it: it took 13 minutes on every one.
   prepublish-contracts:
     name: prepublish package contracts
-    if: ${{ github.event_name != 'push' }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -187,7 +234,9 @@ jobs:
             --manifest .release/npm/release-manifest.json \
             --workspace . \
             --source-sha "$GITHUB_SHA"
-      - name: Test package contracts against exact release tarballs
+      - name: Install Chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
+      - name: Test no-hoist consumers against exact release tarballs
         env:
           VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
         run: vp run test:consumer
@@ -203,7 +252,7 @@ jobs:
           fetch-depth: 0
       - name: Select contract tests
         id: scope
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ env.FULL_SUITE != 'true' }}
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: |
@@ -225,8 +274,9 @@ jobs:
   # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
-  # about 4 minutes and set the floor. Presets, Auth, and Schedule run in the
-  # shorter shards, so "other packages" is not the slowest job. The last
+  # about 4 minutes and set the floor. Presets, Auth, Schedule, and the docs
+  # package's Nuxt builds run in the shorter shards, so "other packages" is
+  # not the slowest job. The last
   # shard excludes the named packages, so a new package always runs
   # somewhere. A pull request tests only the packages it changes and their
   # dependents. A shard without one passes after checkout and does not
@@ -252,12 +302,12 @@ jobs:
             args: --packages vite-hub
           - name: workspace and presets
             args: --packages @vite-hub/workspace,@vite-hub/presets
-          - name: content and workflow
-            args: --packages @vite-hub/content,@vite-hub/workflow
+          - name: content, workflow, and docs
+            args: --packages @vite-hub/content,@vite-hub/workflow,@vite-hub/docs
           - name: storage, delivery, and auth
             args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/docs,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -265,24 +315,26 @@ jobs:
           fetch-depth: 0
       - name: Select changed packages
         id: changed
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ env.FULL_SUITE != 'true' }}
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: |
           packages="$(node test/run-package-task.mjs test ${{ matrix.shard.args }} --affected "$BASE_REF" --list)"
           echo "Changed packages in this shard: ${packages:-none}"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
+      - if: ${{ env.FULL_SUITE == 'true' || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
+        with:
+          prepare-docs: "false"
+      - if: ${{ env.FULL_SUITE == 'true' || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
-      - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs test --cache ${{ matrix.shard.args }}
         env:
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
       - name: Test changed packages
         if: ${{ steps.changed.outputs.packages != '' }}
-        run: node test/run-package-task.mjs test --packages "$PACKAGES"
+        run: node test/run-package-task.mjs test --cache --packages "$PACKAGES"
         env:
           PACKAGES: ${{ steps.changed.outputs.packages }}
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
@@ -298,11 +350,246 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
-  # Consumer contracts stay on push. Shard 1/3 took a median of 11.7 minutes
-  # in successful runs, and pull requests already wait for package tests.
+  # Typechecks ran only in `verify` at release, so type errors reached main. A
+  # job of its own keeps fast checks fast: each package typecheck builds the
+  # package and its dependencies first. A pull request checks the packages
+  # that the package test selection names. The docs site imports most
+  # packages, so its typecheck runs on every pull request.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The same heap as `vp run typecheck`. vue-tsc checks the docs site in Node.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changed packages
+        id: changed
+        if: ${{ env.FULL_SUITE != 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs typecheck --affected "$BASE_REF" --list)"
+          echo "Changed packages: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs typecheck
+      - name: Typecheck changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
+      - name: Typecheck the docs site
+        run: vp run --filter vitehub-docs --ignore-depends-on typecheck
+
+  # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
+  # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
+  # by step) and the style check (every part under the kit's style family). They run here on every push, and on a pull
+  # request that changes the installed ui-sdk (its version or a patch), the kit's styles, or the checks themselves.
+  ui-sdk:
+    name: ui-sdk parity and styles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the checks
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/(parity|ui-sdk-keyboard)|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
+            || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -E '^[-+].*@ui-sdk/' > /dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch ui-sdk, the kit styles or the browser checks."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check the ui-sdk versions and patches
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: node .github/scripts/check-ui-sdk.mjs ${BASE_REF:+"$BASE_REF"}
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/ui test:parity
+      - name: Check iframe keyboard focus
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        working-directory: packages/ui
+        run: node --test --test-name-pattern='iframe exit' test/browser/ui-sdk-keyboard.browser.mjs
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/kit test:styles
+
+  # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
+  # need a real Postgres and Redis. test/service-tests.mjs finds these files by
+  # the variable they read, so a new test file needs no change here.
+  service-tests:
+    name: postgres and redis tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: vitehub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find service tests
+        id: find
+        run: |
+          files="$(node test/service-tests.mjs --list)"
+          echo "${files:-No package test reads the service variables.}"
+          echo "found=${files:+true}" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.find.outputs.found == 'true' }}
+        uses: ./.github/actions/setup
+      - if: ${{ steps.find.outputs.found == 'true' }}
+        run: vp run test:services
+        env:
+          VITEHUB_TEST_POSTGRES_URL: postgres://postgres:vitehub@127.0.0.1:5432/postgres
+          VITEHUB_TEST_REDIS_URL: redis://127.0.0.1:6379
+
+  # Real Codex against the AI emulator, with no AI key or secret. The emulator rejects request shapes that it does not
+  # implement, such as the `namespace` and freeform tools that Codex sends by default, so this job fails when the
+  # emulator launch options in packages/agent/src/internal/codex-emulation.ts stop working with the Codex version that
+  # the docs pin. Keep CODEX_VERSION equal to the `@openai/codex@<version>` in packages/agent/README.md.
+  agent-codex-emulator:
+    name: agent codex on the AI emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CODEX_VERSION: 0.169.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          # The workspace files pin the T3 provider runtime, the AI emulator, and their dependencies. CODEX_VERSION and
+          # the README pin live in this file and in packages/agent.
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/agent packages/gateways package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the Agent package, the gateways, the workspace dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      # Outside the workspace, so the lockfile does not change, as Codex is an optional peer of the Agent package. The
+      # version is exact. The Agent finds this `codex` on PATH.
+      - name: Install Codex
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --prefix "$RUNNER_TEMP/codex" --ignore-scripts --no-audit --no-fund "@openai/codex@$CODEX_VERSION"
+          echo "$RUNNER_TEMP/codex/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Build the Agent package and its workspace dependencies
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --cache -t @vite-hub/agent#build
+      - name: Run real Codex on the AI emulator
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        working-directory: packages/agent
+        env:
+          VITEHUB_TEST_REAL_CODEX: "1"
+        run: |
+          actual="$(codex --version)"
+          if [ "$actual" != "codex-cli $CODEX_VERSION" ]; then
+            echo "::error::Expected codex-cli $CODEX_VERSION on PATH, found: $actual"
+            exit 1
+          fi
+          vp test run test/emulate-codex.test.ts
+
+  # Consumer contracts run on push, and on pull requests that change the Nuxt
+  # primitives harness or a package that it packs. Shard 1/3 took a median of
+  # 11.7 minutes in successful runs, so other pull requests skip them.
+  # test/ci-gate.test.ts checks that the paths below include every package
+  # that the Nuxt primitives rows pack.
+  consumer-select:
+    name: consumer contracts (select)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.changed.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_REF...HEAD" -- \
+            test/consumer/nuxt-primitives test/consumer/nuxt-primitives.test.ts test/consumer/packed-app.ts test/consumer/vitest.config.ts \
+            test/layers.ts test/utils/release-artifacts.ts packages/internal packages/ui/src \
+            packages/agent packages/auth packages/blob packages/browser packages/bundle packages/channels packages/choices packages/cli packages/comments packages/connections \
+            packages/cms packages/content packages/i18n \
+            packages/database packages/device packages/email packages/env packages/forge packages/forms packages/gateways packages/kv packages/markdown-template packages/mcp packages/queue \
+            packages/rate-limit packages/realtime packages/runtime packages/sandbox packages/schedule packages/shell packages/source packages/sync \
+            packages/vite-hub packages/web-container packages/webhooks packages/workflow packages/workspace \
+            package.json pnpm-workspace.yaml pnpm-lock.yaml vite.config.ts .github/workflows/ci.yml .github/actions/setup .github/actions/setup-deno; then
+            echo "This change does not touch the Nuxt primitives harness, a package that it packs, the workspace dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - consumer-select
+    if: ${{ needs.consumer-select.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -318,6 +605,8 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
+      - name: Install Chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
       - run: vp run test:consumer --shard=${{ matrix.shard }}
 
   # Keep the default success() condition: needs alone can lose failed matrix
@@ -331,30 +620,92 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  windows-agent-credentials:
-    name: agent credentials (windows)
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: windows-latest
+  # The packed Nuxt apps of the consumer contracts again, on Nuxt 4.7 with the
+  # nitro package, which builds the server with Nitro 3 through Nuxt's
+  # nitroLegacy layer. The consumer contracts run them on the Nuxt 5 nightly.
+  # "-t Nuxt" includes the "Nuxt primitives" test, which runs one route per
+  # primitive in Node and Cloudflare, dev and build.
+  consumer-nuxt-4-7:
+    name: consumer contracts (Nuxt 4.7)
+    needs:
+      - consumer-select
+    if: ${{ needs.consumer-select.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup
+      - name: Install Chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
+      - run: vp run test:consumer -t Nuxt
+        env:
+          VITEHUB_CONSUMER_NUXT: "4.7"
 
-      - name: Build Agent test dependencies
-        run: vp run -t @vite-hub/agent#build
+  # The codemods run before an app moves to ViteHub, often on Node.js 22, so
+  # @vite-hub/codemods requires Node.js 22.12. This job runs its built CLI on
+  # that floor.
+  codemods-node-22:
+    name: codemods on node 22.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/codemods packages/internal package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the codemods, their dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --cache -t @vite-hub/codemods#build
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.12.0"
+      - name: Run the codemods CLI on Node.js 22.12
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          node -e 'if (process.version !== "v22.12.0") throw new Error("Expected Node.js v22.12.0, got " + process.version)'
+          fixture="$RUNNER_TEMP/env-schema"
+          cp -R packages/codemods/test/fixtures/env-schema/input "$fixture"
+          node packages/codemods/dist/cli.js nuxt-safe-runtime-config "$fixture" --dry-run > "$RUNNER_TEMP/report.txt"
+          cat "$RUNNER_TEMP/report.txt"
+          grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/report.txt"
+          node packages/codemods/dist/cli.js "$fixture" --dry-run
+          current="$RUNNER_TEMP/current-app"
+          mkdir "$current"
+          printf '%s\n' 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"] })' > "$current/nuxt.config.ts"
+          node packages/codemods/dist/cli.js "$current" --dry-run > "$RUNNER_TEMP/current-report.txt"
+          cat "$RUNNER_TEMP/current-report.txt"
+          grep -F "Nothing to migrate" "$RUNNER_TEMP/current-report.txt"
+          grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/current-report.txt"
 
-      - name: Codex credential ACLs
-        shell: bash
-        working-directory: packages/agent
-        run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
-
-  # The standalone package floor is Node.js 22.18; Nitro integrations require
-  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
-  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
-  # brand checks, TextDecoder, and structuredClone.
-  node-22:
-    name: node 22.18
+  # The workspace and every package except @vite-hub/codemods require Node.js
+  # 24.15. Other jobs run the newest Node.js 24. This job runs the tests for built-ins that change between
+  # releases (fs glob, node:sqlite, module hooks, Response brand checks,
+  # TextDecoder, and structuredClone) on the exact floor.
+  node-floor:
+    name: node 24.15
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -362,20 +713,25 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      # Contributor dependencies require a newer runtime than the standalone
-      # package floor. Install them on Node 24, then test on the exact floor.
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          node-version: "22.18.0"
-          run-install: false
+          node-version: "24.15.0"
 
-      - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      - name: Require Node.js 24.15
+        run: node -e 'if (process.version !== "v24.15.0") throw new Error("Expected Node.js v24.15.0, got " + process.version)'
+      # The restored task cache can hold builds from a newer Node.js 24. Build the
+      # targets together on 24.15 so each dependency runs once, preserving
+      # uncached floor validation.
+      - name: Clear install-time build cache
+        run: vp cache clean
       - name: Build tested packages
         run: |
-          for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
-            vp run -t "$task"
-          done
+          vp run --no-cache \
+            --filter '@vite-hub/rate-limit...' \
+            --filter '@vite-hub/sandbox...' \
+            --filter '@vite-hub/database...' \
+            --filter '@vite-hub/auth...' \
+            --filter '@vite-hub/agent...' \
+            --filter 'vite-hub...' build
       - run: vp test
         working-directory: packages/rate-limit
       - run: vp test test/runtime-type.test.ts
@@ -401,11 +757,17 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
+      # Snippet checker tests import the built framework and its discovery plugins.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
+      # The same docs typecheck that `vp run verify` runs before a release.
+      - run: vp run --filter vitehub-docs typecheck
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
-        run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
+        run: |
+          ./node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json --outdir "$GITHUB_WORKSPACE/docs/.wrangler/bundle"
+          node docs/scripts/check-worker-size.mjs "$GITHUB_WORKSPACE/docs/.wrangler/bundle"
       - name: Upload Worker bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -429,6 +791,12 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: vp run build
+      # This job builds every package, so its task cache serves the next run.
+      - name: Save the Vite+ task cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
       - run: vp run --filter vitehub-docs test:snippets
 
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.
@@ -440,9 +808,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
+      - service-tests
       - consumer-contracts-success
-      - windows-agent-credentials
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - verify-providers
@@ -479,7 +848,10 @@ jobs:
               exit 1
             fi
           done
-          ./.github/ci-tools/node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
+          # Auth and Comments keep their tables in D1. The Worker secrets (VITEHUB_SECRET and the Console keys) stay on
+          # the Worker between deploys.
+          ./node_modules/.bin/wrangler d1 migrations apply vitehub-docs --remote --config docs/.output/server/wrangler.json
+          ./node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
 
       - name: Check the live site
         run: |
@@ -493,10 +865,9 @@ jobs:
           echo "vitehub.dev did not answer after the deploy." >&2
           exit 1
 
-  # The hosted Console is a static build of the same Console app. Pull requests check that it builds and that Wrangler
-  # accepts its configuration. Pushes to main keep the build for console-deploy.
-  console:
-    name: hosted console
+  # The Lumen docs demo in packages/docs/playground: the same build and Worker check as vitehub.dev, on the workspace packages.
+  docs-demo:
+    name: docs demo
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -505,27 +876,370 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
-      # The Console client imports the built packages, such as vite-hub/console/sections.
-      - run: vp run -t vite-hub#build
-      - run: vp run --filter vite-hub build:console-hosted
-      - name: Identify hosted Console build
-        run: |
-          marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
-          sed -i "s|</head>|${marker}</head>|" packages/vite-hub/.vitehub/console-hosted/index.html packages/vite-hub/.vitehub/console-hosted/404.html
-      - name: Verify Worker configuration
-        run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config packages/vite-hub/console.hosted.wrangler.jsonc
-      - name: Upload hosted Console
+      # Cache the package builds, but generate the deployable app in this job, as the docs job does.
+      - run: vp run --cache -t vite-hub#build
+      - run: vp run --cache -t @vite-hub/docs#build
+      - run: vp run --no-cache --filter playground-docs-demo build
+      - name: Verify Worker bundle
+        run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/docs/playground/.output/server/wrangler.json
+      - name: Upload Worker bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: vitehub-console-hosted
-          path: packages/vite-hub/.vitehub/console-hosted
+          name: docs-demo-output
+          path: packages/docs/playground/.output
           include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
 
+  # docs-demo.vitehub.dev deploys from the verified bundle on every push to main, after its D1 migrations.
+  docs-demo-deploy:
+    name: docs demo deploy
+    needs:
+      - checks
+      - workflow-lint
+      - contracts-examples
+      - contract-tests
+      - package-tests-success
+      - consumer-contracts-success
+      - node-floor
+      - docs-snippets
+      - docs-demo
+      - verify-providers
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Production
+      url: https://docs-demo.vitehub.dev
+    concurrency:
+      group: docs-demo-deploy
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Download Worker bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-demo-output
+          path: packages/docs/playground/.output
+
+      - name: Deploy docs-demo.vitehub.dev
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOCS_DEMO_GITHUB_CLIENT_ID: ${{ vars.DOCS_DEMO_GITHUB_CLIENT_ID }}
+          DOCS_DEMO_GITHUB_CLIENT_SECRET: ${{ secrets.DOCS_DEMO_GITHUB_CLIENT_SECRET }}
+          # The GitHub account of onmax. Only it gets the admin role on the demo.
+          DOCS_DEMO_VITEHUB_ADMINS: github:22072217
+          DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
+          DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
+          DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
+        run: |
+          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DOCS_DEMO_VITEHUB_SECRET DOCS_DEMO_VITEHUB_CONTENT_KEY DOCS_DEMO_VITEHUB_CONNECTIONS_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "The docs demo deploy needs $required in the Production environment." >&2
+              exit 1
+            fi
+          done
+          wrangler=./node_modules/.bin/wrangler
+          config=packages/docs/playground/.output/server/wrangler.json
+          # The Worker secrets live in the Production environment as DOCS_DEMO_<name>. Wrangler adds them to the deployed
+          # version and keeps secrets that the file leaves out.
+          secrets="$RUNNER_TEMP/docs-demo-secrets.json"
+          (umask 077; jq -n 'env | with_entries(select((.key | startswith("DOCS_DEMO_")) and .value != "") | .key |= ltrimstr("DOCS_DEMO_"))' > "$secrets")
+          "$wrangler" d1 migrations apply vitehub-docs-demo-users --remote --config "$config"
+          "$wrangler" d1 migrations apply vitehub-docs-demo-content --remote --config "$config"
+          "$wrangler" deploy --config "$config" --secrets-file "$secrets"
+          rm -f "$secrets"
+
+      - name: Check the live site
+        run: |
+          for _ in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error --max-time 30 -o /dev/null "https://docs-demo.vitehub.dev/raw/docs/getting-started.md?deploy=${GITHUB_SHA}"; then
+              echo "docs-demo.vitehub.dev serves ${GITHUB_SHA}."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "docs-demo.vitehub.dev did not answer after the deploy." >&2
+          exit 1
+
+  # Every Console runs packages/console: console.vitehub.dev on Cloudflare with D1, and self-hosted ones on Node with
+  # SQLite (the Dockerfile) or on Vercel with libSQL. Each host builds from this commit and runs the same smoke checks
+  # against its running build (packages/console/scripts/host-smoke.mjs), with env values off, as console.vitehub.dev
+  # runs, and then on, on the database of that host (scripts/env-smoke.mjs). The Cloudflare build also passes Wrangler's
+  # deploy check, and on pushes to main it is the build that console-deploy deploys.
+  console:
+    name: hosted console (${{ matrix.host }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [cloudflare, node, vercel]
+    env:
+      VITEHUB_HOST: ${{ matrix.host }}
+      VITEHUB_CONSOLE_D1_ID: 8d505e03-74c1-4565-9e0d-984292802d42
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+
+      # The Console page imports built packages, such as vite-hub/console/sections.
+      # Setup and this build both use Node 24, so reuse the docs postinstall builds.
+      - run: vp run --cache -t vite-hub#build
+      - run: vp run --filter vite-hub build:console-account
+      # The app bundles the page, so the marker goes in before the app build.
+      - name: Identify Console build
+        if: ${{ matrix.host == 'cloudflare' }}
+        run: |
+          marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
+          sed -i "s|</head>|${marker}</head>|" packages/vite-hub/.vitehub/console-account/index.html
+      - run: vp run --filter @vite-hub/console build
+      - name: Verify Worker configuration
+        if: ${{ matrix.host == 'cloudflare' }}
+        run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/console/.output/server/wrangler.json --name vitehub-console
+      - name: Smoke-test the running Console and its env values
+        working-directory: packages/console
+        run: node scripts/host-smoke.mjs "$VITEHUB_HOST"
+      # The page goes along, so console-deploy reads the marker from it.
+      - name: Upload Console
+        if: ${{ matrix.host == 'cloudflare' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vitehub-console
+          path: |
+            packages/console/.output
+            packages/vite-hub/.vitehub/console-account/index.html
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  # The Console pixel oracle on a pull request that can move Console pixels: the Console source and playground, the kit
+  # styles, or @vite-hub/ui/theme.css. It captures the base branch and the pull request in the same job, so both sides
+  # have the same Chromium and fonts, and it fails when a shot changes. A pull request that changes pixels on purpose
+  # gets the console-pixels:expected label: the job then passes and still uploads the shots and the diff images.
+  console-pixels:
+    name: console pixels
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Only a pull request has a base to compare with."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base_sha="$(git rev-parse HEAD^1)"
+          echo "base-sha=$base_sha" >> "$GITHUB_OUTPUT"
+          files="$(git diff --name-only "$base_sha" HEAD)"
+          if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch the Console, its styles, or the oracle."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          node-version: "24"
+          cache: false
+          run-install: false
+      - name: Install pull request dependencies
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          VITEHUB_SKIP_DOCS_PREPARE: "1"
+        run: vp install --frozen-lockfile
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/vite-hub/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      # The playground loads the Console from source, and the packages it imports, such as Auth, the kit styles, and
+      # theme.css, from dist. One `vp run` takes one task.
+      - name: Capture the pull request
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node packages/vite-hub/test/console-pixels.browser.mjs capture "$RUNNER_TEMP/console-pixels/head"
+      # The base runs the oracle of the pull request, so a change to the oracle applies to both sides.
+      - name: Capture the base
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_SHA: ${{ steps.changed.outputs.base-sha }}
+          VITEHUB_SKIP_DOCS_PREPARE: "1"
+        run: |
+          oracle=packages/vite-hub/test/console-pixels.browser.mjs
+          cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
+          install=false
+          git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_SHA"
+          cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
+          if [ "$install" = "true" ]; then
+            vp install --frozen-lockfile
+            ./packages/vite-hub/node_modules/.bin/playwright-core install --only-shell chromium
+          fi
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
+      - name: Compare
+        id: compare
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if node packages/vite-hub/test/console-pixels.browser.mjs compare "$RUNNER_TEMP/console-pixels/base" "$RUNNER_TEMP/console-pixels/head"; then
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Reruns retain the original event payload, so read the current labels.
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'any(.labels[]; .name == "console-pixels:expected")')"
+          if [ "$expected" = "true" ]; then
+            echo "::warning::Console pixels changed, and the console-pixels:expected label accepts it. Explain each changed shot in the pull request."
+            exit 0
+          fi
+          echo "::error::Console pixels changed. Download the console-pixels artifact. If the change is on purpose, add the console-pixels:expected label and run the job again."
+          exit 1
+      - name: Upload the shots
+        if: ${{ always() && (steps.compare.outputs.changed == 'true' || (steps.changed.outputs.run == 'true' && failure())) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-pixels
+          path: ${{ runner.temp }}/console-pixels
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # @vite-hub/schedule/os installs real OS timers: systemd on Linux, launchd on macOS, Task Scheduler on Windows. Only a
+  # real scheduler proves the translation, so each OS and scope installs a timer, waits until the OS runs it, and
+  # removes it (packages/schedule/test/os-e2e.mjs). A pull request runs it only when it changes Schedule, the shared
+  # systemd escaping, or CI. This job decides on Linux, so a pull request without such a change starts no macOS or
+  # Windows runner.
+  schedule-os-select:
+    name: schedule os timers (select)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.changed.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/schedule packages/internal/src/systemd.ts .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch Schedule, the systemd escaping, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  schedule-os:
+    name: schedule os timers (${{ matrix.os }}, ${{ matrix.scope }})
+    needs:
+      - schedule-os-select
+    if: ${{ needs.schedule-os-select.outputs.run == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        scope:
+          - user
+          - system
+    # The default shell on Windows is PowerShell. Bash runs on every GitHub runner.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Build Schedule and its workspace dependencies
+        run: vp run --cache -t @vite-hub/schedule#build
+      # The runner user has no login session, so it has no systemd user manager. Linger starts one, as on a server.
+      - name: Start the systemd user manager
+        if: ${{ runner.os == 'Linux' && matrix.scope == 'user' }}
+        run: |
+          sudo loginctl enable-linger "$USER"
+          runtime_dir="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do
+            if [ -S "$runtime_dir/bus" ]; then break; fi
+            sleep 1
+          done
+          if [ ! -S "$runtime_dir/bus" ]; then
+            echo "::error::The systemd user manager did not start: $runtime_dir/bus is missing."
+            exit 1
+          fi
+          {
+            echo "XDG_RUNTIME_DIR=$runtime_dir"
+            echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_dir/bus"
+          } >> "$GITHUB_ENV"
+          XDG_RUNTIME_DIR="$runtime_dir" systemctl --user is-system-running --wait || true
+      # System scope needs root on Linux and macOS. The Windows runner user is an Administrator.
+      - name: Install, run, and remove an OS timer
+        env:
+          SCOPE: ${{ matrix.scope }}
+        run: |
+          if [ "$SCOPE" = "system" ] && [ "$RUNNER_OS" != "Windows" ]; then
+            sudo -E env "PATH=$PATH" node packages/schedule/test/os-e2e.mjs --scope system
+          else
+            node packages/schedule/test/os-e2e.mjs --scope "$SCOPE"
+          fi
+      - name: Install, run, and remove an OS timer from a moved home folder
+        if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
+      - name: Install, run, and remove an OS timer under a folder with %PATH% in its name
+        if: ${{ matrix.scope == 'user' && runner.os == 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --percent-home
+
+  # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
+  # partial rerun.
+  schedule-os-success:
+    needs:
+      - schedule-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: echo 'All OS timer checks passed'
+
   # console.vitehub.dev deploys from the verified build on every push to main, like the docs site. The Production
-  # environment holds the Cloudflare token, which must allow Workers custom domains on the vitehub.dev zone.
+  # environment holds the Cloudflare token, which must allow Workers, D1, and custom domains on the vitehub.dev zone.
+  # The Worker keeps BETTER_AUTH_SECRET, VITEHUB_CONSOLE_SECRET, GITHUB_CLIENT_ID, and GITHUB_CLIENT_SECRET as secrets.
   console-deploy:
     name: console deploy
     needs:
@@ -534,9 +1248,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
+      - service-tests
       - consumer-contracts-success
-      - windows-agent-credentials
-      - node-22
+      - node-floor
       - docs-snippets
       - console
       - verify-providers
@@ -556,16 +1271,18 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
-      - name: Download hosted Console
+      - name: Download Console
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: vitehub-console-hosted
-          path: packages/vite-hub/.vitehub/console-hosted
+          name: vitehub-console
+          path: packages
 
+      # Migrations go first, so the new Worker never runs on an older schema.
       - name: Deploy console.vitehub.dev
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        working-directory: packages/console/.output/server
         run: |
           for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
             if [ -z "${!required}" ]; then
@@ -573,17 +1290,17 @@ jobs:
               exit 1
             fi
           done
-          ./.github/ci-tools/node_modules/.bin/wrangler deploy --config packages/vite-hub/console.hosted.wrangler.jsonc
+          wrangler="$GITHUB_WORKSPACE/node_modules/.bin/wrangler"
+          "$wrangler" d1 migrations apply DB --remote --config wrangler.json
+          "$wrangler" deploy --config wrangler.json --name vitehub-console --domain console.vitehub.dev
 
-      # The marker identifies this upload even when only HTML, headers, or unreferenced assets change.
-      # Read it from the deployed artifact: a rerun of only this job reuses the build of an earlier attempt of the same
-      # run, so the marker carries that attempt. It must still name this commit and this run.
-      # The first deploy also creates the custom domain and its certificate, so the check waits up to 3 minutes.
+      # The marker identifies this upload. Read it from the deployed page: a rerun of only this job reuses the build of
+      # an earlier attempt of the same run, so the marker carries that attempt. It must still name this commit and run.
       - name: Check the live site
         run: |
-          marker=$(grep -oE '<meta name="vitehub-deploy" content="[^"]+">' packages/vite-hub/.vitehub/console-hosted/index.html | grep -F "content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:" | head -n 1 || true)
+          marker=$(grep -oE '<meta name="vitehub-deploy" content="[^"]+">' packages/vite-hub/.vitehub/console-account/index.html | grep -F "content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:" | head -n 1 || true)
           if [ -z "$marker" ]; then
-            echo "The hosted Console build has no deployment marker for this commit and run." >&2
+            echo "The Console build has no deployment marker for this commit and run." >&2
             exit 1
           fi
           for _ in $(seq 18); do
@@ -598,12 +1315,12 @@ jobs:
 
   verify-providers:
     name: verify providers
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
       srh:
@@ -636,9 +1353,53 @@ jobs:
           KV_REST_API_TOKEN: local-srh-token
           KV_REST_API_URL: http://127.0.0.1:8079
           TURSO_DATABASE_URL: http://127.0.0.1:8080
-      # The exact version pins the CLI. Moving it into .github/ci-tools would
-      # add its large dependency tree to the workspace lockfile.
+      # The exact version pins the CLI. Moving it into the root devDependencies
+      # would add its large dependency tree to the workspace lockfile.
       - name: Install Netlify CLI
         run: npm install -g netlify-cli@23.15.1 # zizmor: ignore[adhoc-packages]
       - name: Netlify end-to-end
         run: vp run e2e:netlify
+
+  # Publishes the pkg.pr.new previews after the ci gate passes, so a red pull request does not spend a runner on it.
+  # Branch protection requires this job's name. When the gate fails, this job reports skipped.
+  # Fork pull requests get no preview, as before this job moved here from a push workflow.
+  publish-preview:
+    name: publish preview packages
+    needs:
+      - ci
+    if: >-
+      ${{ !cancelled() && needs.ci.result == 'success' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # On main, a new push waits for the running publish instead of cancelling it.
+    # GitHub keeps only the newest pending run, so main always gets a preview.
+    concurrency:
+      group: pkg-pr-new-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+    env:
+      # A pull request run checks out its merge commit. The preview is the pull request head, as pkg.pr.new names it.
+      PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+
+      # Published packages come from a fresh build, not from task cache
+      # fingerprints. The root build task always enables the cache.
+      - run: vp run --no-cache --filter "./packages/*" build
+
+      # Gives the previews a version that npm does not have, so pnpm resolves
+      # ViteHub peers to the previews and not to npm releases.
+      - run: |
+          published_version="$(npm view vite-hub@latest version --registry=https://registry.npmjs.org)"
+          node .github/scripts/preview-packages.mjs "$PREVIEW_SHA" "$published_version"
+
+      - name: Publish preview packages
+        run: |
+          corepack enable pnpm
+          ./node_modules/.bin/pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm

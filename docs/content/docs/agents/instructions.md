@@ -127,8 +127,36 @@ the slot when the template has no `content`.
 To drop the inherited template, set
 `instructions: { mode: 'replace', value: '...' }` or a new
 `{ template, content }` object. Without a template, child instructions replace
-the parent document. Read
-[Extend an Agent](/docs/agents/agent-presets#extend-an-agent) for other rules.
+the parent document.
+
+To add to the parent document, or to change part of it, set
+`instructions: { extend }`. The function gets the parent's instructions as one
+string and returns the child's complete document:
+
+```ts [server/agents/bot-dev/agent.ts] fragment
+import { defineAgent } from 'vite-hub/agent'
+import bot from '../bot/agent'
+import development from './development.md?raw'
+
+export default defineAgent({
+  extends: bot,
+  driver: {
+    instructions: { extend: inherited => `${inherited}\n\n${development}` },
+  },
+})
+```
+
+- Without a parent, `inherited` is an empty string.
+- When the parent uses a callback or a template, the function runs for each
+  Invocation and gets the resolved document, with the template slot filled.
+- `{{{ context.customInstructions }}}` slots and `data.context.*` bindings in
+  the returned document render as usual.
+- A plain function is not an extension. It stays a callback that gets the
+  Invocation context.
+- A colocated `instructions.md` cannot extend the parent's document.
+
+Read [Extend an Agent](/docs/agents/agent-presets#extend-an-agent) for other
+rules.
 
 ## Insert trusted invocation values
 
@@ -176,7 +204,7 @@ Prefer customer-facing language and next actions.
 
 Conditions bind `data.context.*` paths and support `eq`, `neq`, `gt`, `gte`,
 `lt`, and `lte`. For a compound condition, compute a boolean in TypeScript. See
-[Markdown templates](/docs/reference/markdown-templates) for the full syntax.
+[Markdown templates](/docs/markdown-template) for the full syntax.
 
 ## Insert Workspace bindings
 
@@ -243,8 +271,8 @@ text to the prompt.
 | Custom `driver.run` | Your code reads the prepared context. ViteHub builds no model prompt. |
 
 Read [Agent Drivers](/docs/agents/agent-drivers) for each Driver. Run
-`vitehub agent info --agent <name>` to see the resolved instructions and
-coverage warnings. See the [CLI development loop](/docs/development/cli).
+`vitehub agent get <name>` to see the resolved instructions and
+coverage warnings. See the [CLI development loop](/docs/cli).
 
 ## Next steps
 

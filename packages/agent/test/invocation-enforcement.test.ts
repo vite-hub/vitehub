@@ -1,9 +1,10 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { runAgentInline, runAgentWithContext } from "../src/internal/agent-run.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { agentInvocationId, defineAgent } from "../src/index.ts"
 import { bindAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -190,9 +191,9 @@ describe("Agent Invocation enforcement", () => {
     const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "Must not start")
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: {
-        collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+        collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,
       },
       triggers: {
@@ -211,19 +212,18 @@ describe("Agent Invocation enforcement", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("runs a best-effort Invocation in a Workflow worker without a claim handoff", async () => {
+  it("fails a best-effort Workflow attempt before the Driver when the running write fails", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
-    const { store } = failingRunningStore("timeout")
+    const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "done")
     const agent = defineAgent({ driver: { run }, invocations, name: "workflow-worker", runtime: false })
     const context = { id: "workflow-worker-run", name: "workflow-worker", payload: { input: { prompt: "hello" } }, provider: "openworkflow" as const }
 
-    await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).resolves.toBe("done")
-    expect(run).toHaveBeenCalledOnce()
-    await vi.waitFor(async () => {
-      await expect(invocations.getByRunId("workflow-worker-run", "workflow-worker")).resolves.toMatchObject({ startedAt: expect.any(String), status: "completed" })
-    })
+    // A Workflow retry reads a `pending` record as "the Driver never started", so the Driver needs the running state.
+    await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).rejects.toThrow(/Could not persist/)
+    expect(run).not.toHaveBeenCalled()
+    await expect(invocations.getByRunId("workflow-worker-run", "workflow-worker")).resolves.toMatchObject({ status: "pending" })
   }, 10_000)
 
   it("keeps a Workflow worker strict when it inherits a replay claim", async () => {
@@ -238,5 +238,47 @@ describe("Agent Invocation enforcement", () => {
 
     await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).rejects.toThrow(/could not be persisted|Could not persist/)
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not start the Driver again when a Workflow retry finds the claim of an interrupted attempt", async () => {
+    const backing = createMemoryAgentInvocationStore()
+    // After the first attempt stops, its store calls get no answer, as when its process exits.
+    const firstAttempt = new AsyncLocalStorage<true>()
+    let stopped = false
+    const never = new Promise<never>(() => {})
+    const frozen = () => stopped && firstAttempt.getStore() === true
+    const store: AgentInvocationStore = {
+      ...backing,
+      claim: (...args) => frozen() ? never : backing.claim(...args),
+      getSummary: id => frozen() ? never : backing.getSummary(id),
+      release: (...args) => frozen() ? never : backing.release(...args),
+      update: (...args) => frozen() ? never : backing.update(...args),
+    }
+    const invocations = defineAgentInvocations({ store })
+    let driverStarted: () => void = () => {}
+    const firstDriver = new Promise<void>(resolve => { driverStarted = resolve })
+    const run = vi.fn(async () => {
+      driverStarted()
+      return await never
+    })
+    const agent = defineAgent({ driver: { run }, invocations, name: "interrupted-turn", runtime: false })
+    const attempt = { id: "interrupted-turn-run", name: "interrupted-turn", payload: { input: { prompt: "hello" } }, provider: "openworkflow" as const }
+
+    void firstAttempt.run(true, () => runAgentWorkflowDefinition(agent, attempt, runAgentInline))
+    await firstDriver
+    stopped = true
+
+    // The retry waits for the 30 second claim lease of the stopped attempt.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const retry = runAgentWorkflowDefinition(agent, attempt, runAgentInline)
+      const settled = expect(retry).rejects.toMatchObject({ code: "AGENT_INVOCATION_DRIVER_INTERRUPTED", isRetryable: false })
+      await vi.advanceTimersByTimeAsync(31_000)
+      await settled
+    }
+    finally {
+      vi.useRealTimers()
+    }
+    expect(run).toHaveBeenCalledOnce()
   })
 })

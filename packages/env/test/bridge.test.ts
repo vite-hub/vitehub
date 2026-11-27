@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { format } from "node:util";
 import { createEnvBridge } from "../src/bridge.ts";
 import { createDatabaseEnvStore } from "../src/database.ts";
 import { agentEnvAccess } from "./agent-access.ts";
@@ -22,10 +23,10 @@ afterEach(async () => {
 function setup(url = ":memory:") {
   const client = createClient({ url });
   cleanup.push(() => client.close());
-  const db = drizzle(client);
+  const db = drizzle({ client: client });
   const store = createDatabaseEnvStore({
     db,
-    encryptionKey: new Uint8Array(32).fill(7),
+    encryptionKeys: [new Uint8Array(32).fill(7)],
     previews: true,
   });
   const emit = vi.fn();
@@ -126,7 +127,8 @@ describe("Env Bridge", () => {
     const { bridge, emit } = setup();
     await bridge.replace(admin, { key: "github", value: "never-log-this", expectedRevision: null });
     await bridge.grant(admin, { actor: agent.actor, key: "github", permissions: ["use"] });
-    emit.mockRejectedValue(new Error("Exporter offline"));
+    emit.mockRejectedValue(new Error("Exporter offline", { cause: new Error("exporter-credential-7f3a") }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       bridge.use(agent, "github", "github.issues.list", (secret) => {
         expect(secret.unseal()).toBe("never-log-this");
@@ -146,6 +148,11 @@ describe("Env Bridge", () => {
       "started",
     ]);
     expect(JSON.stringify(events)).not.toContain("never-log-this");
+    const warnings = warn.mock.calls.map(args => format(...args));
+    expect(warnings).toEqual(events.filter(event => event.action === "use").map(event =>
+      `[vitehub] Env activity export failed for event ${event.id}. The activity store keeps the event.`).reverse());
+    expect(warnings.join("\n")).not.toContain("exporter-credential-7f3a");
+    warn.mockRestore();
   });
   it("enforces grants, revocation and the authenticated token's permission ceiling", async () => {
     const { bridge } = setup();

@@ -20,24 +20,37 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `auth` | Auth |
 | `blob` | Blob |
 | `browser` | Browser |
+| `cache` | Cache |
 | `channels` | Channels |
 | `cms` | CMS |
 | `comments` | Comments |
 | `connections` | Connections |
 | `content` | Content |
 | `database` | Database |
+| `choices` | Choices |
+| `device` | Device |
 | `email` | Email |
 | `env` | Env |
+| `forge` | Forge |
+| `forms` | Forms |
+| `gateways` | AI Gateways |
+| `i18n` | i18n |
 | `kv` | KV |
 | `logs` | Logs |
+| `mcp` | MCP server |
+| `markdown-template` | Markdown templates |
+| `presets` | Agent presets |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
+| `runtime` | Runtime |
 | `sandbox` | Sandbox and Sandbox Tasks |
 | `schedule` | Schedule |
 | `shell` | Shell |
 | `source` | Source |
+| `sync` | Sync |
 | `ui` | UI |
+| `webhooks` | Webhooks |
 | `workflow` | Workflows |
 | `workspace` | Workspace |
 | `skills` | Agent Skills |
@@ -45,8 +58,13 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `docs` | Docs site |
 | `start` | Get started |
 | `guides` | Guides |
-| `development` | Development and the CLI |
+| `development` | Development |
+| `cli` | CLI |
+| `console` | The ViteHub Console |
 | `hosts` | Frameworks and hosts |
+| `web-container` | WebContainer |
+| `bundle` | Bundle reports |
+| `codemods` | Codemods |
 | `reference` | Reference |
 | `compare` | Comparisons |
 
@@ -58,6 +76,6 @@ Each icon is one file in `svg/`. Keep the rules of the set, so a new icon sits n
 - One 1.5px stroke with round caps and joins. No fills and no other stroke widths.
 - Corner radius 2 for a frame (2.5 for the Agent head), 1.5 for a block inside it, and 1 or less for a small mark.
 - Coordinates on the half-pixel grid. A dot is a `h.01` path, so it is as wide as the stroke.
-- One idea per icon, with as few parts as it needs. Put the one part that can move on hover in `<g data-motion="">`, and set its motion in `@vite-hub/ui/styles.css`.
+- One idea per icon, with as few parts as it needs. Put the one part that carries the idea in `<g data-motion="">`. No icon moves on hover: motion comes from what a person does with a control ([docs/design/motion.md](../../docs/design/motion.md)).
 
 `vp run build` writes `dist/`. The tests check the frame, the stroke, and the grid.

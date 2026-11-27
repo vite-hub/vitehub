@@ -1,8 +1,8 @@
-import { docsPanelOf, docsPanelPages } from "./navigation.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, isDocsPath, isDocsWorkspaceLayout } from "./navigation.ts"
 
 import type { DocsDocument } from "./markdown.ts"
 import type { DocsPageFrontmatter } from "./schema.ts"
-import type { DocsManifest, DocsPage, DocsSection } from "./types.ts"
+import type { DocsManifest, DocsPage, DocsPageWorkspace, DocsSection } from "./types.ts"
 
 export interface DocsPageLink {
   path: string
@@ -42,6 +42,7 @@ export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage
 export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, path: string, file: string }): DocsPage {
   const navigation = frontmatter.navigation === false ? undefined : frontmatter.navigation
   const layout = frontmatter.layout ?? "article"
+  const workspace = isDocsWorkspaceLayout(layout)
   return {
     id: at.id,
     path: at.path || "/",
@@ -58,8 +59,9 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(frontmatter.tutorial ? { tutorial: frontmatter.tutorial } : {}),
     ...(frontmatter.codePanel ? { codePanel: true } : {}),
     ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
-    sidebar: frontmatter.sidebar ?? true,
-    toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home"),
+    ...(workspace ? { workspace: workspaceOf(frontmatter) } : {}),
+    sidebar: frontmatter.sidebar ?? (workspace ? "collapsed" : true),
+    toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home" && !workspace),
     kind: navigation?.kind ?? null,
     group: navigation?.group ?? null,
     navigation: frontmatter.navigation !== false,
@@ -67,6 +69,11 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(navigation?.panel && at.id !== "index" && at.file.endsWith("/index.md") ? { panel: true as const } : {}),
     order: navigation?.order ?? Number.MAX_SAFE_INTEGER,
   }
+}
+
+function workspaceOf(frontmatter: DocsPageFrontmatter): DocsPageWorkspace {
+  const { examples, tabs, render, connect, port, fixture, guide, lesson, preview } = frontmatter
+  return { examples, tabs, render, connect, port, fixture, guide, lesson, preview }
 }
 
 /**
@@ -85,15 +92,25 @@ export interface DocsRoute {
 }
 
 /**
- * Whether the app's catch-all pages answer every docs page, so the module does not add its own. `pages/[...slug].vue`
- * answers every path. `pages/docs/[...slug].vue` answers the pages under `/docs`, and `pages/blog/[...slug].vue` none.
+ * The URL prefix of every page: the docs base when all pages sit below it, else `/`. The docs page answers only below
+ * it, so an app that keeps its docs under `/docs` keeps its own pages and its own "Page not found" everywhere else.
  */
-export function coversDocsPages(routes: DocsRoute[], pagePaths: string[]): boolean {
-  const prefixes = routePaths(routes).flatMap(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] ?? [])
-  return prefixes.length > 0 && pagePaths.every(path => prefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`)))
+export function docsMount(manifest: DocsManifest): string {
+  return docsManifestPages(manifest).every(page => isDocsPath(page.path, manifest.base)) ? manifest.base : "/"
 }
 
-function routePaths(routes: DocsRoute[], parent = ""): string[] {
+/**
+ * Whether the app has its own catch-all page at the docs mount, which then replaces the docs page:
+ * `pages/[...slug].vue` for docs at `/`, `pages/docs/[...slug].vue` for docs at `/docs`. A catch-all at another
+ * prefix, such as `pages/blog/[...slug].vue` or the app's root catch-all beside docs at `/docs`, does not.
+ */
+export function replacesDocsPage(routes: DocsRoute[], mount: string): boolean {
+  const prefix = mount === "/" ? "" : mount
+  return routePaths(routes).some(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] === prefix)
+}
+
+/** Every route path of the app, with the paths of child routes joined to their parents. */
+export function routePaths(routes: DocsRoute[], parent = ""): string[] {
   return routes.flatMap((route) => {
     const path = route.path.startsWith("/") ? route.path : `${parent.replace(/\/+$/, "")}/${route.path}`
     return [path, ...routePaths(route.children ?? [], path)]

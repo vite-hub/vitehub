@@ -1,35 +1,67 @@
-import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { applyD1MigrationFiles, readD1LedgerOf } from "../internal/d1-ledger.ts"
+import { hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchHubMigrations, matchLedger, numberMigrationFolders, toLedgerRow } from "../internal/migration-ledger.ts"
+import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
+import { createPostgresLedger, defaultLedgerSchema, postgresLedgerTable, quotePostgresName, sqlString } from "../internal/postgres-ledger.ts"
+
+import type { D1Ledger } from "../internal/d1-ledger.ts"
+import type { LedgerMatch, LedgerMigration, LedgerRow } from "../internal/migration-ledger.ts"
 import type { DataLossStatement } from "../internal/migration-sql.ts"
+import type { PostgresLedgerEntry } from "../internal/postgres-ledger.ts"
+import type { D1HttpClient } from "./d1-http.ts"
 
 /** A Drizzle Kit migration, read at build time so the server output does not need the migrations folder. */
 export interface StartMigration {
   dataLoss: DataLossStatement[]
-  /** SHA-256 of the `.sql` file, the hash that Drizzle Kit's ledger stores. */
+  /** SHA-256 of `migration.sql`, the hash that Drizzle's ledger stores. */
   hash: string
+  /** The migration folder name, which Drizzle's ledger stores in `name`. */
   name: string
+  /** A Postgres migration whose first line is `-- vitehub:no-transaction`. `statements` has one statement each. */
+  noTransaction?: true
   statements: string[]
-  /** The journal `when`, which Drizzle Kit's ledger stores as `created_at`. */
+  /** The folder timestamp in milliseconds, which Drizzle's ledger stores as `created_at`. */
   when: number
 }
 
+/** The migrations of a D1 HTTP database as Wrangler applies them. */
+export interface StartD1Migrations {
+  /** In Wrangler's order. `name` is the `.sql` file name that the table stores, and `sql` the whole file. */
+  files: Array<{ dataLoss: DataLossStatement[], name: string, sql: string, statements: string[], tag: string }>
+}
+
 export interface StartMigrationDatabase {
+  /** Set for a D1 HTTP database, which uses Wrangler's migrations table instead of Drizzle's. */
+  d1?: StartD1Migrations
   /** The runtime Drizzle database of `useDatabase(name)`. */
   db: unknown
+  dialect: "postgresql" | "sqlite"
   migrations: StartMigration[]
+  /** Postgres only: the schema of Drizzle's ledger. ViteHub creates it only on PGlite. */
+  migrationsSchema?: string
   name: string
+}
+
+/** `migrateOnStart.backup` as the build resolves it. */
+export interface MigrationBackup {
+  /** Relative to the working directory. Unset, the copies go to `backups` beside the database file. */
+  dir?: string
+  keep: number
 }
 
 export interface MigrateOnStartOptions {
   allowDataLoss?: boolean
+  /** Copy each SQLite file before its pending migrations. */
+  backup?: MigrationBackup
   log?: (message: string) => void
 }
 
 type LibsqlStatement = string | { args: unknown[], sql: string }
 
 interface LibsqlMigrationClient {
-  execute: (statement: LibsqlStatement) => Promise<{ rows: ArrayLike<ArrayLike<unknown>> }>
+  execute: (statement: LibsqlStatement) => Promise<{ rows: ArrayLike<ArrayLike<unknown> & Record<string, unknown>> }>
   migrate: (statements: LibsqlStatement[]) => Promise<unknown>
   protocol: string
 }
@@ -37,13 +69,21 @@ interface LibsqlMigrationClient {
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
   databases: StartMigrationDatabase[]
-  pending: Map<string, { migration: StartMigration, name: string }>
+  /** The path of the main database file. Empty for an in-memory database. */
+  file: string
+  /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
+  upgrade: LibsqlStatement[]
+  pending: Array<{ migration: StartMigration, name: string }>
 }
 
-// Drizzle Kit's ledger, created with the same statement as `drizzle-orm/libsql/migrator`, so `vitehub db migrate`
-// and the server agree on what is applied.
+// Drizzle's ledger, created and upgraded with the same statements as `drizzle-orm/libsql/migrator` 1.0, so
+// `vitehub database migrate` and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
-const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`
+const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
+
+function isD1HttpClient(value: unknown): value is D1HttpClient {
+  return typeof value === "object" && value !== null && Reflect.get(value, "protocol") === "d1-http" && typeof Reflect.get(value, "query") === "function"
+}
 
 function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
   return typeof value === "object" && value !== null
@@ -52,30 +92,269 @@ function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
     && typeof Reflect.get(value, "protocol") === "string"
 }
 
-async function readApplied(client: LibsqlMigrationClient): Promise<{ keys: Set<string>, lastApplied: number | undefined }> {
-  const keys = new Set<string>()
-  let lastApplied: number | undefined
+/**
+ * Reads the ledger and matches it to the migrations of every database on the file. A ledger of Drizzle Kit 0.x has no
+ * `name` column; `upgrade` adds it and writes the name of each row, as Drizzle 1.0 does before it migrates.
+ */
+async function readLedger(client: LibsqlMigrationClient, databases: readonly StartMigrationDatabase[]): Promise<LedgerMatch & { hashes: Map<string, Set<string>>, upgrade: LibsqlStatement[] }> {
+  const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   const table = await client.execute({ args: [migrationsTable], sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?" })
-  if (!table.rows.length) return { keys, lastApplied }
-  const result = await client.execute(`SELECT hash, created_at FROM "${migrationsTable}"`)
-  for (const row of Array.from(result.rows)) {
-    if (row[1] === null || row[1] === undefined) continue
-    const millis = Number(row[1])
-    if (!Number.isFinite(millis)) continue
-    keys.add(`${millis}:${row[0]}`)
-    lastApplied = Math.max(lastApplied ?? millis, millis)
+  if (!table.rows.length) return { ...matchLedger([], migrations), hashes: new Map(), upgrade: [] }
+  const columns = await client.execute(`PRAGMA table_info("${migrationsTable}")`)
+  const named = Array.from(columns.rows).some(column => column.name === "name")
+  const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
+  const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
+  const match = matchLedger(rows, migrations)
+  const problem = ledgerUpgradeProblem(match)
+  if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
+  const hashes = ledgerHashes(rows, match.backfill)
+  if (named) return { ...match, hashes, upgrade: [] }
+  return { ...match, hashes, upgrade: ledgerUpgradeStatements(migrationsTable, match) }
+}
+
+type PendingEntry = { migration: StartMigration, name: string }
+
+/**
+ * Lists the pending migrations of one database in the order they run, with the Definition of each. Drizzle 1.0 applies
+ * each migration folder whose name the ledger does not list. Drizzle's ledger keys a migration by folder name only, so
+ * Definitions on one database must not use one name for different SQL, or the ledger row of one would hide the other
+ * forever. Unless `allowDataLoss` is set, it refuses migrations that lose data.
+ */
+function planByName(
+  databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>,
+  { applied, hashes }: { applied: Set<string>, hashes: Map<string, Set<string>> },
+  { allowDataLoss, dialect, place }: { allowDataLoss?: boolean, dialect: "postgresql" | "sqlite", place: "Postgres database" | "SQLite file" },
+): PendingEntry[] {
+  const shared = databases.length > 1
+  const separate = place === "SQLite file" ? "separate SQLite files" : "a separate Postgres database for each"
+  const seen = new Map<string, { hash: string, name: string }>()
+  const pending = new Map<string, PendingEntry>()
+  for (const database of databases) {
+    for (const migration of database.migrations) {
+      const other = seen.get(migration.name)
+      if (other && other.hash !== migration.hash) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: database.name,
+          problem: `It and the Database "${other.name}" share one ${place}, and both have the migration "${migration.name}" with different SQL. Drizzle's migrations table keys migrations by folder name, so one of them would never run. Regenerate one of them with another name, or use ${separate}.`,
+        })
+      }
+      seen.set(migration.name, { hash: migration.hash, name: database.name })
+      const recorded = hashes.get(migration.name)
+      if (shared && recorded && !recorded.has(migration.hash)) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: database.name,
+          problem: `Its shared ${place} has already applied a migration "${migration.name}" with other SQL, so this one would never run. Regenerate it with another name, or use ${separate}.`,
+        })
+      }
+      if (!applied.has(migration.name) && !pending.has(migration.name)) pending.set(migration.name, { migration, name: database.name })
+    }
   }
-  return { keys, lastApplied }
+  const ordered = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+  if (allowDataLoss) return ordered
+  // Check the migrations in the order they run, so a table that this run creates can lose its rows.
+  const checked = withoutNewTableDataLoss(ordered.map(({ migration }) => migration), dialect)
+  for (const database of databases) {
+    const losses = checked.flatMap((migration, index) => ordered[index]!.name === database.name
+      ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
+      : [])
+    if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+  }
+  return ordered
+}
+
+/** The hashes that the ledger stores for each applied folder name, including the names that an upgrade writes. */
+function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfill"]): Map<string, Set<string>> {
+  const hashes = new Map<string, Set<string>>()
+  const backfilled = new Map(backfill.map(({ row, name }) => [row, name]))
+  for (const row of rows) {
+    const name = row.name ?? backfilled.get(row)
+    if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
+  }
+  return hashes
 }
 
 /**
- * Applies the pending migrations of each local SQLite database before the server handles requests. It uses Drizzle
- * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the
- * first one changes, so a refusal leaves all of them as they were. All pending migrations of one SQLite file run in one
- * transaction, so a failure keeps none of them.
+ * Applies the pending migrations of each database before the server handles requests. It uses Drizzle Kit's ledger and
+ * refuses migrations that lose data, like `vitehub database migrate`. It checks every database before the first one changes,
+ * so a refusal leaves all of them as they were.
+ *
+ * A local SQLite file runs all its pending migrations in one transaction. A Postgres database runs them in one
+ * transaction that holds the migration lock, so of several servers that start together, one migrates and the others
+ * wait and then find nothing pending. A failure keeps none of the pending migrations of that database.
+ *
+ * A D1 HTTP database uses Wrangler's migrations table, like `vitehub database migrate` and `wrangler d1 migrations
+ * apply`. Each migration and its row go in one request, so D1 keeps neither when the migration fails.
  */
-export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
+export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}, d1Owners?: Map<string, string>): Promise<void> {
   const log = options.log ?? (message => console.info(message))
+  const postgresDatabase = databases.find(database => database.dialect === "postgresql")
+  if (options.backup && postgresDatabase) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: postgresDatabase.name, problem: "It is a Postgres database." })
+  }
+  const sqlite: StartMigrationDatabase[] = []
+  const d1: Array<{ client: D1HttpClient, database: StartMigrationDatabase }> = []
+  for (const database of databases) {
+    if (database.dialect !== "sqlite") continue
+    const client: unknown = Reflect.get(Object(database.db), "$client")
+    if (isD1HttpClient(client)) d1.push({ client, database })
+    else sqlite.push(database)
+  }
+  if (options.backup && d1.length) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: d1[0]!.database.name, problem: "It uses Cloudflare D1 over HTTP." })
+  }
+  const owners = new Map(d1Owners)
+  for (const { client, database } of d1) {
+    const table = client.migrationsTable
+    const key = JSON.stringify([client.target, table.toLowerCase()])
+    const owner = owners.get(key)
+    if (owner !== undefined && owner !== database.name) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: `Database "${owner}" also uses its D1 migrations table "${table}". Use one migration owner per D1 ledger, or configure separate migrations tables.` })
+    }
+    owners.set(key, database.name)
+  }
+  const d1Plans = await Promise.all(d1.map(({ client, database }) => planD1(client, database, options)))
+  const sqlitePlans = await planSqlite(sqlite, options)
+  const postgres = databases.filter(database => database.dialect === "postgresql").map((database): PostgresTarget => {
+    const value: unknown = Reflect.get(Object(database.db), "$client")
+    if (isPostgresClient(value)) return { client: value, database }
+    if (isNodePostgresPool(value)) return { client: toPostgresMigrationClient(value), database }
+    if (isPgliteClient(value)) return { client: toPgliteMigrationClient(value), database, key: pgliteKey(value) }
+    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js, a node-postgres Pool, or PGlite." })
+  })
+  // The SQLite files change only after every Postgres database passed its check under the lock.
+  await migratePostgres(postgres, {
+    ...options,
+    beforeApply: async () => {
+      if (d1Owners) for (const [key, owner] of owners) d1Owners.set(key, owner)
+      for (const plan of d1Plans) await applyD1(plan, log)
+      await applySqlite(sqlitePlans, options.backup, log)
+    },
+    log,
+  })
+}
+
+type D1StartFile = StartD1Migrations["files"][number]
+
+interface D1StartPlan {
+  batches: D1StartFile[][]
+  client: D1HttpClient
+  database: StartMigrationDatabase & { d1: StartD1Migrations }
+  ledger: D1Ledger
+}
+
+/**
+ * Reads Wrangler's table of a D1 HTTP database and refuses pending migrations that lose data, unless `allowDataLoss` is
+ * set. A table that an earlier pending file creates has no older rows, so a later file may drop it. That later file goes
+ * in one request with the earlier one: when another server applies only the earlier file first, D1 rejects the whole
+ * request, and the table that now has rows keeps them.
+ */
+async function planD1(client: D1HttpClient, database: StartMigrationDatabase, options: MigrateOnStartOptions): Promise<D1StartPlan> {
+  if (!database.d1) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "It uses Cloudflare D1 over HTTP, and the build shipped no D1 migrations for it." })
+  }
+  const { files } = database.d1
+  const ledger = await readD1LedgerOf(client.query, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  const pending = files.filter(file => !ledger.applied.has(file.name))
+  const checked = withoutNewTableDataLoss(pending, "sqlite")
+  if (!options.allowDataLoss) {
+    const losses = checked.flatMap(file => file.dataLoss.map(loss => `${file.tag}: ${loss.reason}: ${loss.statement}`))
+    if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+  }
+  return { batches: batchD1Files(pending, checked), client, database: { ...database, d1: database.d1 }, ledger }
+}
+
+function batchD1Files(pending: readonly D1StartFile[], checked: readonly D1StartFile[]): D1StartFile[][] {
+  const lossesFrom = (start: number, end: number) => withoutNewTableDataLoss(pending.slice(start, end + 1), "sqlite").at(-1)!.dataLoss.length
+  const starts = pending.map((_, end) => {
+    const losses = checked[end]!.dataLoss.length
+    if (lossesFrom(end, end) === losses) return end
+    let start = end - 1
+    while (start > 0 && lossesFrom(start, end) !== losses) start--
+    return start
+  })
+  const batches: D1StartFile[][] = []
+  let end = pending.length
+  let reach = end
+  for (let index = pending.length - 1; index >= 0; index--) {
+    reach = Math.min(reach, starts[index]!)
+    if (reach < index) continue
+    batches.unshift(pending.slice(index, end))
+    end = index
+  }
+  return batches
+}
+
+async function applyD1({ batches, client, database, ledger }: D1StartPlan, log: (message: string) => void) {
+  const tags = new Map(database.d1.files.map(file => [file.name, file.tag]))
+  await applyD1MigrationFiles(
+    client.query,
+    ledger,
+    batches.map(batch => batch.map(file => ({ name: file.name, sql: () => file.sql }))),
+    name => log(`[vitehub] Database "${database.name}": applied ${tags.get(name)}.`),
+    migration => log(`[vitehub] Database "${database.name}": recorded ${migration.tag} from ${migration.from} in ${ledger.table}.`),
+  )
+}
+
+/** The migrations that a server build ships, by Database name. The build writes them, so the server needs no migrations folder. */
+export interface ShippedMigrations {
+  allowDataLoss: boolean
+  backup?: MigrationBackup
+  /** A Database without migrations is not listed. `problem` says why the build could not read its migrations. */
+  databases: Record<string, Pick<StartMigrationDatabase, "d1" | "dialect" | "migrations" | "migrationsSchema"> | { problem: string }>
+  /** Why this build cannot apply migrations in the server process. */
+  unsupported?: string
+}
+
+export interface EnsureMigrationsContext {
+  /** The internal Database registry of the app. */
+  databases: Record<string, { db: unknown }>
+  load: () => Promise<ShippedMigrations>
+}
+
+// One run for each Database in this process. The server start and `ensureMigrations()` share it.
+const runs = new Map<string, Promise<void>>()
+const d1OwnersByRegistry = new WeakMap<EnsureMigrationsContext["databases"], Map<string, string>>()
+// Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
+// previous run committed, or both apply the same migration.
+let lastRun: Promise<unknown> = Promise.resolve()
+
+/**
+ * Applies the pending migrations of `names`, or of every Database, once in this process. It runs `migrateOnStart()`,
+ * so a Postgres database migrates under the advisory lock. Calls during a run and after a successful run share that
+ * run. A run that fails is forgotten, so the next call starts a new one. A new run waits for the previous run, so
+ * Definitions that share a SQLite file apply each migration once.
+ *
+ * In app tests, a SQLite Database is an in-memory copy that already has its migrations, so it is skipped.
+ */
+export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names?: readonly string[]): Promise<void> {
+  const selected = names ?? Object.keys(context.databases)
+  const unknown = selected.find(name => !Object.hasOwn(context.databases, name))
+  if (unknown !== undefined) return Promise.reject(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: unknown }))
+  const missing = [...new Set(selected.filter(name => !runs.has(name)))]
+  if (missing.length) {
+    const run = lastRun.then(() => context.load()).then(async (shipped) => {
+      if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
+      const test = getViteHubTestMode()
+      const d1Owners = d1OwnersByRegistry.get(context.databases) ?? new Map<string, string>()
+      d1OwnersByRegistry.set(context.databases, d1Owners)
+      // A container image is built once, so its operator accepts data loss for one start with this variable.
+      const allowDataLoss = shipped.allowDataLoss || process.env.VITEHUB_DATABASE_ALLOW_DATA_LOSS === "1"
+      await migrateOnStart(missing.flatMap((name) => {
+        const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
+        if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
+        if (!(database?.migrations.length || database?.d1?.files.length) || (test && database.dialect === "sqlite")) return []
+        return [{ ...database.d1 && { d1: database.d1 }, db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, ...database.migrationsSchema !== undefined && { migrationsSchema: database.migrationsSchema }, name }]
+      }), { allowDataLoss, backup: shipped.backup }, d1Owners)
+    })
+    for (const name of missing) runs.set(name, run)
+    lastRun = run.catch(() => {
+      for (const name of missing) if (runs.get(name) === run) runs.delete(name)
+    })
+  }
+  return Promise.all(selected.map(name => runs.get(name))).then(() => undefined)
+}
+
+async function planSqlite(databases: StartMigrationDatabase[], options: MigrateOnStartOptions): Promise<StartMigrationPlan[]> {
   const plans = new Map<string | LibsqlMigrationClient, StartMigrationPlan>()
   for (const database of databases) {
     const client: unknown = Reflect.get(Object(database.db), "$client")
@@ -86,51 +365,746 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
     const files = await client.execute("PRAGMA database_list")
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
+    if (options.backup && (typeof file !== "string" || !file)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: database.name, problem: "It is in memory." })
+    }
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: new Map<string, { migration: StartMigration, name: string }>() }
+    const plan = plans.get(target) ?? { client, databases: [], file: typeof file === "string" ? file : "", pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
   for (const plan of plans.values()) {
-    const { keys, lastApplied } = await readApplied(plan.client)
-    for (const database of plan.databases) {
-      // Keep Drizzle's timestamp selection, but a shared ledger cannot prove another journal's history by time alone.
-      if (plan.databases.length > 1 && lastApplied !== undefined) {
-        const missing = database.migrations.find(migration => migration.when <= lastApplied && !keys.has(`${migration.when}:${migration.hash}`))
-        if (missing) {
-          throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
-            database: database.name,
-            problem: `Its shared SQLite file has no ledger entry for migration "${missing.name}" at or below the latest applied timestamp. Use compatible migration histories or separate SQLite files.`,
-          })
-        }
-      }
-      for (const migration of database.migrations) {
-        const key = `${migration.when}:${migration.hash}`
-        if ((lastApplied === undefined || lastApplied < migration.when) && !plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
-      }
+    const { applied, hashes, unmatched, upgrade } = await readLedger(plan.client, plan.databases)
+    if (upgrade.length && unmatched.length) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+        database: plan.databases[0]!.name,
+        problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
+      })
     }
-    if (options.allowDataLoss) continue
-    // Check the migrations in the order they run on the file, so a table that this run creates can lose its rows.
-    const pending = [...plan.pending.values()].sort((a, b) => a.migration.when - b.migration.when)
-    const checked = withoutNewTableDataLoss(pending.map(({ migration }) => migration))
-    for (const database of plan.databases) {
-      const losses = checked.flatMap((migration, index) => pending[index]!.name === database.name
-        ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
-        : [])
-      if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
-    }
+    plan.upgrade = upgrade
+    plan.pending = planByName(plan.databases, { applied, hashes }, { allowDataLoss: options.allowDataLoss, dialect: "sqlite", place: "SQLite file" })
   }
-  for (const { client, pending: migrations } of plans.values()) {
-    if (!migrations.size) continue
-    const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when)
+  return [...plans.values()]
+}
+
+async function applySqlite(plans: StartMigrationPlan[], backup: MigrationBackup | undefined, log: (message: string) => void) {
+  // Copy every file before the first one changes, so a failed copy leaves all of them as they were.
+  if (backup) for (const plan of plans) if (plan.pending.length) await backupSqlite(plan, backup, log)
+  for (const { client, pending, upgrade } of plans) {
+    if (!pending.length && !upgrade.length) continue
     await client.migrate([
       createMigrationsTable,
+      ...upgrade,
       ...pending.flatMap(({ migration }) => [
         ...migration.statements,
-        { args: [migration.hash, migration.when], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at") VALUES (?, ?)` },
+        { args: [migration.hash, migration.when, migration.name, new Date().toISOString()], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)` },
       ]),
     ])
     for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
+}
+
+/**
+ * Copies a SQLite file with `VACUUM INTO`, which writes a consistent copy while other connections can read, then
+ * deletes the oldest copies of that file beyond `keep`. An empty database has nothing to keep, so it gets no copy.
+ * Copies are `<file name>-<UTC time>-before-<last pending migration><extension>`, so they sort by time.
+ */
+async function backupSqlite({ client, databases, file, pending }: StartMigrationPlan, backup: MigrationBackup, log: (message: string) => void) {
+  const objects = await client.execute("SELECT count(*) AS count FROM sqlite_master")
+  if (!Number(objects.rows[0]?.[0])) return
+  // Hosted builds bundle this module without Node's file system, so it reads the built-ins only when a copy is due.
+  const { mkdir, readdir, rm } = process.getBuiltinModule("fs/promises")
+  const { basename, dirname, extname, join, resolve } = process.getBuiltinModule("path")
+  const dir = backup.dir ? resolve(backup.dir) : join(dirname(file), "backups")
+  const extension = extname(file) || ".db"
+  // A shared directory must keep retention independent for files with the same basename.
+  const identity = backup.dir ? `-${process.getBuiltinModule("crypto").createHash("sha256").update(file).digest("hex")}` : ""
+  const stem = `${basename(file, extname(file))}${identity}`
+  const time = new Date().toISOString().replaceAll(":", "-").replace(".", "-")
+  const target = join(dir, `${stem}-${time}-before-${pending.at(-1)!.migration.name}${extension}`)
+  const copy = new RegExp(`^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-before-.+${escapeRegExp(extension)}$`)
+  try {
+    await mkdir(dir, { recursive: true })
+    await client.execute({ args: [target], sql: "VACUUM INTO ?" })
+    const copies = (await readdir(dir)).filter(name => copy.test(name)).sort()
+    for (const name of copies.slice(0, -backup.keep)) await rm(join(dir, name))
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_FAILED({
+      cause: error,
+      database: databases[0]!.name,
+      problem: error instanceof Error ? error.message : String(error),
+      target,
+    })
+  }
+  log(`[vitehub] Database "${databases[0]!.name}": copied ${file} to ${target} before ${pending.length} migration(s).`)
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/** The part of a postgres.js client, or of one of its transactions, that migrations use. */
+export interface PostgresMigrationSql {
+  unsafe: (query: string, parameters?: Array<number | string>) => PromiseLike<ArrayLike<Record<string, unknown>>>
+}
+
+/** One connection of a client that a run keeps for itself, like postgres.js `reserve()`. */
+export interface PostgresMigrationSession extends PostgresMigrationSql {
+  /** Gives the connection back. With an error, a pool closes it instead. */
+  release: (error?: Error) => void
+}
+
+/** The part of a postgres.js client that migrations use. */
+export interface PostgresMigrationClient extends PostgresMigrationSql {
+  begin: <T>(run: (sql: PostgresMigrationSql) => Promise<T>) => PromiseLike<unknown>
+  /** Keeps one connection for a run with a `-- vitehub:no-transaction` migration, which needs a session-level lock. */
+  reserve?: () => PromiseLike<PostgresMigrationSession>
+}
+
+function isPostgresClient(value: unknown): value is PostgresMigrationClient {
+  return typeof value === "function"
+    && typeof Reflect.get(value, "begin") === "function"
+    && typeof Reflect.get(value, "unsafe") === "function"
+}
+
+/** The part of a node-postgres Pool, or of one of its clients, that migrations use. */
+interface NodePostgresQueryable {
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+interface NodePostgresPool extends NodePostgresQueryable {
+  connect: () => Promise<NodePostgresQueryable & { release: (error?: Error) => void }>
+}
+
+function isNodePostgresPool(value: unknown): value is NodePostgresPool {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "connect") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+}
+
+function nodePostgresSql(queryable: NodePostgresQueryable): PostgresMigrationSql {
+  return { unsafe: async (query, parameters) => (await queryable.query(query, parameters)).rows }
+}
+
+/** Runs migrations on a node-postgres Pool: `begin()` takes one client of the pool and wraps the run in a transaction. */
+export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigrationClient {
+  return {
+    ...nodePostgresSql(pool),
+    begin: async (run) => {
+      const client = await pool.connect()
+      let failure: Error | undefined
+      try {
+        await client.query("begin")
+        const result = await run(nodePostgresSql(client))
+        await client.query("commit")
+        return result
+      }
+      catch (error) {
+        await client.query("rollback").catch((rollbackError: unknown) => {
+          // A client that cannot roll back must not go back to the pool.
+          failure = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        })
+        throw error
+      }
+      finally {
+        client.release(failure)
+      }
+    },
+    reserve: async () => {
+      const client = await pool.connect()
+      return { ...nodePostgresSql(client), release: error => client.release(error) }
+    },
+  }
+}
+
+interface PgliteQueryable {
+  exec: (query: string) => Promise<Array<{ rows: Array<Record<string, unknown>> }>>
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+export interface PgliteMigrationTarget extends PgliteQueryable {
+  transaction: <T>(run: (tx: PgliteQueryable) => Promise<T>) => Promise<T>
+}
+
+function isPgliteClient(value: unknown): value is PgliteMigrationTarget {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "exec") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+    && typeof Reflect.get(value, "transaction") === "function"
+}
+
+function pgliteSql(queryable: PgliteQueryable): PostgresMigrationSql {
+  return {
+    unsafe: async (query, parameters) => parameters?.length
+      ? (await queryable.query(query, parameters)).rows
+      : (await queryable.exec(query)).at(-1)?.rows ?? [],
+  }
+}
+
+const pgliteKeys = new WeakMap<object, string>()
+
+function pgliteKey(client: object): string {
+  let key = pgliteKeys.get(client)
+  if (!key) pgliteKeys.set(client, key = `pglite:${crypto.randomUUID()}`)
+  return key
+}
+
+/**
+ * Runs migrations on PGlite with the migrator of a Postgres server. `begin()` is one PGlite transaction. Like postgres.js
+ * `unsafe()`, a query without parameters uses the simple protocol, so it can hold several statements.
+ */
+export function toPgliteMigrationClient(client: PgliteMigrationTarget): PostgresMigrationClient {
+  return { ...pgliteSql(client), begin: run => client.transaction(tx => run(pgliteSql(tx))), reserve: async () => ({ ...pgliteSql(client), release: () => {} }) }
+}
+
+/**
+ * The key of the Postgres advisory lock that every ViteHub migration of a Postgres database holds: migrate on start
+ * and `vitehub database migrate`. Advisory locks belong to one database, and so does Drizzle Kit's ledger. Read it with
+ * `select * from pg_locks where locktype = 'advisory'` while a migration waits.
+ */
+export const postgresMigrationLock = "vitehub:migrations"
+
+/** Pending migrations of a `migrationsSchema` ledger that Drizzle's ledger in `drizzle` may have applied. */
+export interface MisplacedMigrations {
+  /** Tags that a row in `drizzle` records: by folder name and SQL hash, or, in a row without a name, by SQL hash and `created_at` second. */
+  exact: string[]
+  /** Tags that a row in `drizzle` lists by name with other SQL, or whose SQL hash a row lists that records no local folder. */
+  unverified: string[]
+}
+
+interface PostgresSchemaAccess {
+  create: boolean
+  createSchema: boolean
+  database: string
+  found: boolean
+  role: string
+  usage: boolean
+}
+
+async function readPostgresSchemaAccess(sql: PostgresMigrationSql, schema: string): Promise<PostgresSchemaAccess> {
+  const [row] = Array.from(await sql.unsafe("select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", [schema]))
+  return { create: row?.can_create === true, createSchema: row?.can_create_schema === true, database: String(row?.database ?? ""), found: row?.found === true, role: String(row?.role ?? ""), usage: row?.can_use === true }
+}
+
+/**
+ * Whether Drizzle's ledger of a Postgres database exists. With `schema`, the schema must exist, unless `createSchema`
+ * lets ViteHub create it after the pending migrations, as on PGlite. The role must be able to read the ledger, or to
+ * create it when it is missing. It checks the privileges first, because `to_regclass()` fails with 42501 in a schema
+ * without USAGE.
+ */
+export async function findPostgresLedger(sql: PostgresMigrationSql, { createSchema, database, schema }: { createSchema?: boolean, database: string, schema?: string }): Promise<"found" | "missing" | "no-schema"> {
+  const ledgerSchema = schema ?? defaultLedgerSchema
+  const access = await readPostgresSchemaAccess(sql, ledgerSchema)
+  const denied = (missing: "create-database" | "create-schema" | "usage") => databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database, missing, postgresDatabase: access.database, role: access.role, schema: ledgerSchema })
+  if (!access.found) {
+    if (schema !== undefined) {
+      if (createSchema) return "no-schema"
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database, schema })
+    }
+    if (!access.createSchema) throw denied("create-database")
+    return "missing"
+  }
+  if (!access.usage) throw denied("usage")
+  const [existing] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(postgresLedgerTable(schema))}) as ledger`))
+  if (existing?.ledger) return "found"
+  if (!access.create) throw denied("create-schema")
+  return "missing"
+}
+
+/**
+ * Compares the pending migrations of a `migrationsSchema` ledger with Drizzle's ledger in `drizzle`. A row with a name
+ * records the local folder of that name only when its hash is the hash of that folder. A row without a name, from
+ * Drizzle Kit 0.x, records the one local folder with its hash and its `created_at` second. A row that records no local
+ * folder makes the pending folder of its name, and the pending migrations with its hash, unverified: they stop, but the
+ * fix never records them, because `drizzle` does not show that their exact SQL ran. ViteHub never
+ * takes history from `drizzle` or writes to it, because other apps can share it. A role that cannot read it gets none.
+ */
+export async function findMisplacedMigrations(sql: PostgresMigrationSql, { migrations, pending, schema }: { migrations: readonly LedgerMigration[], pending: readonly LedgerMigration[], schema?: string }): Promise<MisplacedMigrations> {
+  if (schema === undefined || schema === defaultLedgerSchema || !pending.length) return { exact: [], unverified: [] }
+  const [ledger] = Array.from(await sql.unsafe(
+    "select has_schema_privilege(n.oid, 'USAGE') and has_table_privilege(c.oid, 'SELECT') as readable, exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = c.oid and a.attname = 'name' and a.attnum > 0 and not a.attisdropped) as named from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = '__drizzle_migrations'",
+    [defaultLedgerSchema],
+  ))
+  if (ledger?.readable !== true) return { exact: [], unverified: [] }
+  const rows = Array.from(await sql.unsafe(`select hash, created_at${ledger.named === true ? ", name" : ""} from ${postgresLedgerTable()}`)).map(row => toLedgerRow(row))
+  const second = (time: number) => Math.floor(time / 1000)
+  const recorded = new Set<string>()
+  const named = new Set<string>()
+  const leftover = new Set<string>()
+  for (const row of rows) {
+    const candidates = typeof row.name === "string"
+      ? migrations.filter(migration => migration.tag === row.name && migration.hash === row.hash)
+      : migrations.filter(migration => migration.hash === row.hash && row.createdAt !== undefined && second(migration.when) === second(row.createdAt))
+    if (candidates.length === 1) {
+      recorded.add(candidates[0]!.tag)
+      continue
+    }
+    if (typeof row.name === "string") named.add(row.name)
+    leftover.add(row.hash)
+  }
+  return {
+    exact: pending.filter(migration => recorded.has(migration.tag)).map(migration => migration.tag),
+    unverified: pending.filter(migration => !recorded.has(migration.tag) && (named.has(migration.tag) || leftover.has(migration.hash))).map(migration => migration.tag),
+  }
+}
+
+/** One Postgres database, and the Definitions that migrate it. They share Drizzle's ledger in that database. */
+export interface PostgresTarget {
+  client: PostgresMigrationClient
+  createSchema?: boolean
+  database: Pick<StartMigrationDatabase, "migrations" | "migrationsSchema" | "name">
+  /**
+   * Names the database without asking the server. Each PGlite client is its own database, and two of them can report
+   * the same name and start time, so PGlite targets set it.
+   */
+  key?: string
+}
+
+/**
+ * Names the Postgres database that a client reaches, as the server reports it: the database name and the server start
+ * time as Unix seconds. Every session gets the same key, whatever its address (a Unix socket, a TCP address, two URL
+ * spellings), its `TimeZone`, or its role.
+ */
+export async function readPostgresDatabaseKey(client: PostgresMigrationSql): Promise<string> {
+  return (await readPostgresIdentity(client)).key
+}
+
+async function readPostgresIdentity(client: PostgresMigrationSql) {
+  const [row] = Array.from(await client.unsafe("select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started, current_user as role, current_schemas(false) as schemas"))
+  return { key: JSON.stringify([row?.database, row?.started]), session: JSON.stringify([row?.role, row?.schemas]) }
+}
+
+/**
+ * Groups the Definitions by the Postgres database that their clients reach, and sorts the groups by that key. Every
+ * process then takes the locks of several databases in the same order, so two of them never wait for each other.
+ */
+export async function groupPostgresTargets<T extends Pick<PostgresTarget, "client" | "key"> & { database: { migrationsSchema?: string, name: string } }>(targets: T[]): Promise<T[][]> {
+  if (targets.length < 2) return targets.length ? [targets] : []
+  const groups = new Map<string, { session: string, targets: T[] }>()
+  for (const target of targets) {
+    const { key, session } = target.key === undefined ? await readPostgresIdentity(target.client) : { key: target.key, session: "" }
+    const group = groups.get(key)
+    if (group && group.session !== session) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+        database: target.database.name,
+        problem: `It and the Database "${group.targets[0]!.database.name}" share one Postgres database but use different roles or schema search paths. Configure them with the same role and search_path so their migrations can run in one transaction.`,
+      })
+    }
+    const other = group?.targets.find(other => other.database.migrationsSchema !== target.database.migrationsSchema)
+    if (other) throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_CONFLICT({ databases: [other.database.name, target.database.name], schemas: [other.database.migrationsSchema, target.database.migrationsSchema] })
+    if (group) group.targets.push(target)
+    else groups.set(key, { session, targets: [target] })
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group.targets)
+}
+
+/**
+ * Reads NuxtHub's `_hub_migrations` when Drizzle's ledger does not list every migration. It reads the table in the first
+ * schema of the session's search path and in `schema`, not in other schemas, because another app on the same database
+ * can have its own `_hub_migrations`.
+ */
+export async function reconcilePostgresHistory(sql: PostgresMigrationSql, databases: readonly { name: string, tags: string[] }[], applied: ReadonlySet<string>, schema?: string) {
+  if (databases.every(database => database.tags.every(tag => applied.has(tag)))) return { adopted: [], unmatched: [] }
+  const tables = Array.from(await sql.unsafe(
+    `select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where ${schema === undefined ? "nspname = current_schema()" : "nspname in (current_schema(), $2)"} and relname = $1`,
+    schema === undefined ? [hubMigrationsTable] : [hubMigrationsTable, schema],
+  )).flatMap(row => typeof row.name === "string" ? [row.name] : [])
+  const history = new Map<string, string[]>()
+  for (const table of tables.sort()) {
+    for (const row of Array.from(await sql.unsafe(`select name from ${table} order by name`))) if (typeof row.name === "string") history.set(row.name, [...history.get(row.name) ?? [], table])
+  }
+  const files = databases.flatMap(({ name, tags }) => numberMigrationFolders(tags).map(file => ({ ...file, database: name })))
+  const match = matchHubMigrations(new Map([...history].sort(([a], [b]) => a < b ? -1 : 1)), files, applied)
+  if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
+  return match
+}
+
+interface AdoptedEntry {
+  name: string
+  tag: string
+}
+
+interface PostgresPlan {
+  adopted: AdoptedEntry[]
+  ledger: string
+  pending: PendingEntry[]
+  queued?: { rows: PostgresLedgerEntry[], schema: string }
+}
+
+/**
+ * Creates or upgrades Drizzle's ledger and lists the pending migrations of a group. Call it in the transaction that
+ * holds the lock. A ledger of Drizzle Kit 0.x has no `name` column: like Drizzle 1.0, it adds `name` and `applied_at`
+ * and writes the name of each row, and it refuses a row that matches no migration folder.
+ *
+ * A migration that NuxtHub's `_hub_migrations` lists is applied: it gets its row in the ledger in this transaction, and
+ * does not run again. When `createSchema` and the schema does not exist, the ledger rows wait in `queued`, so a pending
+ * migration can create the schema itself.
+ */
+async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], options: MigrateOnStartOptions): Promise<PostgresPlan> {
+  const databases = group.map(target => target.database)
+  const schema = databases[0]!.migrationsSchema
+  const ledger = postgresLedgerTable(schema)
+  const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  const { createSchema } = group[0]!
+  const state = await findPostgresLedger(sql, { createSchema, database: databases[0]!.name, schema })
+  if (state === "found") {
+    const columns = Array.from(await sql.unsafe(`select column_name from information_schema.columns where table_schema = ${sqlString(schema ?? defaultLedgerSchema)} and table_name = '__drizzle_migrations'`)).map(row => row.column_name)
+    if (!columns.includes("name")) {
+      const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${ledger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
+      const match = matchLedger(rows, migrations)
+      const { backfill, unmatched } = match
+      const problem = ledgerUpgradeProblem(match)
+      if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
+      if (unmatched.length) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: databases[0]!.name,
+          problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) (id ${unmatched.join(", ")}) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
+        })
+      }
+      await sql.unsafe(`ALTER TABLE ${ledger} ADD COLUMN IF NOT EXISTS "name" text`)
+      await sql.unsafe(`ALTER TABLE ${ledger} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`)
+      for (const { column, name, value } of backfill) await sql.unsafe(`UPDATE ${ledger} SET "name" = $1, "applied_at" = NULL WHERE "${column}" = $2`, [name, value])
+    }
+  }
+  const rows = state === "found"
+    ? Array.from(await sql.unsafe(`select id, hash, created_at, name from ${ledger}`)).map(row => toLedgerRow(row))
+    : []
+  const match = matchLedger(rows, migrations)
+  const history = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), match.applied, schema)
+  const misplaced = await findMisplacedMigrations(sql, { migrations, pending: migrations.filter(migration => !match.applied.has(migration.tag) && !history.adopted.includes(migration.tag)), schema })
+  if (misplaced.exact.length || misplaced.unverified.length) throw misplacedLedgerError(databases[0]!.name, schema!, migrations, misplaced, rows.length + history.adopted.length)
+  if (state === "missing") {
+    if (schema === undefined && !Array.from(await sql.unsafe("select 1 from pg_namespace where nspname = $1", [defaultLedgerSchema])).length) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
+    await sql.unsafe(createPostgresLedger(ledger))
+  }
+  const adopted: AdoptedEntry[] = []
+  const queued = state === "no-schema" ? { rows: [] as PostgresLedgerEntry[], schema: schema! } : undefined
+  for (const tag of history.adopted) {
+    const database = databases.find(database => database.migrations.some(migration => migration.name === tag))!
+    const migration = database.migrations.find(migration => migration.name === tag)!
+    if (queued) queued.rows.push(migration)
+    else await sql.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+    adopted.push({ name: database.name, tag })
+  }
+  const applied = new Set([...match.applied, ...history.adopted])
+  const pending = planByName(databases, { applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
+  return { adopted, ledger, pending, ...queued && { queued } }
+}
+
+/** `recorded` is the number of rows that the `migrationsSchema` ledger lists or adopts. */
+export function misplacedLedgerError(database: string, schema: string, migrations: readonly LedgerMigration[], { exact, unverified }: MisplacedMigrations, recorded: number): ReturnType<typeof databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED> {
+  return databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({
+    database,
+    migrations: migrations.filter(migration => exact.includes(migration.tag)).map(({ hash, tag, when }) => ({ hash, name: tag, when })),
+    recorded,
+    schema,
+    unverified,
+  })
+}
+
+const lockPollMs = 500
+
+async function pollPostgresLock(group: PostgresTarget[], log: (message: string) => void, take: () => Promise<boolean>) {
+  for (let waited = false; !await take(); waited = true) {
+    if (!waited) log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
+    await new Promise(resolve => setTimeout(resolve, lockPollMs))
+  }
+}
+
+/** Runs `run` in a transaction that holds the migration lock. Each try is a short transaction, so a waiter never blocks a `CREATE INDEX CONCURRENTLY`. */
+async function withPostgresLock(group: PostgresTarget[], log: (message: string) => void, run: (sql: PostgresMigrationSql) => Promise<void>) {
+  await pollPostgresLock(group, log, async () => {
+    let locked = false
+    await group[0]!.client.begin(async (sql) => {
+      const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
+      locked = lock?.locked === true
+      if (!locked) return
+      // Bound DDL lock waits so a queued ALTER cannot stall old instances' reads indefinitely. Advisory waits stay unbounded.
+      await sql.unsafe("set local lock_timeout = '5s'")
+      // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
+      await sql.unsafe("set local client_min_messages = warning")
+      await run(sql)
+    })
+    return locked
+  })
+}
+
+/**
+ * Holds the lock of every group, in key order, for all of `run`. Each group is a separate database, because the key is
+ * the same for every session of one database, so this process never waits for a lock that it holds itself.
+ */
+async function withPostgresLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sqls: PostgresMigrationSql[]) => Promise<void>, held: PostgresMigrationSql[] = []): Promise<void> {
+  if (held.length === groups.length) return await run(held)
+  await withPostgresLock(groups[held.length]!, log, sql => withPostgresLocks(groups, log, run, [...held, sql]))
+}
+
+async function withPostgresSessionLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sessions: PostgresMigrationSession[]) => Promise<void>) {
+  const sessions: Array<{ locked: boolean, session: PostgresMigrationSession }> = []
+  try {
+    for (const group of groups) {
+      const { client, database } = group[0]!
+      if (!client.reserve) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "A pending migration runs outside a transaction (`-- vitehub:no-transaction`), and its client cannot keep one connection for the run. Use postgres.js, node-postgres, or PGlite." })
+      }
+      const held = { locked: false, session: await client.reserve() }
+      sessions.push(held)
+      await pollPostgresLock(group, log, async () => {
+        const [lock] = Array.from(await held.session.unsafe("select pg_try_advisory_lock(hashtext($1)) as locked", [postgresMigrationLock]))
+        return held.locked = lock?.locked === true
+      })
+      await held.session.unsafe("set client_min_messages = warning")
+    }
+    await run(sessions.map(({ session }) => session))
+  }
+  finally {
+    for (const { locked, session } of sessions.reverse()) {
+      let failure: Error | undefined
+      try {
+        if (locked) {
+          await rollbackOpenTransaction(session)
+          try {
+            await session.unsafe("reset client_min_messages")
+          }
+          finally {
+            await session.unsafe("select pg_advisory_unlock(hashtext($1))", [postgresMigrationLock])
+          }
+        }
+      }
+      catch (error) {
+        failure = error instanceof Error ? error : new Error(String(error))
+      }
+      session.release(failure)
+    }
+  }
+}
+
+async function inSessionTransaction<T>(session: PostgresMigrationSession, run: () => Promise<T>): Promise<T> {
+  await session.unsafe("begin")
+  try {
+    await session.unsafe("set local lock_timeout = '5s'")
+    const result = await run()
+    await session.unsafe("commit")
+    return result
+  }
+  catch (error) {
+    await Promise.resolve(session.unsafe("rollback")).catch(() => undefined)
+    throw error
+  }
+}
+
+const noTransactionBlock = "25P01"
+const abortedTransaction = "25P02"
+
+async function rollbackOpenTransaction(session: PostgresMigrationSql): Promise<boolean> {
+  try {
+    await session.unsafe("savepoint vitehub_open_transaction")
+  }
+  catch (error) {
+    const code = Reflect.get(Object(error), "code")
+    if (code === noTransactionBlock) return false
+    if (code !== abortedTransaction) throw error
+  }
+  await session.unsafe("rollback")
+  return true
+}
+
+const invalidIndexesQuery = "select format('%I.%I', n.nspname, c.relname) as name from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where not i.indisvalid"
+
+async function readInvalidIndexes(sql: PostgresMigrationSql): Promise<string[] | undefined> {
+  try {
+    return Array.from(await sql.unsafe(`${invalidIndexesQuery} order by 1`), row => String(row.name))
+  }
+  catch {
+    return undefined
+  }
+}
+
+const identifier = String.raw`(?:"(?:[^"]|"")+"|[a-z_][\w$]*)`
+const concurrentIndex = new RegExp(String.raw`^create\s+(?:unique\s+)?index\s+concurrently\s+(?:if\s+not\s+exists\s+)?(${identifier}(?:\s*\.\s*${identifier})?)\s+on\b`, "i")
+
+function concurrentIndexName(statement: string): string | undefined {
+  const sql = statement.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, "")
+  return concurrentIndex.exec(sql)?.[1]!.replace(/\s*\.\s*/, ".")
+}
+
+async function readInvalidIndex(sql: PostgresMigrationSql, name: string): Promise<string | undefined> {
+  const [row] = Array.from(await sql.unsafe(`${invalidIndexesQuery} and i.indexrelid = to_regclass($1)`, [name]))
+  return row && String(row.name)
+}
+
+async function runOutsideTransaction(session: PostgresMigrationSession, ledger: string, { migration, name }: PendingEntry) {
+  const before = await readInvalidIndexes(session)
+  const partlyApplied = (details: { applied: number, cause?: unknown, invalidIndexes?: string[], openTransaction?: true, problem: string, statement?: string }) => databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({ ...details, database: name, migration: migration.name })
+  for (const [index, statement] of migration.statements.entries()) {
+    const target = concurrentIndexName(statement)
+    try {
+      await session.unsafe(statement)
+    }
+    catch (error) {
+      const rolledBack = await rollbackOpenTransaction(session).catch(() => false)
+      const after = await readInvalidIndexes(session)
+      const targetInvalid = target && after?.length ? await readInvalidIndex(session, target).catch(() => undefined) : undefined
+      const invalidIndexes = before && after && [...new Set([...after.filter(invalid => !before.includes(invalid)), ...targetInvalid ? [targetInvalid] : []])].sort()
+      if (index === 0 && invalidIndexes?.length === 0) throw error
+      const problem = error instanceof Error ? error.message : String(error)
+      throw partlyApplied({ applied: index, cause: error, invalidIndexes, problem: rolledBack ? `${problem} ViteHub rolled back the transaction that the file opened with BEGIN.` : problem, statement })
+    }
+    const invalid = target && await readInvalidIndex(session, target)
+    if (invalid) {
+      throw partlyApplied({ applied: index, invalidIndexes: [invalid], problem: `The index "${invalid}" is invalid. It stays from an earlier failed build, and \`IF NOT EXISTS\` skips an index that exists.`, statement })
+    }
+  }
+  const applied = migration.statements.length
+  if (await rollbackOpenTransaction(session)) {
+    throw partlyApplied({ applied, invalidIndexes: [], openTransaction: true, problem: "The file ends inside a transaction that it opened with BEGIN and did not commit. ViteHub rolled it back." })
+  }
+  try {
+    await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+  }
+  catch (error) {
+    throw partlyApplied({ applied, cause: error, invalidIndexes: [], problem: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+/**
+ * With `queued`, the schema of the ledger does not exist yet. The rows wait until the first commit: the transaction of
+ * the first stretch writes them after its SQL, so a migration can create the schema, and a marked file first writes
+ * them on their own, because it records itself in the ledger.
+ */
+async function applyPostgresSession(session: PostgresMigrationSession, { ledger, pending, queued }: Pick<PostgresPlan, "ledger" | "pending" | "queued">, progress: { running?: PendingEntry }, applied: (entry: PendingEntry) => void) {
+  let waiting = queued
+  const flushQueued = async () => {
+    if (!waiting) return
+    await session.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(waiting.schema)}`)
+    await session.unsafe(createPostgresLedger(ledger))
+    for (const row of waiting.rows) await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [row.hash, row.when, row.name])
+    waiting = undefined
+  }
+  let stretch: PendingEntry[] = []
+  const commitStretch = async () => {
+    const entries = stretch
+    stretch = []
+    if (!entries.length) return
+    await inSessionTransaction(session, async () => {
+      for (const entry of entries) {
+        progress.running = entry
+        for (const statement of entry.migration.statements) await session.unsafe(statement)
+        if (waiting) waiting.rows.push(entry.migration)
+        else await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
+      }
+      await flushQueued()
+    })
+    entries.forEach(applied)
+  }
+  for (const entry of pending) {
+    if (!entry.migration.noTransaction) {
+      stretch.push(entry)
+      continue
+    }
+    await commitStretch()
+    if (waiting) await inSessionTransaction(session, flushQueued)
+    progress.running = entry
+    await runOutsideTransaction(session, ledger, entry)
+    applied(entry)
+  }
+  await commitStretch()
+  if (waiting) await inSessionTransaction(session, flushQueued)
+}
+
+export interface MigratePostgresOptions extends MigrateOnStartOptions {
+  /** Runs after every database passed its check, before the first one changes. */
+  beforeApply?: () => Promise<void>
+}
+
+/**
+ * Applies the pending migrations of Postgres Definitions. Definitions on one Postgres database migrate together, in
+ * one transaction that first takes the advisory lock `postgresMigrationLock` and only then reads Drizzle Kit's ledger.
+ * It keeps the lock until the transaction commits, so a second process waits and then reads the committed ledger, and
+ * each migration runs once. It checks every database before the first one changes. The ledger rows are the ones that
+ * drizzle-orm writes, so `drizzle-kit migrate` and ViteHub agree on what is applied.
+ *
+ * Returns the names of the applied migrations. A failed statement rolls back the transaction, so the database keeps
+ * none of the pending migrations, and it throws `DATABASE_MIGRATION_FAILED`.
+ *
+ * A pending `-- vitehub:no-transaction` migration needs a session: the run then holds a session-level lock on one
+ * connection of each database, and commits each stretch of other migrations, and each marked statement, on its own.
+ */
+export async function migratePostgres(targets: PostgresTarget[], options: MigratePostgresOptions = {}): Promise<string[]> {
+  const log = options.log ?? (message => console.info(message))
+  const groups = await groupPostgresTargets(targets)
+  // The transaction callback sets these, so the catch can name the migration that failed.
+  const progress: { adopted: AdoptedEntry[], applied: PendingEntry[], running?: PendingEntry, session?: boolean } = { adopted: [], applied: [] }
+  const logRecorded = () => {
+    for (const { name, tag } of progress.adopted) log(`[vitehub] Database "${name}": recorded ${tag} as applied, as ${hubMigrationsTable} lists it.`)
+  }
+  try {
+    await withPostgresLocks(groups, log, async (sqls) => {
+      const plans: PostgresPlan[] = []
+      progress.adopted = []
+      for (const [index, group] of groups.entries()) {
+        const plan = await planPostgres(sqls[index]!, group, options)
+        progress.adopted.push(...plan.adopted)
+        plans.push(plan)
+      }
+      // A marked file needs a session. This transaction still commits the ledger and the rows of `_hub_migrations`.
+      if (plans.some(plan => plan.pending.some(entry => entry.migration.noTransaction))) {
+        progress.session = true
+        return
+      }
+      await options.beforeApply?.()
+      for (const [index, { ledger, pending, queued }] of plans.entries()) {
+        const sql = sqls[index]!
+        for (const entry of pending) {
+          progress.running = entry
+          for (const statement of entry.migration.statements) await sql.unsafe(statement)
+          if (queued) queued.rows.push(entry.migration)
+          else await sql.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
+          progress.applied.push(entry)
+        }
+        progress.running = undefined
+        if (!queued) continue
+        await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(queued.schema)}`)
+        await sql.unsafe(createPostgresLedger(ledger))
+        for (const row of queued.rows) await sql.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [row.hash, row.when, row.name])
+      }
+    })
+    if (progress.session) {
+      await withPostgresSessionLocks(groups, log, async (sessions) => {
+        const plans: PostgresPlan[] = []
+        for (const [index, group] of groups.entries()) {
+          const plan = await inSessionTransaction(sessions[index]!, () => planPostgres(sessions[index]!, group, options))
+          progress.adopted.push(...plan.adopted.filter(entry => !progress.adopted.some(other => other.name === entry.name && other.tag === entry.tag)))
+          plans.push(plan)
+        }
+        logRecorded()
+        await options.beforeApply?.()
+        for (const [index, plan] of plans.entries()) {
+          await applyPostgresSession(sessions[index]!, plan, progress, (entry) => {
+            progress.applied.push(entry)
+            log(`[vitehub] Database "${entry.name}": applied ${entry.migration.name}.`)
+          })
+        }
+        progress.running = undefined
+      })
+    }
+  }
+  catch (error) {
+    if (!progress.running || databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED.is(error)) throw error
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_FAILED({
+      cause: error,
+      database: progress.running.name,
+      ...progress.session && { kept: progress.applied.map(({ migration }) => migration.name) },
+      migration: progress.running.migration.name,
+      ...!progress.running.migration.noTransaction && Reflect.get(Object(error), "code") === "25001" && { needsMarker: true },
+      problem: error instanceof Error ? error.message : String(error),
+    })
+  }
+  // A run with a session logs each migration when it commits.
+  if (!progress.session) {
+    logRecorded()
+    for (const { migration, name } of progress.applied) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
+  }
+  return progress.applied.map(({ migration }) => migration.name)
 }

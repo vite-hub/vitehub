@@ -9,11 +9,11 @@ icon: i-lucide-database
 
 An Invocation is one run of an Agent. The Invocation journal logs each run's status, metadata, and chosen trace content, so you can inspect runs in the CLI and the Console. To run or stream an Agent, read [Invocations](/docs/agents/invocations) first.
 
-The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), start with `invocations: 'database'`. If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
+The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. On the Node host, a Postgres `default` Database already holds the [default journal](#use-the-default-journal). If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
 
 ## Store invocation history
 
-An Agent Definition from `vite-hub/agent` that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
+An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -27,7 +27,7 @@ export default defineAgent({
 | Value | Journal |
 | --- | --- |
 | Omitted | The app-wide journal: [`agent.invocations`](#use-one-journal-for-every-agent), or the [default journal](#use-the-default-journal). |
-| `'database'` | The `default` [ViteHub Database](/docs/database). |
+| `'database'` | The `default` [ViteHub Database](/docs/database): SQLite, libSQL, D1, or Postgres. |
 | `'memory'` | Process memory. Lost on restart, not shared between replicas. |
 | `false` | No journal, also not the app-wide one. |
 | `{ store: 'database' \| 'memory', ...options }` | A built-in store with journal options. |
@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle.
+ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Agent State still belongs to its store. With a Database, a [process host](/docs/agents/process-hosts#run-one-host-across-servers) runs on one instance at a time. The [recovery sweep](#recover-interrupted-invocations) works on every instance.
 
 ## Use the default journal
 
@@ -52,13 +52,16 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 
 | Host | Default journal |
 | --- | --- |
-| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root |
+| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
+| Node production build with a Postgres `default` Database | That Database, tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
-The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these presets logs a warning while it uses the local file.
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem or a Postgres `default` Database. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
 
-The default journal requires Nitro-hosted Agents. For the Netlify preset or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
+On the Node host, a production build uses the resolved `default` Database, including plugin contributions. When it is Postgres, the default journal uses the [Postgres store](#store-invocations-in-a-postgres-database) of that Database, and the Database migrations create its tables. An app that upgrades from 0.4 does not see its old records there: see [Upgrade a Node app from 0.4](#upgrade-a-node-app-from-04). Development, a SQLite `default` Database, an explicit `databaseUrl`, and `dataDir` keep the local file. The `agent-invocations` line of the boot Durability report says `shared` only for a Postgres server, and `process` for PGlite. When no dev server runs, `vitehub agent invocations` reads the `default` Database Definition of the app and reads the journal from it. Run it in the app directory with the same environment variables as the server. Use `--url` if the Database comes from a plugin or the Nuxt app uses layers or custom `rootDir`, `srcDir`, or `serverDir` settings. The CLI does not infer the Database in those cases.
+
+The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
 Set its options in `agent.invocations`:
 
@@ -120,24 +123,55 @@ export default defineConfig({
 :::
 ::
 
-- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare preset, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
-- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
+- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare host, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
+- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 and Postgres default journals default to 30 days and 10,000 terminal records. They do not support `maxSize` and fail the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
 - `observations` takes the [observation bounds](#bound-observation-storage).
 
-`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl` and D1. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl`, D1, and the Postgres `default` Database. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
 
 ```dotenv [.env]
 VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+On the Cloudflare host, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
+
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, for the memory journal of a Worker, and for the default journal in a Postgres Database. Query those tables with `useDatabase()`.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
+
+### Upgrade a Node app from 0.4
+
+In 0.4, a Node production build kept the default journal in a local SQLite file: `.vitehub/data/agent-invocations.sqlite` in the project root, or `agent-invocations.sqlite` next to a `file:` Agent State database. From 0.5, when the `default` Database uses Postgres, the build keeps it in the Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. ViteHub does not copy the old records to Postgres, and it does not change or delete the file. The Console and `vitehub agent invocations` read from the selected journal. Choose one of these paths before you deploy.
+
+To keep the SQLite file, follow the [configuration examples above](#use-the-default-journal) and set `agent.invocations.databaseUrl` to an absolute `file:` URL for the existing journal on the production volume, such as `file:/app/.vitehub/data/agent-invocations.sqlite`. In a production build, a relative `file:` path resolves from the project root recorded at build time, not the directory where Node starts. This config selects SQLite at build time and keeps support for `retention.maxSize`.
+
+To select the file at runtime, set the same URL in your service environment. For example, save this variable in `.env` and start the server with `node --env-file=.env .output/server/index.mjs`.
+
+```dotenv [.env]
+VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/app/.vitehub/data/agent-invocations.sqlite
+```
+
+If your build selects Postgres, remove `retention.maxSize` or replace it with `maxAge` or `maxRecords` before building. A runtime override cannot bypass this check. To keep `maxSize`, select SQLite with `databaseUrl` in the build config.
+
+With either journal, run `pnpm vitehub database generate` using the config you will build with, and commit any new migrations before building. A SQLite pin in the build config omits the two default journal tables, but Postgres can still need migrations for other Agent tables. A runtime pin does not change which migrations the build requires.
+
+Before you start the upgraded server, apply the migrations with `pnpm vitehub database migrate` using the production Database connection. If the server uses the Postgres journal and its tables are missing from the live Database, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. See [Store invocations in a Postgres Database](#store-invocations-in-a-postgres-database).
+
+When you keep SQLite, the journal updates the file schema on first use and keeps its records. The file stays local to one server instance. ViteHub has no command to import the old records into Postgres. To read or export the SQLite records without the app, pass `--database` with the file. The standalone CLI does not read `databaseUrl` from the build config, but also accepts `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` from its environment:
+
+```sh
+vitehub agent invocations list --database /app/.vitehub/data/agent-invocations.sqlite
+vitehub agent invocations export --database /app/.vitehub/data/agent-invocations.sqlite > old-invocations.jsonl
+```
 
 ### AGENT_R1029: Local file on a Cloudflare Worker
 
 The Worker rejects a selected `file:` URL at server start, including a `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` override. Set a remote libSQL URL, or remove the file URL to use the host default journal. This prevents the override from silently replacing D1 with memory.
+
+### AGENT_R1036: libSQL journal without the libSQL driver
+
+The default journal selected a SQLite file or a libSQL URL, but the server was built without the libSQL client. A Cloudflare production build without `agent.invocations.databaseUrl` leaves the client out, because its journal is D1 or memory. Set `databaseUrl` to the libSQL URL in the build, or remove `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` to use D1 or memory.
 
 ## Use one journal for every Agent
 
@@ -149,8 +183,8 @@ To give every Agent the same journal, set `agent.invocations` in the ViteHub opt
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
-    database: { driver: 'd1' },
+    host: 'cloudflare',
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   },
 })
@@ -165,8 +199,8 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
-    database: { driver: 'd1' },
+    host: 'cloudflare',
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   }), nitro()],
 })
@@ -180,8 +214,8 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
-    database: { driver: 'd1' },
+    host: 'cloudflare',
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   })],
 })
@@ -189,7 +223,7 @@ export default defineConfig({
 :::
 ::
 
-In Nuxt, use the `vitehub` key. It applies to Agents from `vite-hub/agent` that do not set `invocations`. An Agent's own value replaces it, and `invocations: false` turns it off. `agent.invocations` accepts `'database'` (requires `database` in the ViteHub options), `'memory'`, `false`, or the object form without `redact` and `redactError`, which belong on the Agent.
+The app-wide journal applies to Agent Definitions that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
 `agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
@@ -199,7 +233,7 @@ Pass a store to `defineAgentInvocations()`. The SQLite adapter accepts a local S
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -228,7 +262,7 @@ An observation is one trace event, such as a tool call. During a run, each one g
 - **Claims.** Enforce `claim(id, claimId, leaseMs, { expectedClaimIds })` atomically. Unless `replaceExisting` is `true`, it claims an unclaimed record or replaces a listed claim ID, and rejects any other owner, even an expired one.
 - **Release.** `release(id, claimId)` releases only that claim ID. Journals rotate claim IDs on handoff and after an uncertain renewal, so a timed-out attempt's cleanup cannot release a newer claim.
 
-The memory, libSQL, and D1 stores follow these rules.
+The memory, libSQL, D1, and Postgres stores follow these rules.
 
 An update with `reopen: true` moves a `failed` record to `pending` and clears `error`, `failedAt`, and `retryPending`. Other records stay unchanged. The webhook queue sends it when it retries a failed delivery, and `applyAgentInvocationStoreUpdate()` applies it. A store that returns the unchanged `failed` record keeps terminal reuse. An unconfirmed reopen blocks dispatch until confirmed.
 
@@ -242,7 +276,22 @@ const record = await invocations.get(invocationId, {
 })
 ```
 
-Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter in storage. Custom stores can ignore the read options, because the wrapper still filters the result.
+Names match exactly and keep journal order. Other fields stay the same. An empty array returns no observations; omitting it returns all. Both forms return `undefined` for a missing Invocation.
+
+To read only new observations, pass `afterSequence`. Each observation has a `sequence` number. Give the `sequence` of the last observation that you read:
+
+```ts fragment
+const record = await invocations.get(invocationId, {
+  afterSequence: lastSequence,
+})
+const next = record?.observations.at(-1)?.sequence ?? lastSequence
+```
+
+The result has only observations with a greater `sequence`. `0` returns all observations. A reader on another instance, such as the Console or a stream reader, can poll a running Invocation this way and not read the whole record again. You can use `afterSequence` with `observationNames`; the result then matches both. A value that is not a non-negative integer fails with `AGENT_R1039` before the store reads.
+
+The store can still add an observation with a lower `sequence` later, for example from a second writer, and size limits can drop observations. A follower can miss these observations. If you need every observation, read the whole record once when the Invocation ends.
+
+D1 and libSQL filter in storage, so only the selected observations leave the database. Postgres filters the appended observation rows in storage and the record in the server. The memory store filters before it copies the record. Custom stores can ignore the read options, because the wrapper still filters the result.
 
 ## Set retention limits
 
@@ -288,6 +337,8 @@ const invocations = defineAgentInvocations({
 
 Each store operation uses `storeTimeoutMs` (default 1,000 ms, range 1 to 60,000). A timeout, rejection, or missing result is not a confirmation.
 
+A lazy store gets up to 10 seconds to open. If it cannot open, best-effort runs proceed and retry while the process stays alive, without waiting for those retries to return the result.
+
 Before the Driver (the part that does the work) starts, a run needs the execution claim, the `running` state, and the first cancellation check. In best-effort mode, the journal retries `running` for up to 60 seconds and rereads cancellation every 10 seconds. A failed write never changes the run's result. A run still stops when the store reports another claim owner (it fails with `Could not persist the Invocation running state.`) or returns a cancellation request (it becomes `cancelled`).
 
 For a custom `run` Driver, strict mode also needs the cancellation warning state before dispatch. Best-effort starts without it, and a remote `cancel()` can throw `AGENT_R0974` until that write succeeds.
@@ -323,9 +374,55 @@ export default defineAgent({
 })
 ```
 
-The adapter looks up the named Database per operation and creates the journal tables on first use. It supports local SQLite, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. It supports `maxAge` and `maxRecords`, but not `maxSize`, because the Database holds other tables. Set `database` to use another discovered Database. It does not open, close, or migrate an existing custom journal. It applies the D1 rules everywhere, including the 1,000,000-byte observation cap and the 1,900,000-byte row budget. See [D1 row limits](#store-invocations-in-cloudflare-d1) for truncation and rejected writes.
+The adapter looks up the named Database per operation. On local SQLite, hosted libSQL through Drizzle, and a native Cloudflare D1 binding, it creates the journal tables on first use. On [Postgres](#store-invocations-in-a-postgres-database), the Database migrations create them. It supports `maxAge` and `maxRecords`, but not `maxSize`, because the Database holds other tables. Set `database` to use another discovered Database. It does not open, close, or migrate an existing custom journal. On SQLite, libSQL, and D1 it applies the D1 rules, including the 1,000,000-byte observation cap and the 1,900,000-byte row budget. Postgres keeps the observation limits of the journal. See [D1 row limits](#store-invocations-in-cloudflare-d1) for truncation and rejected writes.
 
 Use the direct SQLite adapter when the journal has its own URL, the [`d1` adapter](#store-invocations-in-cloudflare-d1) when the Agent gets a D1 binding, and the Database adapter, the portable choice, when the host already selects the Database.
+
+### Store invocations in a Postgres Database
+
+On a Postgres Database, the adapter uses two tables, and shared resumable web chat streams use two more. It works with each Postgres driver of a Database: postgres.js, `driver: 'node-postgres'`, and `driver: 'pglite'` in development.
+
+| Table | Content |
+| --- | --- |
+| `vitehub_agent_invocations` | One row for each Invocation: the record and its summary as JSON text, the status, Agent name, and other columns that lists filter on, a revision, and the claim of the run that owns it (`claim_id`, `claim_token`, `claim_expires_at`). |
+| `vitehub_agent_invocations_observations` | The observations that a running Invocation appends, one row each. When the Invocation ends, the store moves them into its record and deletes the rows. Deleting an Invocation deletes its rows. |
+| `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` | The streams of web chat routes with [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat): one row for each stream, and its bytes as chunk rows. |
+
+The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. The default journal of a Node build uses separate tables, `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`, in the `default` Database. Its retention policy does not prune explicit journals. Write and apply their migration with the other tables:
+
+```sh
+pnpm vitehub database generate
+pnpm vitehub database migrate
+```
+
+- Claims expire by the database clock, `now()`. Instances with different clocks agree on who owns an Invocation, and a stale owner cannot write after another instance takes over.
+- Each update locks its record row in a transaction, so concurrent appends from several instances keep every observation.
+- `maxAge` and `maxRecords` delete only terminal records. Retention skips a record that another transaction writes and deletes it on a later prune.
+- `maxSize` is not supported, and `migrate` has no effect.
+- For another Database, or another `tablePrefix`, add the tables yourself with `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres`, and pass the same `tablePrefix` to `createDatabaseAgentInvocationStore()`. On Postgres, the prefix has at most 25 lowercase letters, digits, and underscores, and does not start with a digit. Another prefix fails with `AGENT_R0910`:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { postgresAgentInvocationTables } from 'vite-hub/agent/invocations/postgres'
+
+const journal = postgresAgentInvocationTables({ tablePrefix: 'support_' })
+
+export default defineDatabase({
+  dialect: 'postgresql',
+  schema: {
+    supportInvocations: journal.invocations,
+    supportInvocationObservations: journal.observations,
+  },
+})
+```
+
+#### AGENT_INVOCATION_POSTGRES_TABLES_MISSING: Postgres journal tables are missing
+
+The first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING` when a table does not exist. The error names the tables. Run `vitehub database generate` and `vitehub database migrate`, or add `postgresAgentInvocationTables()` to the schema of the Database that the store uses.
+
+#### AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED: the Postgres client is not supported
+
+A journal operation fails with `AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED` when the Postgres Database has a client other than postgres.js, a node-postgres Pool, or PGlite. The journal does not fall back to SQLite calls. Run the Database on one of these drivers, or keep Agent Invocations in another Database.
 
 ## Delete or prune records
 
@@ -341,7 +438,7 @@ await invocations.prune() // applies the store's maxAge, maxRecords, and maxSize
 
 `prune()` returns `{ dryRun, ids, size? }`. With `olderThanMs`, it selects terminal records last updated before the cutoff. The age must be a non-negative safe integer within JavaScript's Date range, or it fails with `AGENT_R0929`. Without it, the store's retention applies. With `maxSize`, prune also applies that limit and returns `size: { beforeBytes, afterBytes, budgetBytes }`. `dryRun: true` only lists IDs: SQLite size pruning rolls back a transaction, and D1 only selects.
 
-The SQLite, D1, and memory stores support both operations. Custom stores need `store.delete()` and `store.prune()`. Your app owns retention of files that a Capability (a tool or behavior add-on) writes to Blob storage, because they are not keyed by the journal record.
+The SQLite, D1, Postgres, and memory stores support both operations. Custom stores need `store.delete()` and `store.prune()`. Your app owns retention of files that a Capability (a tool or behavior add-on) writes to Blob storage, because they are not keyed by the journal record.
 
 ## Rerun a recorded prompt
 
@@ -368,7 +465,7 @@ When the record cannot reproduce its input, the result has `available: false` an
 | `invocation-not-terminal` | The record is pending or running. |
 | `input-not-captured` | The prompt was not retained. |
 | `replay-metadata-unavailable` | Replay metadata is missing or incomplete. |
-| `input-has-invoker` | A direct Actor identity, or a resolver-derived Invoker without a selected Invoker Profile. |
+| `input-has-invoker` | A direct Invoker identity, or a resolver-derived Invoker without a selected Invoker Profile. |
 | `input-has-data` | Structured input. |
 | `input-has-options` | Call options. |
 | `input-has-messages` | A singular Message or prior Messages. |
@@ -399,14 +496,23 @@ A journal keeps only metadata by default.
 `redact` rewrites or drops an observation before the store gets it. `redactError` rewrites a failed record's error:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
-  store,
+  store: createDatabaseAgentInvocationStore(),
   redact(observation) {
     if (observation.name === 'agent.tool.result') return undefined
     const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
     return { ...observation, attributes }
   },
   redactError: error => ({ message: error.message, name: error.name }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
 })
 ```
 
@@ -446,7 +552,7 @@ const nextPage = page.cursor
 Set limits for long traces with `observations`:
 
 ```ts
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -470,7 +576,9 @@ const invocations = defineAgentInvocations({
 
 The byte limit counts the UTF-8 observations array after privacy filtering, not provider output, the live trace log, or process memory. A resumed record keeps its limits.
 
-At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a message header, the list names `input.messages.parts` instead of `input.messages`.
+At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a deeply nested part field, the list names `input.messages.parts` instead of `input.messages`.
+
+The input history has its own budget of 256 messages and four times the content string limit. The journal fills it from the newest message back and keeps each message whole, so the messages next to the trigger survive. When older messages do not fit, it leaves them out and records `input.messages.omitted` and `input.messages.total`. `input.trigger.message` keeps the message that started the run, whole: the message with the run's `messageId`, else the last user message.
 
 `flushTimeoutMs` sets how long finish waits for queued observations. A longer drain helps a long queue of working writes, not an unavailable store.
 
@@ -490,17 +598,17 @@ A store that connects on first use, such as one that loads its database client a
 
 ## Inspect and maintain from the CLI
 
-When an app exposes the standard journal route, inspect it from the terminal:
+Inspect the [default journal](#use-the-default-journal) of the project from the terminal:
 
 ```sh
 vitehub agent invocations list --status running
-vitehub agent invocations show INVOCATION_ID
+vitehub agent invocations get INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With a deployed `--url`, such as `https://app.example.com`, `list`, `show`, `tail`, and `cancel` use that deployment's Console.
+Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, `list`, `get`, `tail`, `export`, and `wait-idle` read the journal from the Postgres `default` Database when the [default journal](#use-the-default-journal) is there. They find its URL in the app config and the environment, as the server does, and load the app's Postgres driver. Otherwise the CLI fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `get`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
-See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
+See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
 Before a rollout, wait until nothing is pending or running, so the restart interrupts no work:
 
@@ -518,6 +626,41 @@ vitehub agent invocations export --url https://app.example.com --origin webhook 
 
 `export` reads the same target as `list` and prints one line per Invocation, oldest first: the record without observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries`, each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason. `--status`, `--origin`, and `--agent` select records. `--since` takes an age such as `7d` or a date such as `2026-10-01`. `--observations` adds every observation. Fields appear only if the journal kept them, so content settings decide whether `prompt`, `final`, and delivery content appear.
 
+`--activity` adds a compact trace of what the Agent did, so you can see which tools ran, which failed, and where tokens went without the full observations:
+
+```sh
+vitehub agent invocations export --database /data/agent-invocations.sqlite --since 7d --activity > activity.jsonl
+```
+
+Each line then has `activity`, an array in observation order. Every entry has `at` (the time of its first observation) and `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `tool` | `id`, `name`, `title`, `status` (`running`, `completed`, or `failed`), `input`, `paths`, `exitCode`, `error`, `durationMs`, `outputBytes`, `output` |
+| `message` | `phase` (`commentary` or `final`), `text` |
+| `reasoning` | `text`, the reasoning summary that a provider Driver such as Codex streams |
+| `usage` | `inputTokens`, `outputTokens`, `cachedInputTokens`, `reasoningTokens`, `totalTokens`, `costUsd`, `model`, `provider` |
+| `approval` | `id`, `name`, `approved`, `reason` |
+| `error` | `message`, `recoverable` |
+
+One `tool` entry joins the start, the streamed output, and the result of one call. `input` is the command for a shell call, without the `bash -lc` wrapper, or the input as JSON. `paths` lists the files of a file change. A call with a non-zero `exitCode` is `failed`. `outputBytes` is the UTF-8 size of the output that the journal kept. `output` appears only for a failed call. A `usage` entry is one token usage update, so a model Driver reports one per model step and Codex one per update.
+
+The export bounds each trace:
+
+- `input`, `title`, `text`, `error`, `message`, and `reason` keep their first 1,000 characters and end with `…[+N chars]`.
+- `output` keeps the last 2,000 characters and starts with `[N chars+]…`.
+- A trace keeps its first 1,000 entries. `activityOmitted` counts the others.
+
+`recordTruncated: true` marks an entry whose content the journal shortened when it recorded it. `contentOmitted` lists `tool.input` or `tool.output` when the journal content policy did not keep them, so `input`, `exitCode`, and `outputBytes` can be absent. The trace has no per-tool token counts, because Drivers report usage per model step, not per tool call.
+
+Add up the token use and cost of the Invocations that ended:
+
+```sh
+vitehub agent invocations usage --database /data/agent-invocations.sqlite --window 7d --agent support
+```
+
+With `--database`, SQLite groups and adds up the rows in one query and creates no table. A search reads matching metadata first. Unusually large or precise prices require a separate read of usage evidence to keep the totals exact. With `--url`, the app adds up its own journal the same way, through the `invocations.usage` operation. Other journals, such as the dev server and Postgres, use `summarizeAgentUsage()` from `@vite-hub/agent/usage`. Each path gives the Console's totals, including nested calls. `--window` takes `24h`, `7d`, `14d`, `30d` (the default), or `90d`. `--status` takes `completed`, `failed`, or `cancelled`. `--search` keeps Invocations whose id, title, or Agent name has the text. `--json` prints the whole summary, with buckets, models, and the most expensive runs.
+
 `delete` and `prune` open a SQLite or libSQL journal directly:
 
 ```sh
@@ -528,14 +671,15 @@ vitehub agent invocations prune --database /data/agent-invocations.sqlite --max-
 vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root.
+- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, the CLI uses `agent-invocations.sqlite` next to a `file:` Agent State URL if it can read that URL from the config. Otherwise it uses `.vitehub/data/agent-invocations.sqlite` in the project root.
+- The CLI does not run the config. It needs `vite` and a literal `host: 'node'` and State URL, in the exported Vite `plugins` array or under Nuxt's `vitehub` key. If the config computes these options, has overrides such as Nuxt module options, or sets `dataDir`, pass the journal file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
 - Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint.
 - Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`.
 - With `--max-size` or `--max-records`, prune removes the oldest terminal records first, and `--older-than` applies only if passed.
 - `--max-size` takes the same values as `maxSize` and prints live data before and after, and the budget.
 - Use `--table-prefix` when the store sets `tablePrefix`.
 - They refuse a missing file and never print URL credentials or tokens.
-- For D1, call `invocations.prune()` from a Worker.
+- For D1, call `invocations.prune()` from a Worker. For Postgres, call it from the server.
 
 ## Compact a journal file
 
@@ -548,15 +692,15 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 `compact` measures the file, WAL, page count, free pages, and `auto_vacuum` mode, then runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`. It prints the size before and after, reclaimed bytes, and the new mode. `--dry-run` prints the measurements, projected size, and free space check without changes, and exits 1 when compact would refuse. Prune first, so the rebuilt file holds only what you keep.
 
-- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_R0931`.
+- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED`.
 - `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses when a volume lacks 1.1 times the live data per file, plus the current WAL, counting both files on a shared volume. Set `SQLITE_TMPDIR` to put the copy elsewhere.
 - `VACUUM` holds the write lock until done, so server writes wait. Stop the server or run it when quiet. If another process holds the lock over 5 seconds, compact fails without changes.
 
-`list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or Console, for example inside a running container:
+`--database` reads another SQLite journal file in the same way, for example inside a running container:
 
 ```sh
 vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
-vitehub agent invocations show INVOCATION_ID --database /data/agent-invocations.sqlite --json
+vitehub agent invocations get INVOCATION_ID --database /data/agent-invocations.sqlite --json
 ```
 
 It opens the file read-only with `node:sqlite` and never migrates or writes it, so the app can keep writing. It reads observations from the record and from the running-record table. It takes a path or `file:` URL, refuses remote libSQL (use `--url`), and honors `--table-prefix`. `cancel` still needs the running app. Without `node:sqlite`, it says so and exits 1.
@@ -567,35 +711,48 @@ A Workflow is a durable runner that can retry steps after a crash. Journals also
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 
+Each Agent turn on Cloudflare Workflows or OpenWorkflow starts two Workflow runs: the turn, and a recovery run named `vitehub-agent-invocation-recovery-<workflow>`. The recovery run reads the turn run until it ends, then writes the same final status to the journal record. The turn writes its own outcome when its handler returns or throws. But when the process stops and the provider fails the run after its last retry, or a run is cancelled or terminated from outside, no turn code runs, and only the recovery run can close the record. ViteHub starts the recovery run right after the provider accepts the turn, and creates the journal record only after that, so no record exists without a run that can close it. The recovery run cannot be skipped when a turn ends normally, because it must exist before anyone knows how the turn ends.
+
+The recovery run reads every second for one minute, then every minute for one hour, then every 30 minutes, for up to one day. After a normal turn it ends at its next read, about one second later. Count two runs per turn when you size the OpenWorkflow worker concurrency. In `vitehub workflow` output and `getWorkflowRun()`, the recovery run is a normal run; its result is empty.
+
+An Agent turn on a Workflow runs its Driver at most once. When the process stops during the Driver, the provider retries the run, but the retry finds the record `running` and does not start the Driver again, because a second run could repeat model calls and tool side effects. This is true when the claim of the stopped attempt has expired too. The retry fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the Workflow run and the journal record show `failed`. Further attempts of that run also fail before dispatch, even when error redaction removes the stored diagnostic. A retry of a turn that never reached `running` still starts the Driver. To try again, start a new turn.
+
+For the same reason, a Workflow attempt starts the Driver only after the journal writes `running`. When that write fails, the attempt fails before the Driver and the record stays `pending`, so the Workflow retry can start the Driver. When the Workflow has no retries left, the recovery Workflow records `failed`.
+
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 
 ## Store invocations in Cloudflare D1
 
-Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load:
+Use the D1 adapter when the app has a D1 database. The binding resolves per operation, so the Agent needs no request bindings at module load. `useDatabaseBinding()` returns the D1 binding of a [ViteHub Database](/docs/database/server-api#pass-the-d1-binding-to-other-code):
 
 ```ts [server/invocations.ts]
-import { env } from 'cloudflare:workers'
-import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
+import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
+import { useDatabaseBinding } from 'vite-hub/database'
 
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
-    database: () => env.DB,
+    database: () => useDatabaseBinding('default'),
+    migrate: false,
     maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
 ```
 
-The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
+With `cloudflare.readReplication`, `useDatabaseBinding()` returns a new D1 session for each request. The store's automatic setup runs once per database object, so leaving it enabled would run schema writes on the primary in every request. The example sets `migrate: false`; apply the schema with your deployment migrations before serving requests.
+
+Print the schema statements with `d1AgentInvocationSchema()` and apply them to the D1 database:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
 
-`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub db generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
+When using a stable D1 binding without request sessions, you can omit `migrate: false` to create the table and indexes on first use of each binding in a Worker isolate. The statements use `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation is retried on the next operation.
+
+`tablePrefix` defaults to `vitehub_agent_`. Pass the same prefix to the schema function and the store. The table is outside your Drizzle schema, so `vitehub database generate` ignores it. The schema is new and ViteHub-owned. It does not convert a custom journal or libSQL tables, so keep an old journal until you migrate it.
 
 - D1 batches make creation and retention atomic.
 - Conditional updates retry when another Worker changes the record, so concurrent observations survive.
@@ -603,13 +760,13 @@ console.log(d1AgentInvocationSchema().join(';\n') + ';')
 - After 32 write conflicts, an update rejects instead of overwriting.
 - Retention defaults and observation deduplication match libSQL.
 - `maxSize` fails with `AGENT_R0911`, because D1 reports whole-database size. Use `maxAge` and `maxRecords`.
-- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames })`.
+- It supports Agent, Capability, triggering-person, status, and text filters, `listTriggeredBy()`, summaries without observations, and `get(id, { observationNames, afterSequence })`.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/), so the adapter caps observations at 1,000,000 UTF-8 bytes, shown in `observationLimits`, even if the journal asks for more. It also checks the full row, including summary and search text. If the row is too large, it drops ordinary observations and marks `observationsTruncated`, keeping lifecycle fields and appended evidence. If it still cannot fit, the update rejects before writing. Use another store for complete long traces.
 
 For ViteHub-managed SQLite or libSQL, use the [Database adapter](#store-invocations-in-a-vitehub-database). The host owns the binding, and the store never opens or closes it. Use [`redact`](#redact-stored-evidence) to keep sensitive values out of D1. Route authorization stays your app's policy.
 
-On the Cloudflare preset, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+On the Cloudflare host, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 
@@ -679,12 +836,18 @@ When a started Driver does not enforce cancel, the result has `notEnforcedBy`, a
 
 A process that stops mid-run can leave records pending or running. Recovery marks them failed.
 
-For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
+For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
 
-With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running Invocations that started before the process, skips those that a queued delivery reruns under the same run ID, and skips Agents with a durable Workflow runtime. A failed recovery is logged, and the queue still resumes.
+With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running inline Invocations that started before the process. It leaves Workflow-owned Invocations and Invocations that a queued delivery reruns under the same run ID alone. A Workflow-backed route can still recover inline Invocations in its journal, including unnamed or undiscovered `runtime: false` Agents run by a Schedule or Channel. For older records without execution mode, recovery still handles records named for their inline route, but does not assume that unnamed or undiscovered records ran inline. A live run in another process keeps its claim, so recovery leaves it running. A failed recovery is logged, and the queue still resumes.
+
+Every Node instance with a default or sole ViteHub Database sweeps the journal of each Agent every 15 seconds, even without durable webhook State. Only the instance that holds the Lease `agent-recovery:<agent>` in the [Leases](/docs/guides/run-one-at-a-time) table sweeps. It renews the 30-second Lease while it works and stops taking recovery work if it loses the Lease. When that instance stops, another one takes over. A sweep fails the pending or running Invocations that started more than 30 seconds ago and that no live run holds. Thus, when an instance crashes, another instance fails its Invocations about 30 seconds after the last claim renewal, without a restart. The sweep does not wait for a claim and does not retry Chat turns: only a process that starts retries them. The `agent-recovery` line of the boot Durability report shows whether the sweep runs.
+
+Each instance has an owner label: `VITEHUB_INSTANCE_ID` when it is set, else `<hostname>:<pid>:<random>`, made once per process. Leases store it as their `owner`, and journal claims start with it. Give each instance its own value, such as the pod or machine name, so you can see which instance holds a Lease or runs an Invocation.
+
+Then it retries each interrupted inline Chat turn once. A turn is interrupted when it started before the process and no live run holds the journal claim of its Invocation. A run renews its claim every 10 seconds, and a claim expires 30 seconds after its last renewal. Thus, when several processes share one journal and one Agent state, a process that starts does not run again a turn that another process still runs. When the journal has no record for the turn, or the journal check fails, the start time is the only test.
 
 ## Next steps
 
 - [Observability](/docs/agents/observability) exports lifecycle events.
 - [Evals](/docs/agents/evals) check behavior.
-- The [Console](/docs/development/console) reads the configured journal. Its authorization stays your app's policy.
+- The [Console](/docs/console) reads the configured journal. Its authorization stays your app's policy.

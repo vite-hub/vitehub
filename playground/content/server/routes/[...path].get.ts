@@ -2,15 +2,12 @@ import { createHtmlRenderer } from "@comark/html"
 import { defineHandler } from "h3"
 import { contentHead } from "vite-hub/content"
 
-import { content } from "../content"
+import content from "../content"
 import { escape, renderHead } from "../html"
 
 const renderMarkdown = createHtmlRenderer()
 const languages: Record<string, string> = { en: "English", es: "Español" }
 
-// Every docs page, in every locale: /docs/guide in English and /es/docs/guide in Spanish. resolve() finds the document
-// and the locale of the path. get() reads that locale, or the English version with `fallback: true` while the page has
-// no translation. contentHead() gives `<html lang>`, the canonical link, and an hreflang link for each translation.
 export default defineHandler(async (event) => {
   const url = new URL(event.req.url)
   const page = await content.resolve(url.pathname)

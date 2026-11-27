@@ -9,19 +9,22 @@ import {
 import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { defineComponent, h, ref, Teleport, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
   CommentPanel,
   CommentReply,
   CommentThread,
+  CommentToolbar,
+  createViteHubUI,
   provideComments,
   useComments,
   type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
@@ -30,8 +33,8 @@ const sofia: CommentUser = { id: "sofia", name: "Sofía Benítez" };
 const pricing = { id: "/pricing", kind: "page" };
 
 const UButton = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, type: "button" }, typeof attrs.label === "string" ? attrs.label : undefined);
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? (typeof attrs.label === "string" ? attrs.label : undefined));
   },
 });
 const UModal = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() });
@@ -92,9 +95,9 @@ function withState(child: () => ReturnType<typeof h>, comments = client()) {
 }
 
 function addFiles(wrapper: Pick<VueWrapper, "get">, files: File[]) {
-  const input = wrapper.get("input[type=file]").element as HTMLInputElement;
-  Object.defineProperty(input, "files", { configurable: true, value: files });
-  input.dispatchEvent(new Event("change"));
+  const input = wrapper.get("input[type=file]");
+  Object.defineProperty(input.element, "files", { configurable: true, value: files });
+  void input.trigger("change");
 }
 
 describe("mention ranking", () => {
@@ -159,9 +162,8 @@ describe("composer mentions", () => {
   it("never suggests the signed-in user", async () => {
     const wrapper = keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false })), { attachTo: document.body, global }));
     await wrapper.get("textarea").setValue("@an");
-    await flushPromises();
-    await flushPromises();
-    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
   });
 
   it("lets a users prop win over the comments state", async () => {
@@ -186,6 +188,68 @@ describe("composer mentions", () => {
     expect(field.element).toHaveProperty("value", "@be");
   });
 
+  it("warns again on Esc after the files change, and discards only on an Esc right after a warning", async () => {
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, attachments: true, files: [], modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    const status = () => wrapper.get("[data-slot=comment-composer-status]").text();
+    await field.trigger("keydown", { key: "Escape" });
+    expect(status()).toBe("Press Esc again to discard.");
+    await wrapper.setProps({ files: [file] });
+    expect(status()).toBe("");
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("keeps the text unchanged while a send runs, and shows Send as loading", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, busy: true, layout: "row", modelValue: "On its way" } }));
+    const field = wrapper.get("textarea");
+    expect(field.attributes("readonly")).toBeDefined();
+    expect(field.attributes("aria-busy")).toBe("true");
+    const send = wrapper.findAll("button").at(-1)!;
+    expect(send.attributes("disabled")).toBeDefined();
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(wrapper.get("textarea").attributes("readonly")).toBeUndefined();
+  });
+
+  it("keeps the text while Esc is held down", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    await field.trigger("keydown", { key: "Escape" });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await field.trigger("keydown", { key: "Escape", repeat: true });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("forgets the first Esc after two seconds, so a late Esc shakes again", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+      const field = wrapper.get("textarea");
+      await field.trigger("keydown", { key: "Escape" });
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("Press Esc again to discard.");
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("");
+      await field.trigger("keydown", { key: "Escape" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.emitted("cancel")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders a mention-item slot with the person and whether it is active", async () => {
     const wrapper = keep(mount(CommentComposer, {
       attachTo: document.body,
@@ -195,6 +259,64 @@ describe("composer mentions", () => {
     }));
     await wrapper.get("textarea").setValue("@be");
     await vi.waitFor(() => expect(wrapper.findAll("[role=option] b").map(item => item.text())).toEqual(["Ben Soto *", "Sofía Benítez"]));
+  });
+
+  it.each([
+    { failed: true, line: "Could not load people.", users: async () => { throw new Error("401") } },
+    { failed: false, line: "No one by that name can be mentioned here.", users: async () => [ben] },
+  ])("shows a line that is not an option when the lookup has no one to show (failed: $failed)", async ({ failed, line, users }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper: VueWrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users, "onUpdate:modelValue": (value: string) => wrapper.setProps({ modelValue: value }) },
+    }));
+    const field = wrapper.get("textarea");
+    await field.setValue("@zo");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty]").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mentions]").attributes()).toMatchObject({ "data-state": failed ? "error" : "empty", role: "status" });
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty]").text()).toBe(line);
+    expect(wrapper.find("[role=listbox]").exists()).toBe(false);
+    expect(wrapper.find("[role=option]").exists()).toBe(false);
+    expect(field.attributes("aria-expanded")).toBe("false");
+    expect(field.attributes("aria-controls")).toBeUndefined();
+    expect(field.attributes("aria-activedescendant")).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(failed ? 1 : 0);
+
+    // The arrows and Tab pick nothing, and Enter sends the text as it is.
+    await field.trigger("keydown", { key: "ArrowDown" });
+    await field.trigger("keydown", { key: "Tab" });
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(field.element).toHaveProperty("value", "@zo");
+    expect(wrapper.emitted("update:mentions")).toBeUndefined();
+    expect(wrapper.emitted("submit")).toEqual([[{ body: "@zo", files: [], mentions: [] }]]);
+
+    await field.trigger("keydown", { key: "Escape" });
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+  });
+
+  it.each(["@z", "@zo b"])("keeps the menu closed when %j finds no one, as the text is too short or after a space", async (value) => {
+    const users = vi.fn(async () => []);
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, users } }));
+    await wrapper.get("textarea").setValue(value);
+    await vi.waitFor(() => expect(users).toHaveBeenCalled());
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+  });
+
+  it("renders a mention-empty slot with the query and whether the lookup failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper = keep(mount(CommentComposer, {
+      attachTo: document.body,
+      global,
+      props: { autofocus: false, guard: false, users: async () => { throw new Error("offline") } },
+      slots: { "mention-empty": ({ query, failed }: { query: string; failed: boolean }) => h("b", `${query} ${failed}`) },
+    }));
+    await wrapper.get("textarea").setValue("@zoe");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mention-empty] b").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-composer-mention-empty] b").text()).toBe("zoe true");
   });
 
   it("renders the extra slot above the text field", () => {
@@ -209,16 +331,22 @@ describe("composer attachments", () => {
   const shot = new File(["png"], "shot.png", { type: "image/png" });
   const notes = new File(["text"], "notes.txt", { type: "text/plain" });
 
-  it("revokes previews when a controlled file list is cleared or mutated", async () => {
+  it("revokes previews a moment after a controlled file list is cleared or mutated, and at once on unmount", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => { vi.useRealTimers(); });
     const files = ref([shot, notes]);
     const wrapper = keep(mount(defineComponent({ setup: () => () => h(CommentComposer, { autofocus: false, files: files.value }) }), { global }));
     await flushPromises();
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
     files.value.splice(0, 1);
     await flushPromises();
+    // The card of the removed picture still folds away with its preview.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
     files.value = [];
     await flushPromises();
+    vi.advanceTimersByTime(1000);
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
     files.value = [shot];
     await flushPromises();
@@ -255,6 +383,7 @@ describe("composer attachments", () => {
   });
 
   it("does not send files without text in a new comment unless allowEmpty is on", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false } }));
     addFiles(wrapper, [shot]);
     await flushPromises();
@@ -273,6 +402,33 @@ describe("composer attachments", () => {
     await flushPromises();
     await wrapper.get("form").trigger("submit");
     expect(wrapper.emitted("submit")?.at(-1)).toEqual([{ body: "", files: [shot], mentions: [] }]);
+  });
+
+  it("puts pictures in one stack beside the text, named for a screen reader, and keeps other files as chips", async () => {
+    const other = new File(["png"], "other.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes, other] } }));
+    await flushPromises();
+    const stack = wrapper.get("[data-slot=comment-image-stack]");
+    expect(stack.attributes("aria-label")).toBe("Attached 2 pictures");
+    expect(stack.findAll("[data-slot=comment-image-stack-card] img").map((image) => image.attributes("alt"))).toEqual(["shot.png", "other.png"]);
+    expect(stack.get("[data-slot=comment-image-stack-count]").text()).toBe("2");
+    // Folded, the cards are behind the toggle: it fans them out, and only then can they open or be removed.
+    const toggle = stack.get("[data-slot=comment-image-stack-toggle]");
+    expect(toggle.attributes()).toMatchObject({ "aria-expanded": "false", "aria-label": "Show 2 pictures" });
+    expect(stack.get("[data-slot=comment-image-stack-card]").attributes("inert")).toBeDefined();
+    await toggle.trigger("click");
+    expect(stack.attributes("data-fanned")).toBe("true");
+    expect(stack.get("[data-slot=comment-image-stack-card]").attributes("inert")).toBeUndefined();
+    const chips = wrapper.findAll("[data-slot=prompt-input-attachments] [data-slot=attachment]");
+    expect(chips.map((chip) => chip.get("[data-slot=attachment-title]").text())).toEqual(["notes.txt"]);
+  });
+
+  it("removes a picture from the stack", async () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes] } }));
+    await flushPromises();
+    await wrapper.get("[data-slot=comment-image-stack-toggle]").trigger("click");
+    await wrapper.get("button[aria-label='Remove shot.png']").trigger("click");
+    expect(wrapper.emitted("update:files")?.at(-1)).toEqual([[notes]]);
   });
 
   it("has no file button when attachments is off, or while editing", () => {
@@ -314,7 +470,7 @@ describe("posted messages", () => {
     expect(wrapper.get("[data-slot=comment-mention]").attributes("data-self")).toBe("true");
   });
 
-  it("shows image attachments as thumbnails that open full size, and other files as chips with links", async () => {
+  it("shows image attachments as tiles that open full size, and other files as chips with links", async () => {
     const wrapper = keep(mount(CommentReply, {
       global,
       props: {
@@ -323,13 +479,24 @@ describe("posted messages", () => {
       },
     }));
     const images = wrapper.get("[data-slot=comment-reply-images]");
-    expect(images.get("button.vh-image-preview").attributes("aria-label")).toBe("Preview a.png");
+    expect(images.get("button[data-slot=comment-reply-image]").attributes("aria-label")).toBe("Preview a.png");
     expect(images.get("img").attributes("src")).toBe("https://files.test/shots/a.png");
     expect(images.find("[data-slot=attachment]").exists()).toBe(false);
     const chips = wrapper.get("[data-slot=comment-reply-attachments]");
     expect(chips.find("img").exists()).toBe(false);
     expect(chips.get("a").attributes("href")).toBe("https://files.test/docs/spec.pdf");
     expect(chips.get("a").text()).toBe("spec.pdf");
+  });
+
+  it("shows four tiles of six pictures, the last with how many more, and lays them out by count", () => {
+    const keys = ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"];
+    const wrapper = keep(mount(CommentReply, { global, props: { attachmentUrl: (key: string) => `/files/${key}`, message: message("m1", { attachments: keys }) } }));
+    const images = wrapper.get("[data-slot=comment-reply-images]");
+    expect(images.attributes("data-count")).toBe("4");
+    const tiles = images.findAll("[data-slot=comment-reply-image]");
+    expect(tiles.map((tile) => tile.attributes("aria-label"))).toEqual(["Preview a.png", "Preview b.png", "Preview c.png", "Preview d.png"]);
+    expect(tiles[3]!.get("[data-slot=comment-reply-image-more]").text()).toBe("+3");
+    expect(tiles.slice(0, 3).some((tile) => tile.find("[data-slot=comment-reply-image-more]").exists())).toBe(false);
   });
 
   it("takes the name and media type of an attachment from attachmentUrl", () => {
@@ -341,8 +508,46 @@ describe("posted messages", () => {
         message: message("m1", { attachments: ["drop1", "drop2"] }),
       },
     }));
-    expect(wrapper.get("[data-slot=comment-reply-images] img").attributes()).toMatchObject({ alt: "shot.webp", src: "/files/drop1" });
+    expect(wrapper.get("[data-slot=comment-reply-image]").attributes("aria-label")).toBe("Preview shot.webp");
+    expect(wrapper.get("[data-slot=comment-reply-image] img").attributes("src")).toBe("/files/drop1");
     expect(wrapper.get("[data-slot=comment-reply-attachments] a").text()).toBe("notes");
+  });
+
+  it("retries both the thumbnail and the open preview when the image URL changes", async () => {
+    const modal = defineComponent({ props: { open: Boolean }, setup: (props, { slots }) => () => props.open ? slots.content?.() : null });
+    const wrapper = keep(mount(CommentReply, {
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: () => "/broken.png", message: message("m1", { attachments: ["shot.png"] }) },
+    }));
+    const tile = wrapper.get("[data-slot=comment-reply-image]");
+    await tile.trigger("click");
+    await wrapper.get(".vh-image-dialog__image").trigger("error");
+    expect(tile.text()).toContain("Image unavailable");
+    expect(wrapper.get(".vh-image-dialog__error").text()).toContain("Image unavailable");
+    await wrapper.setProps({ attachmentUrl: () => "/working.png" });
+    expect(tile.get("img").attributes("src")).toBe("/working.png");
+    expect(wrapper.get(".vh-image-dialog__image").attributes("src")).toBe("/working.png");
+  });
+
+  it("treats gallery controls teleported by a thread as inside that thread", async () => {
+    const modal = defineComponent({
+      props: { open: Boolean },
+      setup: (props, { slots }) => () => props.open ? h(Teleport, { to: "body" }, slots.content?.() ?? []) : null,
+    });
+    const wrapper = keep(mount(CommentThread, {
+      attachTo: document.body,
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: (key: string) => `/files/${key}`, thread: thread(1, { messages: [message("m1", { attachments: ["a.png", "b.png"] })] }) },
+    }));
+    await wrapper.get("[data-slot=comment-reply-image]").trigger("click");
+    const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next picture"]')!;
+    next.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+    next.click();
+    await flushPromises();
+    expect(document.querySelector(".vh-image-dialog__name")?.textContent).toBe("b.png");
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
   });
 
   it("puts the avatar, the name, and the time on one row above the text", () => {
@@ -414,6 +619,45 @@ describe("thread slots", () => {
 });
 
 describe("CommentPanel", () => {
+  it.each(["open", "resolved"] as const)("reveals %s panel selections without opening a page popover and preserves flashes on release", async (status) => {
+    const selected = client([thread(1, { status }), thread(2, { status })]);
+    let state!: ReturnType<typeof useComments>;
+    const visible = ref(true);
+    const selection = ref<string | null | undefined>(undefined);
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: selected, subject: pricing, visibility: "hidden", hotkey: false });
+        return () => visible.value ? h(CommentPanel, { comments: state, status, thread: selection.value }) : null;
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(selected.status).toBe("ready"));
+    expect([...state.shown.value]).toEqual([]);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    expect(state.isShown("thread-1")).toBe(true);
+    expect(state.openId.value).toBe(null);
+    expect(state.opened.value).toBeUndefined();
+    expect(state.visibility.value).toBe("hidden");
+    await wrapper.get("[aria-label='Back to comments']").trigger("click");
+    expect(state.isShown("thread-1")).toBe(false);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    selection.value = "thread-2";
+    await flushPromises();
+    expect(state.isShown("thread-1")).toBe(false);
+    expect(state.isShown("thread-2")).toBe(true);
+    vi.useFakeTimers();
+    try {
+      state.flash("thread-2");
+      visible.value = false;
+      await flushPromises();
+      expect(state.isShown("thread-2")).toBe(true);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(state.isShown("thread-2")).toBe(false);
+      expect(state.visibility.value).toBe("hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])("provides its explicit state to children with ancestor=%s", async (ancestor) => {
     const selected = client([thread(1, { messages: [message("m1", { body: "Hello @Ben Soto", mentions: ["ben"], author: ben })] })]);
     const wrapper = keep(mount(defineComponent({
@@ -458,6 +702,19 @@ describe("CommentPanel", () => {
     await flushPromises();
     expect(wrapper.get("[data-slot=comment-panel]").attributes("data-view")).toBe("list");
     expect(document.activeElement?.getAttribute("data-thread-id")).toBe("thread-2");
+  });
+
+  it("makes Open and Resolved a radio group that arrow keys move", async () => {
+    const { wrapper } = await panel([thread(1), thread(2, { status: "resolved" })]);
+    expect(wrapper.get("[data-slot=comment-panel-filters]").attributes("role")).toBe("radiogroup");
+    const filters = () => wrapper.findAll("[data-slot=comment-panel-filter]");
+    expect(filters().map(filter => [filter.attributes("role"), filter.attributes("aria-checked"), filter.attributes("tabindex")])).toEqual([["radio", "true", "0"], ["radio", "false", "-1"]]);
+
+    await filters()[0]!.trigger("keydown", { key: "ArrowRight" });
+    await flushPromises();
+    expect(filters().map(filter => filter.attributes("aria-checked"))).toEqual(["false", "true"]);
+    expect(document.activeElement).toBe(filters()[1]!.element);
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
   });
 
   it("stays open on a click outside, as a side panel does", async () => {
@@ -581,10 +838,10 @@ describe("layer draft uploads", () => {
 });
 
 describe("RPC attachments", () => {
-  it.each([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
+  it.each<Component>([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const { operation, input } = JSON.parse(String(init?.body));
-      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+      const { operation, input } = operationRpcRequest(init?.body) as { operation: string, input: { attachments: string[], body: string } };
+      return operationRpcResponse(init?.body, { ok: true, value: operation === "comments.list" ? [] : thread(1, {
         messages: [message("message-1", { attachments: input.attachments, body: input.body })],
       }) });
     });
@@ -611,8 +868,8 @@ describe("RPC attachments", () => {
     expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
   });
 
-  it.each([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
-    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+  it.each<Component>([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
+    const transport = createRpcTransport({ fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: [] }) });
     transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
@@ -681,6 +938,76 @@ describe("CommentPanel rows", () => {
 
     const custom = await panel([thread(1)], { group }, { "group-header": ({ group: label, threads }: { group: string; threads: CommentThreadModel[] }) => h("span", `${label} (${threads.length})`) });
     expect(custom.get("[data-slot=comment-panel-group-header]").text()).toBe("From earlier versions (1)");
+  });
+});
+
+describe("sizes", () => {
+  const sizes = (wrapper: VueWrapper) => wrapper.findAll("[data-size]")
+    .filter(element => element.attributes("data-slot")?.startsWith("comment-"))
+    .map(element => `${element.attributes("data-slot")}: ${element.attributes("data-size")}`);
+
+  it("is md by default", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { thread: thread(1), user: ana } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: md", "comment-reply: md", "comment-composer: md"]);
+  });
+
+  it("gives a small thread's size to its messages, its reply box, and its edit box", async () => {
+    const own = thread(1, { messages: [message("m1", { author: ana }), message("m2", { author: ben, threadId: "thread-1" })] });
+    const wrapper = keep(mount(CommentThread, { global, props: { onEdit: () => {}, size: "sm", thread: own, user: ana } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: sm", "comment-reply: sm", "comment-reply: sm", "comment-composer: sm"]);
+    await wrapper.get("button[aria-label=Edit]").trigger("click");
+    expect(wrapper.get("[data-slot=comment-reply] [data-slot=comment-composer]").attributes("data-size")).toBe("sm");
+  });
+
+  it("gives the size to the hover card", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { preview: true, size: "sm", thread: thread(1) } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: sm", "comment-reply: sm"]);
+  });
+
+  it("marks a composer with its size", () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, layout: "row", size: "sm" } }));
+    expect(wrapper.get("[data-slot=comment-composer]").attributes()).toMatchObject({ "data-layout": "row", "data-size": "sm" });
+  });
+});
+
+describe("icons", () => {
+  const UIcon = defineComponent({ setup: (_props, { attrs }) => () => h("span", { "data-icon": attrs.name }) });
+  const icons = (wrapper: VueWrapper) => [
+    ...wrapper.findAll("button[aria-label]").map(button => `${button.attributes("aria-label")}: ${button.attributes("icon")}`),
+    ...wrapper.findAll("[data-icon]").map(icon => `icon: ${icon.attributes("data-icon")}`),
+  ];
+
+  it("takes each icon from the app's icon config and follows its changes", async () => {
+    const names = ref<Record<string, string>>({ arrowUp: "i-ph-arrow-up", check: "i-ph-check", close: "i-ph-x", delete: "i-ph-trash", edit: "i-ph-pencil", file: "i-ph-file", plus: "i-ph-plus" });
+    const wrapper = keep(mount(CommentThread, {
+      global: { ...global, components: { ...global.components, UIcon }, plugins: [createViteHubUI({ icons: names })] },
+      props: { attachmentUrl: () => "/spec.pdf", onDelete: () => {}, onEdit: () => {}, thread: thread(1, { messages: [message("m1", { attachments: ["spec.pdf"] })] }), user: ana },
+    }));
+    expect(icons(wrapper)).toEqual(expect.arrayContaining([
+      "Resolve: i-ph-check",
+      "Close: i-ph-x",
+      "Edit: i-ph-pencil",
+      "Delete: i-ph-trash",
+      "Add attachment: i-ph-plus",
+      "Reply: i-ph-arrow-up",
+      "icon: i-ph-file",
+    ]));
+    names.value = { ...names.value, edit: "i-ph-pencil-simple" };
+    await flushPromises();
+    expect(icons(wrapper)).toContain("Edit: i-ph-pencil-simple");
+  });
+
+  it("names the toolbar icons in the same config", () => {
+    const Toolbar = defineComponent({
+      setup: () => {
+        const comments = useComments({ client: client(), subject: pricing });
+        return () => h(CommentToolbar, { comments });
+      },
+    });
+    const wrapper = keep(mount(Toolbar, {
+      global: { ...global, plugins: [createViteHubUI({ icons: { comment: "i-ph-chat", commentList: "i-ph-list", commentPage: "i-ph-note-pencil" } })] },
+    }));
+    expect(icons(wrapper)).toEqual(["Comment mode: i-ph-chat", "Comment list, 0 on this page: i-ph-list", "Comment on page: i-ph-note-pencil"]);
   });
 });
 
@@ -892,15 +1219,16 @@ describe("agent messages and replies since resolved", () => {
     expect(images.map(image => image.attributes("src"))).toEqual(["/agents/claude.svg"]);
   });
 
-  it("puts a reply since the thread was resolved below the Resolved line, and offers Resolve again", async () => {
-    const onResolve = vi.fn().mockResolvedValue(undefined);
+  it("puts a reply since the thread was resolved below the Resolved line, and keeps the thread resolved", async () => {
+    const onReopen = vi.fn().mockResolvedValue(undefined);
     const later = thread(1, { ...resolvedBy, messages: [message("m1"), message("m2", { actor: claude, createdAt: 3_000 })] });
-    const wrapper = keep(mount(CommentThread, { attachTo: document.body, global, props: { onResolve, thread: later, user: ana } }));
+    const wrapper = keep(mount(CommentThread, { attachTo: document.body, global, props: { onReopen, thread: later, user: ana } }));
     const messages = wrapper.get("[data-slot=comment-thread-messages]").element;
     expect([...messages.children].map(child => child.getAttribute("data-slot"))).toEqual(["comment-reply", "marker", "comment-reply"]);
     expect(messages.children[1]!.textContent).toBe("Resolved by Ana Ruiz");
-    await wrapper.get("[aria-label=Resolve]").trigger("click");
-    expect(onResolve).toHaveBeenCalledOnce();
+    expect(wrapper.find("[aria-label=Resolve]").exists()).toBe(false);
+    await wrapper.get("[aria-label=Reopen]").trigger("click");
+    expect(onReopen).toHaveBeenCalledOnce();
 
     const quiet = thread(2, { ...resolvedBy, messages: [message("m3"), message("m4", { createdAt: 1_500 })] });
     const done = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: quiet, user: ana } }));
@@ -908,7 +1236,7 @@ describe("agent messages and replies since resolved", () => {
     expect([...done.get("[data-slot=comment-thread-messages]").element.children].at(-1)?.textContent).toContain("Resolved by Ana Ruiz");
   });
 
-  it("lists a resolved thread with a later reply under Open, and as resolved under Resolved", async () => {
+  it("lists a resolved thread with a later reply under Resolved only", async () => {
     const comments = client([
       thread(1),
       thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { actor: claude, createdAt: 3_000 })] }),
@@ -917,23 +1245,18 @@ describe("agent messages and replies since resolved", () => {
     const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
     await vi.waitFor(() => expect(comments.status).toBe("ready"));
     await flushPromises();
-    expect(wrapper.findAll("[data-slot=comment-panel-filter]").map(button => button.text())).toEqual(["Open 2", "Resolved 2"]);
-    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
-    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
-    expect(wrapper.get("[data-slot=comment-panel-group-header]").text()).toBe("Replied since resolved");
-    expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-filter]").map(button => button.text())).toEqual(["Open 1", "Resolved 2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+    expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
 
     await wrapper.findAll("[data-slot=comment-panel-filter]")[1]!.trigger("click");
     expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2", "thread-3"]);
     expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
   });
 
-  it("keeps a replied-to thread ungrouped when the app's grouper returns undefined", async () => {
-    const comments = client([
-      thread(1),
-      thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { createdAt: 3_000 })] }),
-    ]);
-    const group = (item: CommentThreadModel) => item.status === "open" ? "Current" : undefined;
+  it("keeps a thread ungrouped when the app's grouper returns undefined", async () => {
+    const comments = client([thread(1), thread(2)]);
+    const group = (item: CommentThreadModel) => item.id === "thread-1" ? "Current" : undefined;
     const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, group, subject: pricing } }));
     await vi.waitFor(() => expect(comments.status).toBe("ready"));
     await flushPromises();
@@ -942,5 +1265,139 @@ describe("agent messages and replies since resolved", () => {
     expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
     expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
     expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
+});
+
+describe("composer layout", () => {
+  afterEach(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  async function draftLayer(width = 288) {
+    // happy-dom has no layout. Supply the measured width, independently of CSS and the root font size.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "comment-layer-popover" ? width : 0;
+    });
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    return { state, wrapper };
+  }
+
+  it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
+    const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
+    expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const comments = client([thread(1)]);
+    const panel = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(panel.get("[data-slot=comment-panel-composer] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+
+    const box = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get("[data-slot=comment-composer]").attributes("data-layout");
+    expect(box()).toBe("box");
+    expect(box("row")).toBe("row");
+  });
+
+  it("opens a new comment on the layer as a one-line bubble of the layer's size, framed by the bubble", async () => {
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes())
+      .toMatchObject({ "data-frame": "none", "data-layout": "row", "data-size": "sm" });
+  });
+
+  it("frames a box itself unless told that its parent does", () => {
+    const frame = (value?: "none") =>
+      keep(mount(CommentComposer, { global, props: { autofocus: false, frame: value } })).get("[data-slot=comment-composer]").attributes("data-frame");
+    expect(frame()).toBe("field");
+    expect(frame("none")).toBe("none");
+  });
+
+  it("moves attach and send under the text of a row box once it wraps, and back once it fits beside them", async () => {
+    // happy-dom has no layout. The field is 288px wide alone and 224px beside attach and send, a line is 21px, and a
+    // character is 10px wide.
+    const composerOf = (element: Element) => element.closest("[data-slot=comment-composer]");
+    const wide = (element: Element) => composerOf(element)?.getAttribute("data-multiline") === "true";
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "prompt-input-group" ? 288 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute("data-slot") !== "prompt-input-textarea") return 0;
+      return wide(this) ? 288 : 224;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!(this instanceof HTMLTextAreaElement)) return 0;
+      const width = this.style.maxWidth ? Number.parseFloat(this.style.maxWidth) : wide(this) ? 288 : 224;
+      return Math.max(1, Math.ceil((this.value.length * 10) / width)) * 21 + 7;
+    });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, layout: "row", size: "sm" } }));
+    Object.assign(wrapper.get("textarea").element.style, { lineHeight: "21px", paddingBottom: "3.5px", paddingTop: "3.5px" });
+    const multiline = async (length: number) => {
+      await wrapper.setProps({ modelValue: "a".repeat(length) });
+      return wrapper.get("[data-slot=comment-composer]").attributes("data-multiline") === "true";
+    };
+
+    expect(await multiline(20)).toBe(false);
+    expect(await multiline(25)).toBe(true);
+    // 240px fits the full width, but not beside the buttons, so the box keeps the text on its own row.
+    expect(await multiline(24)).toBe(true);
+    expect(await multiline(22)).toBe(false);
+    expect(await multiline(0)).toBe(false);
+    // A bordered box keeps its layout whatever the text.
+    await wrapper.setProps({ layout: "box", modelValue: "a".repeat(80) });
+    expect(wrapper.get("[data-slot=comment-composer]").attributes("data-multiline")).toBeUndefined();
+  });
+
+  it.each([
+    { viewport: 375, rem: 16, x: 50, left: 58, flipped: false },
+    { viewport: 375, rem: 16, x: 100, left: 79, flipped: false },
+    { viewport: 375, rem: 16, x: 250, left: 8, flipped: true },
+    { viewport: 375, rem: 16, x: 350, left: 54, flipped: true },
+    { viewport: 1024, rem: 16, x: 700, left: 708, flipped: false },
+    { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
+    { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
+    { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
+    { viewport: 375, rem: 16, width: 300, x: 100, left: 67, flipped: false },
+    { viewport: 375, rem: 10, width: 300, x: 180, left: 70, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, width = Math.min(18 * rem, viewport - rem), x, left, flipped }) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    document.documentElement.style.fontSize = `${rem}px`;
+    const { state, wrapper } = await draftLayer(width);
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x, y: 100 } });
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
+    expect(Number.parseFloat(item.element.style.left)).toBe(x);
+    expect(x + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left"))).toBe(left);
+  });
+
+  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left")) + 144).toBe(viewport / 2);
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });
