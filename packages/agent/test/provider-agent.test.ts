@@ -7791,12 +7791,11 @@ cli_auth_credentials_store = "keyring"
     vi.useFakeTimers()
     let client: McpClient | undefined
     const toolCallController = new AbortController()
+    const turn = Promise.withResolvers<void>()
     let resolveExecute: (() => void) | undefined
     let toolCall: Promise<void> | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
-      let resolveTurn!: () => void
-      const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
       const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const provider = runtime(threadId, [], {
         async onSendTurn(mcp) {
@@ -7807,7 +7806,7 @@ cli_auth_credentials_store = "keyring"
           await client.connect(transport)
           toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).then(() => undefined, () => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
-          await turnPending
+          await turn.promise
         },
       })
       const controller = new AbortController()
@@ -7838,12 +7837,12 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
       const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
       controller.abort(new DOMException("cancelled", "AbortError"))
-      await vi.advanceTimersByTimeAsync(10_000)
       await rejected
+      await vi.advanceTimersByTimeAsync(10_000)
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
-      resolveTurn()
+      turn.resolve()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       expect(closeWorkspace).not.toHaveBeenCalled()
       resolveExecute?.()
@@ -7852,7 +7851,10 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
     }
     finally {
+      turn.resolve()
+      resolveExecute?.()
       toolCallController.abort()
+      await toolCall
       await client?.close().catch(() => undefined)
       vi.useRealTimers()
     }
