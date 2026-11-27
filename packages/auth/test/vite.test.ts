@@ -6,12 +6,14 @@ import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer, mergeConfig, optimizeDeps, resolveConfig } from "vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { AUTH_ABILITIES_ID, AUTH_CLIENT_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+const clientRequestPlugin = ownModule(import.meta.url, "runtime/client-request-plugin")
 const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
 const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 
@@ -592,7 +594,7 @@ describe("hubAuth", () => {
     const nitro = (resolved as typeof resolved & { nitro: { cloudflare: { wrangler: { secrets: { required: string[] } } }, handlers: unknown[], plugins: string[] } }).nitro
 
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
-    expect(nitro.plugins).toEqual(["/app/plugin.ts"])
+    expect(nitro.plugins).toEqual([clientRequestPlugin, "/app/plugin.ts"])
     expect(createAuthNitroConfig(hubAuth(), { nitro: inlineConfig.nitro, projectRoot: root })).toEqual(nitro)
     expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" }])
     expect(resolved.server.watch?.ignored).toEqual(["**/dist/**", "**/.vitehub/**"])
@@ -606,7 +608,7 @@ describe("hubAuth", () => {
     const middleware = { handler: "/app/middleware.ts", middleware: true, route: "/**" }
     const nitro = { handlers: [middleware], plugins: ["/app/plugin.ts"] }
     const composed = createAuthNitroConfig(hubAuth(), { nitro, projectRoot: root })
-    expect(composed).toMatchObject({ handlers: [middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }], plugins: ["/app/plugin.ts"] })
+    expect(composed).toMatchObject({ handlers: [middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }], plugins: [clientRequestPlugin, "/app/plugin.ts"] })
     expect(nitro).toEqual({ handlers: [middleware], plugins: ["/app/plugin.ts"] })
     const repeated = createAuthNitroConfig(hubAuth(), { nitro: composed, projectRoot: root })
     expect(repeated).toEqual(composed)

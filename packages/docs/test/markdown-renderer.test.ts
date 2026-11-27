@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { MarkdownDocument } from "@comark/vue"
+import * as viteHubUI from "@vite-hub/ui"
 import { components as eagerBlocks } from "comark-ui/vue"
 import { components as lazyBlocks } from "comark-ui/vue/lazy"
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
@@ -27,6 +28,7 @@ function renderer(content: Record<string, () => Promise<{ default: vue.Component
     exports,
     require: (id: string) => {
       if (id === "vue") return vue
+      if (id === "@vite-hub/ui") return viteHubUI
       if (id === "@comark/vue/components/MarkdownDocument") return { MarkdownDocument }
       if (id === "comark-ui/vue/lazy") return { components: blockMap }
       if (id === "#docs/components") return { __esModule: true, default: content }
@@ -44,6 +46,19 @@ function block(name: string) {
 }
 
 describe("DocsMarkdown", () => {
+  it.each([undefined, false])("respects the app's motion setting (%s) without changing parsed nodes", async (motion) => {
+    const loadMotion = vi.fn(async () => block("motion-runtime"))
+    const component = renderer({}, {}, { ...lazyBlocks, MotionRuntime: vue.defineAsyncComponent(loadMotion) })
+    const document = await parseMarkdown("# Ready")
+    const app = vue.createSSRApp(component, { document })
+    if (motion === false) app.use(viteHubUI.createViteHubUI({ motion }))
+
+    const html = await renderToString(app)
+    expect(document.nodes).toContainEqual(["motion-runtime", {}])
+    expect(html).toContain("Ready</h1>")
+    expect(loadMotion).toHaveBeenCalledTimes(motion === false ? 0 : 1)
+  })
+
   it.each(["callout", "note", "tip", "github-callout", "tabs-item", "code-tree"])("loads an app's %s content component before the built-in block", async (tag) => {
     const load = vi.fn(async () => ({ default: block("app") }))
     const component = renderer({ [tag]: load })

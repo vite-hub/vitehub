@@ -3,35 +3,12 @@ import { dirname, join } from "node:path"
 
 import type { NodeRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { providerHarnessProfile, providerHarnessProfiles } from "./provider-profiles.ts"
+import type { ProviderHarness, ProviderHarnessProfile, ProviderRuntimePackage, ProviderRuntimeTarget } from "./provider-profiles.ts"
 
-type ProviderRuntimeKind = "claude-code" | "codex"
 type RuntimeLibc = "glibc" | "musl"
 
-interface RuntimeTarget {
-  binary?: string
-  packageName: string
-}
-
-const codexPackageName = "@openai/codex"
-const claudePackageName = "@anthropic-ai/claude-agent-sdk"
-
 declare const __VITEHUB_AGENT_APP_ROOT__: string | undefined
-
-const codexTargets: Record<string, RuntimeTarget> = {
-  "darwin-arm64": { packageName: "@openai/codex-darwin-arm64" },
-  "darwin-x64": { packageName: "@openai/codex-darwin-x64" },
-  "linux-arm64": { packageName: "@openai/codex-linux-arm64" },
-  "linux-x64": { packageName: "@openai/codex-linux-x64" },
-}
-
-const claudeTargets: Record<string, RuntimeTarget> = {
-  "darwin-arm64": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-darwin-arm64" },
-  "darwin-x64": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-darwin-x64" },
-  "linux-arm64-glibc": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-linux-arm64" },
-  "linux-arm64-musl": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-linux-arm64-musl" },
-  "linux-x64-glibc": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-linux-x64" },
-  "linux-x64-musl": { binary: "claude", packageName: "@anthropic-ai/claude-agent-sdk-linux-x64-musl" },
-}
 
 function isPackageResolutionMiss(error: unknown): boolean {
   // SAFETY: Node module resolution failures expose their stable error code through ErrnoException.
@@ -105,8 +82,8 @@ function currentLinuxLibc(): RuntimeLibc {
   return report?.header?.glibcVersionRuntime ? "glibc" : "musl"
 }
 
-function resolveClaudeTarget(platform: string, arch: string, libc?: RuntimeLibc): RuntimeTarget | undefined {
-  return claudeTargets[platform === "linux" ? `${platform}-${arch}-${libc ?? currentLinuxLibc()}` : `${platform}-${arch}`]
+function resolveRuntimeTarget(runtimePackage: ProviderRuntimePackage, platform: string, arch: string, libc?: RuntimeLibc): ProviderRuntimeTarget | undefined {
+  return runtimePackage.targets[runtimePackage.libc && platform === "linux" ? `${platform}-${arch}-${libc ?? currentLinuxLibc()}` : `${platform}-${arch}`]
 }
 
 function resolveRuntimePackages(options: {
@@ -115,7 +92,7 @@ function resolveRuntimePackages(options: {
   includePeerDependencies?: boolean
   packageName: string
   resolveFrom: string
-  target?: RuntimeTarget
+  target?: ProviderRuntimeTarget
 }): NodeRuntimePackage[] {
   const packageJsonPath = resolvePackageJson(options.packageName, options.resolveFrom)
   if (!packageJsonPath) return []
@@ -134,7 +111,7 @@ function resolveRuntimePackages(options: {
   ]
 }
 
-export function resolveInstalledProviderExecutable(provider: ProviderRuntimeKind, options: {
+export function resolveInstalledProviderExecutable(provider: ProviderHarness, options: {
   arch?: string
   libc?: RuntimeLibc
   platform?: string
@@ -152,10 +129,11 @@ export function resolveInstalledProviderExecutable(provider: ProviderRuntimeKind
   const candidates = options.resolveFrom
     ? [options.resolveFrom]
     : [appRoot && join(appRoot, "package.json"), join(process.cwd(), "package.json"), import.meta.url].filter((candidate): candidate is string => Boolean(candidate))
-  if (provider === "codex") {
+  const { runtimePackage } = providerHarnessProfile(provider)
+  if (runtimePackage.executable.kind === "package-file") {
     for (const candidate of candidates) {
       try {
-        return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`)
+        return createRequire(candidate).resolve(`${runtimePackage.packageName}/${runtimePackage.executable.path}`)
       }
       catch (error) {
         if (!isPackageResolutionMiss(error) && !isUnreadableCandidate(error)) throw error
@@ -163,12 +141,12 @@ export function resolveInstalledProviderExecutable(provider: ProviderRuntimeKind
     }
     return
   }
-  const target = resolveClaudeTarget(platform, options.arch ?? process.arch, options.libc)
+  const target = resolveRuntimeTarget(runtimePackage, platform, options.arch ?? process.arch, options.libc)
   if (!target?.binary) return
   for (const candidate of candidates) {
     let nativePackageJsonPath: string | undefined
     try {
-      const packageJsonPath = resolvePackageJson(claudePackageName, candidate)
+      const packageJsonPath = resolvePackageJson(runtimePackage.packageName, candidate)
       if (!packageJsonPath) continue
       nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath)
     }
@@ -189,20 +167,12 @@ export function resolveProviderRuntimePackages(options: {
   const platform = options.platform ?? process.platform
   const arch = options.arch ?? process.arch
   const resolveFrom = join(options.rootDir, "package.json")
-  return [
-    ...resolveRuntimePackages({
-      displayName: "Codex",
-      packageName: codexPackageName,
-      resolveFrom,
-      target: codexTargets[`${platform}-${arch}`],
-    }),
-    ...resolveRuntimePackages({
-      allowMissingTarget: true,
-      displayName: "Claude",
-      includePeerDependencies: true,
-      packageName: claudePackageName,
-      resolveFrom,
-      target: resolveClaudeTarget(platform, arch, options.libc),
-    }),
-  ]
+  return Object.values(providerHarnessProfiles).flatMap(({ runtimePackage }: ProviderHarnessProfile) => resolveRuntimePackages({
+    allowMissingTarget: runtimePackage.allowMissingTarget,
+    displayName: runtimePackage.displayName,
+    includePeerDependencies: runtimePackage.includePeerDependencies,
+    packageName: runtimePackage.packageName,
+    resolveFrom,
+    target: resolveRuntimeTarget(runtimePackage, platform, arch, options.libc),
+  }))
 }

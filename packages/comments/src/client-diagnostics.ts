@@ -1,6 +1,10 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
 
 export const commentsClientCodes = {
+  COMMENTS_HOSTED_CONFLICT: {
+    why: "This page runs the app's own Comments, so the Hosted Comments script does not start its overlay.",
+    fix: "Remove the Hosted Comments script, or keep it and set `comments: { overlay: false }` to turn off the app's overlay. See https://vitehub.dev/docs/comments/configure#add-hosted-comments",
+  },
   COMMENTS_OUTBOX_ACCOUNT_CHANGED: {
     why: "The current author is not the author of this queued comment.",
     fix: "Sign in as the original author and retry the outbox.",
@@ -12,6 +16,10 @@ export const commentsClientCodes = {
   COMMENTS_OUTBOX_SENDING: {
     why: "The server may already have this comment, so the draft cannot change.",
     fix: "Wait for delivery to finish, then edit or delete the server copy.",
+  },
+  COMMENTS_OVERLAY_ELEMENT_TAKEN: {
+    why: ({ name }: { name: string }) => `Another script defined the <${name}> element, so this Comments overlay cannot start.`,
+    fix: "Load one Comments overlay script on the page. Remove the other script that defines the element.",
   },
   COMMENTS_R0001: {
     why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
@@ -45,4 +53,9 @@ export function commentsAnswerError(failure: { code: string, details?: Record<st
 /** `COMMENTS_R0013`: the request got no usable answer. `status` is 0 when it got no answer at all. */
 export function commentsUnansweredError(status: number, cause?: unknown, retryAfter?: number): Diagnostic & { retryAfter?: number, status: number } {
   return Object.assign(commentsClientDiagnostics.COMMENTS_R0013(cause === undefined ? {} : { cause }), { status, ...(retryAfter === undefined ? {} : { retryAfter }) })
+}
+
+/** Writes a diagnostic to the browser console as a warning: its code, why, and fix. */
+export function warnDiagnostic(diagnostic: Diagnostic<unknown>): void {
+  console.warn(`[vitehub] ${diagnostic.code}: ${diagnostic.why}${diagnostic.fix ? ` ${diagnostic.fix}` : ""}`)
 }

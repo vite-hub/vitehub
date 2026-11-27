@@ -88,6 +88,7 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
 
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");
 const iconsKey: InjectionKey<MaybeRefOrGetter<ViteHubUIIconOptions | undefined>> = Symbol("ViteHubUIIcons");
+const motionEnabledKey: InjectionKey<boolean> = Symbol("ViteHubUIMotionEnabled");
 
 const defaultIcons: Required<ViteHubUIIconOptions> = {
   arrowLeft: "i-lucide-arrow-left",
@@ -125,6 +126,10 @@ export function useViteHubUI(): ResolvedViteHubUIDefaults {
   return inject(ViteHubUIInjectionKey, defaultOptions);
 }
 
+export function useViteHubUIMotionEnabled(): boolean {
+  return inject(motionEnabledKey, true);
+}
+
 /** The icons that the parts render. It reads them on each render, so a reactive app config updates them. */
 export function useViteHubUIIcons(): ComputedRef<Required<ViteHubUIIconOptions>> {
   const icons = inject(iconsKey, undefined);
@@ -140,7 +145,9 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       if (options.components) app.provide(uiComponentsKey, options.components);
       if (options.icons) app.provide(iconsKey, options.icons);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
-      if (options.motion !== false && typeof document !== "undefined") app.onUnmount(installMotion());
+      const motionEnabled = options.motion !== false;
+      app.provide(motionEnabledKey, motionEnabled);
+      if (motionEnabled && typeof document !== "undefined") app.onUnmount(installMotion());
       app.directive("ring", vRing);
     },
   };

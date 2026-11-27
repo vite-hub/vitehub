@@ -41,6 +41,7 @@ import type {
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type { ProviderAgentRuntimeLoader, providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
+import type { ProviderHarness } from "./internal/provider-profiles.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export type {
@@ -1867,7 +1868,7 @@ export interface AgentProviderStatus {
   /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
   account?: { id: string, kind: "credential" | "account" }
   agent: string
-  provider?: "codex" | "claude-code"
+  provider?: BuiltInAgentDriverName
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
@@ -2036,7 +2037,7 @@ export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentPr
   gateway?: AiGateway<{ routes: "claude-code" }>
 }
 
-export type BuiltInAgentDriverName = "claude-code" | "codex"
+export type BuiltInAgentDriverName = ProviderHarness
 
 declare const agentDriverCallOptions: unique symbol
 

@@ -8,9 +8,10 @@ export interface AiGatewayEnvField {
 }
 
 /** The presets that read the environment. */
-export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "emulate" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
+export type AiGatewayEnvPreset = "alibaba" | "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "deepseek" | "emulate" | "google" | "litellm" | "minimax" | "moonshot" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel" | "zai"
 
 export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<string, AiGatewayEnvField>>>> = {
+  alibaba: { apiKey: { names: ["DASHSCOPE_API_KEY"], secret: true } },
   anthropic: { apiKey: { names: ["ANTHROPIC_API_KEY"], secret: true } },
   cliproxy: { apiKey: { names: ["CLIPROXY_API_KEY"], secret: true }, url: { names: ["CLIPROXY_URL"] } },
   cloudflare: {
@@ -22,8 +23,12 @@ export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<s
     typesafeApiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
   },
   cloudflareAccess: { clientId: { names: ["CF_ACCESS_CLIENT_ID"], secret: true }, clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], secret: true } },
+  deepseek: { apiKey: { names: ["DEEPSEEK_API_KEY"], secret: true } },
   emulate: { url: { names: ["VITEHUB_EMULATE_URL"] } },
+  google: { apiKey: { names: ["GEMINI_API_KEY"], secret: true } },
   litellm: { apiKey: { names: ["LITELLM_API_KEY"], secret: true }, url: { names: ["LITELLM_URL"] } },
+  minimax: { apiKey: { names: ["MINIMAX_API_KEY"], secret: true } },
+  moonshot: { apiKey: { names: ["MOONSHOT_API_KEY", "KIMI_API_KEY"], secret: true } },
   ollama: { apiKey: { names: ["OLLAMA_API_KEY"], secret: true }, url: { names: ["OLLAMA_URL"] } },
   openai: { apiKey: { names: ["OPENAI_API_KEY"], secret: true } },
   openrouter: { apiKey: { names: ["OPENROUTER_API_KEY"], secret: true } },
@@ -32,6 +37,7 @@ export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<s
     apiKey: { names: ["AI_GATEWAY_API_KEY"], secret: true },
     oidcToken: { names: ["VERCEL_OIDC_TOKEN"], secret: true },
   },
+  zai: { apiKey: { names: ["ZAI_API_KEY"], secret: true } },
 }
 
 /** A field of a preset, such as `apiKey`. */

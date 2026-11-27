@@ -94,7 +94,7 @@ Apps do not add the Console link to their pages. The Comments pill loads its **C
 :::
 ::
 
-An app without Comments opens through the Console at `https://console.vitehub.dev`.
+An app without Comments that the Console links gets the [Hosted Comments](/docs/comments/configure#add-hosted-comments) pill, and `/_vitehub` sends the browser back to the page with `?vitehub`. With `comments: false`, `/_vitehub` opens the app in the Console at `https://console.vitehub.dev`.
 
 ## Remove the Site access data
 
