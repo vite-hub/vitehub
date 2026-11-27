@@ -274,9 +274,15 @@ const app = createApp({
       h("a", { "class": "plain", "href": "#opted", "data-motion-press": "", "data-test": "opt-link" }, "Opted in"),
       h("a", { "class": "plain", "href": "#icon", "data-motion-press": "icon", "data-test": "opt-icon" }, [h(UIcon, { name: "i-lucide-arrow-right" }), "Next"]),
       h("div", { "class": "row", "data-motion-press": "none" }, [
-        h("button", { "class": "plain", "data-test": "none-button" }, "No press"),
+        h("div", { "data-motion-press": "" }, [
+          h("button", { "class": "plain", "data-test": "none-button" }, "No press"),
+        ]),
         h("button", { "class": "plain", "data-motion-press": "", "data-test": "none-own" }, "Own"),
       ]),
+      h("div", { "class": "plain", "data-motion-press": "", "data-test": "outside-none" }, [
+        h("div", { "data-motion-press": "none", "data-test": "inside-none" }, "No press"),
+      ]),
+      h("input", { "type": "button", "role": "tab", "class": "plain", "data-test": "input-tab", "value": "Tab" }),
       h("button", { "class": "plain", "data-motion-press": "", "data-test": "opt-wide", "style": { width: "1000px", flexShrink: 0 } }, "A 1000px button"),
     ]),
     ...textRows(row),
@@ -319,5 +325,10 @@ const app = createApp({
 });
 const { default: ui } = await import("@nuxt/ui/vue-plugin");
 app.use(ui).use(createViteHubUI({ motion: today ? false : pressMode === "opt-in" || pressMode === "all" ? { press: pressMode } : true })).mount("#app");
+if (new URLSearchParams(location.search).has("secondApp")) {
+  const secondApp = createApp({ render: () => null }).use(createViteHubUI());
+  secondApp.mount(document.createElement("div"));
+  secondApp.unmount();
+}
 await document.fonts.ready;
 Object.assign(window, { ready: true });

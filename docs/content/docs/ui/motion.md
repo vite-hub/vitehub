@@ -77,15 +77,15 @@ Some motion comes from attributes, with no part:
 
 ### Press squash
 
-By default, only compact native buttons squash on a pointer press: a `<button>` with no other role or an `<input>` of type `button`, `submit`, or `reset` that is under 48px high and at most four times as wide as it is high. Links, tabs, radios, options, menu items, `<summary>`, checkboxes, wide buttons, and `[role="button"]` on other elements stay still.
+By default, only compact native buttons squash on a pointer press: a `<button>` or an `<input>` of type `button`, `submit`, or `reset`. The control must have no `role` or `role="button"`, be under 48px high, and be at most four times as wide as it is high. Links, tabs, radios, options, menu items, `<summary>`, checkboxes, wide buttons, and `[role="button"]` on other elements stay still.
 
-The shrink is capped at 6px over the longer side, so each edge moves by at most about 3px. An icon-only control squashes its icon by 15% and keeps its background still. Space and Enter do not squash controls; a switch still grows its knob on a key press.
+At its settled pressed scale, the control shrinks by at most 6px along its longer side in untransformed layout. The spring can briefly squash farther. An icon-only control squashes its icon by 15% and keeps its background still. Space and Enter do not squash controls; a switch still grows its knob on a key press.
 
 Use `data-motion-press` to opt another element in, `data-motion-press="icon"` to squash only its icon, or `data-motion-press="none"` to keep a button or a subtree still. An element's own `data-motion-press` beats `"none"` on an ancestor, and an opt-in does not pass down to children. `data-motion="none"` turns off all motion in a subtree.
 
 ```vue
 <template>
-  <a href="/deploy" data-motion-press>Deploy</a>
+  <a href="/deploy" style="display: inline-flex" data-motion-press>Deploy</a>
   <a href="/next" data-motion-press="icon">
     <UIcon name="i-lucide-arrow-right" />
     Next
@@ -97,11 +97,13 @@ Use `data-motion-press` to opt another element in, `data-motion-press="icon"` to
 </template>
 ```
 
-To change which controls squash across the app, pass `motion.press` to `createViteHubUI()`. `"buttons"` is the default, `"opt-in"` squashes only elements with `data-motion-press`, and `"all"` squashes every control role. Pass `motion: false` to turn the motion layer off.
+To change which controls squash across the page, pass `motion.press` to `createViteHubUI()`. `"buttons"` is the default, `"opt-in"` squashes only elements with `data-motion-press`, and `"all"` squashes every control role. An app that omits `motion.press` leaves the page's current mode unchanged. Pass `motion: false` to skip installing the motion layer.
 
 ```ts
+import { createApp } from "vue";
 import { createViteHubUI } from "vite-hub/ui";
 
+const app = createApp({});
 app.use(createViteHubUI({ motion: { press: "opt-in" } }));
 ```
 

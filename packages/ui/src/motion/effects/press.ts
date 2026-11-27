@@ -20,7 +20,7 @@ export const pressSelector = `:is(button, a[href], summary, input:is([type=butto
 // changes. A switch thumb is not one.
 const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon], [data-slot=swap-icon]";
 
-const nativeButton = "button:not([role]), button[role=button], input:is([type=button], [type=submit], [type=reset])";
+const nativeButton = ":is(button, input:is([type=button], [type=submit], [type=reset])):is(:not([role]), [role=button])";
 
 /**
  * Which elements squash when they have no `data-motion-press` of their own: `"buttons"`, only compact native buttons;
@@ -50,21 +50,14 @@ const amountFor = (height: number) => height >= 40 ? 0.03 : height >= 32 ? 0.04 
 
 const wholeAmount = (element: HTMLElement) => Math.min(amountFor(element.offsetHeight), 6 / Math.max(element.offsetWidth, element.offsetHeight));
 
-function nearestPressChoice(element: Element): Element | null {
-  let node: Element | null = element;
-  while (node) {
-    const found = node.closest("[data-motion-press]");
-    if (found) return found;
-    const root = node.getRootNode();
-    node = root instanceof ShadowRoot ? root.host : null;
+function pressChoice(element: HTMLElement, event: PointerEvent): string | undefined {
+  for (const node of event.composedPath()) {
+    if (!(node instanceof Element)) continue;
+    const choice = node.getAttribute("data-motion-press");
+    if (choice === "none") return choice;
+    if (node === element && choice !== null) return choice;
   }
-  return null;
-}
-
-function pressChoice(element: HTMLElement): string | undefined {
-  const nearest = nearestPressChoice(element);
-  if (nearest === element) return element.dataset.motionPress;
-  return nearest?.getAttribute("data-motion-press") === "none" ? "none" : undefined;
+  return undefined;
 }
 
 function squashesByDefault(element: HTMLElement): boolean {
@@ -79,8 +72,7 @@ function squashesByDefault(element: HTMLElement): boolean {
  * with `data-motion-press-target`, a selector that `closest()` finds from the control. Then that element squashes.
  * `data-motion-press="icon"` squashes the first icon in the element. Nothing squashes when the press does not apply.
  */
-function squash(element: HTMLElement): { target: HTMLElement | SVGElement; amount: number } | undefined {
-  const choice = pressChoice(element);
+function squash(element: HTMLElement, choice: string | undefined): { target: HTMLElement | SVGElement; amount: number } | undefined {
   if (choice === "none") return undefined;
   if (choice === "icon") {
     const icon = element.querySelector(iconSelector);
@@ -118,7 +110,7 @@ export const press: MotionEffect = {
   selector: pressSelector,
   press(element, event) {
     if (!("pointerId" in event)) return;
-    const squashed = squash(element);
+    const squashed = squash(element, pressChoice(element, event));
     if (!squashed) return;
     const { target, amount } = squashed;
     const style = getComputedStyle(target);

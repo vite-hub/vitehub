@@ -460,8 +460,38 @@ describe("press scope", async () => {
     const { context, page } = await open()
     try {
       assert.ok(await isCompact(page, "none-button"))
-      assert.equal(await scaleWhileDown(page, "none-button"), 1, "the button inside data-motion-press=none stays still")
+      assert.equal(await scaleWhileDown(page, "none-button"), 1, "the opted-in wrapper does not override the outer opt-out for its button")
       assert.ok((await press(page, "none-own")).down < 0.99, "the button with its own data-motion-press squashes")
+      await pointerDown(page, "inside-none")
+      await frames(page)
+      assert.equal(await scaleOf(page, "outside-none"), 1, "the outer opt-in does not catch a press inside an opt-out")
+      await page.mouse.up()
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("a shadow wrapper opts out a slotted compact button", async () => {
+    const { context, page } = await open()
+    try {
+      await page.locator("[data-test=shadow-host]").evaluate((host) => {
+        host.shadowRoot.innerHTML = '<div data-motion-press="none"><slot></slot></div>'
+        host.innerHTML = '<button class="plain" data-test="slotted-press">Save</button>'
+      })
+      assert.ok(await isCompact(page, "slotted-press"))
+      assert.equal(await scaleWhileDown(page, "slotted-press"), 1)
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("a compact input with role=tab stays still by default", async () => {
+    const { context, page } = await open()
+    try {
+      assert.ok(await isCompact(page, "input-tab"))
+      assert.equal(await scaleWhileDown(page, "input-tab"), 1)
     }
     finally {
       await context.close()
@@ -469,10 +499,10 @@ describe("press scope", async () => {
   })
 
   test("?press=opt-in leaves a compact button still and squashes an opted-in one", async () => {
-    const { context, page } = await open("?press=opt-in")
+    const { context, page } = await open("?press=opt-in&secondApp")
     try {
       assert.ok(await isCompact(page, "plain-button"))
-      assert.equal(await scaleWhileDown(page, "plain-button"), 1, "the compact button stays still")
+      assert.equal(await scaleWhileDown(page, "plain-button"), 1, "the compact button stays still after a default app installs and unmounts")
       assert.ok((await press(page, "none-own")).down < 0.99, "the opted-in button squashes")
       assert.ok((await press(page, "opt-link")).down < 0.99, "the opted-in link squashes")
     }

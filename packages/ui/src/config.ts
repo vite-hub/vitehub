@@ -161,7 +161,8 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       const motionEnabled = options.motion !== false;
       app.provide(motionEnabledKey, motionEnabled);
       if (motionEnabled && typeof document !== "undefined") {
-        setMotionPressMode(typeof options.motion === "object" ? options.motion.press ?? "buttons" : "buttons");
+        const press = typeof options.motion === "object" ? options.motion.press : undefined;
+        if (press !== undefined) setMotionPressMode(press);
         app.onUnmount(installMotion());
       }
       app.directive("ring", vRing);
