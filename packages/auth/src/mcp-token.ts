@@ -3,6 +3,7 @@ import { verifyJwsAccessToken } from "better-auth/oauth2"
 
 import { findAccessPolicyPlugin } from "./access-policy.ts"
 import { authForRequest } from "./auth-instance.ts"
+import { clientRequestOrigin } from "./client-request.ts"
 import { mcpOAuthResources } from "./mcp-config.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
@@ -169,7 +170,8 @@ export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">
   const auth = options.auth ?? appAuth(request)
   const state = await stateOf(auth)
   const url = new URL(request.url)
-  const resource = options.resource ?? state.resources.find(entry => new URL(entry).origin === url.origin && pathOf(entry) === url.pathname.replace(/\/+$/, ""))
+  const origin = clientRequestOrigin(request)
+  const resource = options.resource ?? state.resources.find(entry => new URL(entry).origin === origin && pathOf(entry) === url.pathname.replace(/\/+$/, ""))
   return await verifyToken(token, auth, state, resource, url.pathname)
 }
 

@@ -182,7 +182,7 @@ it("returns parsed credits beside a cached page document", async () => {
     const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
-      credits: { nodes: [["p", {}, "Built with ", ["a", { href: "https://comark.dev" }, "Comark"], "."]] },
+      credits: { nodes: [["p", {}, "Built with ", ["a", { href: "https://comark.dev" }, "Comark"], "."], ["motion-runtime", {}]] },
     })
   }
   expect(getItem).toHaveBeenCalledTimes(1)
