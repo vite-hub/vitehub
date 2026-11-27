@@ -6,7 +6,7 @@ import type { DatabaseDefinition, DatabaseDefinitionOptions, PostgresDatabaseDef
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 const allowedDefinitionKeys = new Set(["cloudflare", "connection", "name", "relations", "remote", "schema"])
-const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect", "driver"])
+const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect", "driver", "migrationsSchema"])
 const allowedPostgresKeys = {
   cloudflare: new Set(["binding", "hyperdriveId"]),
   connection: new Set(["replicas", "url"]),
@@ -84,10 +84,16 @@ export function defineDatabase<TSchema extends Record<string, unknown>, TRelatio
   if (options.dialect !== "postgresql" && "driver" in options) {
     throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ option: "driver" })
   }
+  if (options.dialect !== "postgresql" && "migrationsSchema" in options) {
+    throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ dialect: "sqlite", option: "migrationsSchema" })
+  }
 
   if (options.dialect === "postgresql") {
     if (options.driver !== undefined && options.driver !== "pglite" && options.driver !== "node-postgres") {
       throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({})
+    }
+    if (options.migrationsSchema !== undefined && (typeof options.migrationsSchema !== "string" || !options.migrationsSchema.trim())) {
+      throw databaseErrorDiagnostics.DATABASE_INVALID_MIGRATIONS_SCHEMA({})
     }
     const unsupported = [
       ...options.remote === undefined ? [] : ["remote"],
@@ -106,6 +112,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>, TRelatio
     if (options.cloudflare) postgresDefinition.cloudflare = options.cloudflare
     if (options.connection) postgresDefinition.connection = options.connection
     if (options.driver) postgresDefinition.driver = options.driver
+    if (options.migrationsSchema !== undefined) postgresDefinition.migrationsSchema = options.migrationsSchema
     return postgresDefinition
   }
 

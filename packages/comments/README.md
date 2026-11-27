@@ -118,7 +118,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 
 ## Send to an agent
 
-A Console team member who opens the app through Site access gets **Copy prompt** when the page has open threads and the Console MCP lets them read those threads. The prompt names the linked app, its team, and the thread IDs. It includes resolution instructions only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`. For one click without a paste, use `send`:
+Each open thread has **Open in T3 Code** and **Copy**, and the list of open threads has **Open in T3 Code** and **Copy open**. Both give a prompt with the page URL, the text and replies of each thread, the element, and the URLs of its files, for every person who may read the comments. For a Console team member whose MCP access may read the threads, the prompt also names the linked app, its team, and the steps of the ViteHub MCP. It includes resolution steps only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`, and `repository`, the GitHub `owner/name` that the T3 Code link opens: `forge.repository`, else the repository of the build. A Hosted Comments script tag gives it with `data-vitehub-repo`. For one click without a paste, use `send`:
 
 `defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields, and `prompt` changes the setup prompt. Each member has their own count, and Allow sends only the threads the member saw. The `comments_get_send` MCP tool reads a send, and `comments.listSends(user)` and `comments.readSend(user, id)` read sends on the server. Reopening a thread can restore a done inbox send or let the member send it to a webhook agent again. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
 
@@ -126,7 +126,7 @@ A Console team member who opens the app through Site access gets **Copy prompt**
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
 - Pins anchor to the Content field first, then a CSS path checked against the element text, then the text alone, then the page point. A pin whose element is gone shows dashed.
-- A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
+- After a thread changes, the server sends a Realtime notice to tabs displaying its subject, including different pages that show the same subject. Each tab reads the threads again through the Comments API. Cursors and presence stay on the current page. Pages without Realtime read the threads again on focus and every 30 seconds.
 - Without a Realtime driver, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
 - Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
@@ -138,7 +138,7 @@ A Console team member who opens the app through Site access gets **Copy prompt**
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy prompt**, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy**, `commentsT3CodeLink()`, the link of **Open in T3 Code**, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
@@ -262,6 +262,12 @@ With an outbox, `files` may be a promise, such as of a screenshot that renders a
 ```ts fragment
 const files = renderScreenshot().then(blob => [blob]);
 await client.create({ subject, anchor, body, files }); // Shows and saves now; sends once `files` settles.
+```
+
+To keep files the reader already picked when the page reloads before the screenshot arrives, pass them as `files` and the screenshot as `deferredFiles`:
+
+```ts fragment
+await client.create({ subject, anchor, body, files: picked, deferredFiles: renderScreenshot().then(blob => [blob]) });
 ```
 
 The draft holds the queue until the files arrive, then goes out with them. If saving the files fails, Retry saves them again. If the promise rejects, the draft goes out without them. If the page reloads first, the next page sends a saved draft without them. Without Web Locks, the default outbox stays in memory. With a custom store and no locks, drafts wait in memory until their files arrive and can be saved in send order.

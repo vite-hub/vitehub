@@ -3,12 +3,13 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { readGuest, saveGuest } from "../src/overlay/api.ts"
+import { commentsRealtimeDefinition } from "../src/page.ts"
 import { pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { CommentsUser } from "../src/types.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 
 beforeEach(() => {
@@ -24,16 +25,18 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+const presenceJoins = () => vi.mocked(connectRealtimeRoom).mock.calls.filter(([definition]) => definition === commentsRealtimeDefinition)
+
 /** A site with presence, where `user` is who the server says, and anyone may comment. */
 async function join(user: CommentsUser | null) {
   await serveComments({ identify: () => user, authorize: () => true }, { realtime: true })
   const tools = pageTools()
   const { shadow } = await startOverlay(tools)
-  await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => expect(presenceJoins()).toHaveLength(1))
   return { ...tools, shadow }
 }
 
-const identity = (call: number) => vi.mocked(connectRealtimeRoom).mock.calls[call]![2]?.identity
+const identity = (call: number) => presenceJoins()[call]![2]?.identity
 
 describe("guests of the Comments overlay", () => {
   it("lets Realtime pick an identity for a guest without a name", async () => {
@@ -54,7 +57,7 @@ describe("guests of the Comments overlay", () => {
     await type(name, "Ana García")
     name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
     const guest = readGuest()!
-    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(presenceJoins()).toHaveLength(2))
     expect(room.destroy).toHaveBeenCalledTimes(1)
     expect(identity(1)).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
   })
@@ -85,7 +88,7 @@ describe("a first-time guest who selected text", () => {
   it("comments on the quote after giving a name", async () => {
     const { requests } = await serveComments({ identify: () => null, authorize: () => true }, { realtime: true })
     const { shadow } = await startOverlay(pageTools())
-    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(presenceJoins()).toHaveLength(1))
     const range = document.createRange()
     range.setStart(document.querySelector("h1")!.firstChild!, 0)
     range.setEnd(document.querySelector("h1")!.firstChild!, 4)

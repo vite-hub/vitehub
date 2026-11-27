@@ -1384,7 +1384,7 @@ describe("migratePostgres", () => {
    * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
    * has no table; rows without `name` make a Drizzle Kit 0.x table.
    */
-  function fakeClient({ database = "app", events, fail, ledger, locked = true, role = "app", schemas = ["public"], started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, role?: string, schemas?: string[], started?: string }) {
+  function fakeClient({ busy = 0, database = "app", events, fail, ledger, role = "app", schemas = ["public"], started = "1794260759.623267" }: { busy?: number, database?: string, events?: string[], fail?: string, ledger?: FakeRow[], role?: string, schemas?: string[], started?: string }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
@@ -1392,8 +1392,9 @@ describe("migratePostgres", () => {
         queries.push([query, parameters])
         events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
-        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
+        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked: busy-- <= 0 }]
         if (query.startsWith("select current_database()")) return [{ database, role, schemas, started }]
+        if (query.startsWith("select exists (select 1 from pg_namespace")) return [{ can_create: true, can_create_schema: true, can_use: true, database, found: Boolean(ledger), role }]
         if (query.startsWith("select to_regclass(")) return [{ ledger: ledger ? "drizzle.__drizzle_migrations" : null }]
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
         if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
@@ -1415,9 +1416,11 @@ describe("migratePostgres", () => {
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
-      ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
+      ["select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", ["drizzle"]],
+      ["select to_regclass('\"drizzle\".\"__drizzle_migrations\"') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
+      ["select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", ["_hub_migrations"]],
       ["CREATE TABLE a (id int)", undefined],
       [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])
@@ -1440,7 +1443,7 @@ describe("migratePostgres", () => {
     // Drizzle Kit 0.x stored the journal `when` in milliseconds; Drizzle 1.0 matches the second.
     const { client, queries } = fakeClient({ ledger: [{ created_at: 1_700_000_000_417, hash: "hash-0x", id: 1 }] })
     await migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })
-    expect(queries.slice(5, 9)).toEqual([
+    expect(queries.slice(6, 10)).toEqual([
       [`SELECT id, hash, created_at FROM ${ledgerTable} ORDER BY id ASC`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "name" text`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`, undefined],
@@ -1455,13 +1458,18 @@ describe("migratePostgres", () => {
     expect(queries.map(([query]) => query)).not.toContain("CREATE TABLE a (id int)")
   })
 
-  it("says that it waits when another process holds the lock", async () => {
-    const { client, queries } = fakeClient({ locked: false })
+  it("says that it waits when another process holds the lock, and tries again instead of blocking", async () => {
+    const { client, queries } = fakeClient({ busy: 2 })
     const log: string[] = []
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
-    expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
-    expect(queries[2]).toEqual(["set local lock_timeout = '5s'", undefined])
-    expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
+    expect(queries.slice(0, 4)).toEqual([
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["set local lock_timeout = '5s'", undefined],
+    ])
+    expect(queries.map(([query]) => query)).not.toContain("select pg_advisory_xact_lock(hashtext($1))")
+    expect(log).toEqual(['[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'])
   })
 
   it("names the migration that failed", async () => {

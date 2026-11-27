@@ -162,6 +162,8 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 
 `scope: "user"` keeps a room per person: the same room id for two signed-in people is two rooms, and `requestRealtimeRoom(..., { user })` asks only that person's room (`user: null` for everyone without a session). One browser answers: a room with two browsers returns `REALTIME_ROOM_CROWDED`. A room without one waits 5 seconds (`wait`) for it to join, then returns `REALTIME_ROOM_EMPTY`. The answer must come within 30 seconds (`timeout`), from the browser that was asked, and be under 1 MiB. On Cloudflare the request goes through the Durable Object. With Redis or Postgres it reaches only browsers on the same instance (`REALTIME_ROOM_ELSEWHERE`).
 
+`notifyRealtimeRoom(definition, room, body)` sends `body` to every browser in a room of a presence Definition and does not wait for an answer. Browsers read it with `room.onNotice()`. Use it when the server changes data that open pages show. It needs no `requests: true`, reaches the other instances through Redis or Postgres, and never throws.
+
 ## Deployment and security boundaries
 
 - The Vue adapter connects to the generated same-origin `/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions. In a component it prepares the editor extensions during setup and connects when the component mounts, so the server render and the first browser render both have `status` `disconnected`.
@@ -191,7 +193,7 @@ With the evlog Nitro module registered, a refused connection, save, checkpoint, 
 | `@vite-hub/realtime/agent` | `agentRealtime`, the handle that ViteHub passes to the Agent `page()` Capability. Apps do not import it. |
 | `@vite-hub/realtime/client` | `connectRealtimeRoom()` to share presence without an editor, in any framework. |
 | `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module with no imports, for a script that another site loads from your app without a bundler. |
-| `@vite-hub/realtime/server` | `refreshRealtimeDocument()`, `isRealtimeAvailable()`, `requestRealtimeRoom()`, `workspaceDocument()`, `blobDocument()`, and `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
+| `@vite-hub/realtime/server` | `refreshRealtimeDocument()`, `isRealtimeAvailable()`, `requestRealtimeRoom()`, `notifyRealtimeRoom()`, `workspaceDocument()`, `blobDocument()`, and `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
 | `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |
 
 Generated files under `.vitehub/nitro/realtime` are inspectable build output, not application imports.
