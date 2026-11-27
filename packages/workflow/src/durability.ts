@@ -10,6 +10,8 @@ export interface WorkflowDurabilityInput {
   defaultDatabase?: boolean
   postgresUrl?: WorkflowRuntimeConfigValue
   driver: string
+  /** The build makes a Workflow DevKit entry for each discovered Workflow file. Only a Vercel build does. */
+  native?: boolean
   sqlitePath?: WorkflowRuntimeConfigValue
 }
 
@@ -33,13 +35,16 @@ export function workflowDurability(input: WorkflowDurabilityInput, context: Dura
   if (input.driver === "cloudflare") {
     return [{ primitive: "workflow", store: "cloudflare", scope: "shared", reason: "Cloudflare Workflows store each run." }]
   }
+  if (input.driver === "vercel" && input.native) {
+    return [{ primitive: "workflow", store: "vercel", scope: "shared", reason: "Vercel Workflow DevKit stores each run of a discovered Workflow file." }]
+  }
   if (input.driver !== "openworkflow") {
     return [{
       primitive: "workflow",
       store: "inline",
       scope: "process",
       reason: "Runs execute in the request process. A restart loses them.",
-      fix: "Set `workflow: { driver: \"openworkflow\" }` with a Postgres URL.",
+      fix: "The Vercel driver runs Workflows durably only in a Vercel build. Deploy to Vercel, or set `workflow: { driver: \"openworkflow\" }` with a Postgres URL to run them on this server.",
     }]
   }
   const storage = resolveOpenWorkflowStorage({

@@ -334,5 +334,13 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ step, timeout }: { step: string, timeout: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} ran longer than its timeout of ${timeout}. ViteHub aborted the step's signal and failed this attempt.`,
       fix: "Make the step finish sooner, or set a longer `timeout` in the step file. Pass the `signal` of the step to `fetch()` and other calls, so they stop when the attempt times out. The provider retries the step as its `retries` say.",
     },
+    WORKFLOW_VERCEL_DISCOVERED_NOT_NATIVE: {
+      why: ({ name }: { name: string }) => `[vitehub] The discovered Workflow ${JSON.stringify(name)} has no runnable Workflow DevKit entry. ViteHub does not run discovered Workflows inline on Vercel.`,
+      fix: "Default-export `defineWorkflow({ handler })` from a single file, use numbered step files without an index handler, or provide a `native` entry with a Workflow DevKit `use workflow` directive.",
+    },
+    WORKFLOW_VERCEL_INDEX_NOT_NATIVE: {
+      why: ({ file, name }: { file: string, name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} has the index handler ${JSON.stringify(file)} and no \`native\` entry. On Vercel, ViteHub cannot make a durable run from an index handler, and an inline run is lost when the function stops.`,
+      fix: "Remove the index file and keep the numbered step files, such as `01.create-user.ts`. ViteHub then generates a Workflow DevKit entry that runs the steps in order. If the Workflow needs code between the steps, keep the index file and add a `native` entry that you write with Workflow DevKit.",
+    },
   },
 })

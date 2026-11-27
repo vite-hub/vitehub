@@ -32,6 +32,8 @@ export const workflowStartAtKey = "~vitehubStartAt"
 
 /** Marks the Vercel native entry that ViteHub generates for a folder Workflow. Only that entry reads the start time. */
 export const generatedNativeEntryKey = "~vitehubGenerated"
+export const generatedNativeRootStepKey = "~vitehubGeneratedRootStep"
+export const vercelNativeRegistryKey = "vitehub.vercel.nativeWorkflowRegistry"
 
 /** Cloudflare `create()` has no delay, so a delayed run sends its start time next to the payload. */
 export function toCloudflareStartParams(payload: unknown, startAt: number | undefined): unknown {

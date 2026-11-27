@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -309,8 +309,8 @@ describe("generated Vercel native entry", () => {
       await writeFile(join(rootDir, "server", "workflows", "remind", "01-send.ts"), "export default async function send(input) { globalThis.viteHubDelayCalls.push(['step', input]); return 'sent' }\n")
       const artifacts = await writeProviderEntries(rootDir, false, { workflow: "vite-hub/workflow" }, undefined, false)
 
-      const registry = await readFile(join(artifacts.generatedDir, "registry-runtime.mjs"), "utf8")
-      expect(registry).toContain(`native["~vitehubGenerated"] = true`)
+      const { default: registry } = await import(pathToFileURL(artifacts.registryFile).href)
+      expect((await registry.remind()).native).toHaveProperty("~vitehubGenerated", true)
       const [nativeFile] = artifacts.vercelNativeFiles
       const bundled = buildSync({ bundle: true, entryPoints: [nativeFile!], format: "esm", platform: "node", write: false })
       const bundleFile = join(rootDir, "native.mjs")

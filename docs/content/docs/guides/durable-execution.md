@@ -8,7 +8,7 @@ navigation.group: Concepts
 icon: i-lucide-history
 ---
 
-Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or a Vercel `native` entry. Inline runs of a normal Vercel handler are not, also in `vite dev` with the Vercel host.
+Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or Workflow DevKit on Vercel. Inline runs are not, such as `vite dev` with the Vercel host, Agent turns on Vercel, and `createWorkflow(name, handler)` on Vercel.
 
 ## How durable execution works
 
@@ -53,8 +53,8 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes |
 | Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes, while the database survives |
-| Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Up to 3 retries, about one second apart | Yes |
-| Vercel, normal handler | Inline | No | None | No |
+| Vercel, every discovered Workflow file | Workflow DevKit | Yes, for `'use step'` functions | Up to 3 retries, about one second apart | Yes |
+| Vercel, Agent turns and `createWorkflow(name, handler)` | Inline | No | None | No |
 
 Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow counts attempts, so ViteHub sends it `maximumAttempts: 4`, `initialInterval: '10000ms'`, and `backoffCoefficient: 2`. Workflow DevKit reads `limit` as `maxRetries`.
 
@@ -195,9 +195,9 @@ The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or
 
 ## Durable steps on Vercel
 
-A Workflow with a normal handler, such as the checkout's `index.ts` above, runs inline on Vercel unless you add a `native` entry. That entry uses Workflow DevKit's `'use workflow'` and `'use step'` directives. Vercel calls it without ViteHub's `steps` runner, so it must call its own step functions. See [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
+A Vercel build never runs a discovered Workflow file inline. A folder with an index handler, such as the checkout's `index.ts` above, needs a `native` entry, or the build stops with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. That entry uses Workflow DevKit's `'use workflow'` and `'use step'` directives. Vercel calls it without ViteHub's `steps` runner, so it must call its own step functions. See [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
-For a folder with only numbered step files and no `index.ts`, ViteHub generates a native `'use workflow'` entry and one `'use step'` wrapper per file. The entry runs the files in order and passes each result to the next step, with no manual `native` entry. A generated step takes `retries.limit` and `timeout` from its step file. Both native forms follow Workflow DevKit's other retry rules; see [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
+For a folder with only numbered step files and no `index.ts`, ViteHub generates a native `'use workflow'` entry and one `'use step'` wrapper per file. The entry runs the files in order and passes each result to the next step, with no manual `native` entry. For a single file, such as `server/workflows/send-report.ts`, ViteHub generates one `'use step'` that runs the whole handler, as the Cloudflare root step does. A generated step takes `retries.limit` and `timeout` from its step file. Both native forms follow Workflow DevKit's other retry rules; see [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
 
 ## Related
 
