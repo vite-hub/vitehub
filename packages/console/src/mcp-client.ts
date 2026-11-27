@@ -9,7 +9,7 @@ import { allowPrivateVariable, isPrivateHost } from "./project-url.ts"
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import type { ConsoleMcpRecords, PendingAuthorization, StoredConnection } from "./mcp-client-records.ts"
-import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo } from "./mcp-client-types.ts"
+import type { ConsoleMcpCandidate, ConsoleMcpCompletion, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo } from "./mcp-client-types.ts"
 
 const consoleMcpErrorCodes = ["CONSOLE_CONFLICT", "CONSOLE_MCP_AUTHORIZATION_FAILED", "CONSOLE_MCP_LIST_TOO_LONG", "CONSOLE_MCP_SIGNED_OUT", "CONSOLE_MCP_UNREACHABLE", "CONSOLE_NOT_FOUND", "CONSOLE_REQUEST_INVALID"] as const
 
@@ -33,6 +33,8 @@ export function isConsoleMcpError(error: unknown): error is ConsoleMcpError {
 export interface ConsoleMcpScope {
   userId: string
   projectId: string
+  /** The team of the project. A finished sign-in returns it, so the page can open the project in its team. */
+  teamId: string
   /** The origin of the project's app. A path such as `/mcp` resolves against it, and its servers are "this app". */
   appOrigin: string
   /** Where authorization servers send the browser back, `<Console origin>/mcp-client/callback`. */
@@ -570,15 +572,15 @@ interface CompleteInput {
   state: string
 }
 
-/** Finish the sign-in that the authorization server sent the browser back from. */
-export async function completeConsoleMcp(scope: ConsoleMcpScope, input: CompleteInput): Promise<ConsoleMcpConnection> {
+/** Finish the sign-in that the authorization server sent the browser back from, and name the team of its project. */
+export async function completeConsoleMcp(scope: ConsoleMcpScope, input: CompleteInput): Promise<ConsoleMcpCompletion> {
   const connection = (await owned(scope)).find(candidate => candidate.oauth?.pending?.state === input.state)
   if (!connection?.oauth?.pending || completingAuthorizations.has(input.state)) throw consoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. It expired, finished already, was started by someone else, or on another project. Start it again.")
   completingAuthorizations.add(input.state)
   try {
     return await withConnection(scope, connection.id, async (current) => {
       if (current.oauth?.pending?.state !== input.state) throw consoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. Start it again.")
-      return finishSignIn(scope, current, input)
+      return { connection: await finishSignIn(scope, current, input), teamId: scope.teamId }
     })
   }
   finally {

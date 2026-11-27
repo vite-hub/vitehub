@@ -3,7 +3,6 @@ import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, requestConsoleMcp } from "../client/mcp-client";
-import { openAccountProject, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
@@ -12,8 +11,8 @@ import Icon from "./console-icon.vue";
 /**
  * Where an authorization server sends the browser after an MCP sign-in. The page hands the code to the server, which
  * exchanges it with the PKCE verifier that never left the server, then opens the new connection. The code leaves the
- * address bar as soon as the page has read it. The server finishes the sign-in on the project in its state, so when
- * another tab opened another project since, the page opens that project after the sign-in.
+ * address bar as soon as the page has read it. An `account` Console finishes the sign-in before it opens a project, in
+ * `finishConsoleMcpSignIn()`, so this page serves the Console of one app, such as the playground.
  */
 const props = defineProps<{
   agentsBase: string;
@@ -27,7 +26,6 @@ const route = useRoute();
 const router = useRouter();
 const toast = useConsoleToast();
 const error = ref<unknown>();
-const projects = useConsoleProjects();
 
 function query(name: string): string | undefined {
   const value = route.query[name];
@@ -46,9 +44,7 @@ onMounted(async () => {
   // Keep the code out of the history, whatever happens next.
   await router.replace({ name: "vitehub-console-mcp-client-callback" });
   try {
-    const connection = await requestConsoleMcp("mcp-client.complete", Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)));
-    const project = input.state.includes(".") ? input.state.slice(0, input.state.indexOf(".")) : undefined;
-    if (projects.mode === "account" && project && project !== projects.current.value?.id) return openAccountProject(project);
+    const { connection } = await requestConsoleMcp("mcp-client.complete", Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)));
     toast.show({ title: `Connected as ${consoleMcpAccount(connection).primary}` });
     await router.replace({ name: "vitehub-console-mcp-client", query: { connection: connection.id } });
   }

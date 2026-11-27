@@ -182,7 +182,7 @@ export function mcpClientFixture(serverUrl: string, payload: { input?: Record<st
     if (!connection) return failure(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.")
     const person = connection.person ?? "maxi"
     Object.assign(connection, { error: undefined, grant: { expiresAt: new Date(Date.now() + 3_600_000).toISOString(), issuer: `${origin}/api/auth`, refreshable: true, scopes: ["openid", "profile", "email", "offline_access"] }, identity: { ...people[person], subject: `user_${person}` }, label: people[person].name, session: "5e8b20d4", state: undefined, status: "connected" })
-    return { ok: true, value: describe(connection) }
+    return { ok: true, value: { connection: describe(connection), teamId: "playground" } }
   }
   const connection = find()
   if (!connection) return failure(404, "CONSOLE_REQUEST_INVALID", "This MCP connection does not exist. It ends when the server restarts.")

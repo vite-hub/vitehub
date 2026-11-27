@@ -71,14 +71,16 @@ function failure(error: unknown): OperationRpcFailure {
 }
 
 /**
- * The project that a call acts on. A sign-in comes back to the project that is open in the browser, which can be another
- * project than the one that started it, so `mcp-client.complete` acts on the project in its OAuth `state`.
+ * The project of an `mcp-client.complete` call, from its OAuth `state`, or `undefined` for another call. A sign-in can
+ * come back after the person opened another project or another team, so the Console finishes it on the project that
+ * started it, through the person's membership of that project's team, and not on the project of the route.
  */
-export function consoleMcpCallProject(body: unknown, routeProject: string): string {
+export function consoleMcpCompletionProject(body: unknown): string | undefined {
   const call = readOperationRpcCall(body)
-  const input: unknown = call?.m === "mcp-client.complete" ? call.a[0] : undefined
+  if (call?.m !== "mcp-client.complete") return undefined
+  const input: unknown = call.a[0]
   const state: unknown = input instanceof Object ? Reflect.get(input, "state") : undefined
-  return (typeof state === "string" ? consoleMcpStateProject(state) : undefined) ?? routeProject
+  return typeof state === "string" ? consoleMcpStateProject(state) ?? "" : ""
 }
 
 /** Answer one birpc call of the MCP client section with the operations of the Console server. */

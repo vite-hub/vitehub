@@ -96,6 +96,12 @@ export interface ConsoleMcpConnectResult {
   connection: ConsoleMcpConnection
 }
 
+/** A finished OAuth sign-in: the connection, and the team of its project, so the page can open that project. */
+export interface ConsoleMcpCompletion {
+  connection: ConsoleMcpConnection
+  teamId: string
+}
+
 /** All items of a list that an MCP server returns, from all its pages. The items are as the server sent them. */
 export interface ConsoleMcpPage {
   items: Record<string, unknown>[]

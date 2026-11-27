@@ -270,8 +270,8 @@ it("serves the MCP client from a stateful fixture, with sign-in and Run as", asy
   const callback = new URL(String(started.value.authorizationUrl))
   expect(callback.pathname).toBe("/_vitehub/mcp-client/callback")
   const completed = await call("mcp-client.complete", { code: "playground", state: callback.searchParams.get("state") })
-  expect(completed.value).toMatchObject({ label: "Sam Rivera", status: "connected" })
-  await call("mcp-client.disconnect", { id: completed.value.id })
+  expect(completed.value).toMatchObject({ connection: { label: "Sam Rivera", status: "connected" } })
+  await call("mcp-client.disconnect", { id: Object(completed.value.connection).id })
   expect((await call("mcp-client.list")).value.connections).toHaveLength(5)
 })
 
@@ -314,7 +314,7 @@ it.each([
   expect(callback.pathname).toBe("/_vitehub/mcp-client/callback")
   expect(callback.searchParams.get("iss")).toBe(`${origin}/api/auth`)
   await expect(playgroundRpcRequest(headers, { operation: "mcp-client.complete", input: { code: "playground", state: callback.searchParams.get("state") } }))
-    .resolves.toMatchObject({ ok: true, value: { label: "Sam Rivera", status: "connected", url: `${origin}/mcp` } })
+    .resolves.toMatchObject({ ok: true, value: { connection: { label: "Sam Rivera", status: "connected", url: `${origin}/mcp` } } })
   const reconnected = await playgroundRpcRequest(headers, { operation: "mcp-client.reconnect", input: { id: started.value.connection.id, prompt: "login" } }) as { value: { authorizationUrl: string } }
   expect(new URL(reconnected.value.authorizationUrl).origin).toBe(origin)
 

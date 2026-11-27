@@ -6,7 +6,7 @@ import type { Ref, ShallowRef } from "vue"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
-import { consoleResponseError } from "./request"
+import { ConsoleRequestError, consoleResponseError } from "./request"
 import { consoleSectionsPath, reloadConsoleNavigation, seedConsoleNavigation } from "./sections"
 import { consoleAccountKey, consoleDeviceVersion, consoleProjectKey, readStored } from "./stored"
 
@@ -50,6 +50,11 @@ export type ConsoleProjectGate =
   | { kind: "site", page: string, state: string, visit?: true }
   /** The Console could not sign the browser in to the app of a `/_vitehub` link. `linked` is false for an app of no team project. */
   | { kind: "site-refused", url: string, page: string, linked: boolean, message?: string }
+  /**
+   * The OAuth callback of the MCP client, `/mcp-client/callback`. `search` is its query, with the code and the state.
+   * The Console finishes the sign-in on the project of the state, in any team of the person, before it opens a project.
+   */
+  | { kind: "mcp-callback", search: string, problem?: ConsoleProjectProblem }
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
@@ -608,11 +613,16 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
   if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
+  const mcpCallback = options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}${consoleMcpCallbackPath}`
   // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
   const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
     ? consoleOpenReturnPath(options.home, search)
     : undefined
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
+  else if (mcpCallback) {
+    started.gate.value = { kind: "mcp-callback", search: options.search ?? "" }
+    address = options.pathname
+  }
   else if (siteGate) started.gate.value = siteGate
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
@@ -767,6 +777,42 @@ export function showConsoleAccountPage(page: ConsoleAccountPage): void {
 /** The address of one app of the team, which opens that app in any tab. */
 export function accountProjectPath(id: string): string {
   return `${useState().home}?app=${encodeURIComponent(id)}`
+}
+
+/** The OAuth callback page of the MCP client, as authorization servers send the browser back to it. */
+export const consoleMcpCallbackPath = "/mcp-client/callback"
+
+/**
+ * Finish the MCP sign-in of the callback page of an `account` Console. The Console server finishes it on the project in
+ * its state, through the person's membership of that project's team, so no other project has to open first. Then the
+ * Console opens the new connection in that project, and switches to its team when another team is active.
+ */
+export async function finishConsoleMcpSignIn(): Promise<void> {
+  const projects = useState()
+  const gate = projects.gate.value
+  if (gate.kind !== "mcp-callback") return
+  const query = new URLSearchParams(gate.search)
+  const state = query.get("state") ?? ""
+  const project = state.slice(0, Math.max(state.indexOf("."), 0))
+  const input = Object.fromEntries(Object.entries({ code: query.get("code"), error: query.get("error"), errorDescription: query.get("error_description"), iss: query.get("iss"), state }).filter(([, value]) => value))
+  try {
+    if (!project) throw new Error("The sign-in link names no project. Start the sign-in again from the MCP client.")
+    setConsoleProject({ origin: "", base: `/p/${encodeURIComponent(project)}`, remote: true })
+    const { requestConsoleMcp } = await import("./mcp-client")
+    const { connection, teamId } = await requestConsoleMcp("mcp-client.complete", input)
+    const page = `${projects.home.replace(/\/+$/, "")}/mcp-client?connection=${encodeURIComponent(connection.id)}&app=${encodeURIComponent(project)}`
+    if (teamId === projects.account.value?.teamId) {
+      projects.navigate(page)
+      return
+    }
+    const { switchConsoleTeam } = await import("./account")
+    await switchConsoleTeam(teamId)
+    reloadConsolePage(page)
+  }
+  catch (error) {
+    const fix = error instanceof ConsoleRequestError ? error.fix : undefined
+    projects.gate.value = { ...gate, problem: { title: "Couldn't finish the sign-in", message: error instanceof Error ? error.message : "Try again.", ...(fix ? { fix } : {}) } }
+  }
 }
 
 /** Open a project of the team from a page outside the projects. The Console loads again at its home path. */
