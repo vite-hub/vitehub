@@ -165,16 +165,23 @@ A Node build with a Postgres Database applies pending migrations when the
 server starts, before it accepts a request. The build puts the migrations in the
 server output, so the image needs no migrations folder.
 
-Instances that start together take turns. Each one takes
-`pg_advisory_xact_lock(hashtext('vitehub:migrations'))` before it reads the
-migrations table. The first one applies the migrations. An instance that finds
-the lock taken logs that it waits, then finds nothing pending and starts. `vitehub database migrate` takes the
-same lock. `drizzle-kit migrate` does not, so do not run it while instances
-start.
+Instances that start together take turns. Each one takes an advisory lock on
+`hashtext('vitehub:migrations')` before it reads the migrations table. The lock
+is `pg_advisory_xact_lock`, held by the migration transaction. When a pending
+file starts with `-- vitehub:no-transaction`, the run holds a session lock with
+`pg_advisory_lock` on one connection instead. The first instance applies the
+migrations. An instance that finds the lock taken logs that it waits, then finds
+nothing pending and starts. `vitehub database migrate` takes the same lock.
+`drizzle-kit migrate` does not, so do not run it while instances start.
 
 When a migration fails, the server stops before it listens, with
-`DATABASE_MIGRATION_FAILED`, and the database keeps none of the pending
-migrations. A migration that loses data stops the server with
+`DATABASE_MIGRATION_FAILED`. Without a `-- vitehub:no-transaction` file, the
+pending migrations run in one transaction, so the database keeps none of them.
+A run with such a file commits each stretch of migrations, and each statement
+of the marked file, on its own. The database then keeps the migrations that ran
+before the failed one, and `error.why` lists them. See
+[Run a Postgres migration outside a transaction](/docs/database/configure#run-a-postgres-migration-outside-a-transaction).
+A migration that loses data stops the server with
 `DATABASE_MIGRATION_DATA_LOSS`, until you set
 `database: { migrateOnStart: { allowDataLoss: true } }`. Set
 `database: { migrateOnStart: false }` to migrate only from a deploy step. See
@@ -195,23 +202,17 @@ first uses them, not with Drizzle migrations:
 | `drizzle.__drizzle_migrations` | Migrations on start and `vitehub database migrate` |
 
 `vitehub database generate` compares your schema with the last migration, so it does
-not touch these tables. `drizzle-kit push` compares your schema with the
+not touch these tables.
+
+On this database, change the schema only with `vitehub database generate` and
+the migrations that the servers or `vitehub database migrate` apply. Do not run
+`drizzle-kit push` against it. `push` changes tables without writing a row to
+`drizzle.__drizzle_migrations`, so the next migration that makes the same change
+fails, and an instance that starts after it stops with
+`DATABASE_MIGRATION_FAILED`. `push` also compares your schema with the whole
 database, so it offers to drop the `vitehub_*` tables and the `openworkflow`
-schema. If you use `push`, filter them out in your Drizzle config. The schema
-file below is the one that ViteHub generates from your Definitions:
-
-```ts [drizzle.config.ts]
-export default {
-  dialect: 'postgresql',
-  schema: './.vitehub/database/schema/default.ts',
-  dbCredentials: { url: process.env.DATABASE_URL! },
-  schemaFilter: ['public'],
-  tablesFilter: ['!vitehub_*'],
-}
-```
-
-You need both filters. `tablesFilter` alone still drops the `openworkflow`
-schema.
+schema. Use `push` only on a separate development database that never runs
+these migrations.
 
 ## Postgres connections
 
