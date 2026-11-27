@@ -7789,6 +7789,7 @@ cli_auth_credentials_store = "keyring"
 
   it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
     vi.useFakeTimers()
+    const scheduleTimeout = vi.spyOn(globalThis, "setTimeout")
     let client: McpClient | undefined
     const toolCallController = new AbortController()
     const turn = Promise.withResolvers<void>()
@@ -7836,8 +7837,10 @@ cli_auth_credentials_store = "keyring"
 
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
       const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
+      scheduleTimeout.mockClear()
       controller.abort(new DOMException("cancelled", "AbortError"))
       await rejected
+      await vi.waitFor(() => expect(scheduleTimeout).toHaveBeenCalledWith(expect.any(Function), 10_000))
       await vi.advanceTimersByTimeAsync(10_000)
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -7856,6 +7859,7 @@ cli_auth_credentials_store = "keyring"
       toolCallController.abort()
       await toolCall
       await client?.close().catch(() => undefined)
+      scheduleTimeout.mockRestore()
       vi.useRealTimers()
     }
   })
