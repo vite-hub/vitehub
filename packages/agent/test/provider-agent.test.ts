@@ -7792,11 +7792,12 @@ cli_auth_credentials_store = "keyring"
     const scheduleTimeout = vi.spyOn(globalThis, "setTimeout")
     let client: McpClient | undefined
     const toolCallController = new AbortController()
-    const turn = Promise.withResolvers<void>()
     let resolveExecute: (() => void) | undefined
+    let resolveTurn: (() => void) | undefined
     let toolCall: Promise<void> | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
+      const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
       const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const provider = runtime(threadId, [], {
         async onSendTurn(mcp) {
@@ -7807,7 +7808,7 @@ cli_auth_credentials_store = "keyring"
           await client.connect(transport)
           toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).then(() => undefined, () => undefined)
           await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
-          await turn.promise
+          await turnPending
         },
       })
       const controller = new AbortController()
@@ -7845,7 +7846,7 @@ cli_auth_credentials_store = "keyring"
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
-      turn.resolve()
+      resolveTurn?.()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       expect(closeWorkspace).not.toHaveBeenCalled()
       resolveExecute?.()
@@ -7854,7 +7855,7 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
     }
     finally {
-      turn.resolve()
+      resolveTurn?.()
       resolveExecute?.()
       toolCallController.abort()
       await toolCall
