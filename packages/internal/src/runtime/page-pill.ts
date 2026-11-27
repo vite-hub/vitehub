@@ -432,6 +432,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     // Keep the person's dock while a temporary mark steps aside. A drag still follows the pointer.
     shown = markOnly() && !pill.hasAttribute("dragging") && next.edge === "bottom" ? { edge: "bottom", at: next.at < 50 ? 0 : 100 } : next
     pill.setAttribute("edge", shown.edge)
+    toolbar.setAttribute("aria-orientation", shown.edge === "left" || shown.edge === "right" ? "vertical" : "horizontal")
     pill.style.setProperty("--at", String(shown.at))
     const collapsed = pill.hasAttribute("collapsed")
     const thickness = collapsed ? vertical() ? viteHubPageHexagonSize(pill).width : viteHubPageHexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight

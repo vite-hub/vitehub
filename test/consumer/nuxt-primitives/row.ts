@@ -6,7 +6,7 @@ export type Mode = (typeof modes)[number]
 export type Target = "node" | "cloudflare"
 
 export function nitroWorkerUnavailable(mode: Mode, response: Response): boolean {
-  return mode.endsWith("-dev") && response.status === 503 && response.statusText === "Dev server is unavailable" && response.headers.get("refresh") === "3"
+  return mode.endsWith("-dev") && response.status === 503 && response.headers.get("refresh") === "3"
 }
 
 export interface ProbeContext {
@@ -15,6 +15,21 @@ export interface ProbeContext {
   origin: string
   target: Target
   fetch: (path: string, init?: RequestInit) => Promise<Response>
+}
+
+export function withNitroReadiness(mode: Mode, fetch: ProbeContext["fetch"]): ProbeContext["fetch"] {
+  if (!mode.endsWith("-dev")) return fetch
+  return async (path, init) => {
+    const method = init?.method?.toUpperCase() ?? "GET"
+    if (method !== "GET" && method !== "HEAD") return fetch(path, init)
+    const deadline = Date.now() + 30_000
+    for (;;) {
+      const response = await fetch(path, init)
+      if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) return response
+      await response.body?.cancel()
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  }
 }
 
 export interface PrepareContext {

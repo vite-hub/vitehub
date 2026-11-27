@@ -1,22 +1,29 @@
 import { invariantError } from "@vite-hub/internal/invariant"
 import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative } from "node:path"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { providerHarnessProfile } from "./provider-profiles.ts"
+import type { ProviderHarness } from "./provider-profiles.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
-
-type SkillProvider = "claude-code" | "codex"
 
 const skillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
 
-/** The skill roots that each provider reads in its working directory. */
-const nativeSkillRoots: Record<SkillProvider, readonly string[]> = {
-  "claude-code": [".claude/skills"],
-  codex: [".agents/skills", ".codex/skills"],
+/** True when the harness can receive a private Skills folder. A `private-home` harness needs the Home that a gateway gives it. */
+export function canDeliverProviderSkills(provider: ProviderHarness, options: { privateHome: boolean }): boolean {
+  const kind = providerHarnessProfile(provider).skills?.extra.kind
+  return kind === "skill-root" || kind === "added-directory" || (kind === "private-home" && options.privateHome)
 }
 
-/** The skill root that each provider reads in its Home. */
-const homeSkillRoots: Record<SkillProvider, string> = {
-  "claude-code": ".claude/skills",
-  codex: ".agents/skills",
+export function assertProviderSkillDelivery(provider: ProviderHarness, colocated: unknown, options: { privateHome: boolean }): void {
+  const harness = providerHarnessProfile(provider)
+  if (canDeliverProviderSkills(provider, options) || !isRuntimeRecord(colocated)) return
+  for (const source of Object.values(colocated)) {
+    if (!isRuntimeRecord(source) || typeof source.workspacePath !== "string") continue
+    const path = posix.normalize(source.workspacePath)
+    if (skillRoots.some(root => path.startsWith(`${root}/`))) {
+      throw agentDiagnostics.AGENT_SKILL_DELIVERY_UNSUPPORTED({ provider: harness.displayName })
+    }
+  }
 }
 
 /** One Skill folder: a Workspace directory to link, or Agent-owned files to write. */
@@ -52,22 +59,27 @@ async function skillDirectories(root: string, skillRoot: string): Promise<string
  * These are Workspace Skills under another provider's root, Agent-owned Skills,
  * Skills of an outer Workspace root when the provider runs in a nested checkout,
  * and Skills inside mounted Sources, such as `<mount>/.agents/skills/<name>`.
- * A Skill name that the provider already reads natively is not added again.
- * Precedence by name: the working directory, then Agent-owned Skills, then the outer root,
- * then the Sources in declaration order.
+ * Private-Home harnesses apply native discovery and precedence themselves. Other harnesses skip names that are already native in `cwd`.
  */
 export async function selectProviderSkills(input: {
   colocated: unknown
   cwd: string
-  provider: SkillProvider
+  provider: ProviderHarness
+  /** True when the provider runs in a private Home that ViteHub creates, so a `private-home` harness can receive Skills. */
+  privateHome?: boolean
   /** Mount paths of the Sources, relative to `workspaceRoot`, in declaration order. */
   sources?: readonly string[]
   workspaceRoot: string
 }): Promise<Map<string, ProviderSkill>> {
-  const native = nativeSkillRoots[input.provider]
+  const profile = providerHarnessProfile(input.provider).skills
+  if (!profile || !canDeliverProviderSkills(input.provider, { privateHome: input.privateHome ?? false })) return new Map()
+  const colocated = Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})
+  const native: readonly string[] = profile.workspace
   const nativeNames = new Set<string>()
-  for (const skillRoot of native) {
-    for (const name of await skillDirectories(input.cwd, skillRoot)) nativeNames.add(name)
+  if (profile.extra.kind !== "private-home") {
+    for (const skillRoot of native) {
+      for (const name of await skillDirectories(input.cwd, skillRoot)) nativeNames.add(name)
+    }
   }
   const skills = new Map<string, ProviderSkill>()
   const add = (name: string, skill: ProviderSkill) => {
@@ -78,7 +90,7 @@ export async function selectProviderSkills(input: {
     for (const name of await skillDirectories(input.cwd, skillRoot)) add(name, { directory: join(input.cwd, skillRoot, name) })
   }
   const owned = new Map<string, Map<string, string | Uint8Array>>()
-  for (const source of Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})) {
+  for (const source of colocated) {
     if (!isRuntimeRecord(source)
       || !(typeof source.content === "string" || source.content instanceof Uint8Array)
       || typeof source.workspacePath !== "string") continue
@@ -114,11 +126,13 @@ export async function selectProviderSkills(input: {
  * Writes the selected Skills to one private folder outside the checkout.
  * Codex loads `directory` as an extra skill root. Claude Code reads
  * `<directory>/.claude/skills` when `directory` is an `--add-dir` directory.
+ * Gemini CLI and Kimi Code read the Skills folder of their private Home, so for them `directory` is that Home.
  * Returns the folder that the provider receives, or `undefined` when there are no Skills.
  */
-export async function materializeProviderSkills(skills: Map<string, ProviderSkill>, provider: SkillProvider, directory: string): Promise<string | undefined> {
-  if (!skills.size) return
-  const skillRoot = provider === "claude-code" ? join(directory, ".claude", "skills") : directory
+export async function materializeProviderSkills(skills: Map<string, ProviderSkill>, provider: ProviderHarness, directory: string): Promise<string | undefined> {
+  const extra = providerHarnessProfile(provider).skills?.extra
+  if (!skills.size || !extra || extra.kind === "none") return
+  const skillRoot = extra.kind === "skill-root" ? directory : join(directory, ...extra.root.split("/"))
   await mkdir(skillRoot, { mode: 0o700, recursive: true })
   for (const [name, skill] of skills) {
     const target = join(skillRoot, name)
@@ -152,8 +166,9 @@ async function readSkillFiles(directory: string, prefix = ""): Promise<Map<strin
 }
 
 /** Adds the selected Skills to Sandbox Home under the one skill root that the provider reads. */
-export async function addProviderSandboxSkills(skills: Map<string, ProviderSkill>, provider: SkillProvider, files: Record<string, string | Uint8Array>): Promise<void> {
-  const root = homeSkillRoots[provider]
+export async function addProviderSandboxSkills(skills: Map<string, ProviderSkill>, provider: ProviderHarness, files: Record<string, string | Uint8Array>): Promise<void> {
+  const root = providerHarnessProfile(provider).skills?.home
+  if (!root) return
   for (const [name, skill] of skills) {
     const skillFiles = "files" in skill ? skill.files : await readSkillFiles(skill.directory)
     for (const [path, content] of skillFiles) files[`${root}/${name}/${path}`] ??= content

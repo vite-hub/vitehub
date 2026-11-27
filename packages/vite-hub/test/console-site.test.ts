@@ -13,7 +13,7 @@ import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { siteAccessOperations } from "../src/console/runtime/server/site-access-operation.ts"
 import siteAccessRoute, { siteActionRoute } from "../src/console/runtime/server/site.ts"
-import { consoleEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
+import { consoleEntryRoute, hostedCommentsEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
 import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
 import { readConsoleSiteVisitor, siteCookieNames } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -26,7 +26,7 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 
 const origin = "http://localhost:5173"
 const ada: ConsoleCallerUser = { email: "ada@example.com", id: "console-ada", name: "Ada" }
-const key = await consoleTestKey("CONSOLE_SITE")
+const key = await consoleTestKey("CONSOLE_01234567")
 const other = await consoleTestKey("CONSOLE_OTHER")
 
 function setCookies(response: Response): Record<string, string> {
@@ -389,7 +389,7 @@ describe("GET /_vitehub in an app with Comments", () => {
   })
 })
 
-describe("GET /_vitehub in an app without Comments", () => {
+describe("GET /_vitehub in an app without the pill, such as with comments: false", () => {
   async function enter(path = "/_vitehub", init: RequestInit = {}, base = origin): Promise<Response> {
     return await consoleEntryRoute.fetch(new Request(`${base}${path}`, init))
   }
@@ -433,7 +433,57 @@ describe("GET /_vitehub in an app without Comments", () => {
   })
 })
 
+describe("GET /_vitehub in an app without Comments, which gets the Hosted Comments pill", () => {
+  const app = "https://cocina.example.com"
+  async function enter(path: string, init: RequestInit = {}): Promise<Response> {
+    return await hostedCommentsEntryRoute.fetch(new Request(`${app}${path}`, init))
+  }
+  const location = async (path: string, init: RequestInit = {}) => (await enter(path, init)).headers.get("location")
+
+  it("sends the browser back to the page with ?vitehub, which loads the pill", async () => {
+    const response = await enter("/_vitehub/recetas/alioli-de-ajo-negro")
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/recetas/alioli-de-ajo-negro?vitehub")
+    expect(response.headers.getSetCookie()).toEqual([])
+    expect(await location("/_vitehub")).toBe("/?vitehub")
+    expect(await location("/_vitehub/docs?tab=1")).toBe("/docs?tab=1&vitehub")
+    expect(await location("/portal/_vitehub/runs/42")).toBe("/portal/runs/42?vitehub")
+  })
+
+  it("goes back to the page of a same-origin Referer for the bare /_vitehub", async () => {
+    expect(await location("/_vitehub", { headers: { referer: `${app}/recetas/alioli-de-ajo-negro?q=1` } })).toBe("/recetas/alioli-de-ajo-negro?q=1&vitehub")
+    expect(await location("/_vitehub", { headers: { referer: "https://other.example.com/recetas/x" } })).toBe("/?vitehub")
+  })
+
+  it("opens the Console page for a path that ViteHub serves itself", async () => {
+    expect(await location("/_vitehub/agents/support?tab=trace")).toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fcocina.example.com&path=%2Fagents%2Fsupport%3Ftab%3Dtrace")
+    expect(new URL(await location("/_vitehub/comments/x") ?? "").origin).toBe("https://console.vitehub.dev")
+  })
+
+  it("opens the ViteHub Console when the app has no Console key, or on a development server", async () => {
+    vi.stubEnv("VITEHUB_CONSOLE_KEY_CONSOLE_01234567", "")
+    vi.stubEnv("VITEHUB_CONSOLE_KEY_CI", key.publicKey)
+    expect(await location("/_vitehub/recetas/x")).toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fcocina.example.com&path=%2Frecetas%2Fx")
+    vi.unstubAllEnvs()
+    for (const [name, value] of Object.entries(key.env)) vi.stubEnv(name, value)
+    installConsoleDevelopment("", true)
+    expect(new URL((await consoleRoutes({ siteAccess: false, hostedComments: true }).fetch(new Request(`${origin}/_vitehub/docs`))).headers.get("location") ?? "").origin).toBe("https://console.vitehub.dev")
+  })
+
+  it("answers only on the public URL", async () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: app })
+    expect((await enter("/_vitehub/recetas/x")).status).toBe(303)
+    expect((await hostedCommentsEntryRoute.fetch(new Request("https://abc-cocina.example.com/_vitehub"))).status).toBe(404)
+  })
+})
+
 describe("the /_vitehub/** route", () => {
+  it("sends /_vitehub/<page> back to the page in an app with the Hosted Comments pill", async () => {
+    const routes = consoleRoutes({ siteAccess: false, hostedComments: true })
+    expect((await routes.fetch(new Request("https://cocina.example.com/_vitehub/docs"))).headers.get("location")).toBe("/docs?vitehub")
+    expect((await routes.fetch(new Request("https://cocina.example.com/_vitehub/site?return=%2Fdocs"))).status).toBe(404)
+  })
+
   it.each(["", "/"])("serves Site access at /_vitehub/site%s only in an app with Comments", async (slash) => {
     const withComments = consoleRoutes({ siteAccess: true })
     const withoutComments = consoleRoutes({ siteAccess: false })

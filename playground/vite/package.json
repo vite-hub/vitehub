@@ -8,6 +8,7 @@
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@vercel/blob": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
@@ -23,11 +24,13 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@workflow/builders": "catalog:workflow",
     "chat": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "valibot": "catalog:runtime",
-    "vite": "catalog:vite"
+    "vite": "catalog:vite",
+    "workflow": "catalog:workflow"
   },
   "devDependencies": {
     "@vite-hub/cli": "workspace:*",

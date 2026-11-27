@@ -41,6 +41,7 @@ import type {
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type { ProviderAgentRuntimeLoader, providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
+import type { ProviderHarness } from "./internal/provider-profiles.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export type {
@@ -1179,6 +1180,8 @@ export interface AgentRunResult<TOutput = unknown> {
    */
   output?: TOutput
   raw?: unknown
+  /** The provider runtime event log that `driver.sessionLog` named. It outlives the Invocation. */
+  sessionLog?: string
   text?: string
   usage?: unknown
   usageRecord?: AgentUsageRecord
@@ -1867,7 +1870,7 @@ export interface AgentProviderStatus {
   /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
   account?: { id: string, kind: "credential" | "account" }
   agent: string
-  provider?: "codex" | "claude-code"
+  provider?: BuiltInAgentDriverName
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
@@ -1927,6 +1930,12 @@ export interface AgentProviderDriverOptions<
    * `requirements: inherited => [...inherited, 'kubectl']`. Without a parent the function receives `[]`.
    */
   requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
+  /**
+   * File for the Driver's NDJSON event log: one meta line, then the events read for the Invocation's turns.
+   * Use a distinct path per Invocation. ViteHub resolves it once, appends to it, and never deletes it.
+   * The result reports it as `sessionLog`. Without it, the log is temporary.
+   */
+  sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
   /**
@@ -2036,7 +2045,38 @@ export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentPr
   gateway?: AiGateway<{ routes: "claude-code" }>
 }
 
-export type BuiltInAgentDriverName = "claude-code" | "codex"
+/** Options of a Driver whose harness takes no gateway, because it signs in to its own service. */
+export interface SignInAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  gateway?: never
+}
+
+export interface GeminiDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with a `gemini` URL, such as `cliproxy()` or `google()`. Gemini CLI then runs in a ViteHub Home and never reads its own sign-in. */
+  gateway?: AiGateway<{ routes: "gemini" }>
+}
+
+/** Options of a Driver whose harness reaches a gateway through its `openai-compatible` URL. `model` is required with a gateway. */
+export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with an `openai-compatible` URL, such as `cliproxy()` or `openrouter()`. */
+  gateway?: AiGateway<{ routes: "openai-compatible" }>
+}
+
+export type OpenCodeDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type PiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type KimiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type AntigravityDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type CursorDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type GrokDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type KiroDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type FxDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type MuseDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+
+export interface AcpDriverOptions<TOutput = unknown> extends SignInAgentDriverOptions<TOutput> {
+  /** The agent's id in the ACP registry, such as `"cline"`. ViteHub installs it unless `providerSettings.binaryPath` names an installed copy. */
+  agentId: string
+}
+
+export type BuiltInAgentDriverName = ProviderHarness
 
 declare const agentDriverCallOptions: unique symbol
 
@@ -2057,10 +2097,47 @@ export type CodexDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
 export type ClaudeCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>
 
-/** A provider Driver from `codexDriver()` or `claudeCodeDriver()`. The factory carries the provider runtime. */
+type HarnessDriver<KIND extends ProviderHarness, OPTIONS, CALL_OPTIONS> =
+  AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: KIND } & OPTIONS
+
+/** A Gemini CLI Driver over ACP. Create it with `geminiDriver()`. */
+export type GeminiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"gemini", GeminiDriverOptions<TOutput>, CALL_OPTIONS>
+/** An Antigravity Driver. Create it with `antigravityDriver()`. */
+export type AntigravityDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"antigravity", AntigravityDriverOptions<TOutput>, CALL_OPTIONS>
+/** An OpenCode Driver. Create it with `opencodeDriver()`. */
+export type OpenCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"opencode", OpenCodeDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Cursor Driver. Create it with `cursorDriver()`. */
+export type CursorDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"cursor", CursorDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Grok Driver. Create it with `grokDriver()`. */
+export type GrokDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"grok", GrokDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Pi Driver. Create it with `piDriver()`. */
+export type PiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"pi", PiDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Kimi Code Driver over ACP. Create it with `kimiDriver()`. */
+export type KimiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kimi", KimiDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Kiro Driver. Create it with `kiroDriver()`. */
+export type KiroDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kiro", KiroDriverOptions<TOutput>, CALL_OPTIONS>
+/** An FX Driver. Create it with `fxDriver()`. */
+export type FxDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"fx", FxDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Muse Driver. Create it with `museDriver()`. */
+export type MuseDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"muse", MuseDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Driver for any agent in the ACP registry. Create it with `acpDriver({ agentId })`. */
+export type AcpDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"acp", AcpDriverOptions<TOutput>, CALL_OPTIONS>
+
+/** A provider Driver from `codexDriver()`, `claudeCodeDriver()`, or another harness factory. The factory carries the provider runtime. */
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | CodexDriver<CALL_OPTIONS, TOutput>
   | ClaudeCodeDriver<CALL_OPTIONS, TOutput>
+  | GeminiDriver<CALL_OPTIONS, TOutput>
+  | AntigravityDriver<CALL_OPTIONS, TOutput>
+  | OpenCodeDriver<CALL_OPTIONS, TOutput>
+  | CursorDriver<CALL_OPTIONS, TOutput>
+  | GrokDriver<CALL_OPTIONS, TOutput>
+  | PiDriver<CALL_OPTIONS, TOutput>
+  | KimiDriver<CALL_OPTIONS, TOutput>
+  | KiroDriver<CALL_OPTIONS, TOutput>
+  | FxDriver<CALL_OPTIONS, TOutput>
+  | MuseDriver<CALL_OPTIONS, TOutput>
+  | AcpDriver<CALL_OPTIONS, TOutput>
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -2089,6 +2166,7 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -2120,6 +2198,7 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -2184,6 +2263,7 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -3252,6 +3332,8 @@ export interface AgentInspectionWarning {
 export interface AgentAdapterResult {
   finishReason?: unknown
   raw?: unknown
+  /** The provider runtime event log that `driver.sessionLog` named. */
+  sessionLog?: string
   text?: string
   usage?: unknown
   usageRecord?: AgentUsageRecord

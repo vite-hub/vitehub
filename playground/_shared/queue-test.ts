@@ -58,7 +58,8 @@ export function resolveTrustedMarkerCallbackUrl(requestUrl: URL, callbackUrl: st
   }
 
   const resolved = new URL(callbackUrl, requestUrl)
-  if (resolved.origin !== requestUrl.origin || resolved.pathname !== queueMarkerCallbackPath) {
+  const isWebProtocol = resolved.protocol === "http:" || resolved.protocol === "https:"
+  if (!isWebProtocol || resolved.host !== requestUrl.host || resolved.pathname !== queueMarkerCallbackPath) {
     return undefined
   }
 

@@ -7,10 +7,12 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { emulatorUrl, isModelEmulationRequested, resolveModelEmulation } from "./agent-emulation.ts"
 import { codexGateway } from "./agent-gateway.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
+import { providerHarnessProfile } from "./provider-profiles.ts"
 import { withProviderStatusError } from "./provider-status-error.ts"
 
 import type { AgentProviderCredentialContext, AgentProviderStatus } from "../types.ts"
 import type { ResolvedAgentDriverGateway } from "./agent-gateway.ts"
+import type { ProviderHarness } from "./provider-profiles.ts"
 
 /**
  * Codex features that the emulator rejects or that reach a service other than the emulator. `multi_agent` and
@@ -43,7 +45,7 @@ const emulatedCodexModelCatalog = JSON.stringify({
 
 /** What a provider Driver sends to Codex or Claude Code, for the emulation checks. */
 export interface ProviderEmulationTarget {
-  provider: "claude-code" | "codex"
+  provider: ProviderHarness
   sandbox: boolean
   tools: number
 }
@@ -62,7 +64,7 @@ export function emulatedProviderStatus(
   const status = { agent: context.agentIdentity?.name ?? "agent", provider, checkedAt: new Date().toISOString(), stale: false }
   try {
     resolveModelEmulation(context)
-    if (provider === "claude-code") throw agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED()
+    if (!providerHarnessProfile(provider).modelEmulation) throw agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED()
   }
   catch (error) {
     if (!(error instanceof Error)) throw error
@@ -76,7 +78,7 @@ export function emulatedProviderStatus(
  * Call it only when the switch is on.
  */
 export function assertProviderEmulationSupported({ provider, sandbox, tools }: ProviderEmulationTarget): void {
-  if (provider === "claude-code") throw agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED()
+  if (!providerHarnessProfile(provider).modelEmulation) throw agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED()
   if (tools > 0) throw agentDiagnostics.AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED({ tools })
   if (sandbox) throw agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED()
 }

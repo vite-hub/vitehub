@@ -19,6 +19,7 @@ import {
   type VNode,
   type VNodeArrayChildren,
 } from "vue";
+import { agentLogos } from "../internal/agent-logos.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { kitSlot } from "../internal/slot-part.ts";
 import { Markdown } from "./markdown.ts";
@@ -63,6 +64,34 @@ export type AgentSessionItem =
   | { type: "assistant"; id: string; text: string; createdAt?: string }
   | { type: "work"; id: string; label?: string; entries: AgentSessionWorkEntry[]; defaultOpen?: boolean }
   | { type: "divider"; id: string; label: string };
+
+const providers: Record<string, { label: string; logo?: "claude" | "codex" }> = {
+  codex: { label: "Codex", logo: "codex" },
+  "claude-code": { label: "Claude Code", logo: "claude" },
+  gemini: { label: "Gemini CLI" },
+  antigravity: { label: "Antigravity" },
+  opencode: { label: "OpenCode" },
+  cursor: { label: "Cursor" },
+  grok: { label: "Grok" },
+  pi: { label: "Pi" },
+  kimi: { label: "Kimi" },
+  kiro: { label: "Kiro" },
+  fx: { label: "Fx" },
+  muse: { label: "Muse" },
+  acp: { label: "ACP agent" },
+};
+
+/** The display name of a coding agent harness id, such as `Gemini CLI` for `gemini`. An unknown id shows as written. */
+export function agentSessionProviderLabel(provider: string): string {
+  return Object.hasOwn(providers, provider) ? providers[provider]!.label : provider;
+}
+
+function providerMark(provider: string): VNode {
+  const logo = Object.hasOwn(providers, provider) ? providers[provider]!.logo : undefined;
+  if (!logo) return icon("i-lucide-bot");
+  const drawn = agentLogos[logo];
+  return h("svg", { "aria-hidden": "true", fill: "currentColor", viewBox: drawn.viewBox, xmlns: "http://www.w3.org/2000/svg" }, [h("path", { d: drawn.path })]);
+}
 
 const workIcons: Record<AgentSessionWorkKind, string> = {
   command: "i-lucide-terminal",
@@ -117,6 +146,7 @@ export const AgentSession = defineComponent({
   props: {
     title: { required: true, type: String },
     subtitle: { type: String },
+    provider: { type: String },
     surfaces: { default: () => [], type: Array as PropType<AgentSessionSurface[]> },
     storageKey: { type: String },
     defaultPanelOpen: { default: false, type: Boolean },
@@ -497,6 +527,12 @@ export const AgentSession = defineComponent({
           h("header", { class: "vh-agent-session__header", "data-slot": "agent-session-header" }, [
             h("div", { class: "vh-agent-session__heading" }, slots.heading?.() ?? [
               h("h2", { class: "vh-agent-session__title" }, props.title),
+              props.provider
+                ? h("span", { class: "vh-agent-session__provider", "data-slot": "agent-session-provider", "data-provider": props.provider }, [
+                    providerMark(props.provider),
+                    h("span", agentSessionProviderLabel(props.provider)),
+                  ])
+                : null,
               props.subtitle ? h("span", { class: "vh-agent-session__subtitle" }, props.subtitle) : null,
             ]),
             h("div", { class: "vh-agent-session__controls" }, [

@@ -47,6 +47,7 @@ export default defineWorkflow<{ email: string }>({
 - `{ email: string }` is the type of `payload`, the input that starts the run.
 - `steps.createUser` calls `01.create-user.ts`, and `steps.sendWelcome` calls `02.send-welcome.ts`. ViteHub makes these names from the file names.
 - To pause between steps, call `await sleep('1 day')` from the handler context. See [Retries and sleeps](/docs/workflows/limits-and-errors#retries-and-sleeps).
+- On Vercel, a folder with `index.ts` needs a `native` entry, or the build fails with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. Without `index.ts`, the numbered steps run in order and Vercel needs no `native` entry. See [Install Vercel dependencies](/docs/workflows/hosts#install-vercel-dependencies).
 
 ViteHub writes types to `.vitehub/workflow.d.ts`, so `user` is typed and a step name without a file is a type error. If folders share a step name, the generated type requires inputs valid for every step with that name and returns the union of their results. At runtime, only the current folder's steps are available. `startWorkflow('onboard-user', payload)` checks the name and payload type.
 

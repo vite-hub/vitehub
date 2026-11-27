@@ -457,6 +457,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_OBSERVABILITY_INSTALLED",
   "AGENT_OBSERVABILITY_MAX_PENDING_INVALID",
   "AGENT_OPENAPI_CONNECTION_BODY_INVALID",
+  "AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED",
   "AGENT_PAPERCUTS_BACKEND_MISSING",
   "AGENT_PAPERCUTS_CLI_INVALID",
   "AGENT_PAPERCUTS_DEDUPE_INVALID",
@@ -476,6 +477,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_PRESET_OPTION_UNSUPPORTED",
   "AGENT_PRESET_UNKNOWN",
   "AGENT_QUEUED_INPUT_NOT_JSON",
+  "AGENT_SKILL_DELIVERY_UNSUPPORTED",
+  "AGENT_SKILL_FILE_PATH_INVALID",
   "AGENT_SKILL_NAME_INVALID",
   "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
   "AGENT_TASK_AGENT_NAME_MISSING",
@@ -2189,7 +2192,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0476: {
       ...dynamicError,
-      fix: "Set driver.sessionStorePath to a non-empty file path, or remove it.",
+      fix: "Set driver.sessionStorePath or driver.sessionLog to a non-empty file path, or remove it.",
     },
     AGENT_R0477: {
       ...dynamicError,
@@ -2245,15 +2248,15 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
+      fix: "Set driver to a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object.",
+      fix: "Set driver to a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), or a custom { model }, { run }, or { ask } driver object.",
     },
     AGENT_R0492: {
       ...dynamicError,
-      fix: "Create the provider Driver with codexDriver() or claudeCodeDriver() from vite-hub/agent, and do not set driver.kind yourself.",
+      fix: "Create the provider Driver with its factory from vite-hub/agent, such as codexDriver() or acpDriver({ agentId }), and do not set driver.kind yourself. Only acpDriver() takes agentId.",
     },
     AGENT_R0493: {
       ...dynamicError,
@@ -3632,7 +3635,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0976: {
       ...dynamicError,
-      fix: "Use a gateway that serves this Driver, set its baseURL for the Driver, or use chatgpt() only with codexDriver() or a model-backed Driver, as the message shows.",
+      fix: "Use a gateway that serves this Driver, set its baseURL for the Driver, set driver.model when the message asks for it, remove driver.gateway from a Driver that signs in to its own service, or use chatgpt() only with codexDriver() or a model-backed Driver, as the message shows.",
     },
     AGENT_R0979: {
       ...dynamicError,
@@ -4017,8 +4020,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
     },
     AGENT_R1040: {
-      why: ({ provider }: { provider: unknown }) => `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`,
-      fix: 'Pass "codex" or "claude-code" as the session provider.',
+      why: ({ provider, known }: { provider: unknown, known?: boolean }) => known
+        ? `[vitehub] The session file is not a provider runtime event log.`
+        : `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use a harness id such as "codex", "claude-code", "gemini", or "opencode".`,
+      fix: 'Pass a log written by an external T3 provider runtime build that supports eventLogPath (such as commit 1ee7ef6dd80eba8b9678a8e9696728389f5ea8c2), or a native Codex or Claude Code session file with "codex" or "claude-code".',
     },
     AGENT_R1041: {
       why: "[vitehub] importAgentSession() needs agentName and runId.",
@@ -4652,6 +4657,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] OpenAPI requests through a Connection require a string body. Serialize the request hook body before dispatch.",
       fix: "Return a string body from the OpenAPI request hook, such as `JSON.stringify(body)`, when the request goes through a Connection.",
     },
+    AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED: {
+      why: "[vitehub] OpenCode cannot apply driver.gateway to an attached server, because the server already has its own providers.",
+      fix: "Remove `providerSettings.serverUrl` so `opencodeDriver({ gateway, model })` starts its own server with the gateway, or remove `gateway` and configure the provider on the attached server.",
+    },
     AGENT_PAPERCUTS_BACKEND_MISSING: {
       why: "[vitehub] papercuts() requires a report callback or backend.",
       fix: "Pass `report` or `backend` to `papercuts()`, such as `papercuts({ backend: posthogPapercuts({ apiKey }) })`.",
@@ -4793,6 +4802,20 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_ROUTE_NOT_STATIC: {
       why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
       fix: "Use a fixed path without `:name`, `[name]`, `*`, `?`, or `#`, such as `/hooks/github`, as each key of `vitehub({ agent: { routes: { aliases } } })`.",
+    },
+    AGENT_SESSION_LOG_MULTIPLE_SESSIONS: {
+      why: "[vitehub] A provider runtime event log must contain one session per file.",
+      fix: "Set eventLogPath to a fresh path for each T3 session. If sessions were appended to one file, import one session's meta line and events at a time.",
+    },
+    AGENT_SKILL_DELIVERY_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] ${provider} cannot load Agent-owned Skills.`,
+      fix: "Use Codex or Claude Code for bundled Skills, set driver.gateway on Gemini CLI or Kimi Code so they read the Skills from their private Home, or install the Skills in the harness's native Skills directory instead.",
+    },
+    AGENT_SKILL_FILE_PATH_INVALID: {
+      why: ({ name, path }: { name: string, path?: string }) => path === undefined
+        ? `[vitehub] Skill "${name}" has no SKILL.md.`
+        : `[vitehub] Skill "${name}" has an invalid file path "${path}".`,
+      fix: "Pass each Skill folder to `agentWithSkills(agent, skills)` as files by relative path, such as `{ 'SKILL.md': content, 'references/checklist.md': checklist }`, with forward slashes and no `.` or `..` segments.",
     },
     AGENT_SKILL_NAME_INVALID: {
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,

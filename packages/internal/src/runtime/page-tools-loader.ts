@@ -35,6 +35,12 @@ export interface ViteHubPageToolContext {
   signal: AbortSignal
   /** Whether the tool should open on startup, through query selection, activation, or restored state. */
   open: boolean
+  /**
+   * Whether a link picked this tool: `?vitehub=<tool id>`, or the tool's own `param`, such as `?comment=3`. A tool with
+   * a main action starts it, as Comments turns comment mode on. The loader removes `?vitehub` from the address once the
+   * tools start, so read this flag, not the address. The tool's own `param` stays for the tool to read and remove.
+   */
+  linked: boolean
   createWindow(options: Omit<ViteHubPageWindowOptions, "signal">): ViteHubPageWindow
   /**
    * Adds a tab to the pill: a `<vitehub-tab slot="tab">` that stands on the bar's inner side, like a tab on top of a chat
@@ -362,7 +368,9 @@ export function stopViteHubPageTools(): void {
 /** `turnedOn`: the person pressed the off mark, so the pill opens even on a page that asks for the mark. */
 async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turnedOn: boolean): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
-  const query = new URLSearchParams(location.search)
+  const initialUrl = new URL(location.href)
+  const query = initialUrl.searchParams
+  const activation = query.get(viteHubPageToolsQuery)
   const given = typeof options.session === "function" ? options.session : undefined
   const sessionRoute = typeof options.session === "string" ? options.session : viteHubPageSessionUrl(import.meta.url)
   if (!given && !viteHubPageToolsWanted(location.search, document.cookie)) return []
@@ -388,16 +396,16 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     return []
   }
   if (stopped.aborted || session.tools.length === 0 || document.querySelector(`${controls.name}, ${controls.off}`)) return []
-  const linkedTool = session.tools.find(tool => tool.param && query.has(tool.param))
+  const linked = activation || session.tools.find(tool => tool.param && query.has(tool.param))?.id
   // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
-  if (query.has(viteHubPageToolsQuery) || linkedTool || options.open) rememberOff(controls.off, false)
+  if (query.has(viteHubPageToolsQuery) || linked || options.open) rememberOff(controls.off, false)
   else if (storedOff(controls.off)) {
     mountOffMark(controls, stopped, () => { rememberOff(controls.off, false); void startViteHubPageTools(options, true) }, false)
     return []
   }
 
   // `?vitehub=<tool>` opens a tool, and so does the query parameter of a tool, such as `?comment=3` of Comments.
-  const open = options.open || query.get(viteHubPageToolsQuery) || linkedTool?.id
+  const open = options.open || linked
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
@@ -530,7 +538,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
               exitChecks.add(guard)
               attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
             }, tool, bar, signal: attempt.signal,
-            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit: () => exit(),
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), linked: show && tool.id === linked, exit: () => exit(),
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => {
                 remember(tool.id, false)
@@ -606,5 +614,13 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()
+  else if (activation !== null) {
+    const url = new URL(location.href)
+    if (url.pathname === initialUrl.pathname && url.searchParams.get(viteHubPageToolsQuery) === activation
+      && (controls === defaultPill || session.tools.some(tool => tool.id === activation))) {
+      url.searchParams.delete(viteHubPageToolsQuery)
+      history.replaceState(history.state, "", url)
+    }
+  }
   return tools
 }

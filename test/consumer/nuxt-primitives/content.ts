@@ -114,7 +114,14 @@ export const content: PrimitiveRow[] = [
         publishedBefore: false,
         published: [{ collection: "posts", id, change: "add" }],
       })
-      const response = await fetch(`/api/content/get/posts/${id}`)
+      const path = `/api/content/get/posts/${id}`
+      const deadline = Date.now() + 30_000
+      let response = await fetch(path)
+      while (nitroWorkerUnavailable(mode, response) && Date.now() < deadline) {
+        await response.body?.cancel()
+        await new Promise(resolve => setTimeout(resolve, 500))
+        response = await fetch(path)
+      }
       const body = await readText(response)
       expectEqual((JSON.parse(body) as { data: unknown }).data, { title: `Post ${id}` }, `/api/content/get/posts/${id} data`)
     },

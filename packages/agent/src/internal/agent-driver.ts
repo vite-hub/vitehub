@@ -9,6 +9,8 @@ import { isChatGPTGateway, aiGatewayAsks } from "@vite-hub/gateways/internal"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { providerAgentRuntime } from "./provider-driver-runtime.ts"
 import type { ProviderAgentRuntimeLoader } from "./provider-driver-runtime.ts"
+import { isProviderHarness, providerHarnessProfile, providerHarnessProfiles } from "./provider-profiles.ts"
+import type { ProviderHarness } from "./provider-profiles.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -64,13 +66,16 @@ export type NormalizedAgentDriver<
     model?: string
     output?: AgentOutputDefinition<TOutput>
     permissions: AgentProviderPermissions
-    provider: "claude-code" | "codex"
+    provider: ProviderHarness
+    /** The ACP registry agent that `acpDriver({ agentId })` runs. */
+    agentId?: string
     providerSettings?: Record<string, unknown>
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
     requirements?: readonly string[]
-    /** Loads the provider Agent runtime. Only `codexDriver()` and `claudeCodeDriver()` provide it. */
+    /** Loads the provider Agent runtime. Only the provider Driver factories, such as `codexDriver()`, provide it. */
     runtime: ProviderAgentRuntimeLoader
+    sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     sessionStorePath?: string
     toolchain?: SandboxToolchain
     workspaceWrite?: CodexWorkspaceWriteAccess
@@ -178,7 +183,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain", "workspaceWrite"])
+const providerDriverKeys = new Set(["agentId", "capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionLog", "sessionStorePath", "toolchain", "workspaceWrite"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
 
@@ -243,6 +248,20 @@ function normalizeProviderLaunch(value: unknown): AgentProviderLaunchResolver | 
 
 export const defaultAgentProviderPermissions: AgentProviderPermissions = "ask"
 
+export function assertProviderExecutionOptions(provider: ProviderHarness, options: { permissions?: AgentProviderPermissions, sandbox?: unknown, launch?: unknown }): void {
+  if (provider === "codex" || provider === "claude-code") return
+  const profile = providerHarnessProfile(provider)
+  if (options.sandbox !== undefined) {
+    throw agentDiagnostics.AGENT_R0955({ message: `[vitehub] ${profile.displayName} does not support Sandbox execution. Use Codex or Claude Code for this Sandbox.` })
+  }
+  if (provider === "cursor" && options.launch !== undefined) {
+    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] Cursor runs through its SDK and cannot honor driver.launch. Remove driver.launch or choose another Driver." })
+  }
+  if ((options.permissions ?? defaultAgentProviderPermissions) !== "allow-all") {
+    throw agentDiagnostics.AGENT_R0470({ message: `[vitehub] ${profile.displayName} does not enforce driver.permissions ${JSON.stringify(options.permissions ?? defaultAgentProviderPermissions)}. Use Codex or Claude Code for restricted execution. Set permissions: "allow-all" only if you trust the harness to run native actions without ViteHub approval.` })
+  }
+}
+
 function normalizeProviderPermissions(value: unknown): AgentProviderPermissions {
   if (value === undefined) return defaultAgentProviderPermissions
   if (value !== "ask" && value !== "allow-edits" && value !== "allow-edits-unattended" && value !== "allow-all") {
@@ -273,12 +292,11 @@ function normalizeProviderExecution(value: unknown): { attachments?: AgentAttach
   return { attachments: maxBytes === undefined ? {} : { maxBytes } }
 }
 
-const providerDriverFactories = { "claude-code": "claudeCodeDriver", codex: "codexDriver" } as const
-
-function normalizeProviderDriver(provider: "claude-code" | "codex", value: Record<string, unknown>): NormalizedAgentDriver {
+function normalizeProviderDriver(provider: ProviderHarness, value: Record<string, unknown>): NormalizedAgentDriver {
+  const profile = providerHarnessProfile(provider)
   const runtime: unknown = Reflect.get(value, providerAgentRuntime)
   if (typeof runtime !== "function") {
-    throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) must come from ${providerDriverFactories[provider]}(). Use driver: ${providerDriverFactories[provider]}({ ... }) from vite-hub/agent.` })
+    throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) must come from ${profile.driverFactory}(). Use driver: ${profile.driverFactory}({ ... }) from vite-hub/agent.` })
   }
   assertNoUnsupportedOptions(value, providerDriverKeys, `defineAgent({ driver: { kind: "${provider}" } })`)
   if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
@@ -298,12 +316,20 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   validateProviderToolchain(value.toolchain)
   const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary", "workspaceWrite"].filter(key => value[key] !== undefined)
-  if (provider !== "codex" && codexOptions.length) {
+  if (!profile.codexOptions && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
   }
-  const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
-  if (gateway) assertAgentDriverGatewaySupports(gateway, provider)
+  if (provider === "acp" ? typeof value.agentId !== "string" || !/^[a-z0-9][a-z0-9._-]*$/.test(value.agentId) : value.agentId !== undefined) {
+    throw agentDiagnostics.AGENT_R0492({ message: provider === "acp"
+      ? "[vitehub] acpDriver({ agentId }) needs the agent's id in the ACP registry, such as \"cline\"."
+      : `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not take agentId. Use acpDriver({ agentId }) for another ACP agent.` })
+  }
   const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
+  const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
+  if (gateway) assertAgentDriverGatewaySupports(gateway, provider, settings)
+  if (gateway && (provider === "opencode" || provider === "pi" || provider === "kimi") && value.model === undefined) {
+    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.driverFactory}({ gateway }) needs driver.model, a model that the gateway serves, because ${profile.displayName} selects the model in the gateway configuration.` })
+  }
   if (isChatGPTGateway(gateway) && (value.launch !== undefined || ["launchArgs", "binaryPath", "homePath", "shadowHomePath"].some(key => settings?.[key] !== undefined))) throw agentDiagnostics.AGENT_R1015()
   // A gateway replaces Codex sign-in. Layers cannot unset inherited credentials, so the gateway wins
   // and credential-only rules no longer apply.
@@ -364,16 +390,19 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.cwd !== undefined && typeof value.cwd !== "function" && !isResolver(value.cwd) && (typeof value.cwd !== "string" || !value.cwd.trim())) {
     throw agentDiagnostics.AGENT_R0938({ message: "[vitehub] defineAgent({ driver.cwd }) must be a non-empty directory path or resolver." })
   }
+  if (value.sessionLog !== undefined && typeof value.sessionLog !== "function" && !isResolver(value.sessionLog) && (typeof value.sessionLog !== "string" || !value.sessionLog.trim())) {
+    throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] defineAgent({ driver.sessionLog }) must be a non-empty file path or resolver." })
+  }
   const execution = normalizeProviderExecution(value.execution)
   const configuredEnv = value.env
   if (gateway && isPlainRecord(configuredEnv)) {
-    const owned = provider === "codex" ? ["T3CODE_CODEX_LAUNCH_ARGS"] : ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"]
-    const conflicts = owned.filter(key => configuredEnv[key] !== undefined)
+    const conflicts = (profile.gateway?.ownedEnv ?? []).filter(key => configuredEnv[key] !== undefined)
     if (conflicts.length) {
       throw agentDiagnostics.AGENT_R0979({ message: `[vitehub] defineAgent({ driver.gateway }) sets ${conflicts.join(", ")}. Remove ${conflicts.length === 1 ? "it" : "them"} from driver.env.` })
     }
   }
   return {
+    ...(typeof value.agentId === "string" ? { agentId: value.agentId } : {}),
     capacity: normalizeAgentDriverCapacity(value.capacity),
     // SAFETY: credentialProfile is either absent or validated as a non-empty string above.
     credentialProfile: credentialProfile as string | undefined,
@@ -401,6 +430,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     // SAFETY: Only the provider Driver factories set this symbol, and they set it to the provider runtime loader.
     runtime: runtime as ProviderAgentRuntimeLoader,
+    // SAFETY: sessionLog is either absent, a non-empty string, or a function or resolver validated above. Its resolved value is validated at invocation time.
+    sessionLog: value.sessionLog as AgentProviderWorkingDirectoryResolver | undefined,
     sessionStorePath: typeof value.sessionStorePath === "string" ? value.sessionStorePath.trim() : undefined,
     // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
     toolchain: value.toolchain as SandboxToolchain | undefined,
@@ -425,15 +456,15 @@ function validateProviderToolchain(value: unknown) {
 function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
   if (driver === "external") return { kind: "external" }
   if (typeof driver === "string") {
-    const hint = driver === "codex" || driver === "claude-code" ? ` Use driver: ${providerDriverFactories[driver]}() from vite-hub/agent.` : ""
-    throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] defineAgent({ driver: "${driver}" }) is not an Agent Driver. Expected codexDriver(), claudeCodeDriver(), "external", or a custom { model }, { run }, or { ask } driver.${hint}` })
+    const hint = isProviderHarness(driver) ? ` Use driver: ${providerHarnessProfile(driver).driverFactory}() from vite-hub/agent.` : ""
+    throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] defineAgent({ driver: "${driver}" }) is not an Agent Driver. Expected a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), "external", or a custom { model }, { run }, or { ask } driver.${hint}` })
   }
   if (!isPlainObject(driver)) {
-    throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be codexDriver(), claudeCodeDriver(), or a custom driver object." })
+    throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), or a custom driver object." })
   }
   if (hasOwnDefined(driver, "kind")) {
-    if (driver.kind !== "codex" && driver.kind !== "claude-code") {
-      throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected "codex" or "claude-code".` })
+    if (!isProviderHarness(driver.kind)) {
+      throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected one of ${Object.keys(providerHarnessProfiles).map(kind => `"${kind}"`).join(", ")}.` })
     }
     return normalizeProviderDriver(driver.kind, driver)
   }
@@ -521,5 +552,5 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
-  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver." })
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), \"external\", or a custom { model }, { run }, or { ask } driver." })
 }

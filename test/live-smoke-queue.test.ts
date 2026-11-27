@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { reportQueueDelivery } from "../playground/_shared/queue-test"
+import { reportQueueDelivery, resolveTrustedMarkerCallbackUrl } from "../playground/_shared/queue-test"
 import "../packages/queue/test/e2e-live.mjs"
 
 type SmokeRun = { url: string, directMarker: string, deferMarker: string, timeoutMs: number }
@@ -94,4 +94,19 @@ it("prints a reported callback failure separately from a handler failure", async
   await vi.runAllTimersAsync()
   expect(await result).toContain('"stage":"marker-write","detail":"callback returned 503"')
   expect(await result).toContain('"stage":"handler-failed","detail":"the consumer handler threw: handler threw"')
+})
+
+it("accepts the public https callback when a Vercel Node function behind TLS sees its URL as http", () => {
+  const callbackUrl = "https://smoke.example.com/api/tests/queue"
+  expect(resolveTrustedMarkerCallbackUrl(new URL("http://smoke.example.com/api/queues/welcome"), callbackUrl)).toBe(callbackUrl)
+})
+
+it.each([
+  "https://other.example.com/api/tests/queue",
+  "https://smoke.example.com:8443/api/tests/queue",
+  "ftp://smoke.example.com/api/tests/queue",
+  "https://smoke.example.com/api/tests/other",
+  "https://smoke.example.com/api/tests/queue?next=1",
+])("rejects the callback %s", (callbackUrl) => {
+  expect(resolveTrustedMarkerCallbackUrl(new URL("http://smoke.example.com/api/queues/welcome"), callbackUrl)).toBeUndefined()
 })
