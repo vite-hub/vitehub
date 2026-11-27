@@ -362,6 +362,14 @@ const { id } = await importAgentSession(store, session, { agentName: 'coder', ru
 
 `readClaudeCodeSession()` reads `$CLAUDE_CONFIG_DIR/projects/<project>/<session>.jsonl`, and `readCodexSession()` reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`. The record id is `agentInvocationId(runId, agentName)`. Importing the same `agentName` and `runId` again replaces the record, so the store must implement `delete()`. Pass `configuration` to record the skills, MCP servers, and Workspace the session had, and `cost` to record a price, because the CLIs report only tokens.
 
+Other harnesses, such as Gemini CLI, Antigravity, OpenCode, Cursor, Grok, Kimi, Pi, Kiro, and other ACP agents, run through the T3 provider runtime. Set its `eventLogPath` to write an event log: one `meta` line, then one runtime event per line. `readProviderRuntimeSession(text, provider)` reads that log into the same `AgentSession`. `readAgentSession(provider, text)` reads it too, for every harness id, and detects the log from its `meta` line. Pass the harness id, such as `"gemini"`, because the `meta` line of an ACP agent can name only `acp`. A command without an exit code, such as a Gemini command over ACP, keeps its exit code unknown.
+
+```ts
+import { readAgentSession } from '@vite-hub/agent/sessions'
+
+const session = readAgentSession('gemini', await readFile('./events.jsonl', 'utf8'))
+```
+
 ## Cancel an invocation
 
 `invocations.cancel(id)` asks ViteHub to stop a run. A `requested` outcome confirms only the request; read the final journal status to confirm the stop.

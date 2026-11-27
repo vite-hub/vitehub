@@ -4017,8 +4017,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
     },
     AGENT_R1040: {
-      why: ({ provider }: { provider: unknown }) => `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`,
-      fix: 'Pass "codex" or "claude-code" as the session provider.',
+      why: ({ provider, known }: { provider: unknown, known?: boolean }) => known
+        ? `[vitehub] The ${String(provider)} session file is not a provider runtime event log. ViteHub reads ${String(provider)} sessions only from the event log of the T3 provider runtime.`
+        : `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use a harness id such as "codex", "claude-code", "gemini", or "opencode".`,
+      fix: 'Pass a provider runtime event log (the eventLogPath file), or a native Codex or Claude Code session file with "codex" or "claude-code".',
     },
     AGENT_R1041: {
       why: "[vitehub] importAgentSession() needs agentName and runId.",

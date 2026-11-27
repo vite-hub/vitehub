@@ -12,8 +12,11 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentInvocationId } from "./invocations.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationStore, AgentInvocationStoreCreateInput } from "./invocations.ts"
 
-/** A coding agent CLI whose session files ViteHub reads. */
-export type AgentSessionProvider = "claude-code" | "codex"
+/** The coding agent harnesses whose sessions ViteHub reads. `acp` is an ACP registry agent without a known id. */
+export const agentSessionProviders = ["codex", "claude-code", "gemini", "antigravity", "opencode", "cursor", "grok", "pi", "kimi", "kiro", "fx", "muse", "acp"] as const
+
+/** A coding agent harness whose session files ViteHub reads. */
+export type AgentSessionProvider = (typeof agentSessionProviders)[number]
 
 export interface AgentSessionUsage {
   inputTokens: number
@@ -538,11 +541,265 @@ export function readClaudeCodeSession(text: string): AgentSession {
   return session
 }
 
-/** Read a session file of a known provider. */
+function isAgentSessionProvider(value: unknown): value is AgentSessionProvider {
+  return agentSessionProviders.includes(value as AgentSessionProvider)
+}
+
+function runtimeMeta(line: JsonRecord | undefined): JsonRecord | undefined {
+  return line?.type === "meta" && typeof line.kind === "string" ? line : undefined
+}
+
+/** Whether `text` is a T3 provider runtime event log: its first line is the `meta` line that the runtime writes. */
+export function isProviderRuntimeEventLog(text: string): boolean {
+  const first = text.split("\n").find(line => line.trim())
+  if (!first) return false
+  try {
+    return runtimeMeta(record(JSON.parse(first))) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
+function runtimeProvider(meta: JsonRecord | undefined): AgentSessionProvider {
+  const agentId = meta?.agentId
+  if (meta?.kind === "acp" && isAgentSessionProvider(agentId)) return agentId
+  return isAgentSessionProvider(meta?.kind) ? meta.kind : "acp"
+}
+
+function unifiedDiffChanges(diff: string, fallbackPath: string | undefined, cwd: string | undefined): FileChange[] {
+  const files: { oldPath?: string, newPath?: string, hunks: string[] }[] = []
+  let current: (typeof files)[number] | undefined
+  let hunk: string[] | undefined
+  const closeHunk = () => {
+    if (current && hunk?.length) current.hunks.push(`${hunk.join("\n")}\n`)
+    hunk = undefined
+  }
+  const headerPath = (value: string) => value.trim().replace(/\t.*$/, "").replace(/^[ab]\//, "")
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("--- ")) {
+      closeHunk()
+      current = { oldPath: headerPath(line.slice(4)), hunks: [] }
+      files.push(current)
+      continue
+    }
+    if (line.startsWith("+++ ") && current && !hunk) {
+      current.newPath = headerPath(line.slice(4))
+      continue
+    }
+    if (line.startsWith("@@")) {
+      closeHunk()
+      if (!current) {
+        current = { hunks: [] }
+        files.push(current)
+      }
+      hunk = [line]
+      continue
+    }
+    if (hunk && /^[ +\-\\]/.test(line)) hunk.push(line)
+  }
+  closeHunk()
+  return files.map((file) => {
+    const added = file.oldPath === "/dev/null" || (file.hunks[0] ?? "").startsWith("@@ -0,0 ")
+    const deleted = file.newPath === "/dev/null"
+    const path = (deleted ? file.oldPath : file.newPath ?? file.oldPath) ?? fallbackPath ?? ""
+    return { path: relativePath(path, cwd), kind: added ? "add" : deleted ? "delete" : "update", diff: file.hunks.join("") }
+  })
+}
+
+function runtimeFileChanges(data: JsonRecord, cwd: string | undefined): FileChange[] {
+  const fileName = string(data.fileName)
+  const diff = string(data.diff)
+  if (diff?.trim()) {
+    const changes = unifiedDiffChanges(diff, fileName, cwd)
+    if (changes.length) return changes
+  }
+  const details = list(data.changes).filter(isRecord)
+  if (details.length) return details.map(change => ({ path: relativePath(string(change.path) ?? "", cwd), kind: string(change.operation) ?? "update", diff: "" }))
+  return fileName ? [{ path: relativePath(fileName, cwd), kind: "update", diff: "" }] : []
+}
+
+interface RuntimeItem {
+  step: AgentSessionStep
+  itemType: string
+  turnId?: string
+  text: string
+  output: string
+}
+
+function addRuntimeUsage(usage: AgentSessionUsage, tokenUsage: unknown): boolean {
+  if (!isRecord(tokenUsage) || tokenUsage.usageStatus === "unavailable") return false
+  const input = number(tokenUsage.inputTokens) ?? 0
+  const output = number(tokenUsage.outputTokens) ?? 0
+  usage.inputTokens += input
+  usage.cachedInputTokens += number(tokenUsage.cachedInputTokens) ?? 0
+  usage.outputTokens += output
+  usage.reasoningTokens += number(tokenUsage.reasoningTokens) ?? 0
+  usage.totalTokens += input + output
+  return true
+}
+
+function runtimeSnapshotUsage(snapshot: unknown): AgentSessionUsage | undefined {
+  if (!isRecord(snapshot)) return
+  const input = number(snapshot.inputTokens) ?? 0
+  const output = number(snapshot.outputTokens) ?? 0
+  return {
+    inputTokens: input,
+    cachedInputTokens: number(snapshot.cachedInputTokens) ?? 0,
+    outputTokens: output,
+    reasoningTokens: number(snapshot.reasoningOutputTokens) ?? 0,
+    totalTokens: number(snapshot.totalProcessedTokens) ?? (input + output || (number(snapshot.usedTokens) ?? 0)),
+  }
+}
+
+function finishRuntimeTool(item: RuntimeItem, payload: JsonRecord, timestamp: string, cwd: string | undefined): void {
+  const step = item.step
+  if (step.type !== "tool") return
+  const data = record(payload.data)
+  step.completedAt = timestamp
+  if (item.itemType === "command_execution") {
+    const command = string(data.command) ?? commandOf(step)
+    const exitCode = number(data.exitCode)
+    step.input = { command, ...(cwd ? { cwd } : {}) }
+    step.output = { command, output: string(data.output) ?? item.output, ...(exitCode === undefined ? {} : { exitCode }) }
+    if (exitCode !== undefined && exitCode !== 0) step.error = `Exited with code ${exitCode}.`
+  }
+  else if (item.itemType === "file_change") {
+    const fileName = string(data.fileName)
+    step.input = fileName ? { fileName: relativePath(fileName, cwd) } : {}
+    step.output = { ...fileChangeOutput(runtimeFileChanges(data, cwd)), output: item.output }
+  }
+  else {
+    const output = data.output ?? data.result ?? (item.output || undefined)
+    if (output !== undefined) step.output = output
+  }
+  if (payload.status === "failed") step.error ??= string(payload.detail) ?? "The tool failed."
+  if (payload.status === "declined") step.error ??= "The tool call was declined."
+}
+
+function runtimeToolName(itemType: string, data: JsonRecord): string {
+  if (itemType === "command_execution" || itemType === "file_change") return itemType
+  return string(data.toolName) ?? itemType
+}
+
+const runtimeToolItemTypes = new Set(["command_execution", "file_change", "mcp_tool_call", "dynamic_tool_call", "collab_agent_tool_call", "web_search", "image_view"])
+
+/**
+ * Read the event log of the T3 provider runtime (`eventLogPath`): one `meta` line, then one normalized runtime event per
+ * line. The runtime runs every harness, so this reads Gemini CLI, OpenCode, Cursor, and the other ACP agents.
+ * `provider` names the harness when the meta line cannot, such as an ACP agent that the meta line calls `acp`.
+ * A command without an exit code keeps it unknown.
+ */
+export function readProviderRuntimeSession(text: string, provider?: AgentSessionProvider): AgentSession {
+  const lines = parseLines(text)
+  const meta = runtimeMeta(lines[0])
+  const session: AgentSession = { provider: provider ?? runtimeProvider(meta), status: "completed", steps: [], usage: emptyUsage() }
+  const items = new Map<string, RuntimeItem>()
+  let turnUsage = false
+  let snapshotUsage: AgentSessionUsage | undefined
+  const fail = (message: string) => {
+    session.status = "failed"
+    session.error ??= message
+  }
+  const itemFor = (itemId: string, itemType: string, payload: JsonRecord, timestamp: string, turnId: unknown): RuntimeItem => {
+    const known = items.get(itemId)
+    if (known) return known
+    const data = record(payload.data)
+    let step: AgentSessionStep
+    if (itemType === "assistant_message" || itemType === "reasoning") {
+      step = { type: "message", id: itemId, timestamp, phase: itemType === "reasoning" ? "reasoning" : "commentary", text: "" }
+    }
+    else {
+      const name = runtimeToolName(itemType, data)
+      step = { type: "tool", id: itemId, timestamp, name, ...(itemType === "file_change" ? { kind: "change" as const } : {}) }
+      const title = string(payload.title)
+      if (title && itemType !== "command_execution" && itemType !== "file_change") step.title = title
+      if (itemType === "command_execution") step.input = { command: string(data.command) ?? "", ...(session.cwd ? { cwd: session.cwd } : {}) }
+      else if (data.input !== undefined) step.input = data.input
+    }
+    const item: RuntimeItem = { step, itemType, turnId: string(turnId), text: "", output: "" }
+    items.set(itemId, item)
+    session.steps.push(step)
+    return item
+  }
+  for (const line of lines) {
+    const lineMeta = runtimeMeta(line)
+    if (lineMeta) {
+      session.id ??= string(lineMeta.threadId)
+      session.cwd ??= string(lineMeta.cwd)
+      session.model ??= string(lineMeta.model)
+      session.startedAt ??= string(lineMeta.startedAt)
+      continue
+    }
+    const payload = record(line.payload)
+    const timestamp = string(line.createdAt) ?? session.completedAt ?? session.startedAt ?? new Date(0).toISOString()
+    session.startedAt ??= timestamp
+    session.completedAt = timestamp
+    session.id ??= string(line.threadId)
+    const itemId = string(line.itemId)
+    const itemType = string(payload.itemType)
+    if (line.type === "turn.started") {
+      session.model ??= string(payload.model)
+      session.reasoningEffort ??= string(payload.effort)
+      continue
+    }
+    if (line.type === "content.delta" && itemId) {
+      const item = items.get(itemId)
+      const delta = string(payload.delta) ?? ""
+      if (!item) continue
+      if (payload.streamKind === "command_output" || payload.streamKind === "file_change_output") item.output += delta
+      else item.text += delta
+      continue
+    }
+    if ((line.type === "item.started" || line.type === "item.updated" || line.type === "item.completed") && itemId && itemType) {
+      if (itemType === "user_message") {
+        session.prompt ??= string(record(payload.data).text) ?? string(payload.detail)
+        continue
+      }
+      if (itemType !== "assistant_message" && itemType !== "reasoning" && !runtimeToolItemTypes.has(itemType)) continue
+      const item = itemFor(itemId, itemType, payload, timestamp, line.turnId)
+      if (line.type !== "item.completed") continue
+      if (item.step.type === "message") {
+        item.step.text = string(record(payload.data).text) ?? item.text
+        continue
+      }
+      finishRuntimeTool(item, payload, timestamp, session.cwd)
+      continue
+    }
+    if (line.type === "turn.completed") {
+      if (addRuntimeUsage(session.usage, payload.tokenUsage)) turnUsage = true
+      if (payload.state !== "completed") fail(string(payload.errorMessage) ?? `The turn ended ${string(payload.state) ?? "early"}.`)
+      continue
+    }
+    if (line.type === "turn.aborted") {
+      if (addRuntimeUsage(session.usage, payload.tokenUsage)) turnUsage = true
+      fail(`The turn was aborted${string(payload.reason) ? `: ${payload.reason}` : "."}`)
+      continue
+    }
+    if (line.type === "thread.token-usage.updated") snapshotUsage = runtimeSnapshotUsage(payload.usage) ?? snapshotUsage
+    else if (line.type === "runtime.error") fail(string(payload.message) ?? "The provider runtime reported an error.")
+    else if (line.type === "session.exited" && payload.exitKind === "error") fail(string(payload.reason) ?? "The provider session exited with an error.")
+  }
+  if (!turnUsage && snapshotUsage) session.usage = snapshotUsage
+  session.steps = session.steps.filter(step => step.type === "tool" || step.text.trim())
+  const answers = new Map<string | undefined, AgentSessionMessage>()
+  for (const item of items.values()) {
+    if (item.itemType === "assistant_message" && item.step.type === "message" && item.step.text.trim()) answers.set(item.turnId, item.step)
+  }
+  for (const answer of answers.values()) answer.phase = "final"
+  session.text = [...answers.values()].at(-1)?.text
+  return session
+}
+
+/**
+ * Read a session file of a known provider. A T3 provider runtime event log reads for every provider; `codex` and
+ * `claude-code` also read their native session files.
+ */
 export function readAgentSession(provider: AgentSessionProvider, text: string): AgentSession {
+  if (isAgentSessionProvider(provider) && isProviderRuntimeEventLog(text)) return readProviderRuntimeSession(text, provider)
   if (provider === "codex") return readCodexSession(text)
   if (provider === "claude-code") return readClaudeCodeSession(text)
-  throw agentDiagnostics.AGENT_R1040({ provider })
+  throw agentDiagnostics.AGENT_R1040({ provider, known: isAgentSessionProvider(provider) })
 }
 
 // Invocation
