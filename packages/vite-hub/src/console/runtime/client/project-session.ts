@@ -795,8 +795,11 @@ export async function finishConsoleMcpSignIn(): Promise<void> {
   const state = query.get("state") ?? ""
   const project = state.slice(0, Math.max(state.indexOf("."), 0))
   const input = Object.fromEntries(Object.entries({ code: query.get("code"), error: query.get("error"), errorDescription: query.get("error_description"), iss: query.get("iss"), state }).filter(([, value]) => value))
+  if (!project) {
+    projects.gate.value = { ...gate, problem: { title: "Couldn't finish the sign-in", message: "The sign-in link names no project. Start the sign-in again from the MCP client." } }
+    return
+  }
   try {
-    if (!project) throw new Error("The sign-in link names no project. Start the sign-in again from the MCP client.")
     setConsoleProject({ origin: "", base: `/p/${encodeURIComponent(project)}`, remote: true })
     const { requestConsoleMcp } = await import("./mcp-client")
     const { connection, teamId } = await requestConsoleMcp("mcp-client.complete", input)
