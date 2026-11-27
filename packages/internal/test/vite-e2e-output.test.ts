@@ -376,6 +376,22 @@ describe("unified vite e2e hosted outputs", () => {
     })
     const { consumer, topic } = vercelConsumerConfig.experimentalTriggers[0]
     expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery:received", "vercel-delivery:done"])
+
+    const workflowFunctions = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1")
+    expect(existsSync(join(workflowFunctions, "flow.func", ".vc-config.json"))).toBe(true)
+    expect(existsSync(join(workflowFunctions, "webhook", "[token].func", ".vc-config.json"))).toBe(true)
+    expect(JSON.parse(vercelConfig).routes).toContainEqual({ src: "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$", dest: "/.well-known/workflow/v1/webhook/[token]" })
+    expect(vercelServerContents).toContain("workflow//")
+    await execFileAsync(process.execPath, [vercelServer], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_offline_contract_test",
+        KV_REST_API_TOKEN: "offline-contract-test",
+        KV_REST_API_URL: "https://localhost.invalid",
+      },
+      timeout: 15_000,
+    })
   }, 180_000)
 
   it("builds the env and chat playground modes", async () => {

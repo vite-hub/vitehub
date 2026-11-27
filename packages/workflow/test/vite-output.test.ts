@@ -1622,7 +1622,6 @@ describe("Vite workflow provider outputs", () => {
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
-    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
@@ -1652,8 +1651,8 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
-    const [generatedNativeFile] = await readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))
-    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", generatedNativeFile), "utf8")
+    const generatedNativeFile = join(rootDir, ".vitehub", "workflow", "vercel-native", `${createHash("sha256").update("monthly-recap").digest("hex")}.mjs`)
+    const generatedNative = await readFile(generatedNativeFile, "utf8")
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")
@@ -1677,7 +1676,7 @@ describe("Vite workflow provider outputs", () => {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
-    expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
+    expect(existsSync(generatedNativeFile)).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     const rebuiltConfig: unknown = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8"))

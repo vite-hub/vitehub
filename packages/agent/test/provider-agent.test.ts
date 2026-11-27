@@ -85,6 +85,7 @@ import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver, runAgent } from "../src/index.ts"
+import { runAgentForTest } from "../src/test.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -8373,6 +8374,45 @@ describe("Provider Agent Driver session log", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it.each([false, true])("reports the session log path from runAgentForTest() (structured output: %s)", async (structured) => {
+    const threadId = "session-log-test-runner"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const sessionLog = join(root, `${threadId}.ndjson`)
+    try {
+      runtime(threadId, [
+        event("content.delta", threadId, { delta: '{"answer":"ready"}', streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+      ])
+      const output = structured ? { schema: z.object({ answer: z.string() }) } : undefined
+      const agent = defineAgent({ driver: codexDriver({ sessionLog, output }), runtime: false })
+
+      const result = await runAgentForTest(agent, { run: { runId: `run-${threadId}`, threadId }, runtime: "vite", runtimeConfig: {} }, { prompt: "write a file" })
+
+      expect(result.sessionLog).toBe(sessionLog)
+      if (structured) expect(result.raw).toEqual({ answer: "ready" })
+      expect(readAgentSession("codex", await readFile(sessionLog, "utf8"))).toMatchObject({ id: threadId, status: "completed" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("keeps custom Driver data out of session log metadata (schema keeps field: %s)", async (keepField) => {
+    const raw = { answer: "ready", sessionLog: "draft" }
+    const agent = defineAgent({
+      driver: {
+        run: () => raw,
+        output: { schema: keepField ? z.object({ answer: z.string(), sessionLog: z.string() }) : z.object({ answer: z.string() }) },
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentForTest(agent, { runtime: "vite", runtimeConfig: {} }, { prompt: "hello" })
+
+    expect(result.raw).toEqual(keepField ? raw : { answer: "ready" })
+    expect(result).not.toHaveProperty("sessionLog")
   })
 
   it.each(["directory", "full device"])("contains log I/O errors for a %s", async (destination) => {
