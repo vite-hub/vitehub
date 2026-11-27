@@ -7789,13 +7789,14 @@ cli_auth_credentials_store = "keyring"
 
   it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
     vi.useFakeTimers()
+    const scheduleTimeout = vi.spyOn(globalThis, "setTimeout")
     let client: McpClient | undefined
     const toolCallController = new AbortController()
     let resolveExecute: (() => void) | undefined
+    let resolveTurn: (() => void) | undefined
     let toolCall: Promise<void> | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
-      let resolveTurn!: () => void
       const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
       const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const provider = runtime(threadId, [], {
@@ -7837,13 +7838,15 @@ cli_auth_credentials_store = "keyring"
 
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
       const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
+      scheduleTimeout.mockClear()
       controller.abort(new DOMException("cancelled", "AbortError"))
+      await vi.waitFor(() => expect(scheduleTimeout).toHaveBeenCalledWith(expect.any(Function), 10_000))
       await vi.advanceTimersByTimeAsync(10_000)
       await rejected
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
-      resolveTurn()
+      resolveTurn?.()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       expect(closeWorkspace).not.toHaveBeenCalled()
       resolveExecute?.()
@@ -7852,8 +7855,11 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
     }
     finally {
+      resolveTurn?.()
+      resolveExecute?.()
       toolCallController.abort()
       await client?.close().catch(() => undefined)
+      scheduleTimeout.mockRestore()
       vi.useRealTimers()
     }
   })
