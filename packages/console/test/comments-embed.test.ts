@@ -42,19 +42,16 @@ describe("the hosted Comments embed", () => {
     expect((await serveCommentsEmbed(get("/comments/p-1/embed", "POST"), db)).status).toBe(405)
   })
 
-  it("serves the embed scripts to any site, with a short cache for the stable names", async () => {
+  it("serves the embed scripts to any site, with a short cache for their stable names", async () => {
     const assets = readConsoleAssets()
-    expect(Object.keys(assets.hostedComments)).toEqual(expect.arrayContaining(["hosted-comments.js", "hosted-comments/frame.js"]))
-    for (const path of ["/hosted-comments.js", "/hosted-comments/frame.js"]) {
+    expect(Object.keys(assets.hostedComments)).toEqual(["hosted-comments.js", "hosted-comments/frame.js", "hosted-comments/tools.js"])
+    for (const path of ["/hosted-comments.js", "/hosted-comments/frame.js", "/hosted-comments/tools.js"]) {
       const response = serveHostedComments(get(path), assets)
       expect(response.status, path).toBe(200)
       expect(response.headers.get("access-control-allow-origin")).toBe("*")
       expect(response.headers.get("cross-origin-resource-policy")).toBe("cross-origin")
       expect(response.headers.get("cache-control")).toBe("public, max-age=300")
     }
-    const chunk = Object.keys(assets.hostedComments).find(path => path.startsWith("hosted-comments/") && path !== "hosted-comments/frame.js")
-    expect(chunk).toBeDefined()
-    expect(serveHostedComments(get(`/${chunk}`), assets).headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
     expect(serveHostedComments(get("/hosted-comments/missing.js"), assets).status).toBe(404)
     expect(serveHostedComments(get("/hosted-comments.js", "POST"), assets).status).toBe(405)
   })

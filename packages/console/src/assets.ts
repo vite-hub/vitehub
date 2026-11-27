@@ -6,7 +6,8 @@ export interface ConsoleAssets {
   skills: Record<string, string>
   /**
    * The hosted Comments embed of `@vite-hub/comments`, by path: `hosted-comments.js`, the script that a static site
-   * loads, and `hosted-comments/<file>`, the Console frame script and the chunks.
+   * loads, `hosted-comments/tools.js`, the pill that it imports when a review starts, and `hosted-comments/frame.js`, the
+   * Console frame script. Each is one self-contained file.
    */
   hostedComments: Record<string, string>
   /** The version of `vite-hub` that the files come from. */
@@ -99,12 +100,10 @@ export function serveConsolePageAsset(request: Request, assets: ConsoleAssets): 
   })
 }
 
-/** The paths of the hosted Comments embed whose name stays the same across versions, so they are cached for a short time. */
-export const hostedCommentsStablePaths = ["hosted-comments.js", "hosted-comments/frame.js"]
-
 /**
  * Serve the hosted Comments embed: `/hosted-comments.js` and `/hosted-comments/<file>`. Any site may load them as
- * module scripts. The two stable names are cached for a short time, and the hashed chunks for a year.
+ * module scripts. Their names stay the same across deploys, so they are cached for a short time. No file imports another
+ * file by a hashed name, so a file that a page keeps from an earlier deploy works with the files of the current one.
  */
 export function serveHostedComments(request: Request, assets: ConsoleAssets): Response {
   const refused = readOnly(request)
@@ -112,5 +111,5 @@ export function serveHostedComments(request: Request, assets: ConsoleAssets): Re
   const path = new URL(request.url).pathname.slice(1)
   const source = Object.hasOwn(assets.hostedComments, path) ? assets.hostedComments[path] : undefined
   if (source === undefined) return notFound("The Console has no such hosted Comments file.")
-  return new Response(body(request, source), { headers: { ...scriptHeaders, "cache-control": hostedCommentsStablePaths.includes(path) ? shortCache : immutable } })
+  return new Response(body(request, source), { headers: { ...scriptHeaders, "cache-control": shortCache } })
 }

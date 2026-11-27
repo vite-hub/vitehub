@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { browserTarget } from "@vite-hub/internal/package-exports"
@@ -6,9 +7,17 @@ import { defineConfig } from "vite"
 import { overlayAliases, standaloneStyles, standaloneUI } from "./overlay.aliases.ts"
 
 const root = import.meta.dirname
+const outDir = resolve(root, "dist/hosted")
 
 export const hostedEntry = "hosted-comments.js"
 export const hostedFrame = "hosted-comments/frame.js"
+export const hostedTools = "hosted-comments/tools.js"
+
+const selfContainedParts = {
+  host: { input: "src/embed/host.ts", file: hostedEntry },
+  frame: { input: "src/embed/frame.ts", file: hostedFrame },
+  tools: { input: "src/embed/tools.ts", file: hostedTools },
+}
 
 export default defineConfig({
   base: "./",
@@ -21,17 +30,24 @@ export default defineConfig({
   },
   plugins: [standaloneUI(), standaloneStyles()],
   resolve: { alias: overlayAliases, dedupe: ["vue"] },
-  build: {
-    emptyOutDir: true,
-    minify: true,
-    outDir: resolve(root, "dist/hosted"),
-    rolldownOptions: {
-      input: { host: resolve(root, "src/embed/host.ts"), frame: resolve(root, "src/embed/frame.ts") },
-      output: {
-        chunkFileNames: "hosted-comments/[name]-[hash].js",
-        entryFileNames: chunk => chunk.name === "host" ? hostedEntry : hostedFrame,
+  environments: Object.fromEntries(Object.entries(selfContainedParts).map(([name, { input, file }]) => [name, {
+    consumer: "client",
+    build: {
+      emptyOutDir: false,
+      minify: true,
+      outDir,
+      rolldownOptions: {
+        input: resolve(root, input),
+        preserveEntrySignatures: "exports-only",
+        output: { codeSplitting: false, entryFileNames: file },
       },
+      target: browserTarget,
     },
-    target: browserTarget,
+  }])),
+  builder: {
+    async buildApp(builder) {
+      rmSync(outDir, { force: true, recursive: true })
+      for (const name of Object.keys(selfContainedParts)) await builder.build(builder.environments[name]!)
+    },
   },
 })

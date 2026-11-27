@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { readFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 import { createServer } from "node:http"
+import { join, relative } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
@@ -44,7 +45,11 @@ async function body(req) {
   return chunks.length ? Buffer.concat(chunks) : undefined
 }
 
-async function fakeConsole() {
+const hashed = /-[\w-]{8}\.js$/
+
+const readHosted = path => readFile(new URL(path, hosted)).catch(() => undefined)
+
+async function fakeConsole({ script = readHosted } = {}) {
   const vite = await createViteServer({ configFile: false, logLevel: "warn", appType: "custom", optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true } })
   const [{ createComments }, { createCommentsHandler }] = await Promise.all([vite.ssrLoadModule(harness), vite.ssrLoadModule(handlerFile)])
   const comments = await createComments()
@@ -53,11 +58,12 @@ async function fakeConsole() {
   const hold = { threads: undefined }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, consoleOrigin)
-    const script = /^\/(hosted-comments\.js|hosted-comments\/[\w.-]+\.js)$/.exec(url.pathname)
-    if (script) {
-      const file = await readFile(new URL(script[1], hosted)).catch(() => undefined)
+    const match = /^\/(hosted-comments\.js|hosted-comments\/[\w.-]+\.js)$/.exec(url.pathname)
+    if (match) {
+      const file = await script(match[1])
       if (!file) return send(res, 404, {}, "")
-      return send(res, 200, { "content-type": "text/javascript; charset=utf-8", "access-control-allow-origin": "*", "cross-origin-resource-policy": "cross-origin" }, file)
+      const cache = hashed.test(match[1]) ? "public, max-age=31536000, immutable" : "public, max-age=300"
+      return send(res, 200, { "content-type": "text/javascript; charset=utf-8", "access-control-allow-origin": "*", "cross-origin-resource-policy": "cross-origin", "cache-control": cache }, file)
     }
     const route = /^\/comments\/([^/]+)\/(embed|authorize|redeem|api\/.*)$/.exec(url.pathname)
     const project = route && projects[route[1]]
@@ -262,5 +268,48 @@ test("hosted Comments sign in on a site whose router rewrites the fragment first
   assert.equal(api.seen.codes.size, 0, "the code was redeemed once")
   assert.equal(new URL(page.url()).hash, "#/", "the first tab keeps its route")
   assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 1)
+  assert.deepEqual(errors, [])
+})
+
+async function hostedBuild() {
+  const paths = (await readdir(hosted, { recursive: true, withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith(".js"))
+    .map(entry => relative(fileURLToPath(hosted), join(entry.parentPath, entry.name)))
+  return new Map(await Promise.all(paths.map(async path => [path, await readFile(new URL(path, hosted), "utf8")])))
+}
+
+function nextBuildWithEveryFileChanged(build) {
+  const renamed = new Map([...build.keys()].filter(path => hashed.test(path)).map(path => [path.split("/").pop(), path.split("/").pop().replace(/-[\w-]{8}\.js$/, "-next0000.js")]))
+  const rename = source => [...renamed].reduce((text, [from, to]) => text.replaceAll(from, to), source)
+  return new Map([...build].map(([path, source]) => [rename(path), `${rename(source)}\n// next build\n`]))
+}
+
+test("a page that cached the entry before a Console deploy starts Comments after it", { timeout: 120_000 }, async (t) => {
+  const first = await hostedBuild()
+  const second = nextBuildWithEveryFileChanged(first)
+  let served = first
+  const requested = []
+  const api = await fakeConsole({ script: async (path) => {
+    requested.push(path)
+    return served.get(path)
+  } })
+  t.after(() => Promise.all([close(api.server), api.vite.close()]))
+  const site = await fakeSite()
+  t.after(() => close(site))
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const page = await (await browser.newContext()).newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+
+  await page.goto(`${siteOrigin}/guide/`, { waitUntil: "networkidle" })
+  assert.ok(requested.includes("hosted-comments.js"))
+  assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 0, "a normal page view does not start Comments")
+
+  served = second
+  requested.length = 0
+  await page.goto(`${siteOrigin}/guide/?vitehub`)
+  await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).waitFor({ timeout: 20_000 })
+  assert.ok(!requested.includes("hosted-comments.js"), "the page runs the entry of the first build from the cache")
+  assert.ok(requested.includes("hosted-comments/tools.js"), "the tools come from the second build")
   assert.deepEqual(errors, [])
 })

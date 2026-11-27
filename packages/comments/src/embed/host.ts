@@ -111,7 +111,7 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
   const channel = new BroadcastChannel(embedChannelName(projectId))
   const frame = connect(consoleOrigin, projectId)
   const redeem = async (value: string) => (await (await frame).call("redeem", value)).value === true
-  const tools = import("./tools.ts")
+  const tools: Promise<typeof import("./tools.ts")> = import(/* @vite-ignore */ new URL("hosted-comments/tools.js", import.meta.url).href)
   const project = { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) }
   channel.addEventListener("message", ({ data }: MessageEvent<EmbedRelay>) => {
     if (data.type !== "code") return
