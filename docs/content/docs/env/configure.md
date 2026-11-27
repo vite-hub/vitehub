@@ -113,6 +113,15 @@ To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime f
 | `env.define` | Build transform | Yes in bundled code | Vite compile-time replacements. |
 | `env.server` | Server runtime | No | Server Env through `useServerEnv()` from `vite-hub/env`. |
 
+### Public Env is fixed at build
+
+The build reads the Public Env values and writes them into the bundle. A value that you change on the host after the build has no effect until you build again. This is different from Nuxt `runtimeConfig.public`, which reads `NUXT_PUBLIC_*` when the server starts.
+
+When you build once and deploy the same output to several targets (staging and production, or one per customer), do one of these:
+
+- Build once for each target, with the values of that target.
+- Declare the value in `env.server`, read it with `useServerEnv()`, and send it to the page from a server route or from server-rendered data.
+
 ## Env Declaration options
 
 `env()` declares one variable. A value is required by default. Set `optional: true` when the app can run without it, or set a `default`. You cannot set both, because a default makes the value always present.
