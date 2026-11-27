@@ -31,6 +31,25 @@ it("reads -- vitehub:no-transaction only on the first line that is not blank", (
   expect(isNoTransactionMigration("\n  -- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY i ON t (c);")).toBe(true)
   expect(isNoTransactionMigration("CREATE TABLE t (c integer);\n-- vitehub:no-transaction")).toBe(false)
   expect(isNoTransactionMigration("-- vitehub:no-transaction later")).toBe(false)
+  expect(isNoTransactionMigration("-- vitehub:no-transaction\r\nVACUUM t;")).toBe(true)
+})
+
+it("splits a -- vitehub:no-transaction file into single statements across breakpoints", () => {
+  const sql = [
+    "-- vitehub:no-transaction",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id); VACUUM t;",
+    "--> statement-breakpoint",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ].join("\n")
+  expect(splitSqlStatements(sql, "postgresql")).toEqual([
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id);",
+    "VACUUM t;",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ])
 })
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {

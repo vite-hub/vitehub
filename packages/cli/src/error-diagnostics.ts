@@ -108,11 +108,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     SETUP_INSTALL_FAILED: {
-      fix: ({ filesWritten }: { filesWritten?: unknown }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten === "possible"
+      fix: ({ filesWritten, workspaceFile }: { filesWritten?: unknown, workspaceFile?: string }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten === "possible"
         ? "Scaffolding may have left new app files on disk; inspect the target folder before retrying."
         : filesWritten
           ? "The new app files were written before installation failed; keep them when retrying."
-          : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
+          : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}${workspaceFile ? ` If pnpm reports an ignored esbuild build script, set \`allowBuilds: { esbuild: false }\` in \`${workspaceFile}\` before retrying.` : ""}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_FEATURE_IMPLIED: {

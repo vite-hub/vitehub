@@ -138,6 +138,15 @@ describe("Postgres Database Definitions", () => {
     expect(() => defineDatabase({ driver: "pglite", schema: {} }))
       .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", message: expect.stringContaining("driver") }))
   })
+
+  it("accepts `migrationsSchema` only on a Postgres Definition", () => {
+    expect(defineDatabase({ dialect: "postgresql", migrationsSchema: "app", schema: { notes } })).toMatchObject({ migrationsSchema: "app" })
+    expect(() => defineDatabase({ dialect: "postgresql", migrationsSchema: " ", schema: { notes } }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_MIGRATIONS_SCHEMA" }))
+    // @ts-expect-error Only Postgres keeps its ledger in a schema.
+    expect(() => defineDatabase({ migrationsSchema: "app", schema: {} }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", why: expect.stringContaining("with SQLite does not support `migrationsSchema`") }))
+  })
 })
 
 describe("Postgres build configuration", () => {
@@ -256,6 +265,24 @@ describe("Postgres build configuration", () => {
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("  ...{ driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/reports.pglite\" } },\n")
     expect(drizzleConfig).not.toContain("DATABASE_URL")
+  })
+
+  it("gives Drizzle Kit the `migrationsSchema` of the Definition", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", "  migrationsSchema: 'app',"])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    await writeGeneratedDatabaseArtifacts(config)
+
+    expect(config.databases.default).toMatchObject({ migrationsSchema: "app" })
+    expect(await readFile(config.generatedDrizzleConfigFile, "utf8")).toContain("  migrations: { schema: \"app\" },\n")
+  })
+
+  it("requires a literal `migrationsSchema`", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", "  migrationsSchema: process.env.SCHEMA,"])
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_MIGRATIONS_SCHEMA" }))
   })
 
   it("requires a literal `driver`", async () => {

@@ -523,7 +523,9 @@ async function dropTables(
       return 0
     }
     connection = opened.connection
-    const plan = await planDrop(connection)
+    const { resolveExportTarget } = await import("./internal/export.ts")
+    const pglite = resolveExportTarget(database, { env: resolved.env, projectRoot: resolved.projectRoot, remote: parsed.remote }).kind === "pglite"
+    const plan = await planDrop(connection, pglite ? undefined : database.migrationsSchema)
     if (!plan.statements.length) {
       context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
       return 0
@@ -1224,7 +1226,7 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     lines.push(`  Not in the migrations folder, as ${from} lists: ${names.join(", ")}`)
   }
   for (const migration of plan.pending) {
-    lines.push("", `  ${migration.name}`)
+    lines.push("", `  ${migration.name}${migration.noTransaction ? " (outside a transaction, one statement at a time)" : ""}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
     for (const loss of migration.dataLoss) lines.push(`    ! Data loss: ${loss.reason}.`)
   }
@@ -1279,7 +1281,7 @@ async function checkPendingMigrations(
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined])
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
+    if (!dryRun && databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
     return { exitCode: 1 }
   }
   if (dryRun) writeMigrationPlan(plan, context)

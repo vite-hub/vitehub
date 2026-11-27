@@ -71,7 +71,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
     // The migrator of `vitehub database migrate`. The database is new, so no migration can lose data.
     const ready = existsSync(options.migrationsDir)
       ? Promise.resolve().then(() => migratePostgres(
-          [{ client: toPgliteMigrationClient(client), database: { migrations: readStartMigrations(options.migrationsDir, "postgresql", definition.name), name: definition.name } }],
+          [{ client: toPgliteMigrationClient(client), createSchema: true, database: { migrations: readStartMigrations(options.migrationsDir, "postgresql", definition.name), migrationsSchema: definition.migrationsSchema, name: definition.name } }],
           { allowDataLoss: true, log: () => {} },
         ))
       : Promise.resolve()

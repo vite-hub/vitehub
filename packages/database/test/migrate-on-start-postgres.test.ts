@@ -67,7 +67,7 @@ function connect(url: string) {
   return sql
 }
 
-async function createProject(migrations: Array<{ sql: string, tag: string, when: number }>) {
+async function createProject(migrations: Array<{ sql: string, tag: string, when: number }>, definition: string[] = []) {
   const root = await mkdtemp(join(packageRoot, ".vitest-migrate-on-start-pg-"))
   cleanups.push(() => rm(root, { force: true, recursive: true }))
   await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
@@ -79,6 +79,7 @@ async function createProject(migrations: Array<{ sql: string, tag: string, when:
     '  connection: { url: process.env.MIGRATE_TEST_DATABASE_URL },',
     '  dialect: "postgresql",',
     '  schema: { users: pgTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) },',
+    ...definition,
     "})",
   ].join("\n"))
   const migrationsDir = await writeMigrations(root, migrations)
@@ -184,8 +185,8 @@ async function holdLock(sql: postgres.Sql) {
 }
 
 /** Drizzle 1.0's ledger rows. `applied_at` is a time, so only whether it is set is compared. */
-async function readLedger(sql: postgres.Sql) {
-  return await sql<Array<{ applied: boolean, created_at: string, hash: string, id: number, name: string | null }>>`select id, hash, created_at, name, applied_at is not null as applied from drizzle.__drizzle_migrations order by id`
+async function readLedger(sql: postgres.Sql, schema = "drizzle") {
+  return await sql<Array<{ applied: boolean, created_at: string, hash: string, id: number, name: string | null }>>`select id, hash, created_at, name, applied_at is not null as applied from ${sql(schema)}.__drizzle_migrations order by id`
 }
 
 /** The columns of the ledger table, to compare the table that ViteHub creates or upgrades with Drizzle's. */
@@ -201,8 +202,8 @@ async function writeDrizzleKit0xLedger(sql: postgres.Sql) {
   await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${createHash("sha256").update(init.sql).digest("hex")}, ${init.when + 417})`
 }
 
-function postgresDatabase(url: string, migrationsDir: string): ResolvedDrizzleDatabaseConfig {
-  return { connection: { url }, dialect: "postgresql", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" }
+function postgresDatabase(url: string, migrationsDir: string, migrationsSchema?: string): ResolvedDrizzleDatabaseConfig {
+  return { connection: { url }, dialect: "postgresql", generatedSchemaFile: "", migrationsDir, ...migrationsSchema && { migrationsSchema }, mode: "default", name: "default", orm: "drizzle" }
 }
 
 describe.skipIf(!adminUrl)("ensureMigrations on Postgres", () => {
@@ -420,7 +421,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const sql = connect(url)
     await (await buildNodeServer(root, {})).start(url)
 
-    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
+    const dropLegacy = { sql: "SELECT pg_sleep(4);\n--> statement-breakpoint\nDROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
     const migrationsDir = await writeMigrations(root, [init, dropLegacy])
     const server = await buildNodeServer(root, {})
     // The CLI holds the lock while it applies the drop. The server must read the ledger after that commit.
@@ -431,15 +432,11 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
       rootDir: root,
     }) as unknown as ResolvedDBViteConfig)!
     const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
-    // A holder stands in for a long migration: it takes the lock first, so the CLI and the server queue behind it.
-    const holder = await holdLock(sql)
     const cliOut = vi.fn()
     const cli = command.run(["--allow-data-loss"], { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: cliOut }, stdout: { write: cliOut } } as never)
-    // Postgres queues lock requests in order. Start the server only when the CLI waits, so the CLI applies first.
-    await vi.waitFor(() => expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("Waiting for it to finish"), { interval: 50, timeout: 20_000 })
+    await vi.waitFor(async () => expect(await sql`select count(*)::int as count from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() and query like '%pg_sleep(4)%'`).toEqual([{ count: 1 }]), { interval: 50, timeout: 20_000 })
     const booting = server.startUntil(url, "Waiting for it to finish")
     await booting.seen
-    await holder.release()
     expect(await cli).toBe(0)
     const { code, stderr, stdout } = await booting.exited
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
@@ -631,6 +628,10 @@ async function writeNuxtHubHistory(sql: postgres.Sql, migrations: Array<{ sql: s
 const ledgerRow = (migration: { sql: string, tag: string, when: number }) => ({ created_at: String(migration.when), hash: createHash("sha256").update(migration.sql).digest("hex"), name: migration.tag })
 
 function migrateCommand(root: string, ...databases: ResolvedDrizzleDatabaseConfig[]) {
+  return databaseCommand("migrate", root, ...databases)
+}
+
+function databaseCommand(name: "migrate" | "sql", root: string, ...databases: ResolvedDrizzleDatabaseConfig[]) {
   const contributor = createDbCliContributor(undefined, () => ({
     databaseNames: databases.map(database => database.name),
     databases: Object.fromEntries(databases.map(database => [database.name, database])),
@@ -638,7 +639,7 @@ function migrateCommand(root: string, ...databases: ResolvedDrizzleDatabaseConfi
     generatedDrizzleConfigFilesByDatabase: Object.fromEntries(databases.map(database => [database.name, join(root, `${database.name}.config.ts`)])),
     rootDir: root,
   }) as unknown as ResolvedDBViteConfig)!
-  const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+  const command = contributor.namespaces[0]!.features.find(feature => feature.name === name)!
   return async (args: string[]) => {
     const stdout = vi.fn()
     const stderr = vi.fn()
@@ -806,9 +807,732 @@ describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
 
     const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir), { env: {}, projectRoot: root })
     expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
-    expect(error?.why).toContain(`The migrations table _hub_migrations lists 0000_init, but that migration is now 0001_init (${init.tag}), so ViteHub would apply it again.`)
+    expect(error?.why).toContain(`The migrations table public._hub_migrations lists 0000_init, but that migration is now 0001_init (${init.tag}), so ViteHub would apply it again.`)
     await expect(migratePostgres([{ client: sql, database: { migrations: readStartMigrations(migrationsDir, "postgresql"), name: "default" } }], { log: () => {} }))
       .rejects.toMatchObject({ code: "DATABASE_MIGRATION_CHECK_FAILED" })
     expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
+  })
+})
+
+describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
+  const inApp = ['  migrationsSchema: "app",']
+  const startTarget = (sql: postgres.Sql, migrationsDir: string) => [{ client: sql, database: { migrations: readStartMigrations(migrationsDir, "postgresql"), migrationsSchema: "app", name: "default" } }]
+  const schemas = async (sql: postgres.Sql) => (await sql<Array<{ nspname: string }>>`select nspname from pg_namespace where nspname in ('app', 'drizzle') order by nspname`).map(row => row.nspname)
+  const widgets = { sql: "CREATE TABLE \"widgets\" (\"id\" integer);", tag: "20260102000000_widgets", when: 1_767_312_000_000 }
+  const clearWidgets = { sql: "DELETE FROM \"widgets\" WHERE \"id\" > 0;", tag: "20260102000001_clear_widgets", when: 1_767_312_001_000 }
+  const clearAgain = { sql: clearWidgets.sql, tag: "20260102000002_clear_widgets_again", when: 1_767_312_002_000 }
+  const fixStatements = (fix: string | undefined) => (fix ?? "").split("\n").filter(line => /^(?:CREATE TABLE|INSERT INTO) /.test(line))
+
+  it("keeps the ledger in migrationsSchema and creates no drizzle schema", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, seed], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+
+    const started = await (await buildNodeServer(root, {})).start(url)
+    expect(started.stdout.trim().split("\n")).toEqual([
+      `[vitehub] Database "default": applied ${init.tag}.`,
+      `[vitehub] Database "default": applied ${seed.tag}.`,
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+    expect(await schemas(sql)).toEqual(["app"])
+    expect((await readLedger(sql, "app")).map(({ created_at, hash, name }) => ({ created_at, hash, name }))).toEqual([ledgerRow(init), ledgerRow(seed)])
+    await migrate(drizzle({ client: sql }), { migrationsFolder: migrationsDir, migrationsSchema: "app" })
+    expect(await readLedger(sql, "app")).toHaveLength(2)
+    const dryRun = await migrateCommand(root, postgresDatabase(url, migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(": no pending migrations.")
+    expect(await schemas(sql)).toEqual(["app"])
+  })
+
+  it("fails with DATABASE_MIGRATION_SCHEMA_MISSING on start and in --dry-run, and creates no schema", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+
+    await expect(migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_SCHEMA_MISSING",
+      fix: expect.stringContaining("vitehub database sql --remote --database default 'CREATE SCHEMA \"app\"'"),
+    })
+    const dryRun = await migrateCommand(root, postgresDatabase(url, migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_MISSING")
+    expect(await schemas(sql)).toEqual([])
+  })
+
+  it("stops a folder that drizzle lists by name with other SQL without printing its row", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: [{ dataLoss: [], hash: "other-sql", name: init.tag, statements: ["CREATE TABLE other_users (id int)"], when: init.when }], name: "other" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const shared = await readLedger(sql)
+
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toMatchObject({ code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`lists the name of "${init.tag}" with other SQL`) })
+    expect(error?.fix).toContain(`does not show that this database ran the exact SQL of "${init.tag}"`)
+    expect(fixStatements(error?.fix).filter(statement => statement.startsWith("INSERT INTO"))).toEqual([])
+    await expect(migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_LEDGER_MISPLACED" })
+    expect(await sql`select to_regclass('public.users')::text as name`).toEqual([{ name: null }])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("applies a migration when a Drizzle Kit 0.x row in drizzle has the same second and other SQL", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA \"drizzle\"")
+    await sql.unsafe("CREATE TABLE \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)")
+    await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${"other-sql"}, ${init.when + 417})`
+    await sql.unsafe("CREATE SCHEMA app")
+    const kit0x = await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`
+
+    const [error, plan] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toBeUndefined()
+    expect(plan?.pending.map(migration => migration.name)).toEqual([init.tag])
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([`[vitehub] Database "default": applied ${init.tag}.`])
+    expect((await readLedgerColumns(sql)).map(column => column.column_name)).toEqual(["id", "hash", "created_at"])
+    expect(await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`).toEqual(kit0x)
+  })
+
+  it("fails with DATABASE_MIGRATION_LEDGER_MISPLACED when drizzle lists its migrations and the app ledger is empty, and the printed SQL fixes it", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (1)")
+    await sql.unsafe("CREATE SCHEMA app")
+    const shared = await readLedger(sql)
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`"${widgets.tag}", "${clearWidgets.tag}"`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    const dryRun = await migrateCommand(app.root, postgresDatabase(url, app.migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_LEDGER_MISPLACED")
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select to_regclass('app.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
+    expect(await readLedger(sql)).toEqual(shared)
+
+    expect(error?.fix).toMatch(/^Remove `migrationsSchema` only if you verify that the ledger in "drizzle" lists all migrations this app has applied/)
+    const statements = fixStatements(error?.fix)
+    expect(statements).toHaveLength(3)
+    for (const statement of statements) await sql.unsafe(statement)
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, app.migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([])
+    expect((await readLedger(sql, "app")).map(({ applied, created_at, hash, name }) => ({ applied, created_at, hash, name }))).toEqual([{ ...ledgerRow(widgets), applied: true }, { ...ledgerRow(clearWidgets), applied: true }])
+    expect(await sql`select id from widgets`).toEqual([{ id: 1 }])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("applies a new folder with the SQL of a migration that the printed SQL copied to the app ledger", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const shared = await readLedger(sql)
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    for (const statement of fixStatements(error?.fix)) await sql.unsafe(statement)
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (2)")
+
+    await writeMigrations(app.root, [widgets, clearWidgets, clearAgain])
+    const [planError, plan] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(planError).toBeUndefined()
+    expect(plan?.pending.map(migration => migration.name)).toEqual([clearAgain.tag])
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, app.migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([`[vitehub] Database "default": applied ${clearAgain.tag}.`])
+    expect(await sql`select id from widgets`).toEqual([])
+    expect((await readLedger(sql, "app")).map(({ name }) => name)).toEqual([widgets.tag, clearWidgets.tag, clearAgain.tag])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("fails with DATABASE_MIGRATION_LEDGER_MISPLACED when the app ledger is partial and drizzle lists a pending migration", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (1)")
+    await sql.unsafe("CREATE SCHEMA app")
+    await sql.unsafe("CREATE TABLE app.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())")
+    await sql`insert into app.__drizzle_migrations (hash, created_at, name) values (${ledgerRow(widgets).hash}, ${widgets.when}, ${widgets.tag})`
+    const own = await readLedger(sql, "app")
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    expect(error?.fix).toMatch(/^Keep `migrationsSchema`: the ledger in "app" lists 1 migration\(s\)/)
+    expect(error?.fix).not.toContain("Remove `migrationsSchema`")
+    expect(fixStatements(error?.fix)).toHaveLength(2)
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select id from widgets`).toEqual([{ id: 1 }])
+    expect(await readLedger(sql, "app")).toEqual(own)
+  })
+
+  async function writeAppLedger(sql: postgres.Sql, migrations: Array<{ sql: string, tag: string, when: number }>) {
+    await sql.unsafe("CREATE TABLE app.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())")
+    for (const migration of migrations) await sql`insert into app.__drizzle_migrations (hash, created_at, name) values (${ledgerRow(migration).hash}, ${migration.when}, ${migration.tag})`
+  }
+
+  const inserts = (fix: string | undefined) => fixStatements(fix).filter(statement => statement.startsWith("INSERT INTO"))
+
+  it("stops a folder that drizzle records by name when the app ledger records another folder with the same SQL", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeAppLedger(sql, [widgets, clearAgain])
+    await writeMigrations(app.root, [widgets, clearWidgets, clearAgain])
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (3)")
+    const shared = await readLedger(sql)
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    const dryRun = await migrateCommand(app.root, postgresDatabase(url, app.migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_LEDGER_MISPLACED")
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+
+    expect(inserts(error?.fix)).toEqual([`INSERT INTO "app"."__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${ledgerRow(clearWidgets).hash}', ${clearWidgets.when}, '${clearWidgets.tag}');`])
+    for (const statement of fixStatements(error?.fix)) await sql.unsafe(statement)
+    const [planError, plan] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(planError).toBeUndefined()
+    expect(plan?.pending).toEqual([])
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, app.migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([])
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("stops a folder that a Drizzle Kit 0.x row records by hash and second when the app ledger records another folder with the same SQL", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets, clearAgain], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe(widgets.sql)
+    await sql.unsafe("CREATE SCHEMA \"drizzle\"")
+    await sql.unsafe("CREATE TABLE \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)")
+    for (const migration of [widgets, clearWidgets]) await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${ledgerRow(migration).hash}, ${migration.when + 417})`
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeAppLedger(sql, [widgets, clearAgain])
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (3)")
+    const kit0x = await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    expect(inserts(error?.fix)).toHaveLength(1)
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+    expect((await readLedgerColumns(sql)).map(column => column.column_name)).toEqual(["id", "hash", "created_at"])
+    expect(await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`).toEqual(kit0x)
+  })
+
+  it("stops a renamed applied folder without printing its row", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const renamed = { ...widgets, tag: "20260102000000_create_widgets" }
+    await writeMigrations(app.root, [renamed])
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${renamed.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    expect(error?.why).toContain("under a name that no local folder has")
+    expect(error?.fix).toContain(`does not show that this database ran the exact SQL of "${renamed.tag}"`)
+    expect(error?.fix).toContain("If a folder is new, change its SQL text")
+    expect(error?.fix).not.toContain("Remove `migrationsSchema`")
+    expect(inserts(error?.fix)).toEqual([])
+    const dryRun = await migrateCommand(app.root, postgresDatabase(url, app.migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_LEDGER_MISPLACED")
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select to_regclass('app.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
+  })
+
+  async function createRuntimeRole(url: string) {
+    const admin = postgres(adminUrl!, { max: 1, onnotice: () => {} })
+    const role = `vitehub_runtime_${randomUUID().replaceAll("-", "").slice(0, 12)}`
+    await admin.unsafe(`CREATE ROLE ${role} LOGIN PASSWORD 'test'`)
+    cleanups.unshift(async () => {
+      await admin.unsafe(`DROP ROLE IF EXISTS ${role}`)
+      await admin.end()
+    })
+    const runtimeUrl = new URL(url)
+    runtimeUrl.username = role
+    runtimeUrl.password = "test"
+    const runtime = connect(runtimeUrl.href)
+    return { role, runtime, url: runtimeUrl.href }
+  }
+
+  it("starts without access to drizzle when the ledger in migrationsSchema lists every migration", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: [{ dataLoss: [], hash: "other", name: "20200101000000_other", statements: ["CREATE TABLE other (id int)"], when: 1_577_836_800_000 }], name: "other" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    await migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })
+    const { role, runtime, url: runtimeUrl } = await createRuntimeRole(url)
+    await sql.unsafe(`GRANT USAGE ON SCHEMA app TO ${role}`)
+    await sql.unsafe(`GRANT SELECT ON app.__drizzle_migrations TO ${role}`)
+
+    const log: string[] = []
+    await migratePostgres(startTarget(runtime, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([])
+    const [error, plan] = await readMigrationPlan(postgresDatabase(runtimeUrl, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toBeUndefined()
+    expect(plan?.pending).toEqual([])
+  })
+
+  it("applies its migrations when the role cannot read drizzle and the app ledger is empty", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: [{ dataLoss: [], hash: "other", name: "20200101000000_other", statements: ["CREATE TABLE other (id int)"], when: 1_577_836_800_000 }], name: "other" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const { role, runtime, url: runtimeUrl } = await createRuntimeRole(url)
+    await sql.unsafe(`GRANT USAGE, CREATE ON SCHEMA app TO ${role}`)
+    await sql.unsafe(`GRANT CREATE ON SCHEMA public TO ${role}`)
+
+    const [error, plan] = await readMigrationPlan(postgresDatabase(runtimeUrl, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toBeUndefined()
+    expect(plan?.pending.map(migration => migration.name)).toEqual([init.tag])
+    const log: string[] = []
+    await migratePostgres(startTarget(runtime, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([`[vitehub] Database "default": applied ${init.tag}.`])
+    expect((await readLedger(sql, "app")).map(row => row.name)).toEqual([init.tag])
+  })
+
+  it("ignores a ledger in drizzle that lists none of its migrations", { timeout: 60_000 }, async () => {
+    const { migrationsDir } = await createProject([init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: [{ dataLoss: [], hash: "other", name: "20200101000000_other", statements: ["CREATE TABLE other (id int)"], when: 1_577_836_800_000 }], name: "other" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const log: string[] = []
+
+    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([`[vitehub] Database "default": applied ${init.tag}.`])
+    expect((await readLedger(sql, "app")).map(row => row.name)).toEqual([init.tag])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual(["20200101000000_other"])
+  })
+
+  it("fails with DATABASE_MIGRATION_SCHEMA_CONFLICT when two Definitions on one database set different schemas", { timeout: 60_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    const migration = (name: string) => ({ dataLoss: [], hash: name, name, statements: [`CREATE TABLE ${name} (id int)`], when: 1_000 })
+
+    await expect(migratePostgres([
+      { client: sql, database: { migrations: [migration("a0")], migrationsSchema: "app", name: "first" } },
+      { client: connect(url), database: { migrations: [migration("b0")], name: "second" } },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_SCHEMA_CONFLICT", why: expect.stringContaining("\"first\" and \"second\"") })
+    expect(await schemas(sql)).toEqual([])
+  })
+
+  it("fails --dry-run with DATABASE_MIGRATION_SCHEMA_CONFLICT when two Definitions on one database set different schemas", { timeout: 60_000 }, async () => {
+    const first = await createProject([init], inApp)
+    const other = await createProject([{ sql: "CREATE TABLE widgets (id int);", tag: "20260102000000_widgets", when: 1_767_312_000_000 }])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+
+    const dryRun = await migrateCommand(first.root, postgresDatabase(url, first.migrationsDir, "app"), { ...postgresDatabase(url, other.migrationsDir), name: "other" })(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_CONFLICT")
+    expect(await schemas(sql)).toEqual(["app"])
+  })
+
+  it("reads _hub_migrations in migrationsSchema", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, seed])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeNuxtHubHistory(sql, [init], ["0000_init"], "app._hub_migrations")
+    const log: string[] = []
+
+    const [error, plan] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toBeUndefined()
+    expect(plan?.adopted).toEqual([{ from: "_hub_migrations", name: init.tag }])
+    expect(plan?.pending.map(migration => migration.name)).toEqual([seed.tag])
+
+    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([
+      `[vitehub] Database "default": recorded ${init.tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${seed.tag}.`,
+    ])
+    expect((await readLedger(sql, "app")).map(row => row.name)).toEqual([init.tag, seed.tag])
+    expect(await schemas(sql)).toEqual(["app"])
+  })
+
+  it("prints repair SQL that names the migrationsSchema table outside the search path", { timeout: 60_000 }, async () => {
+    const early = { sql: "SELECT 1;", tag: "20231114221319_early", when: 1_699_999_999_000 }
+    const { migrationsDir, root } = await createProject([early, init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeNuxtHubHistory(sql, [init], ["0000_init"], "app._hub_migrations")
+
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+    const repair = /`(UPDATE [^`]+)`/.exec(error?.why ?? "")?.[1]
+    expect(repair).toBe(`UPDATE app._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'`)
+    await expect(migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })).rejects.toMatchObject({ why: expect.stringContaining(repair!) })
+
+    await sql.unsafe(repair!)
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([
+      `[vitehub] Database "default": recorded ${init.tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${early.tag}.`,
+    ])
+  })
+
+  it("names each history table that lists a renumbered migration", { timeout: 60_000 }, async () => {
+    const early = { sql: "SELECT 1;", tag: "20231114221319_early", when: 1_699_999_999_000 }
+    const { migrationsDir, root } = await createProject([early, init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA \"My App\"")
+    await writeNuxtHubHistory(sql, [init], ["0000_init"], "\"My App\"._hub_migrations")
+    await writeNuxtHubHistory(sql, [], ["0000_init"])
+
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "My App"), { env: {}, projectRoot: root })
+    expect(error?.why).toContain(`The migrations tables "My App"._hub_migrations, public._hub_migrations list 0000_init`)
+    expect(error?.why).toContain(`\`UPDATE "My App"._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'\``)
+    expect(error?.why).toContain(`\`UPDATE public._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'\``)
+  })
+})
+
+describe.skipIf(!adminUrl)("a role without the privileges for the migration ledger", () => {
+  async function createRoleDatabase() {
+    const admin = connect(adminUrl!)
+    const role = `vitehub_denied_${randomUUID().replaceAll("-", "").slice(0, 8)}`
+    await admin.unsafe(`create role ${role} login password 'denied'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${role}`))
+    const url = await createDatabase()
+    const owner = connect(url)
+    await owner.unsafe(`grant usage, create on schema public to ${role}`)
+    const roleUrl = new URL(url)
+    roleUrl.username = role
+    roleUrl.password = "denied"
+    return { name: new URL(url).pathname.slice(1), owner, role, roleUrl: roleUrl.href, url }
+  }
+
+  async function runPrintedSql(output: string, root: string, migrationsDir: string, ownerUrl: string) {
+    const [, database, statement] = output.match(/vitehub database sql --remote --database (\S+) '([^']+)'/) ?? []
+    expect(database).toBe("default")
+    const result = await databaseCommand("sql", root, postgresDatabase(ownerUrl, migrationsDir))(["--remote", "--database", database!, statement!])
+    expect(result.exitCode).toBe(0)
+  }
+
+  async function startFailure(server: Awaited<ReturnType<typeof buildNodeServer>>, url: string): Promise<string> {
+    return server.start(url).then(() => "", (error: { stderr?: string }) => String(error.stderr).replaceAll("\\", ""))
+  }
+
+  it("fails when the role cannot create drizzle, on start and in --dry-run", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const { name, owner, role, roleUrl, url } = await createRoleDatabase()
+    const server = await buildNodeServer(root, {})
+    const grant = `GRANT CREATE ON DATABASE "${name}" TO "${role}"`
+
+    const failure = await startFailure(server, roleUrl)
+    expect(failure).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no CREATE on the Postgres database "${name}"[\\s\\S]*vitehub database sql --remote --database default '${grant}'`))
+    const dryRun = await migrateCommand(root, postgresDatabase(roleUrl, migrationsDir))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_DENIED")
+    expect(dryRun.stderr).toContain(grant)
+    expect(await owner`select to_regclass('public.users')::text as name, exists (select 1 from pg_namespace where nspname = 'drizzle') as drizzle`).toEqual([{ drizzle: false, name: null }])
+
+    await runPrintedSql(failure, root, migrationsDir, url)
+    expect((await server.start(roleUrl)).stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${init.tag}.`, "[]"])
+  })
+
+  it("creates the ledger in a drizzle schema that the owner made, without CREATE on the database", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const { owner, role, roleUrl } = await createRoleDatabase()
+    await owner.unsafe(`create schema drizzle`)
+    await owner.unsafe(`grant usage, create on schema drizzle to ${role}`)
+    const server = await buildNodeServer(root, {})
+
+    const dryRun = await migrateCommand(root, postgresDatabase(roleUrl, migrationsDir))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(0)
+    expect((await server.start(roleUrl)).stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${init.tag}.`, "[]"])
+    expect(await owner`select count(*)::int as count from drizzle.__drizzle_migrations`).toEqual([{ count: 1 }])
+  })
+
+  it("tells the role to ask the schema owner when another role owns drizzle", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const admin = connect(adminUrl!)
+    const [databaseOwner, schemaOwner] = ["db", "schema"].map(kind => `vitehub_${kind}_owner_${randomUUID().replaceAll("-", "").slice(0, 8)}`)
+    for (const owner of [databaseOwner, schemaOwner]) {
+      await admin.unsafe(`create role ${owner} login password 'owner'`)
+      cleanups.push(() => admin.unsafe(`drop role if exists ${owner}`))
+    }
+    const { name, owner, role, roleUrl, url } = await createRoleDatabase()
+    await owner.unsafe(`alter database ${name} owner to ${databaseOwner}`)
+    await owner.unsafe(`create schema drizzle authorization ${schemaOwner}`)
+    await owner.unsafe(`grant usage on schema drizzle to ${role}`)
+    const ownerUrl = (user: string) => Object.assign(new URL(url), { password: "owner", username: user }).href
+    const server = await buildNodeServer(root, {})
+    const grant = `GRANT CREATE ON SCHEMA "drizzle" TO "${role}"`
+
+    const failure = await startFailure(server, roleUrl)
+    expect(failure).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no CREATE on the schema "drizzle"[\\s\\S]*As the owner of the schema "drizzle" or a role with the grant option on it, run \`${grant}\``))
+    const asDatabaseOwner = await databaseCommand("sql", root, postgresDatabase(ownerUrl(databaseOwner), migrationsDir))(["--remote", "--database", "default", grant])
+    expect(asDatabaseOwner.exitCode).toBe(1)
+
+    await runPrintedSql(failure, root, migrationsDir, ownerUrl(schemaOwner))
+    expect((await server.start(roleUrl)).stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${init.tag}.`, "[]"])
+  })
+
+  it("fails when drizzle has no USAGE, on start and in --dry-run", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, seed])
+    const { owner, role, roleUrl, url } = await createRoleDatabase()
+    const server = await buildNodeServer(root, {})
+    await server.start(url)
+    await owner.unsafe(`grant select on all tables in schema public to ${role}`)
+    const grant = `GRANT USAGE ON SCHEMA "drizzle" TO "${role}"`
+
+    const failure = await startFailure(server, roleUrl)
+    expect(failure).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no USAGE on the schema "drizzle"[\\s\\S]*vitehub database sql --remote --database default '${grant}'`))
+    const dryRun = await migrateCommand(root, postgresDatabase(roleUrl, migrationsDir))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_DENIED")
+    expect(dryRun.stderr).toContain(grant)
+
+    await runPrintedSql(failure, root, migrationsDir, url)
+    await owner.unsafe(`grant select on drizzle.__drizzle_migrations to ${role}`)
+    expect((await server.start(roleUrl)).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+  })
+})
+
+describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", () => {
+  const usersName = { sql: "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"users_name\" ON \"users\" (\"name\");\nVACUUM \"users\";\n", tag: "20231114221324_users_name", when: 1_700_000_004_000 }
+  const addPhone = { sql: "ALTER TABLE \"users\" ADD COLUMN \"phone\" text;", tag: "20231114221325_add_phone", when: 1_700_000_005_000 }
+  const entry = (name: string, when: number, statements: string[], noTransaction?: true) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when, ...noTransaction && { noTransaction } })
+  const advisoryLocks = (sql: postgres.Sql) => sql`select count(*)::int as count from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())`
+
+  it("runs a marked file outside the transaction and records it after its last statement, when four servers start together", { timeout: 120_000 }, async () => {
+    const { root } = await createProject([init, seed, usersName, addPhone])
+    const url = await createDatabase()
+    const server = await buildNodeServer(root, {})
+
+    const runs = await Promise.all(Array.from({ length: 4 }, () => server.start(url)))
+    const lines = runs.flatMap(run => run.stdout.trim().split("\n"))
+    for (const tag of [init.tag, seed.tag, usersName.tag, addPhone.tag]) expect(lines.filter(line => line.includes(`applied ${tag}`))).toEqual([`[vitehub] Database "default": applied ${tag}.`])
+    expect(lines.filter(line => line.includes("Waiting for it to finish")).length).toBeGreaterThan(0)
+    for (const run of runs) expect(run.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+
+    const sql = connect(url)
+    expect((await readLedger(sql)).map(row => [row.name, row.applied])).toEqual([[init.tag, true], [seed.tag, true], [usersName.tag, true], [addPhone.tag, true]])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("records a marked file in migrationsSchema and creates no drizzle schema", { timeout: 60_000 }, async () => {
+    const { root } = await createProject([init, seed, usersName], ['  migrationsSchema: "app",'])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+
+    const started = await (await buildNodeServer(root, {})).start(url)
+    expect(started.stdout.trim().split("\n")).toEqual([
+      ...[init, seed, usersName].map(({ tag }) => `[vitehub] Database "default": applied ${tag}.`),
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+    expect((await readLedger(sql, "app")).map(({ created_at, hash, name }) => ({ created_at, hash, name }))).toEqual([ledgerRow(init), ledgerRow(seed), ledgerRow(usersName)])
+    expect(await sql`select nspname from pg_namespace where nspname in ('app', 'drizzle') order by nspname`).toEqual([{ nspname: "app" }])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("records the migrations that _hub_migrations lists, then runs only the pending marked file", { timeout: 60_000 }, async () => {
+    const { root } = await createProject([init, seed, usersName])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await writeNuxtHubHistory(sql, [init, seed], ["0000_init", "0001_seed"])
+
+    const started = await (await buildNodeServer(root, {})).start(url)
+    expect(started.stdout.trim().split("\n")).toEqual([
+      `[vitehub] Database "default": recorded ${init.tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": recorded ${seed.tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${usersName.tag}.`,
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+    expect((await readLedger(sql)).map(({ created_at, hash, name }) => ({ created_at, hash, name }))).toEqual([ledgerRow(init), ledgerRow(seed), ledgerRow(usersName)])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("a waiting process does not deadlock CREATE INDEX CONCURRENTLY", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const holder = await connect(url).reserve()
+    cleanups.push(async () => holder.release())
+    await holder`select pg_advisory_lock(hashtext(${postgresMigrationLock}))`
+    const log: string[] = []
+    const waiting = migratePostgres([{ client: connect(url), database: { migrations: [entry(init.tag, init.when, ["CREATE TABLE \"users\" (\"id\" integer)"])], name: "default" } }], { log: message => log.push(message) })
+    await vi.waitFor(() => expect(log).toContain('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'), { interval: 50, timeout: 10_000 })
+
+    // A waiter that blocks in a transaction makes the index build wait for it, and Postgres ends one of them with 40P01.
+    await holder`create index concurrently items_id on items (id)`
+    await holder`select pg_advisory_unlock(hashtext(${postgresMigrationLock}))`
+    await expect(waiting).resolves.toEqual([init.tag])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'items_id'::regclass`).toEqual([{ indisvalid: true }])
+  })
+
+  it("keeps the statements before a failed one, records nothing, lists the invalid index, and applies on the next run", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table users (id integer primary key, email text)`
+    await sql`insert into users values (1, 'ada@example.com'), (2, 'ada@example.com')`
+    await sql`create table other (id integer)`
+    await sql`insert into other values (1), (1)`
+    await expect(sql`create unique index concurrently other_id on other (id)`).rejects.toThrow()
+    const unique = entry("20231114221321_unique_email", seed.when, [
+      "ALTER TABLE \"users\" ADD COLUMN IF NOT EXISTS \"note\" text;",
+      "-- One email per user.\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"users_email\" ON \"users\" (\"email\");",
+    ], true)
+    const run = () => migratePostgres([{ client: sql, database: { migrations: [unique], name: "default" } }], { log: () => {} })
+
+    const failed = run()
+    await expect(failed).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      fix: expect.stringContaining("`DROP INDEX CONCURRENTLY IF EXISTS <name>`"),
+      why: expect.stringMatching(/statement 2 failed: could not create unique index "users_email"[\s\S]*Statement: -- One email per user\.\nCREATE UNIQUE INDEX CONCURRENTLY[\s\S]*The 1 statement\(s\) before it stay applied[\s\S]*public\.users_email/),
+    })
+    await expect(failed).rejects.toMatchObject({ why: expect.not.stringContaining("other_id") })
+    expect(await sql`select column_name from information_schema.columns where table_name = 'users' and column_name = 'note'`).toEqual([{ column_name: "note" }])
+    expect(await readLedger(sql)).toEqual([])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    // `IF NOT EXISTS` skips the invalid index, so the file must stay pending until it is dropped.
+    await sql`delete from users where id = 2`
+    const retried = run()
+    await expect(retried).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/statement 2 failed: The index "public\.users_email" is invalid[\s\S]*Invalid indexes:\n {2}- public\.users_email$/) })
+    await expect(retried).rejects.toMatchObject({ why: expect.not.stringContaining("other_id") })
+    expect(await readLedger(sql)).toEqual([])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await sql`drop index concurrently if exists users_email`
+    await expect(run()).resolves.toEqual([unique.name])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_email'::regclass`).toEqual([{ indisvalid: true }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([unique.name])
+  })
+
+  it("runs BEGIN, COMMIT, and an unnamed CREATE INDEX CONCURRENTLY in a marked file", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const marked = entry("a1_marked", 1_000, ["BEGIN;", "INSERT INTO \"items\" VALUES (1);", "INSERT INTO \"items\" VALUES (2);", "COMMIT;", "CREATE INDEX CONCURRENTLY ON \"items\" (\"id\");"], true)
+
+    await expect(migratePostgres([{ client: sql, database: { migrations: [marked], name: "default" } }], { log: () => {} })).resolves.toEqual([marked.name])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 2 }])
+    expect(await sql`select indisvalid from pg_index where indrelid = 'items'::regclass`).toEqual([{ indisvalid: true }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([marked.name])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("ends a failed BEGIN block and the lock, so the next run on the same client applies the fixed file", { timeout: 20_000 }, async () => {
+    const url = await createDatabase()
+    const sql = postgres(url, { max: 1, onnotice: () => {} })
+    cleanups.push(() => sql.end({ timeout: 1 }))
+    await sql`create table items (id integer)`
+    const marked = (statement: string) => entry("a1_marked", 1_000, ["INSERT INTO \"items\" VALUES (1);", "BEGIN;", "INSERT INTO \"items\" VALUES (2);", statement, "COMMIT;"], true)
+    const run = (statement: string) => migratePostgres([{ client: sql, database: { migrations: [marked(statement)], name: "default" } }], { log: () => {} })
+
+    await expect(run("INSERT INTO \"missing_table\" VALUES (3);")).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      why: expect.stringContaining("relation \"missing_table\" does not exist ViteHub rolled back the transaction that the file opened with BEGIN."),
+    })
+    expect(await sql`select id from items order by id`).toEqual([{ id: 1 }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await sql`delete from items`
+    await expect(run("INSERT INTO \"items\" VALUES (3);")).resolves.toEqual(["a1_marked"])
+    expect(await sql`select id from items order by id`).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual(["a1_marked"])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("does not record a marked file that ends inside an open transaction, and applies it once it commits", { timeout: 20_000 }, async () => {
+    const url = await createDatabase()
+    const sql = postgres(url, { max: 1, onnotice: () => {} })
+    cleanups.push(() => sql.end({ timeout: 1 }))
+    await sql`create table items (id integer)`
+    const run = (statements: string[]) => migratePostgres([{ client: sql, database: { migrations: [entry("a1_marked", 1_000, statements, true)], name: "default" } }], { log: () => {} })
+
+    await expect(run(["BEGIN;", "INSERT INTO \"items\" VALUES (1);"])).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      why: expect.stringContaining("ends inside a transaction that it opened with BEGIN"),
+    })
+    expect(await readLedger(sql)).toEqual([])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 0 }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await expect(run(["BEGIN;", "INSERT INTO \"items\" VALUES (1);", "COMMIT;"])).resolves.toEqual(["a1_marked"])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 1 }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual(["a1_marked"])
+  })
+
+  it("names the marker when Postgres refuses a statement in the transaction, and keeps a marked file applied before a failure", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const index = entry("a1_index", 1_000, ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"items_id\" ON \"items\" (\"id\")"])
+    const migrate = (migrations: Array<ReturnType<typeof entry>>) => migratePostgres([{ client: sql, database: { migrations, name: "default" } }], { log: () => {} })
+
+    await expect(migrate([index])).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_FAILED",
+      fix: expect.stringContaining("first line is `-- vitehub:no-transaction`"),
+      why: expect.stringContaining("cannot run inside a transaction block"),
+    })
+    expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
+
+    const failed = migrate([{ ...index, noTransaction: true }, entry("a2_broken", 2_000, ["INSERT INTO \"missing_table\" VALUES (1)"])])
+    await expect(failed).rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("It keeps the migrations that this run applied before it: a1_index.") })
+    await expect(failed).rejects.toMatchObject({ fix: expect.not.stringContaining("no-transaction") })
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([index.name])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("shows the marked file in `vitehub database migrate --dry-run`, and `vitehub database migrate` applies it", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, usersName])
+    const url = await createDatabase()
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      databases: { default: postgresDatabase(url, migrationsDir) },
+      generatedDrizzleConfigFile: join(root, "drizzle.config.ts"),
+      rootDir: root,
+    }) as unknown as ResolvedDBViteConfig)!
+    const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+    const run = async (args: string[]) => {
+      const out = vi.fn()
+      const err = vi.fn()
+      const exitCode = await command.run(args, { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: err }, stdout: { write: out } } as never)
+      return { exitCode, stderr: err.mock.calls.map(([chunk]) => String(chunk)).join(""), stdout: out.mock.calls.map(([chunk]) => String(chunk)).join("") }
+    }
+
+    const dryRun = await run(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`  ${init.tag}\n`)
+    expect(dryRun.stdout).toContain(`  ${usersName.tag} (outside a transaction, one statement at a time)\n`)
+
+    const migrated = await run([])
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain(`[vitehub] Database "default": applied ${usersName.tag}.`)
+    const sql = connect(url)
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([init.tag, usersName.tag])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
   })
 })

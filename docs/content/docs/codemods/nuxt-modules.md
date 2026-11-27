@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: Migrate a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
+description: Migrate a Nuxt or Nitro 3 app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -63,9 +63,39 @@ The codemod stops without writing files when:
 - `modules` is an expression, such as `buildModules()`, or a root spread can supply it. Make the list explicit.
 - `nitro.preset` is dynamic and no ViteHub host is explicit. Use a string literal, or set `vitehub.host`.
 - the config has no schema and extends layers, uses a root spread, or has automatic `layers/` directories.
-- a standalone Nitro app declares an unsupported Nitro version, directly or through an npm alias. Keep `nuxt-safe-runtime-config/nitro` until the app moves to Nitro 3. If the diagnostic reports two Nitro packages, keep only the package the app uses before retrying. The error code is `CODEMODS_NITRO_UNSUPPORTED`.
 
 The report lists what Env cannot express and what the codemod could not rewrite: rules that no schema module keeps, unions of input types, unsupported defaults, non-empty secret defaults, secret reads that need `.unseal()`, `useRuntimeConfig()` reads of migrated keys, template reads, and the ESLint rules of the module. Public Env values are fixed when you build, while Nuxt applied `NUXT_PUBLIC_*` overrides when the server started.
+
+### Nitro 3 apps
+
+A Nitro app without `nuxt.config` that lists `nuxt-safe-runtime-config/nitro` in `modules`, or sets `safeRuntimeConfig`, gets the same `$schema` migration with these differences:
+
+- The codemod writes `vite.config.ts` with `vitehub({ env })` before `nitro()` from `nitro/vite`, as in [Get started](/docs/env/get-started). In an existing `vite.config`, it inserts ViteHub before an inline `nitro()` call. `nitro()` still reads `nitro.config`, so the other Nitro options stay there.
+- Nitro has no Public Env. All fields, including keys under `public`, become Server Env. Each declaration reads its `NITRO_*` variable with `env.source()`. Env does not read the `_` prefix or a `NITRO_ENV_PREFIX` prefix.
+- A mapped string `preset` becomes `host`. Without a preset in the config, ViteHub detects the host at build time.
+- `useRuntimeConfig()` from `nitro/runtime-config` becomes `useServerEnv()` from `vite-hub/env` when the code reads only migrated keys. The report flags indirect accessor references, whole reads of groups that still have keys in `runtimeConfig`, and destructuring that mixes a secret with other keys.
+- `package.json` gets `vite-hub` and `vite`, and plain `nitro dev` and `nitro build` scripts become `vite dev` and `vite build`. `nitro dev` does not run Vite plugins. Convert scripts with Nitro flags or wrappers by hand before retrying.
+
+```diff [vite.config.ts]
++import { nitro } from 'nitro/vite'
++import { defineConfig } from 'vite'
++import { vitehub } from 'vite-hub'
++import { env } from 'vite-hub/env'
++
++export default defineConfig({
++  plugins: [vitehub({
++    env: {
++      server: {
++        greeting: env({ default: 'hello', schema: env.schemaFrom('./server/env.schema.ts', 'greeting'), source: env.source('NITRO_GREETING') }),
++      },
++    },
++  }), nitro()],
++})
+```
+
+The codemod stops without editing files if it cannot identify the Vite plugins or Nitro module list, if Vite overrides `runtimeConfig`, `safeRuntimeConfig`, or `modules`, if the app uses `envSchema`, or if `vite.config` already calls `vitehub()`.
+
+A standalone Nitro app declares an unsupported version if it uses the legacy Nitro package, directly or through an npm alias. The codemod stops with `CODEMODS_NITRO_UNSUPPORTED`. Keep `nuxt-safe-runtime-config/nitro` until the app moves to Nitro 3. If the diagnostic reports two Nitro packages, keep only the package the app uses before retrying.
 
 ## t3-env
 

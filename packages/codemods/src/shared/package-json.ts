@@ -54,6 +54,7 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
+  scripts?: (command: string) => string
   require?: { name: string, range: string, feature: string }
   features?: readonly FeatureId[]
 }
@@ -160,6 +161,10 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     }
   }
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
+  const rewriteScript = change.scripts
+  if (rewriteScript && isDependencyMap(manifest.scripts)) {
+    manifest.scripts = Object.fromEntries(Object.entries(manifest.scripts).map(([name, command]) => [name, rewriteScript(command)]))
+  }
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
   return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, installs: installList.format(names), followUps }

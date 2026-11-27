@@ -198,9 +198,12 @@ function quoteIdentifier(name: string): string {
   return `"${name.replaceAll("\"", "\"\"")}"`
 }
 
-/** The statements that drop every user table and view, and the migration ledger with them. Empty when there is none. */
-export async function planDrop(connection: SqlConnection): Promise<{ objects: string[], statements: string[] }> {
-  return connection.dialect === "sqlite" ? await planSqliteDrop(connection) : await planPostgresDrop(connection)
+/**
+ * The statements that drop every user table and view, and the migration ledger with them. Empty when there is none.
+ * Postgres keeps `migrationsSchema`, because ViteHub does not create it again on a server. PGlite passes none.
+ */
+export async function planDrop(connection: SqlConnection, migrationsSchema?: string): Promise<{ objects: string[], statements: string[] }> {
+  return connection.dialect === "sqlite" ? await planSqliteDrop(connection) : await planPostgresDrop(connection, migrationsSchema)
 }
 
 /**
@@ -242,7 +245,7 @@ const systemSchemas = "n.nspname NOT IN ('pg_catalog', 'information_schema') AND
  * schemas that are left empty, except `public`. Drizzle's ledger lives in the `drizzle` schema. Objects of other roles,
  * such as the `auth` and `storage` tables of Supabase, stay.
  */
-async function planPostgresDrop(connection: SqlConnection) {
+async function planPostgresDrop(connection: SqlConnection, migrationsSchema?: string) {
   const [relations, types] = await connection.run(`
     SELECT n.nspname AS schema, c.relname AS name, c.relkind AS kind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND pg_get_userbyid(c.relowner) = current_user AND NOT c.relispartition AND ${systemSchemas}
@@ -259,7 +262,7 @@ async function planPostgresDrop(connection: SqlConnection) {
   // Keep the confirmation in a stable order; execution below retries owned dependencies without CASCADE.
   const rank = (drop: { keyword: string }) => drop.keyword.includes("VIEW") ? 0 : drop.keyword === "SEQUENCE" ? 2 : 1
   const ordered = drops.toSorted((left, right) => rank(left) - rank(right))
-  const schemas = [...new Set([...drops, ...enums].map(object => object.schema))].filter(schema => schema !== "public")
+  const schemas = [...new Set([...drops, ...enums].map(object => object.schema))].filter(schema => schema !== "public" && schema !== migrationsSchema)
   // Drop tables together so mutual foreign keys among selected tables do not block a reset.
   // Other dependencies (including chains of views) are retried, but never cascaded.
   const commands = [...new Set(ordered.map(drop => drop.keyword))].map(keyword =>
