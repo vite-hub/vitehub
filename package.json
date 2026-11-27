@@ -55,6 +55,7 @@
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "vue": "catalog:ui",
     "workflow": "catalog:workflow",
     "wrangler": "catalog:"
   },
