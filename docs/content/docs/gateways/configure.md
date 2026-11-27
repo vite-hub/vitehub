@@ -21,8 +21,8 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 | `emulate()` | | `<url>` (AI SDK `messages` only) | | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `google()` | | | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/openai` (`api: 'chat'` only) | | `GEMINI_API_KEY` |
 | `moonshot()` | `https://api.moonshot.ai/v1` | `https://api.moonshot.ai/anthropic` | | `https://api.moonshot.ai/v1` | | `MOONSHOT_API_KEY`, then `KIMI_API_KEY` |
-| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (no `api: 'responses'`) | | `ZAI_API_KEY` |
-| `deepseek()` | | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` (no `api: 'responses'`) | | `DEEPSEEK_API_KEY` |
+| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (`api: 'responses'` uses the Codex URL) | | `ZAI_API_KEY` |
+| `deepseek()` | `https://api.deepseek.com` | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` | | `DEEPSEEK_API_KEY` |
 | `minimax()` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | | `https://api.minimax.io/v1` | | `MINIMAX_API_KEY` |
 | `alibaba()` | `<workspace>/compatible-mode/v1`, only with `workspaceId` | `<domain>/apps/anthropic` | | `<domain>/compatible-mode/v1` (`api: 'responses'` only with `workspaceId`) | | `DASHSCOPE_API_KEY` |
 | `openai()` | `https://api.openai.com/v1` | | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
@@ -33,7 +33,7 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 Preset types list what they serve, so TypeScript catches a wrong gateway:
 
 - `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` and `languageModel(typesafe(), ...)` are type errors.
-- A preset whose endpoint lacks a model API rejects it: `languageModel(deepseek(), 'deepseek-chat', { api: 'responses' })` is a type error.
+- A preset whose endpoint lacks a model API rejects it: `languageModel(google(), 'gemini-3-flash-preview', { api: 'responses' })` is a type error.
 - Only `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`; `ask()` on others is a type error.
 - CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, the [model providers](#model-providers), OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
 - `chatgpt()` has no key and no `ask()`. It uses the plan of a ChatGPT [Connection](/docs/connections/chatgpt). Only the Agent runtime reads it.
@@ -73,15 +73,15 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 
 The `gemini` route serves the [Gemini CLI](https://github.com/google-gemini/gemini-cli). The CLI sends Gemini API requests to `<url>/v1beta/models/<model>:generateContent`, with the key in `x-goog-api-key`. `google()`, `cliproxy()`, and `litellm()` serve it.
 
-The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. To send it through your CLIProxyAPI:
+The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. Use your CLIProxyAPI root without a `/v1` suffix:
 
 ```sh
-GOOGLE_GEMINI_BASE_URL=$CLIPROXY_URL GEMINI_API_KEY=$CLIPROXY_API_KEY gemini
+GOOGLE_GEMINI_BASE_URL=https://proxy.example GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
 ```
 
 - A gateway sends the key of the `gemini` route only in `x-goog-api-key`, whatever its `auth`.
-- `aiGatewayHarnessRoute(gateway, harness)` returns the route that a coding agent CLI uses on a gateway, or `undefined`. Claude Code uses `claude-code`, Codex uses `codex`, the Gemini CLI uses `gemini`, and Kimi CLI, OpenCode, and Pi use `openai-compatible`.
-- `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` accepts only gateways that serve the Gemini CLI, so `ollama()` is a type error there.
+- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi CLI, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode.
+- `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` requires a `gemini` route key, so `ollama()` is a type error there.
 
 ## Model providers
 
@@ -105,7 +105,7 @@ import { google } from 'vite-hub/gateways'
 import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads GEMINI_API_KEY.
-const model = languageModel(google(), 'gemini-3-flash', { api: 'chat' })
+const model = languageModel(google(), 'gemini-3-flash-preview', { api: 'chat' })
 ```
 
 ### Moonshot AI
@@ -118,13 +118,13 @@ import { moonshot } from 'vite-hub/gateways'
 
 // Reads MOONSHOT_API_KEY, then KIMI_API_KEY. A key from platform.kimi.com needs region: 'china'.
 export default defineAgent({
-  driver: claudeCodeDriver({ model: 'kimi-k2.5', gateway: moonshot() }),
+  driver: claudeCodeDriver({ model: 'kimi-k2.6', gateway: moonshot() }),
 })
 ```
 
 ### Z.ai
 
-`zai()` uses the [Z.ai API](https://docs.z.ai/guides/overview/quick-start) for GLM models. It serves Codex, Claude Code, and AI SDK models with `api: 'chat'` and `'messages'`. A GLM Coding Plan key needs `codingPlan: true`, which sends Chat Completions to `/api/coding/paas/v4` ([endpoints](https://docs.z.ai/devpack/notice/api-key-management)).
+`zai()` uses the [Z.ai API](https://docs.z.ai/guides/overview/quick-start) for GLM models. It serves Codex, Claude Code, and AI SDK models. For Chat Completions with a GLM Coding Plan key, set `codingPlan: true` to use `/api/coding/paas/v4` ([endpoints](https://docs.z.ai/devpack/notice/api-key-management)). Responses uses `/api/v1` with or without `codingPlan`.
 
 ```ts [server/agents/review/agent.ts]
 import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
@@ -138,14 +138,14 @@ export default defineAgent({
 
 ### DeepSeek
 
-`deepseek()` uses the [DeepSeek API](https://api-docs.deepseek.com). It serves Claude Code through its [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api), and AI SDK models with `api: 'chat'` and `'messages'`. DeepSeek has no OpenAI Responses API, so `codexDriver({ gateway: deepseek() })` is a type error.
+`deepseek()` uses the [DeepSeek API](https://api-docs.deepseek.com). It serves Codex and AI SDK Responses at its API root, which also serves Chat Completions. It serves Claude Code and AI SDK Messages through its [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api).
 
 ```ts [server/api/answer.ts]
 import { deepseek } from 'vite-hub/gateways'
 import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads DEEPSEEK_API_KEY.
-const model = languageModel(deepseek(), 'deepseek-chat', { api: 'chat' })
+const model = languageModel(deepseek(), 'deepseek-v4-pro', { api: 'responses' })
 ```
 
 ### MiniMax
@@ -158,7 +158,7 @@ import { minimax } from 'vite-hub/gateways'
 
 // Reads MINIMAX_API_KEY. A key from minimax.cn needs region: 'china'.
 export default defineAgent({
-  driver: codexDriver({ model: 'MiniMax-M2.5', gateway: minimax() }),
+  driver: codexDriver({ model: 'MiniMax-M2.7', gateway: minimax() }),
 })
 ```
 

@@ -1,8 +1,8 @@
-import { aiGatewaySupports } from "./definition.ts"
+import { aiGatewaySdkOnly, aiGatewaySupports } from "./definition.ts"
 
 import type { AiGatewayDefinition } from "./types.ts"
 
-/** The routes that each coding agent CLI calls, in order of preference. */
+/** Route keys for the configurations below. Kimi CLI, OpenCode, and Pi are in Chat Completions mode. */
 export interface AiGatewayHarnessRoutes {
   "claude-code": readonly ["claude-code"]
   "codex": readonly ["codex"]
@@ -12,13 +12,13 @@ export interface AiGatewayHarnessRoutes {
   "pi": readonly ["openai-compatible"]
 }
 
-/** A coding agent CLI that sends model requests through a gateway: Claude Code, Codex, the Gemini CLI, Kimi CLI, OpenCode, or Pi. */
+/** A harness configuration in the route map. */
 export type AiGatewayHarness = keyof AiGatewayHarnessRoutes
 
-/** The routes that a harness calls. `AiGateway<{ routes: AiGatewayHarnessRoute<"gemini"> }>` accepts the gateways that serve the Gemini CLI. */
+/** Route keys for a harness configuration, not a CLI compatibility check. */
 export type AiGatewayHarnessRoute<THarness extends AiGatewayHarness = AiGatewayHarness> = AiGatewayHarnessRoutes[THarness][number]
 
-/** The routes that each coding agent CLI calls, in order of preference. */
+/** Route keys for the supported configurations, in order of preference. */
 export const aiGatewayHarnessRoutes: Readonly<AiGatewayHarnessRoutes> = {
   "claude-code": ["claude-code"],
   "codex": ["codex"],
@@ -28,9 +28,9 @@ export const aiGatewayHarnessRoutes: Readonly<AiGatewayHarnessRoutes> = {
   "pi": ["openai-compatible"],
 }
 
-/** The first route of `harness` that `gateway` serves, or `undefined` when the gateway cannot serve the harness. */
+/** Finds the configured route key, skipping SDK-only presets. It neither checks other protocols nor verifies CLI compatibility. */
 export function aiGatewayHarnessRoute<THarness extends AiGatewayHarness>(gateway: AiGatewayDefinition, harness: THarness): AiGatewayHarnessRoute<THarness> | undefined {
-  if (!Object.hasOwn(aiGatewayHarnessRoutes, harness)) return undefined
+  if (!Object.hasOwn(aiGatewayHarnessRoutes, harness) || Reflect.get(gateway, aiGatewaySdkOnly) === true) return undefined
   const routes: readonly AiGatewayHarnessRoute<THarness>[] = aiGatewayHarnessRoutes[harness]
   return routes.find(route => aiGatewaySupports(gateway, route))
 }

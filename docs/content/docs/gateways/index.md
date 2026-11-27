@@ -84,7 +84,7 @@ icon: i-lucide-waypoints
 ::agent-only
 Use AI Gateways when server code sends model requests or asks typed questions. For one model call that returns data in a fixed shape, use `ask(prompt, { model, schema })` with `languageModel()`, not an Agent. For one call that returns text, use `ask(prompt, { model })`, not `generateText()`. Import presets from `vite-hub/gateways` and `languageModel()` from `vite-hub/gateways/ai-sdk`. Install `@vite-hub/gateways`, plus `advocaat` for `ask()` and the AI SDK provider package for `languageModel()`.
 
-Pick a preset whose type serves the use: a Codex or Claude Code URL for a Driver, a Gemini URL for the Gemini CLI, an OpenAI-compatible URL for `languageModel()`, and `ask: true` for `ask()`. `aiGatewayHarnessRoute(gateway, harness)` tells which route a coding agent CLI uses on a gateway. Never import a gateway in browser code. Keys are read on the server for each request.
+Pick a preset whose type serves the use: a Codex or Claude Code URL for a Driver, a Gemini URL for the Gemini CLI, an OpenAI-compatible URL for `languageModel()`, and `ask: true` for `ask()`. `aiGatewayHarnessRoute(gateway, harness)` looks up a route key for a [specific configuration](/docs/gateways/configure#gemini-cli), not general CLI compatibility. Never import a gateway in browser code. Keys are read on the server for each request.
 
 Prove it with a real request and a real key. Without a key, show that the request fails with `GATEWAYS_R0002` and the variable that it names.
 ::

@@ -37,7 +37,7 @@ Change the preset to change the provider. The model ID is the ID that the gatewa
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
 | `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
-| `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
+| `'responses'` | OpenAI Responses | `openai-compatible`, else `codex`; `zai()` uses `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
 The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation.
@@ -147,8 +147,8 @@ result?.category.choice // 'groceries'
 | `emulate()` | | `<url>` (AI SDK `messages` only) | | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `google()` | | | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/openai` (`api: 'chat'` only) | | `GEMINI_API_KEY` |
 | `moonshot()` | `https://api.moonshot.ai/v1` | `https://api.moonshot.ai/anthropic` | | `https://api.moonshot.ai/v1` | | `MOONSHOT_API_KEY`, then `KIMI_API_KEY` |
-| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (no `api: 'responses'`) | | `ZAI_API_KEY` |
-| `deepseek()` | | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` (no `api: 'responses'`) | | `DEEPSEEK_API_KEY` |
+| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (`api: 'responses'` uses the Codex URL) | | `ZAI_API_KEY` |
+| `deepseek()` | `https://api.deepseek.com` | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` | | `DEEPSEEK_API_KEY` |
 | `minimax()` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | | `https://api.minimax.io/v1` | | `MINIMAX_API_KEY` |
 | `alibaba()` | `<workspace>/compatible-mode/v1`, only with `workspaceId` | `<domain>/apps/anthropic` | | `<domain>/compatible-mode/v1` (`api: 'responses'` only with `workspaceId`) | | `DASHSCOPE_API_KEY` |
 | `openai()` | `https://api.openai.com/v1` | | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
@@ -158,7 +158,7 @@ result?.category.choice // 'groceries'
 
 The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
-The `gemini` route serves the Gemini CLI, which reads `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` and sends the key in `x-goog-api-key`. `aiGatewayHarnessRoute(gateway, harness)` returns the route that a coding agent CLI (`claude-code`, `codex`, `gemini`, `kimi`, `opencode`, or `pi`) uses on a gateway, or `undefined`.
+The `gemini` route serves the Gemini CLI, which reads `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` and sends the key in `x-goog-api-key`. `aiGatewayHarnessRoute(gateway, harness)` checks for the route key for Claude Code, Codex, or Gemini CLI, or for Kimi CLI, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets and does not check alternate protocols or verify CLI compatibility.
 
 `moonshot()`, `zai()`, and `minimax()` take `region: 'china'` for a key from the China platform. `zai({ codingPlan: true })` uses the GLM Coding Plan endpoint. `alibaba({ region, workspaceId })` selects the Model Studio region and, with `workspaceId`, the workspace domain, which also serves Codex. See [Model providers](https://vitehub.dev/docs/gateways/configure#model-providers).
 

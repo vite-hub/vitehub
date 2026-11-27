@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { aiGatewayEnv, aiGatewayHarnessRoute, alibaba, anthropic, cliproxy, cloudflare, cloudflareAccess, deepseek, defineAiGateway, google, litellm, minimax, moonshot, ollama, openai, openrouter, typesafe, vercel, zai } from "../src/index.ts"
+import { aiGatewayEnv, aiGatewayHarnessRoute, alibaba, anthropic, cliproxy, cloudflare, cloudflareAccess, deepseek, defineAiGateway, emulate, google, litellm, minimax, moonshot, ollama, openai, openrouter, typesafe, vercel, zai } from "../src/index.ts"
 import { resolveAiGatewayRoute } from "../src/internal.ts"
 
 afterEach(() => {
@@ -60,7 +60,7 @@ describe("AI gateway presets", () => {
     expect(moonshot({ region: "china" }).baseURL).toEqual({ "codex": "https://api.moonshot.cn/v1", "claude-code": "https://api.moonshot.cn/anthropic", "openai-compatible": "https://api.moonshot.cn/v1" })
     expect(zai().baseURL).toEqual({ "codex": "https://api.z.ai/api/v1", "claude-code": "https://api.z.ai/api/anthropic", "openai-compatible": "https://api.z.ai/api/paas/v4" })
     expect(zai({ region: "china", codingPlan: true }).baseURL).toEqual({ "codex": "https://open.bigmodel.cn/api/v1", "claude-code": "https://open.bigmodel.cn/api/anthropic", "openai-compatible": "https://open.bigmodel.cn/api/coding/paas/v4" })
-    expect(deepseek().baseURL).toEqual({ "claude-code": "https://api.deepseek.com/anthropic", "openai-compatible": "https://api.deepseek.com" })
+    expect(deepseek().baseURL).toEqual({ "codex": "https://api.deepseek.com", "claude-code": "https://api.deepseek.com/anthropic", "openai-compatible": "https://api.deepseek.com" })
     expect(minimax().baseURL).toEqual({ "codex": "https://api.minimax.io/v1", "claude-code": "https://api.minimax.io/anthropic", "openai-compatible": "https://api.minimax.io/v1" })
     expect(minimax({ region: "china" }).baseURL).toEqual({ "codex": "https://api.minimax.cn/v1", "claude-code": "https://api.minimax.cn/anthropic", "openai-compatible": "https://api.minimax.cn/v1" })
     expect(alibaba().baseURL).toEqual({ "claude-code": "https://dashscope-intl.aliyuncs.com/apps/anthropic", "openai-compatible": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" })
@@ -71,7 +71,6 @@ describe("AI gateway presets", () => {
       "openai-compatible": "https://ws-123.us-east-1.maas.aliyuncs.com/compatible-mode/v1",
     })
     expect(google().modelApis).toEqual(["chat"])
-    expect(deepseek().modelApis).toEqual(["chat", "messages"])
     expect(moonshot().modelApis).toBeUndefined()
   })
 
@@ -101,15 +100,19 @@ describe("AI gateway presets", () => {
     expect(await resolveAiGatewayRoute(defineAiGateway({ name: "x", baseURL: { gemini: "https://proxy.example/" }, apiKey: "k", auth: "x-api-key" }), "gemini", {})).toMatchObject({ auth: "x-goog-api-key", baseURL: "https://proxy.example" })
   })
 
-  it("tells which route each harness calls on a gateway", () => {
+  it("finds the route key for a harness configuration, skipping SDK-only presets", () => {
     expect(aiGatewayHarnessRoute(google(), "gemini")).toBe("gemini")
     expect(aiGatewayHarnessRoute(google(), "codex")).toBeUndefined()
     expect(aiGatewayHarnessRoute(cliproxy({ url: "http://proxy" }), "gemini")).toBe("gemini")
     expect(aiGatewayHarnessRoute(ollama(), "gemini")).toBeUndefined()
-    expect(aiGatewayHarnessRoute(deepseek(), "codex")).toBeUndefined()
+    expect(aiGatewayHarnessRoute(deepseek(), "codex")).toBe("codex")
     expect(aiGatewayHarnessRoute(deepseek(), "claude-code")).toBe("claude-code")
-    for (const harness of ["kimi", "opencode", "pi"] as const) expect(aiGatewayHarnessRoute(zai(), harness)).toBe("openai-compatible")
-    expect(aiGatewayHarnessRoute(anthropic(), "opencode")).toBeUndefined()
+    expect(aiGatewayHarnessRoute(emulate(), "claude-code")).toBeUndefined()
+    for (const harness of ["kimi", "opencode", "pi"] as const) {
+      expect(aiGatewayHarnessRoute(zai(), harness)).toBe("openai-compatible")
+      expect(aiGatewayHarnessRoute(cloudflare(), harness)).toBeUndefined()
+      expect(aiGatewayHarnessRoute(anthropic(), harness)).toBeUndefined()
+    }
     // @ts-expect-error The type rejects an unknown harness too.
     expect(aiGatewayHarnessRoute(openai(), "toString")).toBeUndefined()
   })

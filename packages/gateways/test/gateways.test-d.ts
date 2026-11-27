@@ -78,7 +78,6 @@ describe("AI gateway capabilities", () => {
       claudeGateway(gateway)
     }
     claudeGateway(deepseek())
-    // @ts-expect-error deepseek() has no OpenAI Responses API.
     codexGateway(deepseek())
     // @ts-expect-error alibaba() serves Codex only on a workspace domain.
     codexGateway(alibaba())
@@ -86,7 +85,7 @@ describe("AI gateway capabilities", () => {
     claudeGateway(google())
   })
 
-  it("accepts only gateways that serve the route of a harness", () => {
+  it("requires the route key for the selected harness configuration", () => {
     const geminiGateway = (gateway: AiGateway<{ routes: AiGatewayHarnessRoute<"gemini"> }>) => gateway
     const opencodeGateway = (gateway: AiGateway<{ routes: AiGatewayHarnessRoute<"opencode"> }>) => gateway
     geminiGateway(google())
@@ -95,7 +94,7 @@ describe("AI gateway capabilities", () => {
     // @ts-expect-error ollama() has no Gemini API.
     geminiGateway(ollama())
     opencodeGateway(deepseek())
-    // @ts-expect-error anthropic() serves Anthropic Messages only.
+    // @ts-expect-error The Chat Completions configuration needs an openai-compatible URL.
     opencodeGateway(anthropic())
   })
 
@@ -109,13 +108,13 @@ describe("AI gateway capabilities", () => {
     languageModel(defineAiGateway({ apiKey: "k", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" }), "m", { api: "chat" })
     // @ts-expect-error anthropic() serves Anthropic Messages only.
     languageModel(anthropic(), "m", { api: "chat" })
-    languageModel(google(), "gemini-3-flash", { api: "chat" })
+    languageModel(google(), "gemini-3-flash-preview", { api: "chat" })
     languageModel(deepseek(), "deepseek-chat", { api: "messages" })
-    languageModel(moonshot(), "kimi-k2.5", { api: "responses" })
+    languageModel(moonshot(), "kimi-k2.6", { api: "responses" })
     // @ts-expect-error google() has no Responses API at its OpenAI-compatible endpoint.
-    languageModel(google(), "gemini-3-flash", { api: "responses" })
-    // @ts-expect-error deepseek() has no Responses API.
-    languageModel(deepseek(), "deepseek-chat", { api: "responses" })
+    languageModel(google(), "gemini-3-flash-preview", { api: "responses" })
+    languageModel(deepseek(), "deepseek-v4-pro", { api: "responses" })
+    languageModel(zai(), "glm-5", { api: "responses" })
     // @ts-expect-error The DashScope domain has no Responses API.
     languageModel(alibaba(), "qwen3-max", { api: "responses" })
     languageModel(alibaba({ workspaceId: "ws" }), "qwen3-max", { api: "responses" })

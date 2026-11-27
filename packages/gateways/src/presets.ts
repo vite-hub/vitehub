@@ -1,5 +1,5 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayResponsesRoute, aiGatewaySdkOnly, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
@@ -207,16 +207,20 @@ interface AiGatewayExtras {
   modelApis?: readonly AiGatewayCapabilities["apis"][]
   modelCredentials?: AiGatewayModelCredentialsResolver
   openAIChat?: true
+  responsesRoute?: "codex"
+  sdkOnly?: true
   structuredOutputs?: true
 }
 
-function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
+function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, responsesRoute, sdkOnly, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
   if (openAIChat) Object.defineProperty(gateway, aiGatewayOpenAIChat, { value: true })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
+  if (responsesRoute) Object.defineProperty(gateway, aiGatewayResponsesRoute, { value: responsesRoute })
+  if (sdkOnly) Object.defineProperty(gateway, aiGatewaySdkOnly, { value: true })
   if (structuredOutputs) Object.defineProperty(gateway, aiGatewayStructuredOutputs, { value: true })
   Object.defineProperty(gateway, "ask", {
     value: route
@@ -330,7 +334,7 @@ export function emulate(options: EmulateGatewayOptions = {}): AiModelGateway<Emu
       ? { "claude-code": url, "openai-compatible": `${url}/v1` }
       : { "claude-code": root, "openai-compatible": async context => `${await root(context)}/v1` },
     apiKey: "emulate",
-  }, { structuredOutputs: true })
+  }, { sdkOnly: true, structuredOutputs: true })
 }
 
 /** [OpenRouter](https://openrouter.ai/docs). Serves Codex and Claude Code. Reads `OPENROUTER_API_KEY`. */
@@ -468,30 +472,29 @@ const zaiOrigins = { china: "https://open.bigmodel.cn/api", international: "http
 
 /**
  * The [Z.ai API](https://docs.z.ai/guides/overview/quick-start) for GLM models. Serves Codex, Claude Code
- * ([docs](https://docs.z.ai/devpack/tool/claude)), and AI SDK models with `api: "chat"` and `"messages"`. Reads
+ * ([docs](https://docs.z.ai/devpack/tool/claude)), and AI SDK models. Responses uses the Codex URL. Reads
  * `ZAI_API_KEY`. `region: "china"` uses `open.bigmodel.cn` ([docs](https://docs.bigmodel.cn/cn/guide/start/quick-start)).
  * The endpoints are listed in the [key guide](https://docs.z.ai/devpack/notice/api-key-management).
  */
-export function zai(options: ZaiGatewayOptions = {}): ModelApiGateway<HostedRoutes, "chat" | "messages"> {
+export function zai(options: ZaiGatewayOptions = {}): AiModelGateway<HostedRoutes> {
   const root = regionOrigin("zai", zaiOrigins, options.region, "international")
-  return modelApiGateway(preset({
+  return modelGateway(preset({
     name: "zai",
     baseURL: { "codex": `${root}/v1`, "claude-code": `${root}/anthropic`, "openai-compatible": `${root}${options.codingPlan ? "/coding" : ""}/paas/v4` },
     apiKey: apiKeyFromEnv("zai"),
-  }, options), ["chat", "messages"])
+  }, options), { responsesRoute: "codex" })
 }
 
 /**
- * The [DeepSeek API](https://api-docs.deepseek.com). Serves Claude Code through its
- * [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api), and AI SDK models with `api: "chat"` and
- * `"messages"`. It has no OpenAI Responses API, so it does not serve Codex. Reads `DEEPSEEK_API_KEY`.
+ * The [DeepSeek API](https://api-docs.deepseek.com). Serves Codex and AI SDK Responses at its API root,
+ * and Claude Code through its [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api). Reads `DEEPSEEK_API_KEY`.
  */
-export function deepseek(options?: AiGatewayPresetOptions): ModelApiGateway<"claude-code" | "openai-compatible", "chat" | "messages"> {
-  return modelApiGateway(preset({
+export function deepseek(options?: AiGatewayPresetOptions): AiModelGateway<HostedRoutes> {
+  return modelGateway(preset({
     name: "deepseek",
-    baseURL: { "claude-code": "https://api.deepseek.com/anthropic", "openai-compatible": "https://api.deepseek.com" },
+    baseURL: { "codex": "https://api.deepseek.com", "claude-code": "https://api.deepseek.com/anthropic", "openai-compatible": "https://api.deepseek.com" },
     apiKey: apiKeyFromEnv("deepseek"),
-  }, options), ["chat", "messages"])
+  }, options))
 }
 
 const minimaxOrigins = { china: "https://api.minimax.cn", international: "https://api.minimax.io" } as const
@@ -641,7 +644,7 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     protocol: "typesafe",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above, and the baseURL has the openai-compatible key.
-  return createAiGateway(definition, { route, modelApis: ["chat"], optional: {
+  return createAiGateway(definition, { route, modelApis: ["chat"], sdkOnly: true, optional: {
     apiKey: true,
     headers: ["cf-aig-authorization"],
     missing: "Gateway \"cloudflare\" needs a gateway token or a provider key for model requests. Set CLOUDFLARE_AI_GATEWAY_TOKEN for stored provider keys or Unified Billing, or CLOUDFLARE_AI_GATEWAY_API_KEY, or pass token or providerApiKey.",
