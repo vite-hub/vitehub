@@ -96,14 +96,14 @@ function postgresSchema(tables: AgentStateTables): string[] {
 function decodeWebhookPayload(value: string): string {
   const decoded: unknown = JSON.parse(value)
   if (typeof decoded !== "object" || decoded === null || !("payload" in decoded) || typeof decoded.payload !== "string") {
-    throw new TypeError("Invalid Postgres Agent State webhook payload.")
+    throw agentDiagnostics.AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID()
   }
   return decoded.payload
 }
 
 function decodeWebhookKey(value: string): string {
   const decoded: unknown = JSON.parse(value)
-  if (typeof decoded !== "string") throw new TypeError("Invalid Postgres Agent State webhook key.")
+  if (typeof decoded !== "string") throw agentDiagnostics.AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID()
   return decoded
 }
 

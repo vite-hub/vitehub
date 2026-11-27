@@ -91,6 +91,17 @@ describe("Postgres Agent State on PGlite", () => {
     await expect(state.pendingWebhookDeliverySettlements(affected.scope)).resolves.toEqual([{ channelDeliveryId: opaque, deliveryId: "superseded" }])
   })
 
+  it("reports a diagnostic for a malformed webhook queue record", async () => {
+    const state = createPostgresAgentState({ client: pglite, tablePrefix: "malformed_" })
+    await state.connect()
+    const delivery = webhookDelivery("malformed")
+    await state.enqueueWebhookDelivery(delivery)
+    await pglite.exec(`UPDATE malformed_webhook_queue SET value = '{}'`)
+    await expect(state.claimWebhookDelivery(delivery.scope)).rejects.toMatchObject({ code: "AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID" })
+    await pglite.exec(`UPDATE malformed_webhook_queue SET status = 'completed', value = '{"channelDeliveryId":"42"}'`)
+    await expect(state.pendingWebhookDeliverySettlements(delivery.scope)).rejects.toMatchObject({ code: "AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID" })
+  })
+
   it("opens a provisioned schema without schema CREATE privileges", async () => {
     const provisioner = createPostgresAgentState({ client: pglite, tablePrefix: "provisioned_" })
     await pglite.exec("CREATE SCHEMA provisioned; SET search_path TO provisioned; CREATE ROLE state_runtime")

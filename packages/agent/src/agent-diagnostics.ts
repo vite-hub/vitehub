@@ -4857,6 +4857,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ type }: { type: string }) => `[vitehub] Postgres Agent State cannot bind a ${type} parameter. It binds strings, numbers, booleans, bigints, and null.`,
       fix: "Convert the value before you pass it to `extension().execute()`, for example a Date to `date.getTime()` or an object to `JSON.stringify(value)`.",
     },
+    AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID: {
+      why: "Postgres Agent State found a webhook queue record with an invalid payload or settlement key.",
+      fix: "Check that all instances using the State tables run the same ViteHub version. If a queue record was modified outside ViteHub, restore it from a known-good backup.",
+    },
     AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
       why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
       fix: ({ host }: { host: "vercel" | "netlify" }) => host === "netlify"
