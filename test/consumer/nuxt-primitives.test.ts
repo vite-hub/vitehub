@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { parseAllDocuments } from "yaml"
 
 import { featureIds } from "../../packages/internal/src/features.ts"
 import { agents } from "./nuxt-primitives/agents.ts"
@@ -27,6 +28,18 @@ import {
 
 const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
 const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "Nuxt 5 nightly"
+
+async function lockedTiptapReleaseOverrides() {
+  const lockfile = parseAllDocuments(await readFile(join(repoRoot, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS() as {
+    catalogs: { realtime: { "@tiptap/core": { version: string } } }
+    packages: Record<string, unknown>
+  }
+  const version = lockfile.catalogs.realtime["@tiptap/core"].version
+  const suffix = `@${version}`
+  return Object.fromEntries(Object.keys(lockfile.packages)
+    .filter(id => id.startsWith("@tiptap/") && id.endsWith(suffix))
+    .map(id => [id.slice(0, -suffix.length), version]))
+}
 
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
@@ -187,7 +200,7 @@ describe("Nuxt primitives", () => {
           private: true,
           type: "module",
         }, null, 2),
-        "pnpm-workspace.yaml": workspaceConfig(specs, consumerNuxt.overrides),
+        "pnpm-workspace.yaml": workspaceConfig(specs, { ...consumerNuxt.overrides, ...await lockedTiptapReleaseOverrides() }),
       }
       await writeAppFiles(appDir, files)
       await installApp(appDir, "--no-strict-peer-dependencies")
