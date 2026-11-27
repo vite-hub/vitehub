@@ -15,8 +15,8 @@ it("keeps a hairline around a card or a new comment, so it shows on a dark page"
   expect(popover).toMatch(/box-shadow: 0 0 0 1px var\(--vh-bubble-edge, var\(--vh-border\)\),/)
 })
 
-it("draws dividers across the pill's flow, so a pill docked to a side gets horizontal rules, not short vertical bars", () => {
-  const divider = /\n\.divider \{([^}]*)\}/.exec(pillBarStyles)?.[1]
+it("draws Send's dividers across the pill's flow, so a pill docked to a side gets horizontal rules, not short vertical bars", () => {
+  const divider = /"confirm"\]\)::after \{([^}]*)\}/.exec(pillBarStyles)?.[1]
   expect(divider).toMatch(/flex: 0 0 1px;/)
   expect(divider).toMatch(/align-self: stretch;/)
   expect(divider).not.toMatch(/width|height/)

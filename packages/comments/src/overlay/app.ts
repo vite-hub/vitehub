@@ -211,7 +211,7 @@ const pageIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", f
 
 const editIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" }))
 
-const closeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M18 6 6 18M6 6l12 12" }))
+const plusIcon = () => h("svg", { class: "plus", width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M12 5v14M5 12h14" }))
 
 const eyeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, [h("path", { d: "M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" }), h("circle", { cx: 12, cy: 12, r: 3 })])
 
@@ -475,6 +475,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   /** `true` for 1.5 s after **Copy prompt** in the pill copied, while the button says Copied. */
   const pageCopied = ref(false)
+  const moreOpen = ref(false)
   let pageCopiedTimer: ReturnType<typeof setTimeout> | undefined
   async function copyPagePrompt() {
     const threads = state.openThreads.value.filter(thread => !thread.delivery)
@@ -564,6 +565,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       state.exit()
       if (state.active.value) return
       editing.value = true
+      moreOpen.value = true
     }
     else {
       naming.value = false
@@ -1035,9 +1037,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   /**
-   * Drop's Comments segment: one **Comments** button with the open count. For people who may comment it turns comment
-   * mode on (C), says **Click anywhere**, and grows the actions beside it: **Whole page**, **All comments**, and ×. For
-   * people who may only read, it opens the list. **Highlight** and **Edit** follow.
+   * Drop's Comments segment: one **Comments** button with the open count, and the eye that hides the comments beside it.
+   * For people who may comment it turns comment mode on (C) and says **Click anywhere**. For people who may only read, it
+   * opens the list. **Copy prompt** follows while threads are open. The tools that people use less, **Whole page** and
+   * **All comments** in comment mode, **Highlight**, and **Edit**, wait behind **+**, as in Drop's own bar.
    */
   function toolbar(): VNode {
     void tick.value
@@ -1052,45 +1055,43 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
-    const controlsFollow = canAttach.value || Boolean(session?.content && canComment.value) || people.length > 0 || Boolean(signOutUrl && github)
+    const more = [
+      commenting ? h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]) : null,
+      commenting ? h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]) : null,
+      canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
+      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
+    ].filter(node => node !== null)
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment.value
-        ? h("button", {
-            "aria-keyshortcuts": "C",
-            "aria-label": commenting ? "Comments: click anywhere on the page" : open ? `Comments, ${open} open` : "Comments",
-            "aria-pressed": String(commenting),
-            onClick: () => setMode(commenting ? "view" : "comment"),
-            title: commenting ? "Stop commenting (C)" : "Comment on the page (C)",
-            type: "button",
-          }, [commentIcon(), commenting ? "Click anywhere" : "Comments", badge(!commenting)])
-        : h("button", {
-            "aria-expanded": String(panelOpen.value),
-            "aria-label": open ? `Comments, ${open} open` : "Comments",
-            onClick: togglePanel,
-            title: "Show comments",
-            type: "button",
-          }, [commentIcon(), "Comments", badge(true)]),
-      // Against Comments, the thing it hides. Pressed means hidden: the state that changes the page.
-      canComment.value
-        ? h("button", {
-            "aria-label": "Hide comments",
-            "aria-pressed": String(visibility.value === "hidden"),
-            class: "eye",
-            onClick: () => (visibility.value = visibility.value === "hidden" ? "all" : "hidden"),
-            title: visibility.value === "hidden" ? "Show comments" : "Hide comments",
-            type: "button",
-          }, [visibility.value === "hidden" ? eyeOffIcon() : eyeIcon(), h("span", { class: "label" }, visibility.value === "hidden" ? "Show comments" : "Hide comments")])
-        : null,
+      h("span", { class: "lead" }, [
+        canComment.value
+          ? h("button", {
+              "aria-keyshortcuts": "C",
+              "aria-label": commenting ? "Comments: click anywhere on the page" : open ? `Comments, ${open} open` : "Comments",
+              "aria-pressed": String(commenting),
+              onClick: () => setMode(commenting ? "view" : "comment"),
+              title: commenting ? "Stop commenting (C)" : "Comment on the page (C)",
+              type: "button",
+            }, [commentIcon(), commenting ? "Click anywhere" : "Comments", badge(!commenting)])
+          : h("button", {
+              "aria-expanded": String(panelOpen.value),
+              "aria-label": open ? `Comments, ${open} open` : "Comments",
+              onClick: togglePanel,
+              title: "Show comments",
+              type: "button",
+            }, [commentIcon(), "Comments", badge(true)]),
+        // Against Comments, the thing it hides. Pressed means hidden: the state that changes the page.
+        canComment.value
+          ? h("button", {
+              "aria-label": "Hide comments",
+              "aria-pressed": String(visibility.value === "hidden"),
+              class: "eye",
+              onClick: () => (visibility.value = visibility.value === "hidden" ? "all" : "hidden"),
+              title: visibility.value === "hidden" ? "Show comments" : "Hide comments",
+              type: "button",
+            }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
+          : null,
+      ]),
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
-      commenting
-        ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
-            h("span", { class: "divider", "aria-hidden": "true" }),
-            h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]),
-            h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]),
-            h("button", { "aria-label": "Stop commenting", class: "stop", onClick: () => setMode("view"), title: "Stop commenting (Esc)", type: "button" }, closeIcon()),
-            controlsFollow ? h("span", { class: "divider", "aria-hidden": "true" }) : null,
-          ])
-        : null,
       !commenting && open > 0
         ? h("button", {
             "data-action": "copy-page-prompt",
@@ -1102,8 +1103,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             h("span", { "data-shown": String(pageCopied.value) }, [checkIcon(), "Copied"]),
           ]))
         : null,
-      canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
-      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
+      more.length > 0 ? h("div", { class: "more", hidden: !moreOpen.value, id: "vitehub-comments-more", role: "group", "aria-label": "More comment tools" }, more) : null,
+      more.length > 0
+        ? h("button", {
+            "aria-controls": "vitehub-comments-more",
+            "aria-expanded": String(moreOpen.value),
+            "aria-label": moreOpen.value ? "Fewer tools" : "More tools",
+            class: "toggle",
+            "data-action": "more-tools",
+            onClick: () => (moreOpen.value = !moreOpen.value),
+            title: moreOpen.value ? "Fewer tools" : "More tools",
+            type: "button",
+          }, plusIcon())
+        : null,
       avatars.length > 0 ? h("span", { "aria-label": peopleLabel, class: "people" }, avatars) : null,
       signOutUrl && github
         ? h("button", { "aria-label": `Sign out @${github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${github.login}. Sign out`, type: "button" },

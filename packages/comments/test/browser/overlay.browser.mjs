@@ -58,6 +58,11 @@ async function sentPicture(api, body) {
 
 const highlights = page => page.evaluate(() => Object.fromEntries([...CSS.highlights].map(([name, highlight]) => [name, highlight.size])))
 
+async function moreTools(page) {
+  const toggle = page.locator("vitehub-tool [data-action='more-tools']")
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click()
+}
+
 async function drag(page, from, to) {
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -182,11 +187,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await moreTools(page)
     await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
     try {
-      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
+      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .people")]
         .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
-      assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
       const line = centers[0][1]
       for (const [name, center] of centers) assert.ok(Math.abs(center - line) <= 0.5, `${name} centers at ${center}, the pill at ${line}`)
     }
@@ -326,6 +331,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   })
 
   await t.test("the whole-page draft is centered", async () => {
+    await moreTools(page)
     await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).click()
     const bubble = page.locator("vitehub-comments [data-draft='true'][data-kind='page'] > [data-slot='comment-layer-popover']")
     await bubble.evaluate(card => new Promise((resolve) => {

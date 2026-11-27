@@ -187,6 +187,8 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     await page.setViewportSize({ width: 375, height: 720 })
     try {
       await page.getByTitle("Comment on the page (C)").click()
+      const more = page.locator("vitehub-tool [data-action='more-tools']")
+      if (await more.getAttribute("aria-expanded") === "false") await more.click()
       await page.getByTitle("All comments on this page").click()
       const panel = page.locator('[data-slot="comment-panel"]')
       const open = panel.getByRole("link", { name: "Open in T3 Code" })

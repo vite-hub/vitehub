@@ -82,13 +82,13 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
 
   const ana = await open("ana")
 
-  await t.test("idle: Send 2 sits after the eye", async () => {
+  await t.test("idle: Send 2 sits after the eye, in the Comments row", async () => {
     await waitState(ana, "idle")
     const send = segment(ana).locator("[data-action='send']")
     await send.waitFor()
     assert.equal(await send.getAttribute("aria-label"), "Send: 2 comments")
-    const order = await ana.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelector(".toolbar").children].map(child => child.dataset.slot ?? child.getAttribute("aria-label") ?? child.textContent.trim()))
-    assert.deepEqual(order.slice(0, 4), ["Comments, 2 open", "Hide comments", "comment-send", "Highlight"])
+    const order = await ana.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelector(".toolbar").querySelectorAll(":scope > .lead > *, :scope > :not(.lead)")].map(child => child.dataset.slot ?? child.getAttribute("aria-label") ?? child.textContent.trim()))
+    assert.deepEqual(order.slice(0, 3), ["Comments, 2 open", "Hide comments", "comment-send"])
     await shot(ana, "1-idle")
   })
 

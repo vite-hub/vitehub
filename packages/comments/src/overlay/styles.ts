@@ -155,26 +155,29 @@ export const pillBarStyles = `
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
-.actions { display: flex; flex-direction: inherit; align-items: inherit; gap: 2px; }
-/* A divider is 1px along the bar and stretches across it: a vertical rule in a row, a horizontal one when the pill docks to a side. */
-.divider { flex: 0 0 1px; align-self: stretch; margin: 6px; background: var(--vitehub-pill-line); }
-/* While Send pairs an agent, its message stands between dividers, as the actions of comment mode do. */
+/* Comments and its eye stay one row, also when the pill docks to a side and stacks the other controls. */
+.lead { display: flex; align-items: center; align-self: stretch; gap: 2px; }
+.lead > :first-child { flex: 1 1 auto; }
+.more { display: flex; flex-direction: inherit; align-items: inherit; gap: 2px; }
+.more[hidden] { display: none; }
+/* While Send pairs an agent, its message stands between dividers: 1px along the bar, across it on a side. */
 [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::before,
 [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::after { content: ""; flex: 0 0 1px; align-self: stretch; margin: 6px; background: var(--vitehub-pill-line); }
 .count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
-/* The eye is a square icon in a row. Stacked on a side, it shows its label like the rows around it. */
-.eye { padding: 0 7px; }
-.label { display: var(--vitehub-pill-labels, none); }
+.swatch, .icon, .eye, .toggle { width: 28px; padding: 0; justify-content: center; }
+/* + turns into × while the tools behind it show, as in Drop. */
+.toggle .plus { transition: rotate 200ms cubic-bezier(.23, 1, .32, 1); }
+.toggle[aria-expanded="true"] .plus { rotate: 45deg; }
+/* Open, the toggle keeps a plain fill, so its × does not look like a second pill close button. */
+.toggle[aria-expanded="true"]:not(:hover) { background: none; color: inherit; }
+@media (prefers-reduced-motion: reduce) { .toggle .plus { transition: none; } }
 /* Both labels share one cell, so the button and the pill keep their width when Copy prompt turns to Copied. */
 .swap { display: inline-grid; justify-items: start; }
 .swap > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 4px; }
 .swap > [data-shown="false"] { visibility: hidden; }
-/* Stacked on a side, the pressed Click anywhere above already stops commenting, and the pill's own × sits at the top. */
-.stop { display: var(--vitehub-pill-row-only, inline-flex); }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
