@@ -2245,15 +2245,15 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
+      fix: "Set driver to a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object.",
+      fix: "Set driver to a provider Driver such as codexDriver(), claudeCodeDriver(), or geminiDriver(), or a custom { model }, { run }, or { ask } driver object.",
     },
     AGENT_R0492: {
       ...dynamicError,
-      fix: "Create the provider Driver with codexDriver() or claudeCodeDriver() from vite-hub/agent, and do not set driver.kind yourself.",
+      fix: "Create the provider Driver with its factory from vite-hub/agent, such as codexDriver() or acpDriver({ agentId }), and do not set driver.kind yourself. Only acpDriver() takes agentId.",
     },
     AGENT_R0493: {
       ...dynamicError,
@@ -3632,7 +3632,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0976: {
       ...dynamicError,
-      fix: "Use a gateway that serves this Driver, set its baseURL for the Driver, or use chatgpt() only with codexDriver() or a model-backed Driver, as the message shows.",
+      fix: "Use a gateway that serves this Driver, set its baseURL for the Driver, set driver.model when the message asks for it, remove driver.gateway from a Driver that signs in to its own service, or use chatgpt() only with codexDriver() or a model-backed Driver, as the message shows.",
     },
     AGENT_R0979: {
       ...dynamicError,

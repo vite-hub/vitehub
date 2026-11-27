@@ -205,6 +205,28 @@ import type {
   ClaudeCodeDriverOptions,
   CodexDriver,
   CodexDriverOptions,
+  GeminiDriver,
+  AntigravityDriver,
+  OpenCodeDriver,
+  CursorDriver,
+  GrokDriver,
+  PiDriver,
+  KimiDriver,
+  KiroDriver,
+  FxDriver,
+  MuseDriver,
+  AcpDriver,
+  GeminiDriverOptions,
+  AntigravityDriverOptions,
+  OpenCodeDriverOptions,
+  CursorDriverOptions,
+  GrokDriverOptions,
+  PiDriverOptions,
+  KimiDriverOptions,
+  KiroDriverOptions,
+  FxDriverOptions,
+  MuseDriverOptions,
+  AcpDriverOptions,
   AgentDriverContribution,
   AgentDriverKind,
   CustomAgentDriver,
@@ -349,6 +371,17 @@ export type {
   BuiltInAgentDriverName,
   ClaudeCodeDriver,
   CodexDriver,
+  GeminiDriver,
+  AntigravityDriver,
+  OpenCodeDriver,
+  CursorDriver,
+  GrokDriver,
+  PiDriver,
+  KimiDriver,
+  KiroDriver,
+  FxDriver,
+  MuseDriver,
+  AcpDriver,
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -589,6 +622,19 @@ export type {
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
   CodexReasoningEffort,
+  GeminiDriverOptions,
+  AntigravityDriverOptions,
+  OpenCodeDriverOptions,
+  CursorDriverOptions,
+  GrokDriverOptions,
+  PiDriverOptions,
+  KimiDriverOptions,
+  KiroDriverOptions,
+  FxDriverOptions,
+  MuseDriverOptions,
+  AcpDriverOptions,
+  OpenAICompatibleAgentDriverOptions,
+  SignInAgentDriverOptions,
   CodexReasoningSummary,
   CodexWorkspaceWriteAccess,
   CustomAgentDriver,
@@ -2315,6 +2361,7 @@ function defineBaseAgent<
       : driver.kind === "provider"
           ? await (providerAdapter ??= driver.runtime().then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
             sandbox,
+            agentId: driver.agentId,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             cwd: driver.cwd,
@@ -2683,6 +2730,61 @@ export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
 ): ClaudeCodeDriver<unknown, TOutput> {
   return { ...options, kind: "claude-code", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Gemini CLI over ACP. ViteHub installs the CLI from the ACP registry unless `providerSettings.binaryPath` names an installed copy. Needs a Node.js host. */
+export function geminiDriver<TOutput = unknown>(options: GeminiDriverOptions<TOutput> = {}): GeminiDriver<unknown, TOutput> {
+  return { ...options, kind: "gemini", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Antigravity, which signs in to its own service. Needs a Node.js host. */
+export function antigravityDriver<TOutput = unknown>(options: AntigravityDriverOptions<TOutput> = {}): AntigravityDriver<unknown, TOutput> {
+  return { ...options, kind: "antigravity", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with OpenCode. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function opencodeDriver<TOutput = unknown>(options: OpenCodeDriverOptions<TOutput> = {}): OpenCodeDriver<unknown, TOutput> {
+  return { ...options, kind: "opencode", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Cursor, which signs in with `CURSOR_API_KEY`. Needs a Node.js host. */
+export function cursorDriver<TOutput = unknown>(options: CursorDriverOptions<TOutput> = {}): CursorDriver<unknown, TOutput> {
+  return { ...options, kind: "cursor", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Grok, which signs in to its own service. Needs a Node.js host. */
+export function grokDriver<TOutput = unknown>(options: GrokDriverOptions<TOutput> = {}): GrokDriver<unknown, TOutput> {
+  return { ...options, kind: "grok", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Pi. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function piDriver<TOutput = unknown>(options: PiDriverOptions<TOutput> = {}): PiDriver<unknown, TOutput> {
+  return { ...options, kind: "pi", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Kimi CLI over ACP. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function kimiDriver<TOutput = unknown>(options: KimiDriverOptions<TOutput> = {}): KimiDriver<unknown, TOutput> {
+  return { ...options, kind: "kimi", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Kiro, which signs in to its own service. Needs a Node.js host. */
+export function kiroDriver<TOutput = unknown>(options: KiroDriverOptions<TOutput> = {}): KiroDriver<unknown, TOutput> {
+  return { ...options, kind: "kiro", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with FX, which signs in to its own service. Needs a Node.js host. */
+export function fxDriver<TOutput = unknown>(options: FxDriverOptions<TOutput> = {}): FxDriver<unknown, TOutput> {
+  return { ...options, kind: "fx", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Muse, which signs in to its own service. Needs a Node.js host. */
+export function museDriver<TOutput = unknown>(options: MuseDriverOptions<TOutput> = {}): MuseDriver<unknown, TOutput> {
+  return { ...options, kind: "muse", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with any agent in the ACP registry, such as `acpDriver({ agentId: "cline" })`. The agent signs in to its own service. Needs a Node.js host. */
+export function acpDriver<TOutput = unknown>(options: AcpDriverOptions<TOutput>): AcpDriver<unknown, TOutput> {
+  return { ...options, kind: "acp", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
 type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions

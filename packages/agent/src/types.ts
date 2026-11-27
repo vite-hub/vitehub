@@ -2037,6 +2037,37 @@ export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentPr
   gateway?: AiGateway<{ routes: "claude-code" }>
 }
 
+/** Options of a Driver whose harness takes no gateway, because it signs in to its own service. */
+export interface SignInAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  gateway?: never
+}
+
+export interface GeminiDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with a `gemini` URL, such as `cliproxy()` or `google()`. */
+  gateway?: AiGateway<{ routes: "gemini" }>
+}
+
+/** Options of a Driver whose harness reaches a gateway through its `openai-compatible` URL. `model` is required with a gateway. */
+export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with an `openai-compatible` URL, such as `cliproxy()` or `openrouter()`. */
+  gateway?: AiGateway<{ routes: "openai-compatible" }>
+}
+
+export type OpenCodeDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type PiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type KimiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type AntigravityDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type CursorDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type GrokDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type KiroDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type FxDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type MuseDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+
+export interface AcpDriverOptions<TOutput = unknown> extends SignInAgentDriverOptions<TOutput> {
+  /** The agent's id in the ACP registry, such as `"cline"`. ViteHub installs it unless `providerSettings.binaryPath` names an installed copy. */
+  agentId: string
+}
+
 export type BuiltInAgentDriverName = ProviderHarness
 
 declare const agentDriverCallOptions: unique symbol
@@ -2058,10 +2089,47 @@ export type CodexDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
 export type ClaudeCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>
 
-/** A provider Driver from `codexDriver()` or `claudeCodeDriver()`. The factory carries the provider runtime. */
+type HarnessDriver<KIND extends ProviderHarness, OPTIONS, CALL_OPTIONS> =
+  AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: KIND } & OPTIONS
+
+/** A Gemini CLI Driver over ACP. Create it with `geminiDriver()`. */
+export type GeminiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"gemini", GeminiDriverOptions<TOutput>, CALL_OPTIONS>
+/** An Antigravity Driver. Create it with `antigravityDriver()`. */
+export type AntigravityDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"antigravity", AntigravityDriverOptions<TOutput>, CALL_OPTIONS>
+/** An OpenCode Driver. Create it with `opencodeDriver()`. */
+export type OpenCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"opencode", OpenCodeDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Cursor Driver. Create it with `cursorDriver()`. */
+export type CursorDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"cursor", CursorDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Grok Driver. Create it with `grokDriver()`. */
+export type GrokDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"grok", GrokDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Pi Driver. Create it with `piDriver()`. */
+export type PiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"pi", PiDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Kimi CLI Driver over ACP. Create it with `kimiDriver()`. */
+export type KimiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kimi", KimiDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Kiro Driver. Create it with `kiroDriver()`. */
+export type KiroDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kiro", KiroDriverOptions<TOutput>, CALL_OPTIONS>
+/** An FX Driver. Create it with `fxDriver()`. */
+export type FxDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"fx", FxDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Muse Driver. Create it with `museDriver()`. */
+export type MuseDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"muse", MuseDriverOptions<TOutput>, CALL_OPTIONS>
+/** A Driver for any agent in the ACP registry. Create it with `acpDriver({ agentId })`. */
+export type AcpDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"acp", AcpDriverOptions<TOutput>, CALL_OPTIONS>
+
+/** A provider Driver from `codexDriver()`, `claudeCodeDriver()`, or another harness factory. The factory carries the provider runtime. */
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | CodexDriver<CALL_OPTIONS, TOutput>
   | ClaudeCodeDriver<CALL_OPTIONS, TOutput>
+  | GeminiDriver<CALL_OPTIONS, TOutput>
+  | AntigravityDriver<CALL_OPTIONS, TOutput>
+  | OpenCodeDriver<CALL_OPTIONS, TOutput>
+  | CursorDriver<CALL_OPTIONS, TOutput>
+  | GrokDriver<CALL_OPTIONS, TOutput>
+  | PiDriver<CALL_OPTIONS, TOutput>
+  | KimiDriver<CALL_OPTIONS, TOutput>
+  | KiroDriver<CALL_OPTIONS, TOutput>
+  | FxDriver<CALL_OPTIONS, TOutput>
+  | MuseDriver<CALL_OPTIONS, TOutput>
+  | AcpDriver<CALL_OPTIONS, TOutput>
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

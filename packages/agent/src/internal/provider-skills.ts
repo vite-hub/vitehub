@@ -52,7 +52,9 @@ export async function selectProviderSkills(input: {
   sources?: readonly string[]
   workspaceRoot: string
 }): Promise<Map<string, ProviderSkill>> {
-  const native: readonly string[] = providerHarnessProfile(input.provider).skills.workspace
+  const profile = providerHarnessProfile(input.provider).skills
+  if (!profile || profile.extra.kind === "none") return new Map()
+  const native: readonly string[] = profile.workspace
   const nativeNames = new Set<string>()
   for (const skillRoot of native) {
     for (const name of await skillDirectories(input.cwd, skillRoot)) nativeNames.add(name)
@@ -105,8 +107,8 @@ export async function selectProviderSkills(input: {
  * Returns the folder that the provider receives, or `undefined` when there are no Skills.
  */
 export async function materializeProviderSkills(skills: Map<string, ProviderSkill>, provider: ProviderHarness, directory: string): Promise<string | undefined> {
-  if (!skills.size) return
-  const { extra } = providerHarnessProfile(provider).skills
+  const extra = providerHarnessProfile(provider).skills?.extra
+  if (!skills.size || !extra || extra.kind === "none") return
   const skillRoot = extra.kind === "added-directory" ? join(directory, ...extra.root.split("/")) : directory
   await mkdir(skillRoot, { mode: 0o700, recursive: true })
   for (const [name, skill] of skills) {
@@ -142,7 +144,8 @@ async function readSkillFiles(directory: string, prefix = ""): Promise<Map<strin
 
 /** Adds the selected Skills to Sandbox Home under the one skill root that the provider reads. */
 export async function addProviderSandboxSkills(skills: Map<string, ProviderSkill>, provider: ProviderHarness, files: Record<string, string | Uint8Array>): Promise<void> {
-  const root = providerHarnessProfile(provider).skills.home
+  const root = providerHarnessProfile(provider).skills?.home
+  if (!root) return
   for (const [name, skill] of skills) {
     const skillFiles = "files" in skill ? skill.files : await readSkillFiles(skill.directory)
     for (const [path, content] of skillFiles) files[`${root}/${name}/${path}`] ??= content

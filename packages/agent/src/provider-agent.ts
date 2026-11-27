@@ -10,7 +10,7 @@ import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCal
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
-import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
 import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
 import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
@@ -141,6 +141,8 @@ export interface ProviderAgentAdapterOptions<
   model?: string
   permissions?: AgentProviderPermissions
   provider: ProviderHarness
+  /** The ACP registry agent that the `acp` harness runs. */
+  agentId?: string
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
@@ -372,7 +374,25 @@ const providerHostEnvironmentKeys = [
 
 function inheritedHomeEnvironment(provider: ProviderHarness): Record<string, string | undefined> {
   const { home } = providerHarnessProfile(provider)
-  return home.inheritHost ? { [home.env]: process.env[home.env] } : {}
+  return home?.inheritHost ? { [home.env]: process.env[home.env] } : {}
+}
+
+/**
+ * Settings for the provider runtime. The harnesses beyond Codex and Claude Code are off until enabled. An ACP harness runs
+ * its registry agent, and `providerSettings.binaryPath` names an installed copy that keeps the registry arguments.
+ */
+export function providerRuntimeSettings(provider: ProviderHarness, agentId: string | undefined, settings: Record<string, unknown>): Record<string, unknown> {
+  if (provider === "codex" || provider === "claude-code") return settings
+  const profile = providerHarnessProfile(provider)
+  if (profile.runtimeKind !== "acp") return { enabled: true, ...settings }
+  const { binaryPath } = settings
+  return {
+    enabled: true,
+    source: "registry",
+    agentId: profile.agentId ?? agentId,
+    ...Object.fromEntries(Object.entries(settings).filter(([key]) => !["binaryPath", "homePath", "launchArgs", "shadowHomePath"].includes(key))),
+    ...(typeof binaryPath === "string" && binaryPath.trim() ? { commandPath: binaryPath } : {}),
+  }
 }
 
 function providerEnvironment(env: Record<string, string | undefined> | undefined): Record<string, string> {
@@ -381,6 +401,9 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   }))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
+
+/** The NDJSON file in the invocation's private root where the provider runtime appends a session line and then every event. */
+export const providerEventLogFile = "provider-events.ndjson"
 
 // Every process of a host pass starts with this variable. Commands that leave the provider's
 // process group still have it, so the pass stops them when it ends.
@@ -1404,8 +1427,10 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     }
     const configuredOverrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
-    const gateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context), signal)
+    const resolvedGateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context, { model: options.model }), signal)
     signal?.throwIfAborted()
+    if (resolvedGateway?.home) root ??= await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
+    const gateway = resolvedGateway && root ? await materializeAgentDriverGatewayHome(resolvedGateway, join(root, "gateway-home")) : resolvedGateway
     const overrides = withAgentDriverGatewayEnvironment(gateway, configuredOverrides)
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
@@ -1422,7 +1447,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     let launchDiagnosticSecrets: readonly string[] = []
     let requirementCapture: ProviderRequirementCapture | undefined
     if (options.launch !== undefined) {
-      root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
+      root ??= await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
       const command = typeof binary === "string" && binary.trim() ? binary : providerHarnessProfile(options.provider).command
       const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
         ...context, command: requirements.length ? "sh" : command, providerCommand: command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [...(home ? ["CODEX_HOME"] : []), ...Object.keys(gateway?.environment || {})],
@@ -1448,9 +1473,10 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       ? await missingProviderCommands(requirements, environment, launchSecretEnvironmentKeys, root || process.cwd(), signal)
       : undefined
     signal?.throwIfAborted()
+    const sessionModel = agentDriverSessionModel(gateway, options.model)
     const snapshot = await inspectProvider({
       provider: providerHarnessProfiles[options.provider].runtimeKind, environment, signal,
-      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(options.model ? { model: options.model } : {}) },
+      settings: providerRuntimeSettings(options.provider, options.agentId, { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(sessionModel ? { model: sessionModel } : {}) }),
     })
     // A custom launcher records the child's stderr. Without it, a failed probe reports only the exit code.
     const launchFailure = snapshot.status === "error"
@@ -3215,7 +3241,11 @@ async function* runProvider<
       gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
     }
     else if (options.gateway !== undefined) {
-      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext, { model: options.model }), effectiveSignal)
+      if (gateway.home) {
+        if (!temporaryRoot) throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${providerHarnessProfile(options.provider).displayName} reads its gateway configuration from a folder, which a Sandbox run cannot receive yet. Run the Agent without a Sandbox, or sign in inside the Sandbox and remove driver.gateway.` })
+        gateway = await materializeAgentDriverGatewayHome(gateway, join(temporaryRoot.root, "gateway-home"))
+      }
     }
     if (gateway?.chatgpt && chatgptExpiry) {
       const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
@@ -3409,7 +3439,7 @@ async function* runProvider<
     }
     const preserveNativeInstructions = !materializeInstructions
     const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
-    if (!instructions && provenanceInstructions && options.provider === "codex") {
+    if (!instructions && provenanceInstructions && options.provider !== "claude-code") {
       instructions = await readFile(join(providerCwd, providerHarnessProfile(options.provider).instructionFile), "utf8").catch(() => undefined)
     }
     if (provenanceInstructions) {
@@ -3493,7 +3523,11 @@ async function* runProvider<
         claudeSandboxPromptFile = ".claude/vitehub-system-prompt.md"
         providerSandboxHomeFiles[claudeSandboxPromptFile] = instructions
       }
-      else providerSandboxHomeFiles[".codex/AGENTS.md"] = instructions
+      else {
+        const { homeInstructionFile } = providerHarnessProfile(options.provider)
+        if (homeInstructionFile) providerSandboxHomeFiles[homeInstructionFile] = instructions
+        else turnInstructions = instructions
+      }
     }
     else if (instructions && materializeInstructions) {
       const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
@@ -3507,10 +3541,10 @@ async function* runProvider<
         }
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
-      } else if (unmergedInstructions.has("AGENTS.md")) {
+      } else if (unmergedInstructions.has(providerHarnessProfile(options.provider).instructionFile)) {
         if (codexDeveloperInstructions === undefined) turnInstructions = instructions
       } else {
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, providerHarnessProfile(options.provider).instructionFile), codexDeveloperInstructions === undefined ? instructions : "")
         if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
@@ -3584,7 +3618,7 @@ async function* runProvider<
       options.providerSettings?.launchArgs,
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       // Claude Code reads `.claude/skills` in every `--add-dir` directory.
-      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills.extra.kind === "added-directory" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
+      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills?.extra.kind === "added-directory" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
       composedEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
@@ -3641,12 +3675,15 @@ async function* runProvider<
       ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
+    const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, settings)
+    const eventLogRoot = temporaryRoot?.root ?? launchRoot
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: providerCwd,
       environment: providerRuntimeEnvironment,
+      ...(eventLogRoot ? { eventLogPath: join(eventLogRoot, providerEventLogFile) } : {}),
       provider: providerHarnessProfiles[options.provider].runtimeKind,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
-      ...(Object.keys(settings).length ? { settings } : {}),
+      ...(Object.keys(runtimeSettings).length ? { settings: runtimeSettings } : {}),
     }
     runtime = await waitForProviderOperation(
       createProviderRuntime(runtimeOptions),
@@ -3695,10 +3732,10 @@ async function* runProvider<
         http_headers: { Authorization: toolServer.mcp.authorizationHeader },
         ...(nativeUnattendedTools ? { tools: Object.fromEntries(Object.keys(context.tools ?? {}).map(name => [name, { approval_mode: "approve" as const }])) } : {}),
       } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
-      model: options.model,
+      model: agentDriverSessionModel(gateway, options.model),
       resumeCursor,
       runtimeMode: providerRuntimeMode[permissions],
-      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills.extra.kind === "skill-root" ? { skillRoots: [providerSkillDirectory] } : {}),
+      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills?.extra.kind === "skill-root" ? { skillRoots: [providerSkillDirectory] } : {}),
       // Deny native permission escalation without removing the edit-mode boundary.
       ...(permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
       ...(sandboxPolicy ? { sandboxPolicy } : {}),
