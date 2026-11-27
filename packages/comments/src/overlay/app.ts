@@ -8,7 +8,7 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
-import { commentsAgentPrompt, commentsT3CodeLink } from "../agent-prompt.ts"
+import { commentsAgentPrompt, commentsPagePrompt, commentsT3CodeLink } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
@@ -235,6 +235,8 @@ function saveVisibility(value: CommentVisibility) {
   catch {}
 }
 
+const copyIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, [h("rect", { width: 14, height: 14, x: 8, y: 8, rx: 2 }), h("path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" })])
+const checkIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M20 6 9 17l-5-5" }))
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /**
@@ -470,6 +472,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   async function copyPrompt(threads: readonly CommentThread[]) {
     const copied = await navigator.clipboard?.writeText(commentsAgentPrompt(promptInput(threads))).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
+  }
+  /** `true` for 1.5 s after **Copy prompt** in the pill copied, while the button says Copied. */
+  const pageCopied = ref(false)
+  let pageCopiedTimer: ReturnType<typeof setTimeout> | undefined
+  async function copyPagePrompt() {
+    const threads = state.openThreads.value.filter(thread => !thread.delivery)
+    const copied = await navigator.clipboard?.writeText(commentsPagePrompt(promptInput(threads))).then(() => true, () => false)
+    if (!copied) return showToast({ text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
+    pageCopied.value = true
+    clearTimeout(pageCopiedTimer)
+    pageCopiedTimer = setTimeout(() => (pageCopied.value = false), 1500)
   }
   const promptActions = (threads: readonly CommentThread[], copy: { label: string, action: string }): VNode[] => {
     const link = commentsT3CodeLink(promptInput(threads), pageRepository.value)
@@ -1039,6 +1052,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
+    const controlsFollow = canAttach.value || Boolean(session?.content && canComment.value) || people.length > 0 || Boolean(signOutUrl && github)
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value
         ? h("button", {
@@ -1065,7 +1079,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             onClick: () => (visibility.value = visibility.value === "hidden" ? "all" : "hidden"),
             title: visibility.value === "hidden" ? "Show comments" : "Hide comments",
             type: "button",
-          }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
+          }, [visibility.value === "hidden" ? eyeOffIcon() : eyeIcon(), h("span", { class: "label" }, visibility.value === "hidden" ? "Show comments" : "Hide comments")])
         : null,
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
@@ -1073,9 +1087,20 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             h("span", { class: "divider", "aria-hidden": "true" }),
             h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]),
             h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]),
-            h("button", { "aria-label": "Stop commenting", onClick: () => setMode("view"), title: "Stop commenting (Esc)", type: "button" }, closeIcon()),
-            h("span", { class: "divider", "aria-hidden": "true" }),
+            h("button", { "aria-label": "Stop commenting", class: "stop", onClick: () => setMode("view"), title: "Stop commenting (Esc)", type: "button" }, closeIcon()),
+            controlsFollow ? h("span", { class: "divider", "aria-hidden": "true" }) : null,
           ])
+        : null,
+      !commenting && open > 0
+        ? h("button", {
+            "data-action": "copy-page-prompt",
+            onClick: () => void copyPagePrompt(),
+            title: pageAgent.value ? "Copy a prompt that sends your agent to these comments in the ViteHub Console" : "Copy a prompt with the open comments for your agent",
+            type: "button",
+          }, h("span", { class: "swap" }, [
+            h("span", { "data-shown": String(!pageCopied.value) }, [copyIcon(), "Copy prompt"]),
+            h("span", { "data-shown": String(pageCopied.value) }, [checkIcon(), "Copied"]),
+          ]))
         : null,
       canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,

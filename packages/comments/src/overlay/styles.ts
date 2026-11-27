@@ -156,15 +156,25 @@ export const pillBarStyles = `
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
 .actions { display: flex; flex-direction: inherit; align-items: inherit; gap: 2px; }
-.divider { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
+/* A divider is 1px along the bar and stretches across it: a vertical rule in a row, a horizontal one when the pill docks to a side. */
+.divider { flex: 0 0 1px; align-self: stretch; margin: 6px; background: var(--vitehub-pill-line); }
 /* While Send pairs an agent, its message stands between dividers, as the actions of comment mode do. */
 [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::before,
-[data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::after { content: ""; width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
+[data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::after { content: ""; flex: 0 0 1px; align-self: stretch; margin: 6px; background: var(--vitehub-pill-line); }
 .count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon, .eye { width: 28px; padding: 0; justify-content: center; }
+.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
+/* The eye is a square icon in a row. Stacked on a side, it shows its label like the rows around it. */
+.eye { padding: 0 7px; }
+.label { display: var(--vitehub-pill-labels, none); }
+/* Both labels share one cell, so the button and the pill keep their width when Copy prompt turns to Copied. */
+.swap { display: inline-grid; justify-items: start; }
+.swap > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 4px; }
+.swap > [data-shown="false"] { visibility: hidden; }
+/* Stacked on a side, the pressed Click anywhere above already stops commenting, and the pill's own × sits at the top. */
+.stop { display: var(--vitehub-pill-row-only, inline-flex); }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }

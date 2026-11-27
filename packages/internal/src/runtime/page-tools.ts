@@ -143,7 +143,7 @@ export interface ViteHubSiteVisitor {
   roles: string[]
   /** `member` for a member of the Console team, who has the `console` role. `guest` for an invited guest. */
   kind: "member" | "guest"
-  commentsAgent?: { project: { id: string, teamId: string, url: string }, resolve: boolean }
+  commentsAgent?: { project: { id: string, teamId: string, url: string, name?: string }, resolve: boolean }
 }
 
 /** Reads the Site access person of a request. It returns undefined without a valid cookie of this app. */

@@ -870,7 +870,17 @@ Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It run
 
 Each open thread has **Open in T3 Code** and **Copy** in its header. The list of open threads has **Open in T3 Code** and **Copy open** in its top row, for all the open threads of the page. Both buttons give the same prompt: the page URL, the text and replies of each thread, the element, the version, and the URLs of its files. Every person who may read the comments gets them. When the person is a Console team member whose MCP access allows `comments.get`, the prompt also tells the Agent to check the linked app and team and read the threads through the ViteHub MCP. It asks the Agent to resolve them only if that access allows `comments.resolve`. For other people, it asks the Agent to report what it changed.
 
-**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url }`.
+Outside comment mode, the pill shows **Copy prompt** when the page has open threads. For a Console team member with that MCP access, it copies a short prompt instead of the thread text:
+
+```txt
+I left 2 comments on https://docs.acme.dev/pricing
+In the ViteHub Console, open app "Acme Docs" (docs.acme.dev) through the ViteHub MCP (https://console.vitehub.dev/mcp/account): find it with list_apps (id: prj_1, team team_1; if it is missing, ask me to switch team), then call read_operation with operation "comments.threads" and input {"page":"/pricing"}.
+Fix each comment, then resolve it with run_operation, operation "comments.resolve", and a reply that says what you changed.
+```
+
+The app name is the label of the app in the Console, else the name that the app reports. Without a name, the prompt uses the domain. Other people get the same full text as **Copy open**. Build the text with `commentsPagePrompt({ url, threads, agent })` from `@vite-hub/comments/client`.
+
+**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url, name? }`.
 
 ```txt [Prompt]
 Fix this comment on https://app.example.com/portal/pricing

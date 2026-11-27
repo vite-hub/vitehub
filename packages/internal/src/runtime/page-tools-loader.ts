@@ -26,7 +26,10 @@ export interface ViteHubPageToolContext {
    * The tool's segment in the pill: a `<vitehub-tool slot="<tool id>">` element. Attach a shadow root to it and draw the
    * tool's controls there, so their CSS stays apart from the pill and from other tools. Inherited styles, such as the
    * pill's text color, font, dark `color-scheme`, and `--vitehub-pill-*` colors, reach it. `--vitehub-pill-flow` is the
-   * `flex-direction` for a row of controls: `column` when the pill docks to the left or right edge. Use
+   * `flex-direction` for a row of controls: `column` when the pill docks to the left or right edge. There,
+   * `--vitehub-pill-labels` is `inline`, else unset: give an icon-only button a label with `display: var(--vitehub-pill-labels, none)`,
+   * so a stacked row says what it does, and `--vitehub-pill-row-only` is `none`: hide a control that only a row needs with
+   * `display: var(--vitehub-pill-row-only, inline-flex)`. Use
    * `viteHubPillButtonStyles` from `page-tools-shared` for its buttons, so every segment matches. The pill hides a segment
    * that is still empty when the default export returns. Set `bar.hidden` to hide or show it later.
    */
