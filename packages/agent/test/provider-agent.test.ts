@@ -85,6 +85,7 @@ import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver, runAgent } from "../src/index.ts"
+import { runAgentForTest } from "../src/test.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -8369,6 +8370,27 @@ describe("Provider Agent Driver session log", () => {
       const lines = log.trim().split("\n").map(line => JSON.parse(line) as { type: string })
       expect(lines[0]).toMatchObject({ type: "meta", kind: "codex", threadId })
       expect(lines.map(line => line.type)).toEqual(["meta", "content.delta", "turn.completed"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("reports the session log path from runAgentForTest() beside structured output", async () => {
+    const threadId = "session-log-test-runner"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const sessionLog = join(root, `${threadId}.ndjson`)
+    try {
+      runtime(threadId, [
+        event("content.delta", threadId, { delta: '{"answer":"ready"}', streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+      ])
+      const agent = defineAgent({ driver: codexDriver({ sessionLog, output: { schema: z.object({ answer: z.string() }) } }), runtime: false })
+
+      const result = await runAgentForTest(agent, { run: { runId: `run-${threadId}`, threadId }, runtime: "vite", runtimeConfig: {} }, { prompt: "write a file" })
+
+      expect(result).toMatchObject({ raw: { answer: "ready" }, sessionLog })
+      expect(readAgentSession("codex", await readFile(sessionLog, "utf8"))).toMatchObject({ id: threadId, status: "completed" })
     }
     finally {
       await rm(root, { force: true, recursive: true })

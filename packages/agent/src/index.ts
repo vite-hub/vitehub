@@ -8738,7 +8738,7 @@ async function runAgentInlineWithContext<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
   context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentInlineOptions & { onSessionLog?: (path: string) => void } = {},
+  options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return await executeAgentInvocation(agent, withAgentIdentityOwner(agent, withAgentRuntimeMemo(context)), input, {

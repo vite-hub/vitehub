@@ -15,6 +15,8 @@ import type {
 
 export interface RunAgentInlineOptions {
   capabilities?: readonly AgentCapabilityDefinition[]
+  /** Receives the `driver.sessionLog` path when structured output replaces the Driver result. */
+  onSessionLog?: (path: string) => void
   output?: "raw" | "rendered"
   tools?: AgentToolSet
 }

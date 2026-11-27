@@ -408,14 +408,17 @@ export function createAgentTestRunner<
         waitUntil: options.waitUntil || createWaitUntil(),
       })
 
+      let sessionLog: string | undefined
       const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
         withTestOutcomeCapture(instrumentedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
         context,
         input,
+        { onSessionLog: path => { sessionLog = path } },
       )
-      return await normalizeAgentTestResult(raw, toolSteps, () => finishEvent, () => completedTraceRun(traceLog, run))
+      const result = await normalizeAgentTestResult(raw, toolSteps, () => finishEvent, () => completedTraceRun(traceLog, run))
+      return sessionLog === undefined ? result : { ...result, sessionLog }
     },
   }
 }
