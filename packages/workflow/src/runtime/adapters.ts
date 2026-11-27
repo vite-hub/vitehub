@@ -7,7 +7,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
-import { toCloudflareStartParams } from "./delay.ts"
+import { toCloudflareStartParams, vercelNativeRegistryKey } from "./delay.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cloudflareSignalEventType } from "./cloudflare-runner.ts"
@@ -522,6 +522,13 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     async run(context) {
       const { definition, event, name, payload, startAt } = context
       const agentTurn = Boolean(definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery)
+      const registry = getWorkflowRuntimeRegistry()
+      if (!agentTurn && registry && Object.hasOwn(registry, name) && Reflect.get(registry, Symbol.for(vercelNativeRegistryKey)) === true) {
+        const native = definition?.native
+        if (typeof native !== "function" || typeof Reflect.get(native, "workflowId") !== "string" || !Reflect.get(native, "workflowId")) {
+          throw workflowErrorDiagnostics.WORKFLOW_VERCEL_DISCOVERED_NOT_NATIVE({ name })
+        }
+      }
       if (!runsNatively(definition)) {
         if (!agentTurn && !isDiscoveredWorkflow(name) && !isDevelopmentServer()) {
           warnInlineWorkflow(name, "Workflow DevKit")

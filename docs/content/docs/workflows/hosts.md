@@ -36,9 +36,11 @@ pnpm add @vercel/functions
 
 An app with discovered Workflow files also needs `workflow` and `@workflow/builders`, because a Vercel build makes a Workflow DevKit entry for each file:
 
-- A single file, such as `server/workflows/send-report.ts`, runs its handler as one step, as the Cloudflare root step does. `context.sleep()` throws `WORKFLOW_ROOT_STEP_SLEEP`. The run cannot take an `id` in `startWorkflow()`.
+- A single file, such as `server/workflows/send-report.ts`, can default-export `defineWorkflow({ handler })`. ViteHub runs the handler as one step, as the Cloudflare root step does. `context.sleep()` throws `WORKFLOW_ROOT_STEP_SLEEP`. The handler receives the DevKit run ID; you cannot pass your own `id` to `startWorkflow()`.
 - A folder with numbered step files and no index file runs each step file as one step, in order.
 - A folder with an index file, such as `index.ts` or `index.mjs`, needs a [`native` entry](/docs/workflows/configure#add-a-durable-vercel-entry) that you write. Without it, the build stops with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. Remove the index file to use the numbered steps, or add `native`.
+
+A discovered file that exports a `createWorkflow()` handle instead of a definition cannot start on Vercel. Replace the handle with a default-exported `defineWorkflow({ handler })` to fix `WORKFLOW_VERCEL_DISCOVERED_NOT_NATIVE`.
 
 When the packages are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 

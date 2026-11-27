@@ -349,8 +349,8 @@ export async function runWorkflowHandler<TPayload, TResult>(
 export async function runWorkflowRootStep<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
-): Promise<TResult> {
-  return await runInRootStep(context, { ...definition, rootStep: true }, value => value)
+): Promise<unknown> {
+  return await runSerializedWorkflowHandler(context, { ...definition, rootStep: true })
 }
 
 async function toStoredWorkflowResult(value: unknown): Promise<unknown> {

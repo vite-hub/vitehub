@@ -5,7 +5,8 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
+import { createWorld, setWorld } from "workflow/runtime"
 
 import { generateWorkflowProviderOutputs } from "../src/internal/vite-build.ts"
 import { hubWorkflow } from "../src/vite.ts"
@@ -63,14 +64,17 @@ const nitroServerStubs: EsbuildPlugin = {
   },
 }
 
-it("installs the Workflow registry in Nitro's Vercel server function, so a Workflow file starts a Workflow DevKit run", async () => {
+it("runs and inspects a generated Workflow through Nitro and the Vercel DevKit flow", { timeout: 60_000 }, async () => {
   const root = await createApp({
     "server/workflows/welcome.ts": [
       "import { defineWorkflow } from '@vite-hub/workflow'",
       "",
-      "export default defineWorkflow<{ name: string }>({ handler: async ({ payload }) => ({ greeting: `Hello ${payload.name}` }) })",
+      "export default defineWorkflow<string>({ handler: async ({ id, payload }) => payload === 'response'",
+      "  ? new Response(id, { status: 201, headers: { 'x-workflow': 'welcome' } })",
+      "  : { id, date: new Date(0), missing: undefined } })",
       "",
     ].join("\n"),
+    "server/workflows/inline.ts": "import { createWorkflow } from '@vite-hub/workflow'\nexport default createWorkflow('inline', async () => 'inline')\n",
   })
   const { startupPlugin } = await configureNitroVercelBuild(root)
 
@@ -79,11 +83,16 @@ it("installs the Workflow registry in Nitro's Vercel server function, so a Workf
     `import startup from ${JSON.stringify(startupPlugin)}`,
     `import { getWorkflowRun, startWorkflow } from ${JSON.stringify(join(packageDir, "dist/index.js"))}`,
     "",
-    "export async function handleRequest() {",
+    "export async function start(name, payload) {",
     "  startup()",
-    "  const [, run] = await startWorkflow('welcome', { name: 'Ada' })",
-    "  const [, stored] = await getWorkflowRun('welcome', run.id)",
-    "  return { run, stored }",
+    "  const [error, run] = await startWorkflow(name, payload)",
+    "  if (error) throw error",
+    "  return run",
+    "}",
+    "export async function inspect(id) {",
+    "  const [error, run] = await getWorkflowRun('welcome', id)",
+    "  if (error) throw error",
+    "  return run",
     "}",
     "",
   ].join("\n"))
@@ -100,16 +109,46 @@ it("installs the Workflow registry in Nitro's Vercel server function, so a Workf
     plugins: [nitroServerStubs],
   })
 
+  await generateWorkflowProviderOutputs({
+    clientOutDir: join(root, "dist"),
+    hosting: "vercel",
+    nitroServer: true,
+    providerImportAliases: { "@vite-hub/workflow": join(packageDir, "dist/index.js") },
+    rootDir: root,
+    workflow: {},
+  })
+  vi.stubEnv("WORKFLOW_TARGET_WORLD", "local")
+  vi.stubEnv("WORKFLOW_LOCAL_DATA_DIR", join(root, "workflow-data"))
+  const world = await createWorld()
+  setWorld(world)
   Reflect.set(globalThis, "__vitehubWaitUntil", [])
   try {
-    const server = await import(pathToFileURL(outfile).href) as { handleRequest: () => Promise<{ run: { id: string, metadata: Record<string, unknown>, status: string }, stored: { id: string } }> }
-    const { run, stored } = await server.handleRequest()
+    const flow = await import(pathToFileURL(join(root, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs")).href)
+    world.registerHandler?.("__wkf_workflow_", flow.POST)
+    await world.start?.()
+    const server = await import(pathToFileURL(outfile).href)
+    await expect(server.start("inline")).rejects.toMatchObject({ code: "WORKFLOW_VERCEL_DISCOVERED_NOT_NATIVE" })
+    const run = await server.start("welcome", "json")
     expect(run).toMatchObject({ id: expect.stringMatching(/^wrun_/), metadata: { workflow: "welcome" }, status: "queued" })
     expect(run.metadata).not.toHaveProperty("mode")
     expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(0)
-    expect(stored.id).toBe(run.id)
+    const inspectCompleted = async (id: string) => await vi.waitFor(async () => {
+      const stored = await server.inspect(id)
+      expect(stored.status).toBe("completed")
+      return stored.result
+    }, { timeout: 10_000 })
+    await expect(inspectCompleted(run.id)).resolves.toStrictEqual({ id: run.id, date: "1970-01-01T00:00:00.000Z" })
+    const responseRun = await server.start("welcome", "response")
+    const response = await inspectCompleted(responseRun.id)
+    expect(response).toBeInstanceOf(Response)
+    expect(response.status).toBe(201)
+    expect(response.headers.get("x-workflow")).toBe("welcome")
+    await expect(response.text()).resolves.toBe(responseRun.id)
   }
   finally {
+    setWorld(undefined)
+    await world.close?.()
+    vi.unstubAllEnvs()
     Reflect.deleteProperty(globalThis, "__vitehubWaitUntil")
   }
 })

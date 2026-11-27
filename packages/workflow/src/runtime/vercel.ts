@@ -1,6 +1,7 @@
 import { createWorkflowError } from "../errors.ts"
 
-import { generatedNativeEntryKey, workflowStartAtKey } from "./delay.ts"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
+import { generatedNativeEntryKey, generatedNativeRootStepKey, workflowStartAtKey } from "./delay.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 
@@ -278,10 +279,13 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
     }),
     runWorkflowProviderOperation("vercel", "list-steps", async () => normalizeSteps(await runtime.listSteps(id))),
   ])
-  const result = snapshot.status === "completed"
-    // SAFETY: A completed run's return value has the Workflow definition's declared result contract.
-    ? await runWorkflowProviderOperation("vercel", "get-run", () => run.returnValue) as TResult
+  const output = snapshot.status === "completed"
+    ? await runWorkflowProviderOperation("vercel", "get-run", () => run.returnValue)
     : undefined
+  const result = (definition.native && Reflect.get(definition.native, generatedNativeRootStepKey) === true && isSerializedResponse(output)
+    ? deserializeResponse(output)
+    // SAFETY: A completed run's return value has the Workflow definition's declared result contract.
+    : output) as TResult | undefined
   const error = snapshot.status === "failed" ? await readVercelRunError(run) : undefined
   return {
     completedAt: snapshot.completedAt,
