@@ -161,36 +161,44 @@ The primitive pages have the details:
 
 ## Agents
 
-A Node build with Agents and a Postgres Default Database shares the Agent
-journal and selects one server for each Agent's background work. Agent State
-and Workspace files do not go to Postgres. Share them with the stores in the
-last column.
+A production Node build with Agents and a Postgres Default Database uses
+Postgres for the default Invocation journal unless you override it. Postgres
+also coordinates recovery and process host Leases. It does not store Agent
+State or local Workspace files.
 
 | Agent store | With a Postgres Default Database | Share it |
 | --- | --- | --- |
-| Invocation journal | Shared. The [default journal](/docs/agents/invocation-storage#use-the-default-journal) uses the tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. | Nothing to set. `dataDir`, `agent.invocations.databaseUrl`, or a `file:` URL in `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` keeps the journal in a file on one host. |
-| Recovery | Shared. One server at a time [sweeps the journal](/docs/agents/invocation-storage#recover-interrupted-invocations) every 15 seconds, under the Lease `agent-recovery:<agent>`. | Nothing to set. |
+| Invocation journal | The [default journal](/docs/agents/invocation-storage#use-the-default-journal) uses the shared Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations` unless overridden. | Keep the Postgres default, or set `agent.invocations.databaseUrl` to a remote libSQL URL. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` takes precedence over both. A `file:` URL stays on one host. `dataDir` supplies a default file URL but does not replace an explicit URL. |
+| Recovery | One server at a time [sweeps the journal](/docs/agents/invocation-storage#recover-interrupted-invocations) on a 15-second timer, under the Lease `agent-recovery:<agent>`. | Keep the journal shared so that the sweep can see records from other servers. |
 | Process hosts | Shared. One server at a time [runs the host](/docs/agents/process-hosts#run-one-host-across-servers) of each Agent, under the Lease `agent-process-host:<agent>`. Another server takes over in about 30 seconds. | Nothing to set. The files that a host writes below `dataDir`, such as provider sessions, stay on the server that ran it. |
-| Resumable web chat streams | In the memory of one process with `resumable.scope: 'process'`. | Set [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat) on the web chat route. The streams then go to the tables `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks`. |
-| Agent State | Not in Postgres. `VITEHUB_AGENT_STATE_URL` selects SQLite or libSQL. A `file:` URL keeps State on one host. | Set `VITEHUB_AGENT_STATE_URL` to a remote libSQL server, such as Turso or `sqld`, on every instance. See [History and sessions](/docs/agents/chat-history-sessions). |
-| Workspaces | Local files under `.vitehub/workspaces/<name>` on one host. | Use the [Blob + Database Store](/docs/workspace/configure#share-one-workspace-across-instances) with an S3 Blob store and the Postgres history schema. A GitHub or Vercel Blob store is also shared. |
+| Resumable web chat streams | With `resumable.scope: 'process'`, streams stay in the memory of one process. | Set [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat) on the route and use a shared SQL journal. Streams use the database of the selected journal: Postgres with the Postgres default, or remote libSQL if the journal uses that override. |
+| Agent State | Not in Postgres. `VITEHUB_AGENT_STATE_URL` selects SQLite or libSQL. A `file:` URL keeps State on one host. | Set `VITEHUB_AGENT_STATE_URL` to the same remote libSQL server on every instance. If the server requires authentication, also set `VITEHUB_AGENT_STATE_AUTH_TOKEN`. See [History and sessions](/docs/agents/chat-history-sessions). |
+| Workspaces | Local is the fallback, with files under `.vitehub/workspaces/<name>` by default. A Workspace Definition without a `store` or `root` can infer Vercel Blob from credentials. | Use the [Blob + Database Store](/docs/workspace/configure#share-one-workspace-across-instances) with a shared Blob store such as S3 and the Postgres history schema. GitHub and Vercel Blob are also available as direct [Workspace Store drivers](/docs/workspace/configure#store-drivers). |
 
-After you add Agents, run `vitehub database generate` again. The Database
-migrations create the journal and chat stream tables, because the journal does
-not create tables on Postgres.
+If your build selects the Postgres default journal, run `vitehub database generate`
+again after adding Agents. The Database migrations create the journal tables
+and the `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` tables
+used by shared chat streams on that journal. The stores do not create tables on Postgres.
 
-The durability report has one line for each row: `agent-invocations`,
+The durability report uses these names where applicable: `agent-invocations`,
 `agent-recovery`, `agent-process-host`, `agent-chat-streams`, `agent-state`,
-and `workspace`. The `agent-chat-streams` line shows where streams with
+and `workspace`. For example, `agent-process-host` only appears when process
+hosts are configured, and each Workspace Definition gets a named `workspace`
+entry. The `agent-chat-streams` line shows where streams with
 `scope: 'shared'` go. A route with `scope: 'process'` keeps its streams in one
 process, whatever the line says. With `VITEHUB_INSTANCES` above 1, a server
 whose Agent State or Workspace is not shared stops at boot with
 `RUNTIME_R0017`.
 
-A run does not move to another server. When a server stops during an
-Invocation, the recovery sweep on another server marks it `failed` about 30
-seconds after its last claim renewal. An Agent turn on a Workflow also runs its
-Driver at most once. See
+A run does not move to another server. In a shared journal, the periodic sweep
+marks eligible interrupted inline Invocations `failed` after their claims
+expire. A claim lasts 30 seconds from its last renewal; the record is updated
+on a later sweep, not at expiry. The sweep does not retry turns or handle
+Invocations that a persisted delivery will retry. A Node server at startup can
+retry an interrupted inline Channel chat as a new run.
+
+The Workflow and its recovery run own the outcome of a Workflow-backed
+Invocation. A Workflow-backed turn runs its Driver at most once. See
 [Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations)
 and [Host recovery limits](/docs/agents/invocation-storage#host-recovery-limits).
 
@@ -496,8 +504,8 @@ trust if clients can reach Node directly.
   leases and Schedule claims on it are not safe. Use Postgres or remote libSQL.
 - Blob `fs` and every folder under `dataDir` are on one host. That includes KV
   `fs-lite`, a `file:` Agent State, local Workspace files, and the files of
-  Agent process hosts. With `dataDir`, the default Agent Invocation journal is
-  a file there too. See [Agents](#agents).
+  Agent process hosts. `dataDir` also supplies the default file for the Agent
+  Invocation journal unless you override its URL. See [Agents](#agents).
 - Without a Postgres Default Database or other shared stores, KV uses `fs-lite`
   and Rate Limit counters that use KV are local too. Realtime rooms stay in
   memory, Queue keeps job files on one host, each instance runs every Schedule
