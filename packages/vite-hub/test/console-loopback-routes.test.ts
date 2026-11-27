@@ -61,6 +61,9 @@ const routeCases: RouteCase[] = [
   { file: "entry.ts", method: "POST", path: "/_vitehub/rpc" },
   { file: "entry.ts", method: "GET", path: "/_vitehub" },
   { file: "entry.ts", method: "GET", path: "/_vitehub/agents" },
+  { file: "entry-hosted-comments.ts", method: "POST", path: "/_vitehub/rpc" },
+  { file: "entry-hosted-comments.ts", method: "GET", path: "/_vitehub" },
+  { file: "entry-hosted-comments.ts", method: "GET", path: "/_vitehub/agents" },
   { file: "entry-site-access.ts", method: "POST", path: "/_vitehub/rpc" },
   { file: "entry-site-access.ts", method: "GET", path: "/_vitehub" },
   { file: "entry-site-access.ts", method: "GET", path: "/_vitehub/agents" },
@@ -108,7 +111,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
   it("refuses a remote client with CONSOLE_LOOPBACK_ONLY before the route runs", { timeout: 30_000 }, async () => {
     const routes = await registeredConsoleRoutes()
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect(routes.map(entry => [entry.route, sourceFile(entry.handler)])).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(path => [path, "entry.ts"]))
+    expect(routes.map(entry => [entry.route, sourceFile(entry.handler)])).toEqual(["entry-hosted-comments.ts", "entry.ts"].flatMap(file => ["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(path => [path, file])))
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
       { key: true, remoteAddress: undefined },

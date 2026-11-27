@@ -297,6 +297,16 @@ function injectPageToolsBootstrap(response: Response, base = "", policyHeaders?:
   return transformPage(response, () => viteHubPageToolsInlineScript(base, scriptNonce(policyHeaders ?? response.headers)), false)
 }
 
+/**
+ * Inserts another ViteHub script before `</body>` of an HTML page by the rules of the page tools bootstrap, such as the
+ * Hosted Comments loader of an app without app Comments. `script` gets the nonce of the response policy. Its tag must
+ * have the `data-vitehub-page-tools` attribute: a page that already has a page tools script gets no second one, and the
+ * nonce of a meta policy goes before that attribute. The page keeps its cache policy.
+ */
+export function injectViteHubPageScript(response: Response, script: (nonce: string | undefined) => string, policyHeaders?: Headers): Response {
+  return transformPage(response, () => script(scriptNonce(policyHeaders ?? response.headers)), false)
+}
+
 // These describe the upstream body, not the HTML after adding or updating a page tools script.
 const pageBodyHeaders = ["content-length", "etag", "last-modified"]
 const pageConditions = ["if-none-match", "if-modified-since"]
