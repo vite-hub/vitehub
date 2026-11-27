@@ -160,7 +160,7 @@ describe("a Console app without Comments", () => {
         await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [config, { command: "serve", mode: "development" }])
         return config.nitro
       }
-      for (const [options, plugins] of [[{ console: {}, sections: [] }, ["operation-loader.js", "hosted-comments-loader.js"]], [{ rpcOnly: true, sections: [] }, ["operation-loader.js"]]] as const) {
+      for (const [options, plugins] of [[{ console: {}, sections: [] }, ["hosted-comments-loader.js", "operation-loader.js"]], [{ rpcOnly: true, sections: [] }, ["operation-loader.js"]]] as const) {
         const config = await nitro(options)
         expect(config?.handlers?.map(handler => handler.route)).not.toContain("/_vitehub/page/tools")
         expect((config?.plugins ?? []).map(plugin => basename(plugin))).toEqual(plugins)

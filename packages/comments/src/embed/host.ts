@@ -13,11 +13,14 @@ const relayWait = 5_000
 const hintPrefix = "vitehub-comments:"
 const codeFragmentOrHashRoute = new RegExp(`^#(/?)${embedCodeParam}=([\\w-]+)$`)
 
-function takeCode(): string | undefined {
+function takeCode(linked = false): string | undefined {
   const match = codeFragmentOrHashRoute.exec(location.hash)
   if (!match) return undefined
   const [, hashRouteSlash, code] = match
-  history.replaceState(history.state, "", `${location.pathname}${location.search}${hashRouteSlash ? "#/" : ""}`)
+  const url = new URL(location.href)
+  if (linked) url.searchParams.delete("vhp")
+  url.hash = hashRouteSlash ? "#/" : ""
+  history.replaceState(history.state, "", url)
   return code
 }
 
@@ -114,8 +117,8 @@ async function relayed(channel: BroadcastChannel, code: string): Promise<boolean
   })
 }
 
-async function start(projectId: string, consoleOrigin: string, repository: string | undefined, wanted: boolean = viteHubPageToolsWanted(location.search, document.cookie)): Promise<void> {
-  const code = takeCode()
+async function start(projectId: string, consoleOrigin: string, repository: string | undefined, wanted: boolean = viteHubPageToolsWanted(location.search, document.cookie), consoleUrl?: string): Promise<void> {
+  const code = takeCode(consoleUrl !== undefined)
   const hint = `${hintPrefix}${projectId}`
   if (!code && !remembered(hint) && !wanted) return
   remember(hint)
@@ -123,7 +126,7 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
   const frame = connect(consoleOrigin, projectId)
   const redeem = async (value: string) => (await (await frame).call("redeem", value)).value === true
   const tools = import("./tools.ts")
-  const project = { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) }
+  const project = { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}), ...(consoleUrl ? { consoleUrl } : {}) }
   channel.addEventListener("message", ({ data }: MessageEvent<EmbedRelay>) => {
     if (data.type !== "code") return
     void redeem(data.code).then((done) => {
@@ -142,16 +145,36 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
   await mountHostedComments(frame, project)
 }
 
-async function startLinked(keys: readonly string[], consoleOrigin: string): Promise<void> {
+function isProject(value: unknown): value is { id: string, team: string } {
+  return value !== null && typeof value === "object" && typeof Reflect.get(value, "id") === "string" && typeof Reflect.get(value, "team") === "string"
+}
+
+async function startLinked(keys: readonly string[], consoleOrigin: string, base: string): Promise<void> {
   const wanted = viteHubPageToolsWanted(location.search, "") || rememberedAny()
-  if (!wanted && !codeFragmentOrHashRoute.test(location.hash)) return
+  const returning = codeFragmentOrHashRoute.test(location.hash)
+  if (!wanted && !returning) return
   const url = new URL("/comments/project", consoleOrigin)
   for (const key of keys) url.searchParams.append("key", key)
-  const response = await fetch(url, { credentials: "omit" })
-  if (!response.ok) return
-  const answer: unknown = await response.json()
-  const projectId: unknown = answer !== null && typeof answer === "object" ? Reflect.get(answer, "id") : undefined
-  if (typeof projectId === "string") await start(projectId, consoleOrigin, undefined, wanted)
+  url.searchParams.set("base", base)
+  const answer: unknown = await fetch(url, { credentials: "omit" }).then(response => response.ok ? response.json() : undefined).catch(() => undefined)
+  const entries: unknown = answer !== null && typeof answer === "object" ? Reflect.get(answer, "projects") : undefined
+  const projects = Array.isArray(entries) ? entries.filter(isProject) : []
+  const consoleUrl = (id?: string) => {
+    const target = new URL("/open", consoleOrigin)
+    target.searchParams.set("project", `${location.origin}${base}`)
+    target.searchParams.set("path", "/")
+    if (id) target.searchParams.set("app", id)
+    return target.href
+  }
+  const open = (id: string) => start(id, consoleOrigin, undefined, true, consoleUrl(id))
+  const fromSignIn = returning ? new URLSearchParams(location.search).get("vhp") : null
+  const rememberedProjects = projects.filter(project => remembered(`${hintPrefix}${project.id}`))
+  const chosen = fromSignIn ? projects.find(project => project.id === fromSignIn) :
+    projects.length === 1 ? projects[0] : rememberedProjects.length === 1 ? rememberedProjects[0] : undefined
+  if (chosen) return await open(chosen.id)
+  if (returning) takeCode(true)
+  const { mountHostedProjectChoice } = await import("./tools.ts")
+  await mountHostedProjectChoice(consoleUrl(), projects.map(project => ({ team: project.team, choose: () => void open(project.id) })))
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments], script[data-vitehub-console-key]")
@@ -159,4 +182,4 @@ const consoleOrigin = new URL(import.meta.url).origin
 const projectId = script?.dataset.vitehubComments
 const consoleKeys = script?.dataset.vitehubConsoleKey?.split(/\s+/).filter(Boolean) ?? []
 if (projectId) void start(projectId, consoleOrigin, gitHubRepositoryOf(script?.dataset.vitehubRepo))
-else if (consoleKeys.length) void startLinked(consoleKeys, consoleOrigin)
+else if (consoleKeys.length) void startLinked(consoleKeys, consoleOrigin, script?.dataset.vitehubBase ?? "")

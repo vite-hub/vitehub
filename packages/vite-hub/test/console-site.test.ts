@@ -26,7 +26,7 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 
 const origin = "http://localhost:5173"
 const ada: ConsoleCallerUser = { email: "ada@example.com", id: "console-ada", name: "Ada" }
-const key = await consoleTestKey("CONSOLE_SITE")
+const key = await consoleTestKey("CONSOLE_01234567")
 const other = await consoleTestKey("CONSOLE_OTHER")
 
 function setCookies(response: Response): Record<string, string> {
@@ -461,7 +461,8 @@ describe("GET /_vitehub in an app without Comments, which gets the Hosted Commen
   })
 
   it("opens the ViteHub Console when the app has no Console key, or on a development server", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_KEY_CONSOLE_SITE", "")
+    vi.stubEnv("VITEHUB_CONSOLE_KEY_CONSOLE_01234567", "")
+    vi.stubEnv("VITEHUB_CONSOLE_KEY_CI", key.publicKey)
     expect(await location("/_vitehub/recetas/x")).toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fcocina.example.com&path=%2Frecetas%2Fx")
     vi.unstubAllEnvs()
     for (const [name, value] of Object.entries(key.env)) vi.stubEnv(name, value)

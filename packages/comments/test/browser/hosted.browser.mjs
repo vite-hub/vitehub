@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { test } from "node:test"
+import { hostedCommentsLoader } from "@vite-hub/internal/runtime/page-tools-shared"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
 import { createServer as createViteServer } from "vite"
@@ -14,10 +15,12 @@ const siteOrigin = `http://localhost:${sitePort}`
 const hosted = new URL("../../dist/hosted/", import.meta.url)
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
-const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin, "p-4": siteOrigin }
-const signInLanding = { "p-3": "/app/", "p-4": "/linked/" }
+const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin, "p-4": siteOrigin, "p-5": siteOrigin }
+const signInLanding = { "p-3": "/app/", "p-4": "/linked/", "p-5": "/linked/" }
 const consoleKey = "k".repeat(43)
-const projectKeys = { [consoleKey]: "p-4" }
+const secondKey = "t".repeat(43)
+const staleKey = "x".repeat(43)
+const projectKeys = { [consoleKey]: { id: "p-4", team: "First team" }, [secondKey]: { id: "p-5", team: "Second team" } }
 const token = "token-1"
 
 const sitePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title></head><body>
@@ -33,9 +36,9 @@ const vueRouterHashHistoryPage = `<!doctype html><html lang="en"><head><meta cha
 <script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-3"></script>
 </body></html>`
 
-const linkedPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Recipe</title>
-<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-console-key="${"x".repeat(43)} ${consoleKey}"></script>
-</head><body><main><h1>Recipe</h1><p>Black garlic aioli.</p></main></body></html>`
+const linkedPage = (base, keys) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Recipe</title>
+</head><body><main><h1>Recipe</h1><p>Black garlic aioli.</p></main>${hostedCommentsLoader(consoleOrigin, keys, base)}</body></html>`
+const linkedCsp = `default-src 'none'; script-src ${consoleOrigin} 'sha256-QN3vOPFNF4N34TjoyRt7mEGXSq1o76L7o2kIzzmWCUA='; frame-src ${consoleOrigin}; connect-src ${consoleOrigin}; style-src 'unsafe-inline'`
 
 const base64url = value => createHash("sha256").update(value).digest("base64url")
 
@@ -66,12 +69,15 @@ async function fakeConsole() {
       return send(res, 200, { "content-type": "text/javascript; charset=utf-8", "access-control-allow-origin": "*", "cross-origin-resource-policy": "cross-origin" }, file)
     }
     if (url.pathname === "/comments/project") {
-      seen.projects.push({ keys: url.searchParams.getAll("key"), origin: req.headers.origin, cookie: req.headers.cookie })
-      const id = url.searchParams.getAll("key").map(key => projectKeys[key]).find(Boolean)
+      const keys = url.searchParams.getAll("key")
+      const base = url.searchParams.get("base")
+      seen.projects.push({ keys, base, origin: req.headers.origin, cookie: req.headers.cookie })
+      const matches = keys.map(key => projectKeys[key]).filter(entry => entry && projects[entry.id] === req.headers.origin && base === "/linked")
       const headers = { "content-type": "application/json", ...req.headers.origin ? { "access-control-allow-origin": req.headers.origin } : {} }
-      if (!id || projects[id] !== req.headers.origin) return send(res, 404, headers, JSON.stringify({ error: "No project." }))
-      return send(res, 200, headers, JSON.stringify({ id }))
+      if (!matches.length) return send(res, 404, headers, JSON.stringify({ error: "No project." }))
+      return send(res, 200, headers, JSON.stringify({ projects: matches }))
     }
+    if (url.pathname === "/open") return send(res, 200, { "content-type": "text/plain" }, "Console project")
     const route = /^\/comments\/([^/]+)\/(embed|authorize|redeem|api\/.*)$/.exec(url.pathname)
     const project = route && projects[route[1]]
     if (!project) return send(res, 404, {}, "")
@@ -87,7 +93,10 @@ async function fakeConsole() {
       const challenge = url.searchParams.get("challenge")
       const code = `code-${seen.challenges.push(challenge)}`
       seen.codes.set(code, challenge)
-      return send(res, 302, { location: `${project}${signInLanding[route[1]] ?? "/guide/"}#vhc=${code}` }, "")
+      const target = new URL(signInLanding[route[1]] ?? "/guide/", project)
+      if (url.searchParams.has("linked")) target.searchParams.set("vhp", route[1])
+      target.hash = `vhc=${code}`
+      return send(res, 302, { location: target.href }, "")
     }
     if (route[2] === "redeem") {
       const input = JSON.parse((await body(req)).toString())
@@ -109,7 +118,11 @@ async function fakeConsole() {
 }
 
 async function fakeSite() {
-  const server = createServer((req, res) => send(res, 200, { "content-type": "text/html; charset=utf-8" }, req.url.startsWith("/app/") ? vueRouterHashHistoryPage : req.url.startsWith("/linked/") ? linkedPage : sitePage))
+  const server = createServer((req, res) => {
+    const base = req.url.startsWith("/linked/") ? "/linked" : req.url.startsWith("/stale/") ? "/stale" : ""
+    const headers = { "content-type": "text/html; charset=utf-8", ...(base ? { "content-security-policy": linkedCsp } : {}) }
+    return send(res, 200, headers, base ? linkedPage(base, base === "/linked" ? [consoleKey, secondKey] : [staleKey]) : req.url.startsWith("/app/") ? vueRouterHashHistoryPage : sitePage)
+  })
   await new Promise(resolve => server.listen(sitePort, "localhost", resolve))
   return server
 }
@@ -296,17 +309,26 @@ test("the Hosted Comments pill of a ViteHub app finds its project from the Conso
   assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 0)
 
   await page.goto(`${siteOrigin}/linked/?vitehub`)
+  await page.getByRole("combobox", { name: "Choose a team for Comments" }).selectOption({ label: "Second team" }, { timeout: 20_000 })
   await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
-  assert.deepEqual(api.seen.projects, [{ keys: ["x".repeat(43), consoleKey], origin: siteOrigin, cookie: undefined }])
+  assert.deepEqual(api.seen.projects, [{ keys: [consoleKey, secondKey], base: "/linked", origin: siteOrigin, cookie: undefined }])
   const signIn = page.locator("vitehub-comments a", { hasText: "Sign in to ViteHub" })
   await signIn.waitFor({ timeout: 20_000 })
-  assert.equal(new URL(await signIn.getAttribute("href")).pathname, "/comments/p-4/authorize")
+  assert.equal(new URL(await signIn.getAttribute("href")).pathname, "/comments/p-5/authorize")
   const [callback] = await Promise.all([context.waitForEvent("page"), signIn.click()])
   await callback.waitForEvent("close", { timeout: 20_000 })
   assert.equal(api.seen.codes.size, 0, "the sign-in tab on the linked page redeemed the code")
   await page.getByTitle("Comment on the page (C)").waitFor({ timeout: 20_000 })
 
   await page.goto(`${siteOrigin}/linked/other`)
-  await page.locator("vitehub-hosted-comments-pill").waitFor({ timeout: 20_000 })
+  const consoleLink = page.getByRole("link", { name: "Console", exact: true })
+  await consoleLink.click({ timeout: 20_000 })
+  assert.equal(new URL(page.url()).searchParams.get("app"), "p-5")
+  assert.equal(new URL(page.url()).searchParams.get("project"), `${siteOrigin}/linked`)
+
+  await page.goto(`${siteOrigin}/stale/?vitehub`)
+  await consoleLink.click({ timeout: 20_000 })
+  assert.equal(new URL(page.url()).searchParams.get("app"), null)
+  assert.equal(new URL(page.url()).searchParams.get("project"), `${siteOrigin}/stale`)
   assert.deepEqual(errors, [])
 })

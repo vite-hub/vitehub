@@ -1,4 +1,5 @@
 import { and, eq, inArray, ne } from "drizzle-orm"
+import { authSqliteSchema } from "vite-hub/auth/schema"
 
 import { consoleProjects } from "./projects.ts"
 
@@ -82,18 +83,22 @@ function projectAnswer(origin: string | undefined, status: number, value: unknow
 }
 
 /**
- * `GET /comments/project?key=<public key>`: the project id of an app that the Console links, for the Hosted Comments
- * pill that ViteHub adds to an app without app Comments. The page names the `VITEHUB_CONSOLE_KEY_<NAME>` public keys of
- * its app, and `key` can repeat. A project answers only when one of its keys matches and the request `Origin` is the
- * origin of its URL, so another site cannot learn the project of a key. Any other request gets 404.
+ * The Hosted Comments links that match a Console key, the request's origin, and the app's mount.
  */
 export async function serveCommentsProject(request: Request, db: ConsoleDatabase): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { headers: { allow: "GET, HEAD" }, status: 405 })
   const origin = originOf(request.headers.get("origin") ?? "")
-  const keys = [...new Set(new URL(request.url).searchParams.getAll("key"))].filter(key => publicKeyPattern.test(key)).slice(0, projectKeyLimit)
+  const params = new URL(request.url).searchParams
+  const base = (params.get("base") ?? "").replace(/\/+$/, "")
+  const keys = [...new Set(params.getAll("key"))].filter(key => publicKeyPattern.test(key)).slice(0, projectKeyLimit)
   if (!origin || !keys.length) return projectAnswer(origin, 404, { error: "No project has this key on this origin." })
-  const rows = await db.select({ id: consoleProjects.id, url: consoleProjects.url }).from(consoleProjects).where(and(inArray(consoleProjects.publicKey, keys), ne(consoleProjects.publicKey, "")))
-  const project = rows.find(row => originOf(row.url) === origin)
-  if (!project) return projectAnswer(origin, 404, { error: "No project has this key on this origin." })
-  return projectAnswer(origin, 200, { id: project.id })
+  const team = authSqliteSchema.organization
+  const rows = await db.select({ id: consoleProjects.id, url: consoleProjects.url, team: team.name }).from(consoleProjects)
+    .leftJoin(team, eq(team.id, consoleProjects.teamId))
+    .where(and(inArray(consoleProjects.publicKey, keys), ne(consoleProjects.publicKey, "")))
+    .orderBy(team.name, consoleProjects.id)
+  const projects = rows.filter(row => originOf(row.url) === origin && new URL(row.url).pathname.replace(/\/+$/, "") === base)
+    .map(row => ({ id: row.id, team: row.team ?? row.id }))
+  if (!projects.length) return projectAnswer(origin, 404, { error: "No project has this key at this app URL." })
+  return projectAnswer(origin, 200, { projects })
 }

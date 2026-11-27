@@ -62,12 +62,16 @@ describe("the hosted Comments embed", () => {
 
 describe("the project of a Console key", () => {
   const publicKey = "k".repeat(43)
-  const ask = (keys: string[], origin?: string, method = "GET") => new Request(`https://console.example.com/comments/project?${keys.map(key => `key=${key}`).join("&")}`, { method, headers: origin ? { origin } : {} })
+  const ask = (keys: string[], origin?: string, method = "GET", base = "") => new Request(`https://console.example.com/comments/project?base=${encodeURIComponent(base)}&${keys.map(key => `key=${key}`).join("&")}`, { method, headers: origin ? { origin } : {} })
 
   async function keyed() {
     const client = createClient({ url: ":memory:" })
     await client.execute(table)
+    await client.execute("CREATE TABLE organization (id text PRIMARY KEY, name text NOT NULL)")
+    await client.execute("INSERT INTO organization VALUES ('team', 'Cocina'), ('other', 'Recipe editors')")
     await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'team', ?, NULL, 'sealed', ?, 'user', 0)", args: ["p-cocina", "https://cocina.example.com", publicKey] })
+    await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'team', ?, NULL, 'sealed', ?, 'user', 0)", args: ["p-shop", "https://cocina.example.com/shop", "s".repeat(43)] })
+    await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'other', ?, NULL, 'sealed', ?, 'user', 0)", args: ["p-shop-other", "https://cocina.example.com/shop/", "t".repeat(43)] })
     await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'team', ?, NULL, '', '', 'user', 0)", args: ["p-unlinked", "https://cocina.example.com/old"] })
     return drizzle({ client })
   }
@@ -75,10 +79,19 @@ describe("the project of a Console key", () => {
   it("answers the project id to the origin of the project URL", async () => {
     const response = await serveCommentsProject(ask(["x".repeat(43), publicKey], "https://cocina.example.com"), await keyed())
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ id: "p-cocina" })
+    expect(await response.json()).toEqual({ projects: [{ id: "p-cocina", team: "Cocina" }] })
     expect(response.headers.get("access-control-allow-origin")).toBe("https://cocina.example.com")
     expect(response.headers.get("vary")).toBe("origin")
     expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("matches the app mount exactly and returns both team choices for a shared mount", async () => {
+    const db = await keyed()
+    const origin = "https://cocina.example.com"
+    const keys = [publicKey, "s".repeat(43), "t".repeat(43)]
+    expect(await (await serveCommentsProject(ask(keys, origin), db)).json()).toEqual({ projects: [{ id: "p-cocina", team: "Cocina" }] })
+    expect(await (await serveCommentsProject(ask(keys, origin, "GET", "/shop"), db)).json()).toEqual({ projects: [{ id: "p-shop", team: "Cocina" }, { id: "p-shop-other", team: "Recipe editors" }] })
+    expect((await serveCommentsProject(ask(keys, origin, "GET", "/docs"), db)).status).toBe(404)
   })
 
   it("answers 404 to another origin, a request without an origin, and an unknown or malformed key", async () => {

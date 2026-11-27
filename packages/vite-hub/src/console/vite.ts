@@ -441,14 +441,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitroConfig = { ...configureConsoleNitroRoutes(nitro, applicationBase, pill(), generatedApp).config }
       consoleConfig.nitro = nitroConfig
       const consoleUrl = resolveConsoleUrl(configured)
-      if (!consoleUrl) return
-      const define = JSON.stringify(consoleUrl)
+      const define = { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBase), ...consoleUrl ? { __VITEHUB_CONSOLE_URL__: JSON.stringify(consoleUrl) } : {} }
       // Nuxt can build Nitro outside Vite. That build reads Nitro `replace`, not Vite `define`.
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
         const replace = nitroConfig.replace instanceof Object ? nitroConfig.replace : {}
-        nitroConfig.replace = { ...replace, __VITEHUB_CONSOLE_URL__: define }
+        nitroConfig.replace = { ...replace, ...define }
       }
-      return { define: { __VITEHUB_CONSOLE_URL__: define } }
+      return { define }
     },
     async configResolved(config) {
       root = config.root

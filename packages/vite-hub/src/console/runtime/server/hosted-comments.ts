@@ -1,40 +1,26 @@
 import { consolePublicKeyPrefix, readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { injectViteHubPageScript } from "@vite-hub/internal/runtime/page-tools"
-import { viteHubPageToolsLinkParams, viteHubPageToolsMarker, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
+import { hostedCommentsLoader, viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { forwardedRequestOrigin, matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
 import { consoleRequestEnv } from "./console-signature.ts"
 
-const hostedCommentsAttribute = "data-vitehub-hosted-comments"
+declare const __VITEHUB_APP_BASE_URL__: string | undefined
 
 /**
  * The Console public keys of the app: the values of its `VITEHUB_CONSOLE_KEY_<NAME>` variables. An app with none, or
  * with a malformed one, is not linked, and gets no Hosted Comments.
  */
 export function hostedCommentsKeys(env: Readonly<Record<string, unknown>>): string[] {
-  const keys = readConsolePublicKeys(env)
+  const links = Object.fromEntries(Object.entries(env).filter(([name]) => /^VITEHUB_CONSOLE_KEY_CONSOLE_[0-9A-F]{8}$/.test(name)))
+  const keys = readConsolePublicKeys(links)
   if (!(keys instanceof Map)) return []
   return [...keys.keys()].flatMap((name) => {
-    const value = env[`${consolePublicKeyPrefix}${name}`]
+    const value = links[`${consolePublicKeyPrefix}${name}`]
     return typeof value === "string" ? [value.trim()] : []
   })
-}
-
-function scriptValue(value: unknown): string {
-  return JSON.stringify(value).replaceAll("<", "\\u003c")
-}
-
-/**
- * The inline loader of the Hosted Comments pill. It is a classic script, so it can give its nonce to the module script
- * that it adds. The tag has `data-vitehub-page-tools`, so a page gets one page tools script only.
- */
-export function hostedCommentsLoader(consoleOrigin: string, keys: readonly string[], nonce?: string): string {
-  const params = scriptValue([viteHubPageToolsQuery, ...viteHubPageToolsLinkParams])
-  const source = scriptValue(new URL("/hosted-comments.js", consoleOrigin).href)
-  const body = `(()=>{let s=!1;try{for(let i=0;i<sessionStorage.length;i++)s||=sessionStorage.key(i)?.startsWith("vitehub-comments:")===!0}catch{}const q=new URLSearchParams(location.search);if(!s&&!${params}.some(p=>q.has(p))&&!/^#\\/?vhc=/.test(location.hash))return;const e=document.createElement("script");e.type="module";e.src=${source};e.dataset.vitehubConsoleKey=${scriptValue(keys.join(" "))};e.nonce=document.currentScript?.nonce??"";document.head.append(e)})()`
-  return `<script ${hostedCommentsAttribute}${nonce ? ` nonce="${nonce}"` : ""} ${viteHubPageToolsMarker}>${body}</script>`
 }
 
 function isPagePath(url: URL): boolean {
@@ -59,5 +45,6 @@ export function withHostedComments(request: Request, response: Response): Respon
   const keys = hostedCommentsKeys(consoleRequestEnv(request))
   if (!keys.length) return response
   const consoleOrigin = configuredConsoleOrigin()
-  return injectViteHubPageScript(response, nonce => hostedCommentsLoader(consoleOrigin, keys, nonce))
+  const base = viteHubBasePath(typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? undefined : __VITEHUB_APP_BASE_URL__)
+  return injectViteHubPageScript(response, nonce => hostedCommentsLoader(consoleOrigin, keys, base, nonce))
 }

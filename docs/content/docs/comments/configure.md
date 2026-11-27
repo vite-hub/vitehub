@@ -83,7 +83,9 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
 
-A ViteHub app that the Console links and that has no app Comments gets Hosted Comments without a script tag. Its pages get a short inline loader, which loads `hosted-comments.js` only with `?vitehub`, `?comment`, a sign-in code, or an earlier pill in the tab. The loader finds the project from the app's `VITEHUB_CONSOLE_KEY_<NAME>` variables, and `/_vitehub` and `/_vitehub/<page>` send the browser back to that page with `?vitehub`. The app needs no Comments, Database, or project ID. Set `comments: false` to turn the pill off; `/_vitehub` then opens the Console. A prerendered page gets the loader only when the build has the `VITEHUB_CONSOLE_KEY_<NAME>` variables, because a static page does not reach the server. A development server, and a host that is not the `publicUrl`, get no loader.
+A ViteHub app that the Console links and that has no app Comments gets Hosted Comments without a script tag. Its pages get a short inline loader, which loads `hosted-comments.js` only with `?vitehub`, `?comment`, a sign-in code, or an earlier pill in the tab. The loader uses the Console-generated `VITEHUB_CONSOLE_KEY_CONSOLE_<ID>` variables to find the project at the app's public URL, including its base path. If multiple teams link the same app URL, choose a team in the pill; the choice stays in that tab. `/_vitehub` and `/_vitehub/<page>` send the browser back to the page with `?vitehub`. The pill links to the selected project in the Console, or offers a Console link if the key no longer matches. CLI and CI signing keys alone do not enable the pill.
+
+The app needs no Comments, Database, or project ID. Set `comments: false` to turn the pill off; `/_vitehub` then opens the Console. A prerendered page gets the loader only when the build has the Console-generated variables, because a static page does not reach the server. A development server, and a host that is not the `publicUrl`, get no loader.
 
 For any other site:
 
@@ -96,7 +98,9 @@ For any other site:
   data-vitehub-repo="OWNER/NAME"></script>
 ```
 
-Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src`, `frame-src`, and `connect-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root. A ViteHub app gives its inline loader the nonce of its policy.
+Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src`, `frame-src`, and `connect-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+
+For automatic injection, also authorize the inline loader. ViteHub uses the page's script nonce when one is available. Without a nonce, add `'sha256-QN3vOPFNF4N34TjoyRt7mEGXSq1o76L7o2kIzzmWCUA='` to the directive that governs script elements (`script-src-elem` if set, otherwise `script-src`). If you cannot add a nonce or hash, use the explicit script tag above. That tag does not need the inline loader.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 

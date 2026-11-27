@@ -183,7 +183,7 @@ describe("Agent invocation console", () => {
       ])
       expect(config.nitro.publicAssets).toBeUndefined()
       expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
-      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/), expect.stringMatching(/runtime\/hosted-comments-loader\.js$/)])
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/hosted-comments-loader\.js$/), expect.stringMatching(/runtime\/operation-loader\.js$/)])
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)

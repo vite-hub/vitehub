@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { hostedCommentsLoader } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import viteHubConsoleHostedComments from "../src/console/runtime/hosted-comments-loader.ts"
-import { hostedCommentsKeys, hostedCommentsLoader, withHostedComments } from "../src/console/runtime/server/hosted-comments.ts"
+import { hostedCommentsKeys, withHostedComments } from "../src/console/runtime/server/hosted-comments.ts"
 import { consoleTestKey } from "./support/console-signature.ts"
 
 const app = "https://cocina.example.com"
@@ -33,12 +34,14 @@ describe("the Hosted Comments pill of an app without Comments", () => {
     expect(body).toContain(JSON.stringify(key.publicKey))
     vi.stubGlobal("__VITEHUB_CONSOLE_URL__", "https://console.example.org")
     expect(await served("/")).toContain("\"https://console.example.org/hosted-comments.js\"")
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/shop/")
+    expect(await served("/shop/recipe")).toContain('data-vitehub-base="/shop"')
   })
 
   it("gives the loader the nonce of the page policy and keeps the cache policy", async () => {
     const response = withHostedComments(new Request(`${app}/`), html(page, { "cache-control": "public, max-age=60", "content-security-policy": "script-src 'nonce-abc123' 'strict-dynamic'" }))
     expect(response.headers.get("cache-control")).toBe("public, max-age=60")
-    expect(await response.text()).toContain("<script data-vitehub-hosted-comments nonce=\"abc123\" data-vitehub-page-tools>")
+    expect(await response.text()).toContain("<script data-vitehub-hosted-comments nonce=\"abc123\" data-vitehub-page-tools ")
   })
 
   it("adds no loader to an app without Console keys, to other responses, or below /_vitehub", async () => {
@@ -61,6 +64,7 @@ describe("the Hosted Comments pill of an app without Comments", () => {
   it("reads only well-formed Console keys", () => {
     expect(hostedCommentsKeys({ ...key.env, OTHER: "x" })).toEqual([key.publicKey])
     expect(hostedCommentsKeys({ VITEHUB_CONSOLE_KEY_CONSOLE_0A1B2C3D: "not-a-key" })).toEqual([])
+    expect(hostedCommentsKeys({ VITEHUB_CONSOLE_KEY_CI: key.publicKey })).toEqual([])
     expect(hostedCommentsKeys({})).toEqual([])
   })
 

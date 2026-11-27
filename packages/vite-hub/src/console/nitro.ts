@@ -92,7 +92,7 @@ export function addConsoleRpcHandler(
   const operationLoader = join(consoleRuntimeRoot, "operation-loader.js")
   const hostedCommentsLoader = join(consoleRuntimeRoot, "hosted-comments-loader.js")
   const plugins = (nitro.plugins ?? []).filter(plugin => plugin !== hostedCommentsLoader)
-  nitro.plugins = [...new Set([...plugins, operationLoader, ...hostedComments ? [hostedCommentsLoader] : []])]
+  nitro.plugins = [...new Set([...hostedComments ? [hostedCommentsLoader] : [], ...plugins, operationLoader])]
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
