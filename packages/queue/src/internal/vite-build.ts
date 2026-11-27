@@ -61,13 +61,13 @@ export interface VercelQueueConsumerRoute {
 
 /** How the generated server reaches the app's Database, for the postgres provider. */
 export interface QueueDatabaseIntegration {
-  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/drizzle`. */
+  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/runtime/registry`. */
   import?: string
   /** The Default Database is on Postgres, as the Database integration resolved it. */
   postgres?: boolean
 }
 
-export const defaultQueueDatabaseImport = "@vite-hub/database/drizzle"
+export const defaultQueueDatabaseImport = "@vite-hub/database/runtime/registry"
 
 function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string, postgresDatabase: boolean): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false

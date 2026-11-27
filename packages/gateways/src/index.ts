@@ -26,17 +26,23 @@ export type {
 } from "./ask.ts"
 export { aiGatewayEnv } from "./env.ts"
 export type { AiGatewayEnvField } from "./env.ts"
-export { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, emulate, litellm, ollama, openai, openrouter, typesafe, vercel } from "./presets.ts"
+export { aiGatewayHarnessRoute, aiGatewayHarnessRoutes } from "./harnesses.ts"
+export type { AiGatewayHarness, AiGatewayHarnessRoute, AiGatewayHarnessRoutes } from "./harnesses.ts"
+export { alibaba, anthropic, cliproxy, cloudflare, cloudflareAccess, deepseek, defineAiGateway, emulate, google, litellm, minimax, moonshot, ollama, openai, openrouter, typesafe, vercel, zai } from "./presets.ts"
 export type {
   AiAskGatewayOptions,
   AiGatewayPresetOptions,
   AiHostedGatewayOptions,
   AiModelGateway,
+  AiRegionalGatewayOptions,
+  AlibabaGatewayOptions,
+  AlibabaRegion,
   CloudflareAccessOptions,
   CloudflareGatewayOptions,
   EmulateGatewayOptions,
   TypesafeGatewayOptions,
   VercelGatewayOptions,
+  ZaiGatewayOptions,
 } from "./presets.ts"
 export type {
   AiGateway,

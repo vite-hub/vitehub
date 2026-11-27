@@ -1907,7 +1907,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (options.queue && plan.services.queue.supported) {
     const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
     // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
@@ -1966,7 +1966,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       ...(options.name ? { namespace: options.name } : {}),
       ...(options.realtime === true ? {} : options.realtime),
       // The Postgres bus borrows the client of a Postgres Default Database.
-      databaseImport: "vite-hub/database/drizzle",
+      databaseImport: "@vite-hub/database/runtime/registry",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
       // Other hosts keep one Content editor at a time and show comments without presence. Agents get a room for each

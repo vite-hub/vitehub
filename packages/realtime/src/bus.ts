@@ -25,7 +25,7 @@ export function resolveRealtimeNamespace(namespace: string | undefined, env: Rec
   return env[realtimeNamespaceVariable]?.trim() || namespace?.trim() || "default"
 }
 
-/** The Databases of the app, as `@vite-hub/database/drizzle` exports them. */
+/** The Databases of the app, as `@vite-hub/database/runtime/registry` exports them. */
 export type RealtimeDatabases = Readonly<Record<string, { db: object } | undefined>>
 
 export interface RealtimeNodeBusOptions {
