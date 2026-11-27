@@ -2,7 +2,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { Comment, Fragment, h } from "vue";
-import { AgentSession, AgentSessionTimeline } from "../src/agent-session.ts";
+import { AgentSession, AgentSessionTimeline, agentSessionProviderLabel } from "../src/agent-session.ts";
 
 const surfaces = [
   { id: "workspace", label: "Workspace", icon: "i-lucide-files" },
@@ -131,4 +131,26 @@ it("renders an open work row through the detail slot and keeps the text when the
     ["PRE", "<template />"],
   ]);
   wrapper.unmount();
+});
+
+it("names the session's harness in the header, with a brand logo only for Codex and Claude Code", () => {
+  const rendered = (["gemini", "opencode", "codex", "claude-code", "aider"] as const).map((provider) => {
+    const wrapper = session({ provider });
+    const badge = wrapper.get("[data-slot='agent-session-provider']");
+    const result = [badge.attributes("data-provider"), badge.text(), badge.find("svg").exists()];
+    wrapper.unmount();
+    return result;
+  });
+  expect(rendered).toEqual([
+    ["gemini", "Gemini CLI", false],
+    ["opencode", "OpenCode", false],
+    ["codex", "Codex", true],
+    ["claude-code", "Claude Code", true],
+    ["aider", "aider", false],
+  ]);
+  expect(agentSessionProviderLabel("acp")).toBe("ACP agent");
+  expect(agentSessionProviderLabel("constructor")).toBe("constructor");
+  const plain = session();
+  expect(plain.find("[data-slot='agent-session-provider']").exists()).toBe(false);
+  plain.unmount();
 });

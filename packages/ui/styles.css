@@ -4060,6 +4060,17 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .vh-agent-session__provider {
+    align-items: center;
+    align-self: center;
+    color: var(--vh-muted);
+    display: inline-flex;
+    flex: none;
+    font-size: 0.8125rem;
+    gap: 0.25rem;
+  }
+  .vh-agent-session__provider > svg,
+  .vh-agent-session__provider > .iconify { flex: none; height: 0.875rem; width: 0.875rem; }
   .vh-agent-session__controls { align-items: center; display: flex; flex: none; gap: 0.25rem; }
 
   .vh-agent-session__toggle {
