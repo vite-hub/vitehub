@@ -213,7 +213,7 @@ pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 
 For the other provider Drivers, set `permissions: 'allow-all'` only if you trust the harness to run native actions without ViteHub approval. These Drivers do not support ViteHub Sandboxes or Agent-owned Skills; install Skills in the harness's native directory instead.
 
-`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. `kimiDriver()` uses the same route with an explicit `model`. `geminiDriver()` uses a gateway's `gemini` route, such as `cliproxy()` or `google()`; `model` is optional. With a gateway, ViteHub runs Gemini CLI and Kimi Code in a private Home that holds only the gateway configuration, so they never read a saved sign-in, and the key stays in the provider process environment.
+`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. `kimiDriver()` uses the same route with an explicit `model` and requires bearer auth. `geminiDriver()` uses a gateway's `gemini` route, such as `cliproxy()` or `google()`; `model` is optional and the key is sent in `x-goog-api-key`. ViteHub rejects extra headers that Gemini CLI cannot pass unchanged. With a gateway, ViteHub runs Gemini CLI and Kimi Code in a private Home that holds only the gateway configuration, so they never read a saved sign-in, and the key stays in the provider process environment.
 
 Declare the Codex credentials in Server Env:
 
@@ -332,7 +332,7 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 
 ### Keep the session log
 
-The provider runtime writes an NDJSON event log for each Invocation: a `meta` line, then every runtime event. By default it lives in the Invocation's temporary directory and is removed with it. Set `sessionLog` to a file path, or to a per-Invocation resolver, to keep it. ViteHub creates the parent directory, the runtime appends to the file, and ViteHub never deletes it. The run result reports the path as `sessionLog`, so a session reader can open it after the Invocation ends.
+The Driver writes an NDJSON log: one `meta` line, then the runtime events it reads through the end of each turn. The retained log includes Channel follow-up turns, but not title or progress summary runs. By default the log is temporary. Set `sessionLog` to keep it. Use a different path for each Invocation so a session reader sees a single log. ViteHub resolves the path once, creates new files with owner-only access, and appends without changing existing file permissions. The run result reports the path as `sessionLog`.
 
 ```ts
 import { defineAgent, opencodeDriver, runAgent } from 'vite-hub/agent'
@@ -342,6 +342,7 @@ const agent = defineAgent({
   driver: opencodeDriver({
     gateway: cliproxy(),
     model: 'claude-haiku-5-5',
+    permissions: 'allow-all',
     sessionLog: () => `.data/sessions/${crypto.randomUUID()}.ndjson`,
   }),
 })

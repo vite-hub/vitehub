@@ -1931,10 +1931,9 @@ export interface AgentProviderDriverOptions<
    */
   requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
   /**
-   * File that the provider runtime appends its NDJSON event log to: a meta line, then every runtime event of the
-   * Invocation. The application owns the file and ViteHub never deletes it, so `readAgentSession()` can read it after
-   * the Invocation ends. A function returns a path per Invocation. The result reports it as `sessionLog`. Without it,
-   * the log lives in the Invocation's temporary folder and is removed with it.
+   * File for the Driver's NDJSON event log: one meta line, then the events read for the Invocation's turns.
+   * Use a distinct path per Invocation. ViteHub resolves it once, appends to it, and never deletes it.
+   * The result reports it as `sessionLog`. Without it, the log is temporary.
    */
   sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   /** SQLite file used to persist provider session cursors across process restarts. */
