@@ -10,6 +10,7 @@ const frameTimeout = 15_000
 const requestTimeout = 30_000
 const relayWait = 5_000
 
+const hintPrefix = "vitehub-comments:"
 const codeFragmentOrHashRoute = new RegExp(`^#(/?)${embedCodeParam}=([\\w-]+)$`)
 
 function takeCode(): string | undefined {
@@ -27,6 +28,16 @@ function remembered(key: string): boolean {
   catch {
     return false
   }
+}
+
+function rememberedAny(): boolean {
+  try {
+    for (let index = 0; index < sessionStorage.length; index++) {
+      if (sessionStorage.key(index)?.startsWith(hintPrefix)) return true
+    }
+  }
+  catch {}
+  return false
 }
 
 function remember(key: string): void {
@@ -103,10 +114,10 @@ async function relayed(channel: BroadcastChannel, code: string): Promise<boolean
   })
 }
 
-async function start(projectId: string, consoleOrigin: string, repository: string | undefined): Promise<void> {
+async function start(projectId: string, consoleOrigin: string, repository: string | undefined, wanted: boolean = viteHubPageToolsWanted(location.search, document.cookie)): Promise<void> {
   const code = takeCode()
-  const hint = `vitehub-comments:${projectId}`
-  if (!code && !remembered(hint) && !viteHubPageToolsWanted(location.search, document.cookie)) return
+  const hint = `${hintPrefix}${projectId}`
+  if (!code && !remembered(hint) && !wanted) return
   remember(hint)
   const channel = new BroadcastChannel(embedChannelName(projectId))
   const frame = connect(consoleOrigin, projectId)
@@ -131,6 +142,21 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
   await mountHostedComments(frame, project)
 }
 
-const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")
+async function startLinked(keys: readonly string[], consoleOrigin: string): Promise<void> {
+  const wanted = viteHubPageToolsWanted(location.search, "") || rememberedAny()
+  if (!wanted && !codeFragmentOrHashRoute.test(location.hash)) return
+  const url = new URL("/comments/project", consoleOrigin)
+  for (const key of keys) url.searchParams.append("key", key)
+  const response = await fetch(url, { credentials: "omit" })
+  if (!response.ok) return
+  const answer: unknown = await response.json()
+  const projectId: unknown = answer !== null && typeof answer === "object" ? Reflect.get(answer, "id") : undefined
+  if (typeof projectId === "string") await start(projectId, consoleOrigin, undefined, wanted)
+}
+
+const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments], script[data-vitehub-console-key]")
+const consoleOrigin = new URL(import.meta.url).origin
 const projectId = script?.dataset.vitehubComments
-if (projectId) void start(projectId, new URL(import.meta.url).origin, gitHubRepositoryOf(script?.dataset.vitehubRepo))
+const consoleKeys = script?.dataset.vitehubConsoleKey?.split(/\s+/).filter(Boolean) ?? []
+if (projectId) void start(projectId, consoleOrigin, gitHubRepositoryOf(script?.dataset.vitehubRepo))
+else if (consoleKeys.length) void startLinked(consoleKeys, consoleOrigin)

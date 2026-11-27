@@ -83,6 +83,10 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
 
+A ViteHub app that the Console links and that has no app Comments gets Hosted Comments without a script tag. Its pages get a short inline loader, which loads `hosted-comments.js` only with `?vitehub`, `?comment`, a sign-in code, or an earlier pill in the tab. The loader finds the project from the app's `VITEHUB_CONSOLE_KEY_<NAME>` variables, and `/_vitehub` and `/_vitehub/<page>` send the browser back to that page with `?vitehub`. The app needs no Comments, Database, or project ID. Set `comments: false` to turn the pill off; `/_vitehub` then opens the Console. A prerendered page gets the loader only when the build has the `VITEHUB_CONSOLE_KEY_<NAME>` variables, because a static page does not reach the server. A development server, and a host that is not the `publicUrl`, get no loader.
+
+For any other site:
+
 1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
 2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.
 
@@ -92,7 +96,7 @@ Hosted Comments works on any site that can load a script. The Console signs revi
   data-vitehub-repo="OWNER/NAME"></script>
 ```
 
-Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src`, `frame-src`, and `connect-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root. A ViteHub app gives its inline loader the nonce of its policy.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 

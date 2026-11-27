@@ -183,7 +183,7 @@ describe("Agent invocation console", () => {
       ])
       expect(config.nitro.publicAssets).toBeUndefined()
       expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
-      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/), expect.stringMatching(/runtime\/hosted-comments-loader\.js$/)])
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
@@ -1046,7 +1046,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(route => ({
-        handler: expect.stringMatching(/server\/entry\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route,
+        handler: expect.stringMatching(/server\/entry-hosted-comments\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route,
       })))
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
@@ -1087,7 +1087,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry\.js$/) }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry-hosted-comments\.js$/) }))
     }
     finally {
       await rm(root, { force: true, recursive: true })

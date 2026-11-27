@@ -476,7 +476,8 @@ describe("generated Console access", () => {
   it.each([
     [undefined, true, "entry-site-access.js"],
     [{ overlay: false } as const, true, "entry.js"],
-    [undefined, false, "entry.js"],
+    [undefined, false, "entry-hosted-comments.js"],
+    [false, false, "entry.js"],
   ] as const)("reads Site access from the Comments pill: comments %o, server/comments.ts %s", async (comments, commentsFile, file) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-access-"))
     try {

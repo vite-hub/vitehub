@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { serveHostedComments } from "../src/assets.ts"
 import { readConsoleAssets } from "../src/assets-build.ts"
-import { commentsEmbedFrameScript, serveCommentsEmbed } from "../src/comments-embed.ts"
+import { commentsEmbedFrameScript, serveCommentsEmbed, serveCommentsProject } from "../src/comments-embed.ts"
 
 const table = "CREATE TABLE `console_projects` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `url` text NOT NULL, `label` text, `key_sealed` text NOT NULL, `public_key` text NOT NULL, `created_by` text NOT NULL, `created_at` integer NOT NULL, UNIQUE (`team_id`, `url`))"
 const get = (path: string, method = "GET") => new Request(`https://console.example.com${path}`, { method })
@@ -57,5 +57,37 @@ describe("the hosted Comments embed", () => {
     expect(serveHostedComments(get(`/${chunk}`), assets).headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
     expect(serveHostedComments(get("/hosted-comments/missing.js"), assets).status).toBe(404)
     expect(serveHostedComments(get("/hosted-comments.js", "POST"), assets).status).toBe(405)
+  })
+})
+
+describe("the project of a Console key", () => {
+  const publicKey = "k".repeat(43)
+  const ask = (keys: string[], origin?: string, method = "GET") => new Request(`https://console.example.com/comments/project?${keys.map(key => `key=${key}`).join("&")}`, { method, headers: origin ? { origin } : {} })
+
+  async function keyed() {
+    const client = createClient({ url: ":memory:" })
+    await client.execute(table)
+    await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'team', ?, NULL, 'sealed', ?, 'user', 0)", args: ["p-cocina", "https://cocina.example.com", publicKey] })
+    await client.execute({ sql: "INSERT INTO console_projects VALUES (?, 'team', ?, NULL, '', '', 'user', 0)", args: ["p-unlinked", "https://cocina.example.com/old"] })
+    return drizzle({ client })
+  }
+
+  it("answers the project id to the origin of the project URL", async () => {
+    const response = await serveCommentsProject(ask(["x".repeat(43), publicKey], "https://cocina.example.com"), await keyed())
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: "p-cocina" })
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://cocina.example.com")
+    expect(response.headers.get("vary")).toBe("origin")
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("answers 404 to another origin, a request without an origin, and an unknown or malformed key", async () => {
+    const db = await keyed()
+    for (const request of [ask([publicKey], "https://evil.example.com"), ask([publicKey]), ask(["y".repeat(43)], "https://cocina.example.com"), ask([""], "https://cocina.example.com"), ask(["short"], "https://cocina.example.com")]) {
+      const response = await serveCommentsProject(request, db)
+      expect(response.status).toBe(404)
+      expect(await response.json()).not.toHaveProperty("id")
+    }
+    expect((await serveCommentsProject(ask([publicKey], "https://cocina.example.com", "POST"), db)).status).toBe(405)
   })
 })
