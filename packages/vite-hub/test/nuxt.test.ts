@@ -2077,6 +2077,17 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
     await discovery.runCloseHook()
   })
 
+  it("gives a Nuxt app without Comments the Hosted Comments entry and loader of the Console", async () => {
+    const application = createNuxt()
+    await viteHubNuxtModule({ console: {}, host: "node" }, application.nuxt)
+    const config: { handlers?: Array<{ handler: string, route?: string }>, plugins?: string[] } = {}
+    await application.runNitroConfigHook(config)
+
+    expect(config.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry-hosted-comments\.js$/) }))
+    expect(config.plugins?.filter(plugin => plugin.endsWith("/runtime/hosted-comments-loader.js"))).toHaveLength(1)
+    await application.runCloseHook()
+  })
+
   it("aliases the Console app module for the development operation RPC without a console option", async () => {
     mocks.vitehub.mockReturnValue([consoleVitePlugin({ rpcOnly: true })])
     const application = createNuxt(true)

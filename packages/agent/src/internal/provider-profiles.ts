@@ -35,6 +35,9 @@ export interface ProviderHarnessGateway {
   ownedEnv: readonly string[]
 }
 
+/** The `provider` values that the embedded provider runtime receives. */
+export type ProviderRuntimeKind = "acp" | "antigravity" | "claude-code" | "codex" | "cursor" | "fx" | "grok" | "kiro" | "muse" | "opencode" | "pi"
+
 /** What ViteHub must know to run a harness through the embedded provider runtime. */
 export type ProviderHarnessProfile = {
   /** The harness name in messages. */
@@ -44,7 +47,7 @@ export type ProviderHarnessProfile = {
   /** The driver kind in T3 Code, where the provider runtime comes from. */
   t3DriverKind: string
   /** The `provider` value that `@t3tools/provider-runtime` receives. */
-  runtimeKind: "acp" | "antigravity" | "claude-code" | "codex" | "cursor" | "fx" | "grok" | "kiro" | "muse" | "opencode" | "pi"
+  runtimeKind: ProviderRuntimeKind
   /** The ACP registry agent that runs the harness when `runtimeKind` is `acp`. The generic `acp` harness takes it from the Driver. */
   agentId?: string
   /** The command to run when no executable is configured or installed. */
@@ -346,7 +349,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
 }
 
 /** A harness that a provider Driver runs. */
-export type ProviderHarness = AiGatewayHarness
+export type ProviderHarness = keyof typeof providerHarnessProfiles
 
 export function isProviderHarness(value: unknown): value is ProviderHarness {
   return typeof value === "string" && Object.hasOwn(providerHarnessProfiles, value)
