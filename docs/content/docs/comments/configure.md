@@ -674,7 +674,7 @@ Copy the ownership records with the files when you back up Blob storage. Uploads
 
 ## Turn comment mode on and off
 
-Comments is a ViteHub page tool, a tool that runs on your app's pages. Comment mode starts after a person signs in with ViteHub Auth, or on a page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same.
+Comments is a ViteHub page tool, a tool that runs on your app's pages. The page tools start after a person signs in with ViteHub Auth, or on a page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` also turns comment mode on, or opens the thread list for a person who may only read. The Console's **Comment on site** opens this link. Once the tools start, the loader removes `?vitehub` from the address.
 
 1. The page loads the page tools loader, which calls `GET /_vitehub/page/tools`.
 2. That route runs each page tool's visitor check. Comments allows the overlay when `authorize` allows `read`, or to offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads.
@@ -750,7 +750,7 @@ export default defineConfig({
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=23">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
@@ -764,7 +764,7 @@ ViteHub registers these routes below the part of the base that Nitro does not ad
 
 A prerendered site needs no extra route. Its pages have the bootstrap, so a Nuxt app on Cloudflare Workers can serve them as static assets, without `assets.run_worker_first`. Only the session route and Comments API run in the Worker.
 
-A thread link, `<page>?comment=<n>`, also loads the page tools, opens Comments, and opens that thread, even when resolved. `onMention` gets this link.
+A thread link, `<page>?comment=<n>`, also loads the page tools, opens Comments, and opens that thread, even when resolved. When the thread is open, the overlay removes `?comment` from the address. `onMention` gets this link.
 
 The overlay is a custom element with a shadow root, so your CSS and its CSS stay apart. It uses the Console's comment parts from [`@vite-hub/ui`](/docs/ui/comments): pins, threads, the composer with `@` mentions and files, and `CommentPanel` as the thread list. Files go through the `comments.upload` checks, so they need Blob or `storeAttachment`.
 
@@ -872,7 +872,7 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Comments section of the [Console](/docs/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Comments section of the [Console](/docs/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?comment=<n>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 

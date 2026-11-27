@@ -33,7 +33,7 @@ async function open(search: string, session = denied) {
   document.body.append(pill)
   start({
     bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
-    signal: new AbortController().signal, open: true, exit: vi.fn(),
+    signal: new AbortController().signal, open: true, linked: false, exit: vi.fn(),
     createWindow: () => { throw new Error("Unexpected retained window") },
     createTab: () => { throw new Error("Unexpected tab") },
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
@@ -48,12 +48,26 @@ it("keeps the sign-in prompt available when the shared session allowed the tool 
   expect(overlay.shadowRoot?.querySelector("a")?.textContent).toBe("Sign in with GitHub")
 })
 
+it("brings the person back to Comments after sign-in, after the loader dropped ?vitehub", async () => {
+  const overlay = await open("?tab=2#plans")
+  expect(overlay.shadowRoot?.querySelector("a")?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?tab=2&vitehub=comments#plans")}`)
+})
+
 it("offers GitHub sign-in when the person explicitly requests Comments", async () => {
   const overlay = await open("?vitehub=comments")
   expect(overlay.isConnected).toBe(true)
   const link = overlay.shadowRoot?.querySelector("a")
   expect(link?.textContent).toBe("Sign in with GitHub")
   expect(link?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?vitehub=comments")}`)
+})
+
+it("opens hosted sign-in in a new tab without changing its URL", async () => {
+  const url = "https://console.vitehub.dev/comments/project/authorize?origin=https%3A%2F%2Fexample.com"
+  const overlay = await open("?tab=2#plans", { ...denied, signIn: { provider: "console", url } })
+  const link = overlay.shadowRoot?.querySelector("a")
+  expect(link?.textContent).toBe("Sign in to ViteHub")
+  expect(link?.getAttribute("href")).toBe(url)
+  expect(link?.target).toBe("_blank")
 })
 
 it("offers account switching while keeping the denied segment hidden", async () => {
@@ -94,7 +108,7 @@ it("waits for a press of the tool's button before it asks a visitor to sign in",
   document.body.append(pill)
   start({
     bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
-    signal: new AbortController().signal, open: false, exit: vi.fn(),
+    signal: new AbortController().signal, open: false, linked: false, exit: vi.fn(),
     createWindow: () => { throw new Error("Unexpected retained window") },
     createTab: () => { throw new Error("Unexpected tab") },
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
