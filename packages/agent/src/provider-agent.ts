@@ -2890,7 +2890,7 @@ async function* runProvider<
   if (context.providerTools?.length) {
     throw agentDiagnostics.AGENT_R0710({ message: "[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools." })
   }
-  assertProviderSkillDelivery(options.provider, context.context.get(colocatedAgentSkillsContextKey))
+  assertProviderSkillDelivery(options.provider, context.context.get(colocatedAgentSkillsContextKey), { privateHome: options.gateway !== undefined })
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
@@ -3565,14 +3565,17 @@ async function* runProvider<
     }
     // Provider Skills go to one private folder outside the checkout, so the
     // checkout keeps only its own files. A Sandbox reads them from its Home.
+    const privateHome = gateway?.home ? gateway.environment[gateway.home.env] : undefined
     const providerSkills = await selectProviderSkills({
       colocated: context.context.get(colocatedAgentSkillsContextKey),
       cwd: providerCwd,
+      privateHome: privateHome !== undefined,
       provider: options.provider,
       sources: sourceSkillMounts(context.workspaceDefinition?.sources),
       workspaceRoot: root,
     })
-    if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
+    if (privateHome !== undefined && providerHarnessProfile(options.provider).skills?.extra.kind === "private-home") await materializeProviderSkills(providerSkills, options.provider, privateHome)
+    else if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
     else if (temporaryRoot) providerSkillDirectory = await materializeProviderSkills(providerSkills, options.provider, join(temporaryRoot.root, "skills"))
     if (pullRequestRoot || preparedWorkspace?.projectRoot) {
       restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(providerCwd, generatedProviderFiles.map(file => file.path))

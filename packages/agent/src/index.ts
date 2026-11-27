@@ -2173,6 +2173,7 @@ async function callChannelMessageMethod<
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
+export type { AgentSkillFiles } from "./internal/colocated-agent-skills.ts"
 export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
 export type { ProviderSandboxSession } from "./composition.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"

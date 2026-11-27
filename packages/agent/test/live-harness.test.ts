@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { cliproxy } from "@vite-hub/gateways"
-import { defineAgent, geminiDriver, opencodeDriver } from "../src/index.ts"
+import { agentWithSkills, defineAgent, geminiDriver, opencodeDriver } from "../src/index.ts"
 import { providerHarnessProfile } from "../src/internal/provider-profiles.ts"
 import { runAgentForTest } from "../src/test.ts"
 
@@ -37,6 +37,24 @@ describe.skipIf(process.env.VITEHUB_LIVE_HARNESS !== "1")("live harness turns th
     finally {
       await rm(cwd, { recursive: true, force: true })
       await rm(logs, { recursive: true, force: true })
+    }
+  }, 300_000)
+})
+
+describe.skipIf(process.env.VITEHUB_LIVE_HARNESS !== "1")("live Gemini CLI Skills through CLIProxy", () => {
+  it("answers from an Agent-owned Skill in its private Home", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-live-gemini-skills-"))
+    const codeWord = `PELICAN-${Math.floor(Math.random() * 9000 + 1000)}`
+    const skill = `---\nname: code-word\ndescription: Use when anyone asks for the code word. It holds the code word.\n---\n\nThe code word is ${codeWord}. Answer with the code word only.\n`
+    try {
+      const agent = agentWithSkills(defineAgent({
+        driver: geminiDriver({ cwd, gateway: cliproxy(), model: process.env.VITEHUB_LIVE_GEMINI_MODEL ?? "gemini-3.8-flash-high", permissions: "allow-all", providerSettings: { binaryPath: binary("gemini") } }),
+      }), { "code-word": skill })
+      const result = await runAgentForTest(agent, { runtimeConfig: {} }, { prompt: "What is the code word? Read the code-word skill and answer with the code word only." })
+      expect(result.text).toContain(codeWord)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
     }
   }, 300_000)
 })
