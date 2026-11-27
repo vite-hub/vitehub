@@ -41,9 +41,8 @@ Each harness Driver uses one route. Codex uses `codex` (OpenAI Responses), Claud
 | `deepseek()` | `https://api.deepseek.com` | `https://api.deepseek.com/anthropic` | `https://api.deepseek.com` |
 | `minimax()` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | `https://api.minimax.io/v1` |
 | `alibaba()` | `<workspace>/compatible-mode/v1`, only with `workspaceId` | `<domain>/apps/anthropic` | `<domain>/compatible-mode/v1` |
-| `cloudflare()` | | | `.../<account>/<gateway>/compat` |
 
-`emulate()` and `typesafe()` serve no harness. The China regions of `moonshot()`, `zai()`, and `minimax()` use the same paths on their own domains. [Configure](/docs/gateways/configure#model-providers) lists them.
+`cloudflare()`, `emulate()`, and `typesafe()` serve no harness. The China regions of `moonshot()`, `zai()`, and `minimax()` use the same paths on their own domains. [Configure](/docs/gateways/configure#model-providers) lists them.
 
 `geminiDriver()` uses the [`gemini` route](/docs/gateways/configure#gemini-cli), which `google()`, `cliproxy()`, and `litellm()` serve. Antigravity, Cursor, Grok, Kiro, fx, Muse, and ACP agents take no gateway. They sign in to their own service, and `driver.gateway` fails with `AGENT_R0976`.
 

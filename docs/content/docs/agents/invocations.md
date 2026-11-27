@@ -349,7 +349,7 @@ Use `createD1AgentInvocationStore()` with a host D1 binding. See [D1 schema, ret
 
 Codex and Claude Code often run outside the app: on a laptop, in CI, or on an eval runner. Each CLI writes a session file. `@vite-hub/agent/sessions` reads that file and writes it to a journal store as a finished Invocation with the session's own timestamps. The Console then shows its messages, thinking, commands, file changes, and usage like a run of the app.
 
-A provider Driver in the app removes its runtime event log when the Invocation ends. To keep the log of each run, set [`driver.sessionLog`](/docs/agents/agent-drivers#keep-the-session-log). The run result reports the path as `sessionLog`. Use a new file for each Invocation, because the runtime appends to the file.
+The example below needs a native Codex session file, not the event log saved by [`driver.sessionLog`](/docs/agents/agent-drivers#keep-the-session-log). The native Codex and Claude Code readers do not read provider runtime event logs.
 
 ```ts
 import { readFile } from 'node:fs/promises'

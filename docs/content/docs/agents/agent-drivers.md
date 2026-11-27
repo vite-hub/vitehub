@@ -346,7 +346,7 @@ export default defineAgent({
 })
 ```
 
-The run result reports the path as `sessionLog`, so you can read or [import the session](/docs/agents/invocations#import-a-session-that-ran-elsewhere) after the Invocation ends:
+The run result reports the path as `sessionLog`, so you can read the runtime event log after the Invocation ends. This log is not a native Codex or Claude Code session file:
 
 ```ts [server/lib/review.ts]
 import { runAgent } from 'vite-hub/agent'
@@ -620,9 +620,9 @@ export default defineAgent({
 })
 ```
 
-`google()` reads `GEMINI_API_KEY` and sends requests to the Gemini API. With either gateway, ViteHub runs the CLI with `GEMINI_CLI_HOME` set to a private folder whose settings select API-key sign-in, so the CLI never reads a Google sign-in saved on the host. The settings file holds no key. The key stays in the provider environment, as [Route model requests through a gateway](#route-model-requests-through-a-gateway) explains.
+`google()` reads `GEMINI_API_KEY` and sends requests to the Gemini API. With `driver.gateway`, ViteHub runs the CLI with `GEMINI_CLI_HOME` set to a private folder whose settings select Gemini API key authentication. Use the key for the configured gateway; a saved Google sign-in cannot authenticate to the proxy. The settings file holds no key. The key stays in the provider environment, as [Route model requests through a gateway](#route-model-requests-through-a-gateway) explains.
 
-Without a gateway, the Gemini CLI signs in with `GEMINI_API_KEY` or `GOOGLE_API_KEY` from `driver.env`, or with the sign-in in the host's `GEMINI_CLI_HOME`.
+Without a gateway, set `GEMINI_API_KEY` in `driver.env` for Gemini API key authentication, or use the sign-in in the host's `GEMINI_CLI_HOME` for direct access.
 
 ### Antigravity
 

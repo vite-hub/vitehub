@@ -73,10 +73,10 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 
 The `gemini` route serves the [Gemini CLI](https://github.com/google-gemini/gemini-cli). The CLI sends Gemini API requests to `<url>/v1beta/models/<model>:generateContent`, with the key in `x-goog-api-key`. `google()`, `cliproxy()`, and `litellm()` serve it.
 
-The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. It adds `/v1beta` to the URL, so remove the `/v1` suffix from `CLIPROXY_URL`:
+The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. Set the URL to the proxy root, without `/v1` or `/v1beta`, because the CLI adds `/v1beta` itself. Choose Gemini API key authentication in the CLI, not Google sign-in:
 
 ```sh
-GOOGLE_GEMINI_BASE_URL="${CLIPROXY_URL%/v1}" GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
+GOOGLE_GEMINI_BASE_URL="https://proxy.example" GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
 ```
 
 `geminiDriver({ gateway })` sets these variables for you and runs the CLI in a private Home, as [Gemini CLI](/docs/agents/agent-drivers#gemini-cli) shows.
@@ -233,7 +233,7 @@ Each request needs a gateway token, a provider key, or both:
 
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request with neither token nor provider key fails with [`GATEWAYS_R0002`](/docs/gateways/limits-and-errors#gateways_r0002) before it is sent. The keys never mix: `ask()` sends only the TypeSafe key, and model requests only the provider key. `cloudflare({ apiKey })` throws with an error that names both options.
 
-`cloudflare()` routes only OpenCode and Pi, through the same endpoint. Codex and Claude Code need the gateway's vendor endpoints, such as `.../openai` with an OpenAI key or `.../anthropic` with an Anthropic key in `x-api-key`. [Custom gateways](/docs/gateways/server-api#custom-gateways) defines one for Codex through Cloudflare.
+`cloudflare()` supports AI SDK models and `ask()`, but no provider Driver accepts it as `driver.gateway`. For Codex or Claude Code through Cloudflare, define a custom gateway that uses the corresponding vendor endpoint. [Custom gateways](/docs/gateways/server-api#custom-gateways) shows an example for Codex.
 
 ### TypeSafe through Cloudflare AI Gateway
 
