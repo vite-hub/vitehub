@@ -16,6 +16,17 @@ function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
 }
 
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function ownerSql(database: string, statement: string, grantor = "a role that owns the database"): string {
+  const sqlClient = `As ${grantor}, run \`${statement}\` in a SQL client`
+  if (database.startsWith("-")) return `${sqlClient}.`
+  const target = /^[\w./][\w./-]*$/.test(database) ? database : quoteShellArgument(database)
+  return `${sqlClient}, or run \`vitehub database sql --remote --database ${target} ${quoteShellArgument(statement)}\` with that role in \`connection.url\`.`
+}
+
 function fileList(files: readonly string[]): string {
   return files.map(file => `\n  - ${file}`).join("")
 }
@@ -259,9 +270,23 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
       fix: "Set the same `migrationsSchema` on every Definition that connects to this Postgres database, or remove it from all of them.",
     },
+    DATABASE_MIGRATION_SCHEMA_DENIED: {
+      why: ({ database, missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => `The database "${database}" migrates as the role "${role}", which ${missing === "usage"
+        ? `has no USAGE on the schema "${schema}", so it cannot read the migration ledger there`
+        : missing === "create-database"
+          ? `has no CREATE on the Postgres database "${postgresDatabase}", so it cannot create the schema "${schema}" for the migration ledger`
+          : `has no CREATE on the schema "${schema}", so it cannot create the migration ledger there`}.`,
+      fix: ({ database, missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => {
+        const grant = missing === "create-database"
+          ? `GRANT CREATE ON DATABASE ${quotePostgresName(postgresDatabase)} TO ${quotePostgresName(role)}`
+          : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${quotePostgresName(schema)} TO ${quotePostgresName(role)}`
+        const grantor = missing === "create-database" ? undefined : `the owner of the schema "${schema}" or a role with the grant option on it`
+        return `${ownerSql(database, grant, grantor)} Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
+      },
+    },
     DATABASE_MIGRATION_SCHEMA_MISSING: {
       why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
-      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${quotePostgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
+      fix: ({ database, schema }: { database: string, schema: string }) => `${ownerSql(database, `CREATE SCHEMA ${quotePostgresName(schema)}`)} Or fix the name in \`migrationsSchema\`.`,
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.

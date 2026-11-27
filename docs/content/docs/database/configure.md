@@ -448,7 +448,7 @@ To see who holds or waits for the lock, query `pg_locks` where `locktype = 'advi
 
 Definitions on one Postgres database share its migrations table. ViteHub asks each server which database it reaches (`current_database()` and the server start time in Unix seconds), so a Unix socket, a TCP address, two URL spellings and another `TimeZone` on one database count as one. Their migrations run in one transaction, in folder timestamp order, and each folder name runs once. The Definitions must use the same role and effective schema search path (`current_user` and `current_schemas(false)`); otherwise startup and `vitehub database migrate` fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change. Configure them with the same role and `search_path`. As on a shared SQLite file, two Definitions must not have one folder name with different SQL, and a folder name that the database already applied must keep its SQL: startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
-When the migrations table already lists every folder, startup runs no DDL. An owner can apply migrations before deployment, then servers can start with a runtime role that has `USAGE` on the schemas and `SELECT` on `drizzle.__drizzle_migrations` (or the table in `migrationsSchema`), alongside its application table permissions. Creating or upgrading the migrations table and applying pending migrations still require the corresponding DDL permissions. Set `database: { migrateOnStart: false }` to skip the startup migration check.
+When the migrations table already lists every folder, startup runs no DDL. An owner can apply migrations before deployment, then servers can start with a runtime role that has `USAGE` on the schemas and `SELECT` on `drizzle.__drizzle_migrations` (or the table in `migrationsSchema`), alongside its application table permissions. Creating or upgrading the migrations table and applying pending migrations still require the corresponding DDL permissions. A role without `USAGE` on the schema of the migrations table, or without the `CREATE` privilege to create a missing table, fails with `DATABASE_MIGRATION_SCHEMA_DENIED` before any change. Set `database: { migrateOnStart: false }` to skip the startup migration check.
 
 ### Several instances on D1 over HTTP
 
@@ -924,7 +924,7 @@ export default defineDatabase({
 
 ### Keep the migrations table in a schema
 
-Drizzle keeps its migrations table in the schema `drizzle`, and ViteHub creates that schema. When the role cannot create a schema, or you want the table in your own schema, set `migrationsSchema`:
+Drizzle keeps its migrations table in the schema `drizzle`, and ViteHub creates that schema. That needs `CREATE` on the database. Without it, migrate, `--dry-run`, and start fail with [`DATABASE_MIGRATION_SCHEMA_DENIED`](/docs/database/diagnostics/database_migration_schema_denied), and the fix prints the `GRANT` to run. When the role cannot get that privilege, or you want the table in your own schema, set `migrationsSchema`:
 
 ```ts [server/databases/default.ts] fragment
 export default defineDatabase({
@@ -935,7 +935,7 @@ export default defineDatabase({
 ```
 
 - ViteHub keeps `__drizzle_migrations` in `app` and creates no `drizzle` schema. This works on Postgres and PGlite.
-- On a Postgres server, ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing). On PGlite, in a folder and in app tests, ViteHub creates the schema after the pending migrations, in the same transaction, so a migration can run `CREATE SCHEMA "app"` itself.
+- On a Postgres server, ViteHub does not create the schema. Create it first as a role that owns the database, for example with `vitehub database sql --remote 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing). On PGlite, in a folder and in app tests, ViteHub creates the schema after the pending migrations, in the same transaction, so a migration can run `CREATE SCHEMA "app"` itself.
 - The generated Kit config gets `migrations: { schema: "app" }`, so `drizzle-kit migrate` reads the same table.
 - ViteHub also reads NuxtHub's `_hub_migrations` in that schema.
 - The table in `app` is the only history. ViteHub never reads history from the table in `drizzle` and never writes to it.

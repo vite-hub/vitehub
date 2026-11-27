@@ -28,3 +28,18 @@ it("requires verified history before reverting to the default Postgres ledger", 
   const ambiguous = databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({ ...params, unverified: ["20260102000000_clear"] })
   expect(ambiguous.fix).not.toContain("Remove `migrationsSchema`")
 })
+
+it("names the schema owner and shell-quotes the Database name and SQL", () => {
+  const database = "team's database"
+  const fix = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database, missing: "usage", postgresDatabase: "app", role: "o'neil", schema: "team's ledger" }).fix ?? ""
+  const statement = `GRANT USAGE ON SCHEMA "team's ledger" TO "o'neil"`
+  expect(fix).toContain(`As the owner of the schema "team's ledger" or a role with the grant option on it, run \`${statement}\``)
+  expect(fix).toContain(`--database 'team'\\''s database' 'GRANT USAGE ON SCHEMA "team'\\''s ledger" TO "o'\\''neil"'`)
+  expect(databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database: "default", missing: "create-database", postgresDatabase: "app", role: "app_user", schema: "drizzle" }).fix).toMatch(/^As a role that owns the database, /)
+})
+
+it("only suggests a SQL client when the CLI cannot select the Database name", () => {
+  const { fix } = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database: "-team", schema: "ledger" })
+  expect(fix).toContain('run `CREATE SCHEMA "ledger"` in a SQL client.')
+  expect(fix).not.toContain("vitehub database sql")
+})

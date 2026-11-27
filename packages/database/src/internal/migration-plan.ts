@@ -52,7 +52,7 @@ export interface AdoptedMigration {
   name: string
 }
 
-export type MigrationPlanErrorCode = "DATABASE_MIGRATION_CHECK_FAILED" | "DATABASE_MIGRATION_LEDGER_MISPLACED" | "DATABASE_MIGRATION_SCHEMA_CONFLICT" | "DATABASE_MIGRATION_SCHEMA_MISSING"
+export type MigrationPlanErrorCode = "DATABASE_MIGRATION_CHECK_FAILED" | "DATABASE_MIGRATION_LEDGER_MISPLACED" | "DATABASE_MIGRATION_SCHEMA_CONFLICT" | "DATABASE_MIGRATION_SCHEMA_DENIED" | "DATABASE_MIGRATION_SCHEMA_MISSING"
 
 type CheckFailure = (problem: string, cause?: unknown) => Error
 
@@ -294,6 +294,7 @@ function migrationCheckError(database: ResolvedDrizzleDatabaseConfig, error: unk
   if (databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)
     || databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED.is(error)
     || databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_CONFLICT.is(error)
+    || databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED.is(error)
     || databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING.is(error)) return [error, undefined]
   const problem = error instanceof Error ? error.message : String(error)
   return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem }), undefined]

@@ -552,28 +552,51 @@ export function toPgliteMigrationClient(client: PgliteMigrationTarget): Postgres
  */
 export const postgresMigrationLock = "vitehub:migrations"
 
-/**
- * Whether Drizzle's ledger of a Postgres database exists. With `schema`, the schema must exist, unless `createSchema`
- * lets ViteHub create it after the pending migrations, as on PGlite.
- */
-export async function findPostgresLedger(sql: PostgresMigrationSql, { createSchema, database, schema }: { createSchema?: boolean, database: string, schema?: string }): Promise<"found" | "missing" | "no-schema"> {
-  if (schema !== undefined) {
-    const [namespace] = Array.from(await sql.unsafe("select exists (select 1 from pg_namespace where nspname = $1) as found", [schema]))
-    if (namespace?.found !== true) {
-      if (createSchema) return "no-schema"
-      throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database, schema })
-    }
-  }
-  const [existing] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(postgresLedgerTable(schema))}) as ledger`))
-  return existing?.ledger ? "found" : "missing"
-}
-
 /** Pending migrations of a `migrationsSchema` ledger that Drizzle's ledger in `drizzle` may have applied. */
 export interface MisplacedMigrations {
   /** Tags that a row in `drizzle` records: by folder name and SQL hash, or, in a row without a name, by SQL hash and `created_at` second. */
   exact: string[]
   /** Tags that a row in `drizzle` lists by name with other SQL, or whose SQL hash a row lists that records no local folder. */
   unverified: string[]
+}
+
+interface PostgresSchemaAccess {
+  create: boolean
+  createSchema: boolean
+  database: string
+  found: boolean
+  role: string
+  usage: boolean
+}
+
+async function readPostgresSchemaAccess(sql: PostgresMigrationSql, schema: string): Promise<PostgresSchemaAccess> {
+  const [row] = Array.from(await sql.unsafe("select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", [schema]))
+  return { create: row?.can_create === true, createSchema: row?.can_create_schema === true, database: String(row?.database ?? ""), found: row?.found === true, role: String(row?.role ?? ""), usage: row?.can_use === true }
+}
+
+/**
+ * Whether Drizzle's ledger of a Postgres database exists. With `schema`, the schema must exist, unless `createSchema`
+ * lets ViteHub create it after the pending migrations, as on PGlite. The role must be able to read the ledger, or to
+ * create it when it is missing. It checks the privileges first, because `to_regclass()` fails with 42501 in a schema
+ * without USAGE.
+ */
+export async function findPostgresLedger(sql: PostgresMigrationSql, { createSchema, database, schema }: { createSchema?: boolean, database: string, schema?: string }): Promise<"found" | "missing" | "no-schema"> {
+  const ledgerSchema = schema ?? defaultLedgerSchema
+  const access = await readPostgresSchemaAccess(sql, ledgerSchema)
+  const denied = (missing: "create-database" | "create-schema" | "usage") => databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database, missing, postgresDatabase: access.database, role: access.role, schema: ledgerSchema })
+  if (!access.found) {
+    if (schema !== undefined) {
+      if (createSchema) return "no-schema"
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database, schema })
+    }
+    if (!access.createSchema) throw denied("create-database")
+    return "missing"
+  }
+  if (!access.usage) throw denied("usage")
+  const [existing] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(postgresLedgerTable(schema))}) as ledger`))
+  if (existing?.ledger) return "found"
+  if (!access.create) throw denied("create-schema")
+  return "missing"
 }
 
 /**
@@ -739,7 +762,7 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   const misplaced = await findMisplacedMigrations(sql, { migrations, pending: migrations.filter(migration => !match.applied.has(migration.tag) && !history.adopted.includes(migration.tag)), schema })
   if (misplaced.exact.length || misplaced.unverified.length) throw misplacedLedgerError(databases[0]!.name, schema!, migrations, misplaced, rows.length + history.adopted.length)
   if (state === "missing") {
-    if (schema === undefined) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
+    if (schema === undefined && !Array.from(await sql.unsafe("select 1 from pg_namespace where nspname = $1", [defaultLedgerSchema])).length) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
     await sql.unsafe(createPostgresLedger(ledger))
   }
   const adopted: AdoptedEntry[] = []
