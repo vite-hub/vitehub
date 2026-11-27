@@ -38,7 +38,7 @@ const consoleSecret = "c".repeat(64)
 const consoleOrigin = "https://console.test"
 const clients: ReturnType<typeof createClient>[] = []
 const commentRoles = ["comments-read", "comments-write", "comments-resolve", "comments-delete"].map(id => ({ id, label: id }))
-const app: { answer: OperationRpcTestResult, mcp: string[], calls: { operation: string, user: string }[] } = { answer: { ok: true, value: { write: true, roles: commentRoles } }, mcp: [], calls: [] }
+const app: { answer: OperationRpcTestResult, mcp: string[], name?: string, calls: { operation: string, user: string }[] } = { answer: { ok: true, value: { write: true, roles: commentRoles } }, mcp: [], calls: [] }
 
 function callerOf(headers: Headers): string {
   const caller: unknown = JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString())
@@ -49,6 +49,7 @@ beforeEach(() => {
   vi.stubEnv("VITEHUB_CONSOLE_SECRET", consoleSecret)
   app.answer = { ok: true, value: { write: true, roles: commentRoles } }
   app.mcp = []
+  delete app.name
   app.calls.length = 0
   vi.stubGlobal("fetch", vi.fn(async (target: Request | string | URL, init?: RequestInit) => {
     expect(String(target)).toBe("https://app.example.com/portal/_vitehub/rpc")
@@ -59,7 +60,7 @@ beforeEach(() => {
     if (operation === "project.get") {
       const caller: unknown = JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString())
       expect(caller).toMatchObject({ surface: "mcp" })
-      return operationRpcResponse(body, { ok: true, value: { reference: app.mcp.map(name => ({ name })) } })
+      return operationRpcResponse(body, { ok: true, value: { ...(app.name ? { name: app.name } : {}), reference: app.mcp.map(name => ({ name })) } })
     }
     return operationRpcResponse(body, app.answer)
   }))
@@ -301,6 +302,22 @@ describe("Site access in the Console", () => {
     expect(match.ok).toBe(true)
     if (!match.ok) throw new Error("Expected a valid Site access token")
     expect(match.claims.commentsAgent).toEqual(resolve === undefined ? undefined : { projectId: project.id, teamId: project.teamId, resolve })
+  })
+
+  it("names the app in the Comments handoff by the label of the link, else by the name the app reports", async () => {
+    const { project, api } = await setup()
+    app.mcp = ["comments.get"]
+    app.name = "acme-docs"
+    const signed = async () => {
+      const state = createSiteState()
+      const token = await api("POST", "/token", { path: "/docs", state: await siteStateHash(state) })
+      const match = await verifyAt(project, String(token.body.url), state)
+      if (!match.ok) throw new Error("Expected a valid Site access token")
+      return match.claims.commentsAgent
+    }
+    expect(await signed()).toEqual({ projectId: project.id, teamId: project.teamId, resolve: false, name: "acme-docs" })
+    await createConsoleProjectStore(state.db as ConsoleDatabase, consoleSecret, "t-ada").rename(project.id, "Acme Docs")
+    expect(await signed()).toEqual({ projectId: project.id, teamId: project.teamId, resolve: false, name: "Acme Docs" })
   })
 
   it("keeps a pass to the project that issued it when two teams link the same app", async () => {

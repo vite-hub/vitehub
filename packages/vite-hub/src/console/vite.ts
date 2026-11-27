@@ -18,7 +18,7 @@ import { consoleAppModuleHasDocumentEditors, consoleRuntimeRoot, resolveConsoleR
 import { loadConsoleOperations } from "./operation-modules.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
-import { resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
+import { resolveConsoleHostedComments, resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDocumentEditorSectionIds } from "./contributions.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
@@ -173,7 +173,9 @@ export interface ConsoleVitePluginOptions {
   /**
    * The `comments` option of `vitehub()`. With the Comments pill, from this option or `server/comments.ts`, the app
    * serves Site access at `/_vitehub/site`, sends `/_vitehub` to the page of the app with the pill, and has the `site`
-   * section. Without it, `/_vitehub` opens the ViteHub Console.
+   * section. Without any Comments, the pages of a deployed app that the Console links get the Hosted Comments pill of
+   * the Console, and `/_vitehub` goes back to the page with it. `comments: false` turns that off, and `/_vitehub` opens
+   * the ViteHub Console.
    */
   comments?: ConsoleSiteComments
   contentImportBase?: string
@@ -203,14 +205,14 @@ export interface ConsoleInvocationRootState {
 function configureConsoleNitroRoutes(
   nitro: ConsoleNitroConfig,
   baseURL: string,
-  siteAccess: boolean,
+  pill: { siteAccess: boolean, hostedComments: boolean },
   app: string | undefined,
 ): ReturnType<typeof createNitroServerKit> {
   // Nitro serves its routes below its own `baseURL`, so the routes get only the part of the Vite base that Nitro does not
   // add. Without a Nitro `baseURL`, this is the whole Vite base.
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
-  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, { siteAccess })
+  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, pill)
   if (app) kit.config.alias = { ...kit.config.alias instanceof Object ? kit.config.alias : {}, [consoleAppModuleId]: app }
   return kit
 }
@@ -285,6 +287,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let baseURL = "/"
   let applicationBase = "/"
   const siteAccess = () => projectRoot !== undefined && resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs })
+  const pill = () => ({ siteAccess: siteAccess(), hostedComments: !options.rpcOnly && projectRoot !== undefined && resolveConsoleHostedComments(options.comments, { projectRoot, serverDirs }) })
 
   function consoleAccess(): ConsoleAccessBuild | undefined {
     if (!resolvedConsoleConfiguration || !root) return
@@ -435,17 +438,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const nitroConfig = { ...configureConsoleNitroRoutes(nitro, applicationBase, siteAccess(), generatedApp).config }
+      const nitroConfig = { ...configureConsoleNitroRoutes(nitro, applicationBase, pill(), generatedApp).config }
       consoleConfig.nitro = nitroConfig
       const consoleUrl = resolveConsoleUrl(configured)
-      if (!consoleUrl) return
-      const define = JSON.stringify(consoleUrl)
+      const define = { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBase), ...consoleUrl ? { __VITEHUB_CONSOLE_URL__: JSON.stringify(consoleUrl) } : {} }
       // Nuxt can build Nitro outside Vite. That build reads Nitro `replace`, not Vite `define`.
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
         const replace = nitroConfig.replace instanceof Object ? nitroConfig.replace : {}
-        nitroConfig.replace = { ...replace, __VITEHUB_CONSOLE_URL__: define }
+        nitroConfig.replace = { ...replace, ...define }
       }
-      return { define: { __VITEHUB_CONSOLE_URL__: define } }
+      return { define }
     },
     async configResolved(config) {
       root = config.root
@@ -485,7 +487,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       generatedApp = resolveGeneratedConsoleApp(projectRoot, development)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      viteConfig.nitro = { ...configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, siteAccess(), generatedApp).config }
+      viteConfig.nitro = { ...configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, pill(), generatedApp).config }
       if (!cliDiscovery) await refreshConsoleCatalog()
     },
     configureServer(server) {

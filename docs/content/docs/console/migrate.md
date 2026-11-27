@@ -11,6 +11,8 @@ A build that sets a removed `console` option fails with `VITE_HUB_B0020`, and th
 
 ## Run the codemods
 
+If your app used `console.mcpClient`, [revoke its old OAuth grants](#move-from-the-app-mcp-client) before you run these codemods.
+
 `vitehub migrate` makes the config and code changes on this page that it can make safely:
 
 ```bash [Terminal]
@@ -92,7 +94,7 @@ Apps do not add the Console link to their pages. The Comments pill loads its **C
 :::
 ::
 
-An app without Comments opens through the Console at `https://console.vitehub.dev`.
+An app without Comments that the Console links gets the [Hosted Comments](/docs/comments/configure#add-hosted-comments) pill, and `/_vitehub` sends the browser back to the page with `?vitehub`. With `comments: false`, `/_vitehub` opens the app in the Console at `https://console.vitehub.dev`.
 
 ## Remove the Site access data
 
@@ -191,8 +193,12 @@ The per-app Console MCP at `/_vitehub/mcp`, with OAuth from `consoleMcpOAuth()`,
 
 `console.mcpClient` is removed, and so are `vite-hub/console/mcp-client`, `VITEHUB_CONSOLE_MCP_KEY` and the `/_vitehub/mcp-client/callback` page. The [MCP client section](/docs/console/mcp-client) now runs on the ViteHub Console server and keeps its connections there.
 
+Upgrading does not revoke the app's old OAuth grants. Before you upgrade or run the codemods, open the old app MCP client and select **Disconnect** for each OAuth connection. Keep `VITEHUB_CONSOLE_MCP_KEY` and the old KV records in place until you finish. The old client asks the OAuth provider to revoke the saved tokens if the provider supports it.
+
+If you already upgraded or **Disconnect** could not revoke the tokens, follow the OAuth provider's revocation instructions, if available. The ViteHub Console cannot list or revoke the app's old connections.
+
 1. Remove `mcpClient` from `console`.
-2. Remove `VITEHUB_CONSOLE_MCP_KEY` from the app. Its KV entries below `vitehub:console:mcp-client:` are no longer read, so you can delete them.
+2. Remove `VITEHUB_CONSOLE_MCP_KEY` from the app and delete the old KV entries below `vitehub:console:mcp-client:`. This only removes local data.
 3. Remove `@modelcontextprotocol/sdk` from the app if nothing else uses it.
 4. Connect again in the Console. When an MCP server needs a fixed OAuth callback, register `<console origin>/mcp-client/callback`, such as `https://console.vitehub.dev/mcp-client/callback`.
 

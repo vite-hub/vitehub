@@ -1,15 +1,10 @@
-import { execFile } from "node:child_process"
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { promisify } from "node:util"
 
+import ts from "typescript"
 import { expect, it } from "vitest"
 import { writeQueueTypes } from "../src/registry-types.ts"
-
-const exec = promisify(execFile)
-const require = createRequire(import.meta.url)
 
 it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through generated definition imports", async (importBase) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-types-"))
@@ -22,7 +17,8 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
       'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeQueueTypes(root, [{ handler, name: "welcome" }], importBase)
-    await writeFile(join(root, "consumer.ts"), [
+    const consumer = join(root, "consumer.ts")
+    await writeFile(consumer, [
       `import { sendQueue, useQueue, dynamicQueue } from ${JSON.stringify(importBase)}`,
       'const [error, result] = await sendQueue("welcome", { email: "ada@example.test" }, { delay: "5s" })',
       'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"',
@@ -37,24 +33,20 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
       'await sendQueue("missing", { email: "ada@example.test" })',
       'await dynamicQueue.send("external", { arbitrary: true })',
     ].join("\n"))
-    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
-      compilerOptions: {
-        allowImportingTsExtensions: true,
-        module: "NodeNext",
-        moduleResolution: "NodeNext",
-        noEmit: true,
-        skipLibCheck: true,
-        strict: true,
-        target: "ESNext",
-        paths: {
-          "@vite-hub/queue": [resolve(import.meta.dirname, "../dist/index.d.ts")],
-          "vite-hub/queue": [resolve(import.meta.dirname, "../../vite-hub/src/queue.ts")],
-        },
+    const program = ts.createProgram([consumer, join(root, ".vitehub/queue.d.ts")], {
+      allowImportingTsExtensions: true,
+      module: ts.ModuleKind.NodeNext,
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+      types: [],
+      paths: {
+        "@vite-hub/queue": [resolve(import.meta.dirname, "../dist/index.d.ts")],
+        "vite-hub/queue": [resolve(import.meta.dirname, "../../vite-hub/src/queue.ts")],
       },
-      include: ["*.ts", ".vitehub/*.d.ts"],
-    }))
-    const result = await exec(process.execPath, [require.resolve("typescript/lib/tsc.js"), "-p", join(root, "tsconfig.json")])
-    expect(result.stdout).toBe("")
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }
   finally {
     await rm(root, { force: true, recursive: true })

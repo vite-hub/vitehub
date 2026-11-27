@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { afterAll } from "vitest"
 
 import { startAiEmulator, type AiEmulator } from "../../../packages/agent/src/internal/ai-emulator.ts"
-import { expectJson, type PrimitiveRow } from "./row.ts"
+import { expectJson, nitroWorkerUnavailable, type PrimitiveRow } from "./row.ts"
 
 const emulatorPackages = { "@emulators/ai": "0.14.0", "@emulators/core": "0.14.0" }
 const greeting = "Hello from the AI emulator."
@@ -94,9 +94,18 @@ export const agents: PrimitiveRow[] = [
       `,
     },
     async probe({ fetch, mode }) {
-      await expectJson(await fetch("/api/primitives/agent", postJson({ prompt: mode })), { text: `Hello, ${mode}.` })
-      const emulatorRuns = mode.endsWith("-dev")
-      if (emulatorRuns) await expectJson(await fetch("/api/primitives/agent?agent=greeter", postJson({ prompt: "hello there" })), { text: greeting })
+      async function runAgent(path: string, prompt: string) {
+        const init = postJson({ prompt })
+        const deadline = Date.now() + 30_000
+        for (;;) {
+          const response = await fetch(path, init)
+          if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) return response
+          await response.body?.cancel()
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+      await expectJson(await runAgent("/api/primitives/agent", mode), { text: `Hello, ${mode}.` })
+      if (mode.endsWith("-dev")) await expectJson(await runAgent("/api/primitives/agent?agent=greeter", "hello there"), { text: greeting })
     },
   },
   {

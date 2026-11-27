@@ -6,6 +6,7 @@ import { languageModelRoute, modelEmulatorUrl, resolveModelEmulation } from "../
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import type { NormalizedAgentDriver } from "../internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "../internal/agent-model.ts"
+import { providerHarnessProfile } from "../internal/provider-profiles.ts"
 import { withProviderStatusError } from "../internal/provider-status-error.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 
@@ -54,7 +55,7 @@ function emulationVerdict(settings: AgentSettings | undefined, driver: Normalize
     const provider: unknown = isRuntimeRecord(driver.model) ? driver.model.provider : undefined
     return { kind: "fails", error: agentDiagnostics.AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED({ provider: typeof provider === "string" && provider ? provider : "unknown" }) }
   }
-  if (driver.provider === "claude-code") return { kind: "fails", error: agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED() }
+  if (!providerHarnessProfile(driver.provider).modelEmulation) return { kind: "fails", error: agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED() }
   const tools = staticCapabilityToolCount(settings)
   if (tools) return { kind: "fails", error: agentDiagnostics.AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED({ tools }) }
   // SAFETY: AgentSettings is an object contract. `sandbox` is an optional field of it.

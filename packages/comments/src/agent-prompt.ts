@@ -15,7 +15,8 @@ export interface CommentsAgentPromptThread {
 /** The ViteHub MCP of a Console member, and the linked app that the agent checks before it reads the threads. */
 export interface CommentsAgentAccess {
   mcp: string
-  project: { id: string, teamId: string, url: string }
+  /** `name` is the app's name in the Console, such as `Acme Docs`. */
+  project: { id: string, teamId: string, url: string, name?: string }
   /** `true` when the member's MCP access may resolve the threads. */
   resolve: boolean
 }
@@ -122,4 +123,25 @@ export function commentsT3CodeLink(input: CommentsAgentPromptInput, repository?:
     if (href.length <= t3CodeLinkLimit) return href
   }
   return undefined
+}
+
+/**
+ * The prompt of **Copy prompt** in the pill, for the open threads of one page. With `agent`, it is three lines: the page,
+ * the app in the Console to read the threads from, and what to do with them. Without it, the agent cannot read the
+ * threads, so the prompt is `commentsAgentPrompt()` with their text.
+ */
+export function commentsPagePrompt(input: CommentsAgentPromptInput): string {
+  const { agent, threads, url } = input
+  if (!agent) return commentsAgentPrompt(input)
+  const page = new URL(url)
+  const count = threads.length === 1 ? "a comment" : `${threads.length} comments`
+  const app = agent.project.name ? `"${agent.project.name}" (${new URL(agent.project.url).host})` : new URL(agent.project.url).host
+  const ids = threads.map(thread => thread.id)
+  return [
+    `I left ${count} on ${page.href}`,
+    `In the ViteHub Console, open app ${app} through the ViteHub MCP (${agent.mcp}): find it with list_apps (id: ${agent.project.id}, team ${agent.project.teamId}; if it is missing, ask me to switch team), then call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ${JSON.stringify(ids)}.`,
+    agent.resolve
+      ? "Fix each comment, then resolve it with run_operation, the app id, operation \"comments.resolve\", and input { threadId, reply }. Say what you changed in the reply."
+      : "Fix each comment and tell me what you changed.",
+  ].join("\n")
 }

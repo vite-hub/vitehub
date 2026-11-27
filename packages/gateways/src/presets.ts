@@ -1,5 +1,5 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayResponsesRoute, aiGatewaySdkOnly, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
@@ -95,7 +95,7 @@ function requiredEnv<TPreset extends AiGatewayEnvPreset>(
   }
 }
 
-function apiKeyFromEnv(gateway: "anthropic" | "cliproxy" | "litellm" | "openai" | "openrouter" | "typesafe" | "vercel"): AiGatewaySecret {
+function apiKeyFromEnv(gateway: "alibaba" | "anthropic" | "cliproxy" | "deepseek" | "google" | "litellm" | "minimax" | "moonshot" | "openai" | "openrouter" | "typesafe" | "vercel" | "zai"): AiGatewaySecret {
   // SAFETY: The environment holds a string or a sealed secret for these fields, which resolveAiGatewaySecret accepts.
   return requiredEnv(gateway, "apiKey", (names) => {
     throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${gateway}" needs an API key. Set ${names}, or pass apiKey.` })
@@ -104,21 +104,23 @@ function apiKeyFromEnv(gateway: "anthropic" | "cliproxy" | "litellm" | "openai" 
 
 type HostedRoutes = "claude-code" | "codex" | "openai-compatible"
 
-function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string | undefined, fallback?: string): Record<HostedRoutes, AiGatewayValue<string>> {
-  if (url !== undefined || fallback !== undefined) {
-    const root = origin(url ?? fallback, gateway)
-    return { "codex": `${root}/v1`, "claude-code": root, "openai-compatible": `${root}/v1` }
-  }
+type GatewayRoot = string | ((context: AiGatewayContext) => Promise<string>)
+
+function at(root: GatewayRoot, path: string): AiGatewayValue<string> {
+  return typeof root === "string" ? `${root}${path}` : async context => `${await root(context)}${path}`
+}
+
+function hostedRoot(gateway: "cliproxy" | "litellm" | "ollama", url: string | undefined): GatewayRoot {
+  if (url !== undefined) return origin(url, gateway)
   const read = requiredEnv(gateway, "url", (names) => {
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway}" needs a URL. Set ${names}, or pass url.` })
   })
-  return {
-    "codex": async context => `${origin(await read(context), gateway)}/v1`,
-    "claude-code": async context => origin(await read(context), gateway),
-    "openai-compatible": async context => `${origin(await read(context), gateway)}/v1`,
-  }
+  return async context => origin(await read(context), gateway)
 }
 
+function hostedBaseURL(root: GatewayRoot): Record<HostedRoutes, AiGatewayValue<string>> {
+  return { "codex": at(root, "/v1"), "claude-code": at(root, ""), "openai-compatible": at(root, "/v1") }
+}
 
 interface JevAskSpec {
   apiKey: AiGatewaySecret
@@ -205,16 +207,20 @@ interface AiGatewayExtras {
   modelApis?: readonly AiGatewayCapabilities["apis"][]
   modelCredentials?: AiGatewayModelCredentialsResolver
   openAIChat?: true
+  responsesRoute?: "codex"
+  sdkOnly?: true
   structuredOutputs?: true
 }
 
-function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
+function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, responsesRoute, sdkOnly, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
   if (openAIChat) Object.defineProperty(gateway, aiGatewayOpenAIChat, { value: true })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
+  if (responsesRoute) Object.defineProperty(gateway, aiGatewayResponsesRoute, { value: responsesRoute })
+  if (sdkOnly) Object.defineProperty(gateway, aiGatewaySdkOnly, { value: true })
   if (structuredOutputs) Object.defineProperty(gateway, aiGatewayStructuredOutputs, { value: true })
   Object.defineProperty(gateway, "ask", {
     value: route
@@ -274,14 +280,22 @@ export function cloudflareAccess(options: CloudflareAccessOptions = {}): Record<
   }
 }
 
-/** [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). Serves Codex and Claude Code. Reads `CLIPROXY_URL` and `CLIPROXY_API_KEY`. */
-export function cliproxy(options: AiHostedGatewayOptions = {}): AiModelGateway<HostedRoutes> {
-  return modelGateway<HostedRoutes>(preset({ name: "cliproxy", baseURL: hostedBaseURL("cliproxy", options.url), apiKey: apiKeyFromEnv("cliproxy") }, options))
+/**
+ * [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). Serves Codex, Claude Code, and the Gemini CLI. Reads
+ * `CLIPROXY_URL` and `CLIPROXY_API_KEY`.
+ */
+export function cliproxy(options: AiHostedGatewayOptions = {}): AiModelGateway<HostedRoutes | "gemini"> {
+  const root = hostedRoot("cliproxy", options.url)
+  return modelGateway<HostedRoutes | "gemini">(preset({ name: "cliproxy", baseURL: { ...hostedBaseURL(root), gemini: at(root, "") }, apiKey: apiKeyFromEnv("cliproxy") }, options))
 }
 
-/** [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy). Serves Codex and Claude Code. Reads `LITELLM_URL` and `LITELLM_API_KEY`. */
-export function litellm(options: AiHostedGatewayOptions = {}): AiModelGateway<HostedRoutes> {
-  return modelGateway<HostedRoutes>(preset({ name: "litellm", baseURL: hostedBaseURL("litellm", options.url), apiKey: apiKeyFromEnv("litellm") }, options))
+/**
+ * [LiteLLM Proxy](https://docs.litellm.ai/docs/simple_proxy). Serves Codex, Claude Code, and the
+ * [Gemini CLI](https://docs.litellm.ai/docs/tutorials/litellm_gemini_cli). Reads `LITELLM_URL` and `LITELLM_API_KEY`.
+ */
+export function litellm(options: AiHostedGatewayOptions = {}): AiModelGateway<HostedRoutes | "gemini"> {
+  const root = hostedRoot("litellm", options.url)
+  return modelGateway<HostedRoutes | "gemini">(preset({ name: "litellm", baseURL: { ...hostedBaseURL(root), gemini: at(root, "") }, apiKey: apiKeyFromEnv("litellm") }, options))
 }
 
 /** [Ollama](https://docs.ollama.com). Serves Codex and Claude Code. Reads `OLLAMA_URL` and `OLLAMA_API_KEY`; defaults to `http://localhost:11434` without a key. */
@@ -291,16 +305,9 @@ export function ollama(options: AiHostedGatewayOptions = {}): AiModelGateway<Hos
     return present(value) ? value : undefined
   }
   const url = read("url")
-  const root = async (context: AiGatewayContext) => origin(await url(context) ?? "http://localhost:11434", "ollama")
   return modelGateway<HostedRoutes>(preset({
     name: "ollama",
-    baseURL: options.url !== undefined
-      ? hostedBaseURL("ollama", options.url)
-      : {
-          "codex": async context => `${await root(context)}/v1`,
-          "claude-code": root,
-          "openai-compatible": async context => `${await root(context)}/v1`,
-        },
+    baseURL: hostedBaseURL(options.url !== undefined ? hostedRoot("ollama", options.url) : async context => origin(await url(context) ?? "http://localhost:11434", "ollama")),
     // SAFETY: The environment holds a string or a sealed secret for this field, which resolveAiGatewaySecret accepts.
     apiKey: (async (context: AiGatewayContext) => await read("apiKey")(context) ?? "ollama") as AiGatewaySecret,
   }, options))
@@ -327,7 +334,7 @@ export function emulate(options: EmulateGatewayOptions = {}): AiModelGateway<Emu
       ? { "claude-code": url, "openai-compatible": `${url}/v1` }
       : { "claude-code": root, "openai-compatible": async context => `${await root(context)}/v1` },
     apiKey: "emulate",
-  }, { structuredOutputs: true })
+  }, { sdkOnly: true, structuredOutputs: true })
 }
 
 /** [OpenRouter](https://openrouter.ai/docs). Serves Codex and Claude Code. Reads `OPENROUTER_API_KEY`. */
@@ -392,6 +399,159 @@ export function openai(options?: AiGatewayPresetOptions): AiModelGateway<"codex"
 /** The Anthropic API with an API key. Serves Claude Code and AI SDK models. Reads `ANTHROPIC_API_KEY`. */
 export function anthropic(options?: AiGatewayPresetOptions): AiModelGateway<"claude-code"> {
   return modelGateway<"claude-code">(preset({ name: "anthropic", baseURL: { "claude-code": "https://api.anthropic.com" }, apiKey: apiKeyFromEnv("anthropic"), auth: "x-api-key" }, options))
+}
+
+/** Options for a provider with an international and a China platform. */
+export interface AiRegionalGatewayOptions extends AiGatewayPresetOptions {
+  /** The platform that issued the key: `"international"` (default) or `"china"`. A key works only on its own platform. */
+  region?: "china" | "international"
+}
+
+/** Options for `zai()`. */
+export interface ZaiGatewayOptions extends AiRegionalGatewayOptions {
+  /** Send OpenAI-compatible requests to the GLM Coding Plan endpoint, which bills a Coding Plan key against its plan. Default: `false`. */
+  codingPlan?: boolean
+}
+
+/** A Model Studio region ID, such as `ap-southeast-1` (Singapore) or `cn-beijing`. */
+export type AlibabaRegion = "ap-northeast-1" | "ap-southeast-1" | "cn-beijing" | "cn-hongkong" | "eu-central-1" | "us-east-1"
+
+/** Options for `alibaba()`. */
+export interface AlibabaGatewayOptions extends AiGatewayPresetOptions {
+  /** The region of the key. Default: `ap-southeast-1` (Singapore). Each region has its own keys and models. */
+  region?: AlibabaRegion
+  /** A workspace ID selects the workspace-dedicated domain, `<workspaceId>.<region>.maas.aliyuncs.com`. Without it, the preset uses the DashScope domain of the region. */
+  workspaceId?: string
+}
+
+function regionOrigin<TRegion extends string>(gateway: string, origins: Readonly<Record<TRegion, string>>, region: TRegion | undefined, fallback: TRegion): string {
+  const selected = region ?? fallback
+  if (!Object.hasOwn(origins, selected)) {
+    throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] ${gateway}({ region }) must be ${Object.keys(origins).map(item => `"${item}"`).join(" or ")}.` })
+  }
+  return origins[selected]
+}
+
+type ModelApiGateway<TRoutes extends AiGatewayRoute, TApis extends AiGatewayCapabilities["apis"]> = AiGateway<{ apis: TApis, ask: false, routes: TRoutes }>
+
+function modelApiGateway<TRoutes extends AiGatewayRoute, TApis extends AiGatewayCapabilities["apis"]>(definition: AiRoutedGatewayDefinition<TRoutes>, apis: readonly TApis[]): ModelApiGateway<TRoutes, TApis> {
+  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. modelApis holds TApis.
+  return createAiGateway(definition, { modelApis: apis }) as ModelApiGateway<TRoutes, TApis>
+}
+
+/**
+ * The [Gemini API](https://aistudio.google.com/api-reference) with an API key. Serves the Gemini CLI, and AI SDK models
+ * through its [OpenAI-compatible endpoint](https://aistudio.google.com/docs/openai) with Chat Completions (`api: "chat"`)
+ * only. Reads `GEMINI_API_KEY`.
+ */
+export function google(options?: AiGatewayPresetOptions): ModelApiGateway<"gemini" | "openai-compatible", "chat"> {
+  return modelApiGateway(preset({
+    name: "google",
+    baseURL: { "gemini": "https://generativelanguage.googleapis.com", "openai-compatible": "https://generativelanguage.googleapis.com/v1beta/openai" },
+    apiKey: apiKeyFromEnv("google"),
+  }, options), ["chat"])
+}
+
+const moonshotOrigins = { china: "https://api.moonshot.cn", international: "https://api.moonshot.ai" } as const
+
+/**
+ * The [Kimi API](https://platform.kimi.ai/docs/api/overview) of Moonshot AI. Serves Codex, Claude Code, and AI SDK
+ * models. Reads `MOONSHOT_API_KEY`, then `KIMI_API_KEY`. `region: "china"` uses `api.moonshot.cn`
+ * ([docs](https://platform.kimi.com/docs/api/overview)).
+ */
+export function moonshot(options: AiRegionalGatewayOptions = {}): AiModelGateway<HostedRoutes> {
+  const root = regionOrigin("moonshot", moonshotOrigins, options.region, "international")
+  return modelGateway<HostedRoutes>(preset({
+    name: "moonshot",
+    baseURL: { "codex": `${root}/v1`, "claude-code": `${root}/anthropic`, "openai-compatible": `${root}/v1` },
+    apiKey: apiKeyFromEnv("moonshot"),
+  }, options))
+}
+
+const zaiOrigins = { china: "https://open.bigmodel.cn/api", international: "https://api.z.ai/api" } as const
+
+/**
+ * The [Z.ai API](https://docs.z.ai/guides/overview/quick-start) for GLM models. Serves Codex, Claude Code
+ * ([docs](https://docs.z.ai/devpack/tool/claude)), and AI SDK models. Responses uses the Codex URL. Reads
+ * `ZAI_API_KEY`. `region: "china"` uses `open.bigmodel.cn` ([docs](https://docs.bigmodel.cn/cn/guide/start/quick-start)).
+ * The endpoints are listed in the [key guide](https://docs.z.ai/devpack/notice/api-key-management).
+ */
+export function zai(options: ZaiGatewayOptions = {}): AiModelGateway<HostedRoutes> {
+  const root = regionOrigin("zai", zaiOrigins, options.region, "international")
+  return modelGateway(preset({
+    name: "zai",
+    baseURL: { "codex": `${root}/v1`, "claude-code": `${root}/anthropic`, "openai-compatible": `${root}${options.codingPlan ? "/coding" : ""}/paas/v4` },
+    apiKey: apiKeyFromEnv("zai"),
+  }, options), { responsesRoute: "codex" })
+}
+
+/**
+ * The [DeepSeek API](https://api-docs.deepseek.com). Serves Codex and AI SDK Responses at its API root,
+ * and Claude Code through its [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api). Reads `DEEPSEEK_API_KEY`.
+ */
+export function deepseek(options?: AiGatewayPresetOptions): AiModelGateway<HostedRoutes> {
+  return modelGateway(preset({
+    name: "deepseek",
+    baseURL: { "codex": "https://api.deepseek.com", "claude-code": "https://api.deepseek.com/anthropic", "openai-compatible": "https://api.deepseek.com" },
+    apiKey: apiKeyFromEnv("deepseek"),
+  }, options))
+}
+
+const minimaxOrigins = { china: "https://api.minimax.cn", international: "https://api.minimax.io" } as const
+
+/**
+ * The [MiniMax API](https://platform.minimax.io/docs/api-reference/text-anthropic-api). Serves Codex
+ * ([docs](https://platform.minimax.io/docs/m-plan/codex)), Claude Code, and AI SDK models. Reads `MINIMAX_API_KEY`.
+ * `region: "china"` uses `api.minimax.cn` ([docs](https://platform.minimax.cn/docs/api-reference/text-anthropic-api)).
+ */
+export function minimax(options: AiRegionalGatewayOptions = {}): AiModelGateway<HostedRoutes> {
+  const root = regionOrigin("minimax", minimaxOrigins, options.region, "international")
+  return modelGateway<HostedRoutes>(preset({
+    name: "minimax",
+    baseURL: { "codex": `${root}/v1`, "claude-code": `${root}/anthropic`, "openai-compatible": `${root}/v1` },
+    apiKey: apiKeyFromEnv("minimax"),
+  }, options))
+}
+
+const dashscopeOrigins: Readonly<Partial<Record<AlibabaRegion, string>>> = {
+  "ap-southeast-1": "https://dashscope-intl.aliyuncs.com",
+  "cn-beijing": "https://dashscope.aliyuncs.com",
+  "cn-hongkong": "https://cn-hongkong.dashscope.aliyuncs.com",
+}
+
+const alibabaRegions: readonly AlibabaRegion[] = ["ap-northeast-1", "ap-southeast-1", "cn-beijing", "cn-hongkong", "eu-central-1", "us-east-1"]
+
+/**
+ * [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/regions/) (DashScope) for Qwen models.
+ * Serves Claude Code through its [Anthropic API](https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages),
+ * and AI SDK models through its [OpenAI-compatible API](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope)
+ * with `api: "chat"` and `"messages"`. With `workspaceId`, it also serves Codex and `api: "responses"` through the
+ * [Responses API](https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api). Reads `DASHSCOPE_API_KEY`.
+ */
+export function alibaba(options: AlibabaGatewayOptions & { workspaceId: string }): AiModelGateway<HostedRoutes>
+export function alibaba(options?: AlibabaGatewayOptions): ModelApiGateway<"claude-code" | "openai-compatible", "chat" | "messages">
+export function alibaba(options: AlibabaGatewayOptions = {}): AiGateway<{ ask: false, routes: "claude-code" | "openai-compatible" }> {
+  const region = options.region ?? "ap-southeast-1"
+  if (!alibabaRegions.includes(region)) {
+    throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] alibaba({ region }) must be ${alibabaRegions.map(item => `"${item}"`).join(", ")}.` })
+  }
+  const workspaceId = options.workspaceId?.trim()
+  if (workspaceId !== undefined) {
+    if (!/^[A-Za-z0-9-]+$/.test(workspaceId)) throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] alibaba({ workspaceId }) must be a Model Studio workspace ID." })
+    const root = `https://${workspaceId}.${region}.maas.aliyuncs.com`
+    return modelGateway<HostedRoutes>(preset({
+      name: "alibaba",
+      baseURL: { "codex": `${root}/compatible-mode/v1`, "claude-code": `${root}/apps/anthropic`, "openai-compatible": `${root}/compatible-mode/v1` },
+      apiKey: apiKeyFromEnv("alibaba"),
+    }, options))
+  }
+  const root = dashscopeOrigins[region]
+  if (!root) throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] Region "${region}" has no DashScope domain. Pass alibaba({ region, workspaceId }).` })
+  return modelApiGateway(preset({
+    name: "alibaba",
+    baseURL: { "claude-code": `${root}/apps/anthropic`, "openai-compatible": `${root}/compatible-mode/v1` },
+    apiKey: apiKeyFromEnv("alibaba"),
+  }, options), ["chat", "messages"])
 }
 
 /** [TypeSafe](https://typesafe.ai). Answers Jev questions; it serves no model API. Reads `TYPESAFE_API_KEY` and `TYPESAFE_DEFAULT_MODEL`. */
@@ -484,7 +644,7 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     protocol: "typesafe",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above, and the baseURL has the openai-compatible key.
-  return createAiGateway(definition, { route, modelApis: ["chat"], optional: {
+  return createAiGateway(definition, { route, modelApis: ["chat"], sdkOnly: true, optional: {
     apiKey: true,
     headers: ["cf-aig-authorization"],
     missing: "Gateway \"cloudflare\" needs a gateway token or a provider key for model requests. Set CLOUDFLARE_AI_GATEWAY_TOKEN for stored provider keys or Unified Billing, or CLOUDFLARE_AI_GATEWAY_API_KEY, or pass token or providerApiKey.",

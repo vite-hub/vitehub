@@ -71,7 +71,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/tools"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=22"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=23"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -103,6 +103,14 @@ export const viteHubPageToolsMarker = "data-vitehub-page-tools"
 
 /** The bootstrap's opening tag, so the server can recognize the generated bootstrap when it replaces it. */
 export const viteHubPageToolsInlineStart: string = `<script type="module" ${viteHubPageToolsMarker}>`
+
+const hostedCommentsBootstrap = `(()=>{let seen=false;try{for(let index=0;index<sessionStorage.length;index++)seen||=sessionStorage.key(index)?.startsWith("vitehub-comments:")===true}catch{}const query=new URLSearchParams(location.search);if(!seen&&!${JSON.stringify([viteHubPageToolsQuery, ...viteHubPageToolsLinkParams])}.some(param=>query.has(param))&&!/^#\\/?vhc=/.test(location.hash))return;const loader=document.currentScript;const embed=document.createElement("script");embed.type="module";embed.src=loader.dataset.vitehubSource;embed.dataset.vitehubConsoleKey=loader.dataset.vitehubKeys;embed.dataset.vitehubBase=loader.dataset.vitehubBase;embed.nonce=loader.nonce;document.head.append(embed)})()`
+
+export function hostedCommentsLoader(consoleOrigin: string, keys: readonly string[], base = "", nonce?: string): string {
+  const attr = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")
+  const source = new URL("/hosted-comments.js", consoleOrigin).href
+  return `<script data-vitehub-hosted-comments${nonce ? ` nonce="${attr(nonce)}"` : ""} ${viteHubPageToolsMarker} data-vitehub-source="${attr(source)}" data-vitehub-keys="${attr(keys.join(" "))}" data-vitehub-base="${attr(base)}">${hostedCommentsBootstrap}</script>`
+}
 
 /**
  * The exact page tools bootstrap: an inline module script that imports `<base>/_vitehub/page/assets/loader.js` only
