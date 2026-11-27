@@ -160,7 +160,7 @@ describe("Workflow Provider Output lifecycle", () => {
       await functionHook(plugin.buildEnd, "buildEnd").call(context)
       expect(lifecycle.writeProviderEntries).toHaveBeenLastCalledWith(
         projectRoot, workflow, expect.anything(), configs[index]!.__vitehubServerDirs,
-        undefined, undefined, projectRoot, expect.any(String), expect.any(Map),
+        undefined, undefined, projectRoot, expect.any(String), expect.any(Map), false,
       )
       expect(lifecycle.contribute).toHaveBeenLastCalledWith(catalogs[index], expect.anything(), undefined)
       await closeBundleHook(plugin).call(context)
@@ -297,7 +297,7 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.retainSources).not.toHaveBeenCalled()
     expect(lifecycle.writeProviderEntries).toHaveBeenCalledWith(
       projectRoot, undefined, expect.anything(), undefined,
-      undefined, undefined, projectRoot, expect.any(String), expect.any(Map),
+      undefined, undefined, projectRoot, expect.any(String), expect.any(Map), false,
     )
     expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.finalize).toHaveBeenCalledOnce()

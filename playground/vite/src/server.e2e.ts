@@ -48,8 +48,8 @@ const queueBody = v.optional(v.object({
   marker: v.optional(v.string()),
 }), {})
 const workflowBody = v.optional(v.object({
+  callbackUrl: v.optional(v.string()),
   email: v.optional(v.string()),
-  id: v.optional(v.string()),
   marker: v.optional(v.string()),
 }), {})
 const workspaceWriteBody = v.optional(v.object({
@@ -59,10 +59,6 @@ const workspaceWriteBody = v.optional(v.object({
 
 function resolveMarker<T extends { marker?: string }>(body: T | undefined, event: Parameters<typeof readValidatedBody>[0]) {
   return typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
-}
-
-function resolveWorkflowId(body: { id?: string, marker?: string } | undefined, marker: string | undefined) {
-  return body?.id || marker
 }
 
 function resolveKVProvider(event: unknown) {
@@ -389,8 +385,9 @@ app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))
 app.post("/api/workflows/welcome", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
 
-  const [error, run] = await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) })
+  const [error, run] = await startWorkflow(workflowName, { callbackUrl, email: body?.email || "ava@example.com", marker })
   if (error) throw error
   return { ok: true, result: run }
 })
@@ -398,9 +395,9 @@ app.post("/api/workflows/welcome", async (event) => {
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
-  const id = resolveWorkflowId(body, marker) || crypto.randomUUID()
-  deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id })
-  return { ok: true, result: { id } }
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
+  deferWorkflow(workflowName, { callbackUrl, email: body?.email || "ava@example.com", marker })
+  return { ok: true }
 })
 
 app.get("/api/workflows/welcome/:id", async (event) => {

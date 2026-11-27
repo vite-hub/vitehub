@@ -4,6 +4,7 @@
   },
   "codesWithoutFix": [],
   "invariants": {
+    "packages/workflow/src/runtime/execute.ts": 1,
     "packages/workflow/src/runtime/openworkflow.ts": 1,
     "packages/workflow/src/vite.ts": 1
   }

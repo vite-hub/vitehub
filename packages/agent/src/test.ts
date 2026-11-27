@@ -344,7 +344,6 @@ async function normalizeAgentTestResult(
     ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
     finishReason: result?.finishReason,
     raw: value,
-    ...(typeof result?.sessionLog === "string" ? { sessionLog: result.sessionLog } : {}),
     text: textFromRaw(value),
     toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
     ...(trace ? { trace } : {}),
@@ -408,14 +407,17 @@ export function createAgentTestRunner<
         waitUntil: options.waitUntil || createWaitUntil(),
       })
 
+      let sessionLog: string | undefined
       const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
         withTestOutcomeCapture(instrumentedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
         context,
         input,
+        { onSessionLog: path => { sessionLog = path } },
       )
-      return await normalizeAgentTestResult(raw, toolSteps, () => finishEvent, () => completedTraceRun(traceLog, run))
+      const result = await normalizeAgentTestResult(raw, toolSteps, () => finishEvent, () => completedTraceRun(traceLog, run))
+      return sessionLog === undefined ? result : { ...result, sessionLog }
     },
   }
 }

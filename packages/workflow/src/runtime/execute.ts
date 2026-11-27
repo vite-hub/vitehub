@@ -1,4 +1,5 @@
 import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowSignal, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { createWorkflowError, isNonRetryableError, NonRetryableError } from "../errors.ts"
@@ -351,6 +352,10 @@ export async function runWorkflowRootStep<TPayload, TResult>(
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<unknown> {
   return await runSerializedWorkflowHandler(context, { ...definition, rootStep: true })
+}
+
+export function rejectDirectGeneratedWorkflowCall(): never {
+  throw invariantError("Start generated Workflows with Workflow DevKit.")
 }
 
 async function toStoredWorkflowResult(value: unknown): Promise<unknown> {

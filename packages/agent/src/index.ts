@@ -7541,6 +7541,12 @@ async function executeAgentInvocationWithCapacityLease<
     return { result: finished }
   }
 
+  if (options.onSessionLog && !customRun && definition && baseAgentDriverKind in definition
+    && definition[baseAgentDriverKind] === "provider"
+    && isRuntimeRecord(result) && typeof result.sessionLog === "string") {
+    options.onSessionLog(result.sessionLog)
+  }
+
   if (options.kind === "run"
     && invocation.context.get(finalChannelOutputContextKey) === true
     && !isAsyncIterable(result)
@@ -8132,7 +8138,6 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.output,
           )
         : final
-      if (invocation.output && isRuntimeRecord(result) && typeof result.sessionLog === "string") options.onSessionLog?.(result.sessionLog)
       const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
@@ -8738,7 +8743,7 @@ async function runAgentInlineWithContext<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
   context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentInlineOptions & { onSessionLog?: (path: string) => void } = {},
+  options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return await executeAgentInvocation(agent, withAgentIdentityOwner(agent, withAgentRuntimeMemo(context)), input, {

@@ -275,14 +275,14 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
 }
 
 /** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
-export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Rolldown.Plugin | undefined> {
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir, include: (id: string) => boolean = () => true): Promise<Rolldown.Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   const workingDir = idRoot.replace(/\\/g, "/").replace(/\/$/, "")
   return {
     name: "vitehub-vercel-workflow-transform",
     async load(id) {
-      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id)) return
+      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id) || !include(id.replaceAll("\\", "/"))) return
       const source = await readFile(id, "utf8")
       if (!builders.shouldTransformFile(id, builders.detectWorkflowPatterns(source))) return
       const file = id.replace(/\\/g, "/")
@@ -657,7 +657,7 @@ export function addVercelWorkflowNitroRoutes(nitro: object): void {
   Reflect.set(nitro, "vercel", { ...vercel, config: { ...config, routes: [{ ...vercelWorkflowWebhookRoute }, ...routes] } })
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
+export async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
     await cleanVercelNativeWorkflowOutput(rootDir)
     return
@@ -1227,7 +1227,7 @@ function renderWorkflowRegistryEntry(
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = Object.hasOwn(vercelNativeFiles, definition.name) ? vercelNativeFiles[definition.name] : undefined
   const nativeReference = nativeExport && vercelNativeFile
-    ? `const native = Object.assign(async () => { throw new Error("Start generated Workflows with Workflow DevKit.") }, ${JSON.stringify({
+    ? `const native = Object.assign(async () => (await import(${JSON.stringify(workflowRuntimeModule("execute"))})).rejectDirectGeneratedWorkflowCall(), ${JSON.stringify({
         workflowId: `workflow//./.vitehub/workflow/vercel-native/${generatedVercelWorkflowFileName(definition.name)}//${nativeExport}`,
         [generatedNativeEntryKey]: true,
         ...(definition.steps ? {} : { [generatedNativeRootStepKey]: true }),
@@ -1482,6 +1482,33 @@ function renderProviderEntry(
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * Writes the generated entries for single-file Workflows and folders with only numbered steps, into
+ * `<generatedDir>/vercel-native`. It returns the entry file of each Workflow name.
+ */
+export async function writeVercelNativeWorkflowFiles(generatedDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<Record<string, string>> {
+  const vercelNativeDir = resolve(generatedDir, "vercel-native")
+  const nativeDefinitions = definitions.filter((definition) => {
+    if (!getGeneratedVercelWorkflowExport(definition)) return false
+    if (definition.steps) return true
+    const parsed = parseWorkflowModule(definition.handler)
+    return Object.values(parsed.metafile.outputs).some(output => output.exports.includes("default"))
+      && !declaresVercelNativeWorkflow(definition.handler)
+  })
+  await rm(resolve(generatedDir, "vercel-native.mjs"), { force: true })
+  await rm(vercelNativeDir, { force: true, recursive: true })
+  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map(definition => [
+    definition.name,
+    resolve(vercelNativeDir, `${generatedVercelWorkflowFileName(definition.name)}.mjs`),
+  ]))
+  if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
+  await Promise.all(nativeDefinitions.map(async definition => {
+    const nativeFile = vercelNativeFiles[definition.name]
+    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
+  }))
+  return vercelNativeFiles
+}
+
 export async function writeProviderEntries(
   rootDir: string,
   workflow: WorkflowOptions | undefined,
@@ -1502,25 +1529,7 @@ export async function writeProviderEntries(
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  const vercelNativeDir = resolve(generatedDir, "vercel-native")
-  const nativeDefinitions = definitions.filter((definition) => {
-    if (!getGeneratedVercelWorkflowExport(definition)) return false
-    if (definition.steps) return true
-    const parsed = parseWorkflowModule(definition.handler)
-    return Object.values(parsed.metafile.outputs).some(output => output.exports.includes("default"))
-      && !declaresVercelNativeWorkflow(definition.handler)
-  })
-  await rm(resolve(generatedDir, "vercel-native.mjs"), { force: true })
-  await rm(vercelNativeDir, { force: true, recursive: true })
-  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map(definition => [
-    definition.name,
-    resolve(vercelNativeDir, `${generatedVercelWorkflowFileName(definition.name)}.mjs`),
-  ]))
-  if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
-  await Promise.all(nativeDefinitions.map(async definition => {
-    const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
-  }))
+  const vercelNativeFiles = await writeVercelNativeWorkflowFiles(generatedDir, definitions)
   await Promise.all(definitions
     .filter(definition => !getGeneratedVercelWorkflowExport(definition))
     .flatMap(definition => definition.steps ?? [])

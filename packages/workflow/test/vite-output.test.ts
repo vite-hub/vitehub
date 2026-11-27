@@ -838,7 +838,7 @@ async function summary() {
 export default { handler: async () => undefined, native: summary }
 `)
 
-  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), nitroServer: true, rootDir, workflow: { driver: "vercel" } })
 
   const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
   expect(output.slice(0, output.indexOf("workflowCode ="))).toContain("resolved by the project tsconfig")
@@ -1740,7 +1740,7 @@ describe("Vite workflow provider outputs", () => {
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
-    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
+    await rm(join(rootDir, "server", "agents"), { recursive: true, force: true })
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
@@ -1748,7 +1748,12 @@ describe("Vite workflow provider outputs", () => {
       .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ driver: "vercel" }')))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
-    await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
+    await writeFile(join(rootDir, "server", "email.ts"), [
+      'export const outboxRuntimeId = "disabled"',
+      'export const emailPreview = undefined',
+      'export const renderEmailTemplate = undefined',
+      'export default { driver: () => ({ send: async () => ({}) }) }',
+    ].join("\n"))
     await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
     await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
@@ -1763,17 +1768,19 @@ describe("Vite workflow provider outputs", () => {
       `export default defineWorkflow({ handler: async () => "inline", native: durable })`,
     ].join("\n"))
 
-    await execFileAsync(vp, ["build"], {
+    const buildVercel = async () => await execFileAsync(process.execPath, ["--input-type=module", "-e", `import { build } from ${JSON.stringify(import.meta.resolve("vite"))}; await build()`], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
+    await buildVercel()
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
     const nativeFileName = (name: string) => `${createHash("sha256").update(name).digest("hex")}.mjs`
     await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native")).then(files => files.sort()))
       .resolves.toEqual([nativeFileName("monthly-recap"), nativeFileName("welcome")].sort())
-    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", nativeFileName("monthly-recap")), "utf8")
+    const generatedNativeFile = join(rootDir, ".vitehub", "workflow", "vercel-native", nativeFileName("monthly-recap"))
+    const generatedNative = await readFile(generatedNativeFile, "utf8")
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")
@@ -1793,11 +1800,9 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
 
     await rm(generatedWorkflowDir, { recursive: true })
-    await execFileAsync(vp, ["build"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
-    })
+    await buildVercel()
     await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))).resolves.toEqual([nativeFileName("welcome")])
+    expect(existsSync(generatedNativeFile)).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     const rebuiltConfig: unknown = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8"))

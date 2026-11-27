@@ -735,6 +735,9 @@ importers:
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.9.0(patch_hash=00ab85652158f2da130632664fea9807e71fff9322464e69772fbc838c7ef0d2)
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.11.3(@aws-sdk/credential-provider-web-identity@3.972.91)(ws@8.23.0)
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.11.0(@opentelemetry/api@1.9.1)
@@ -792,6 +795,9 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:packages/workspace
+      '@workflow/builders':
+        specifier: catalog:workflow
+        version: 5.1.4(@aws-sdk/credential-provider-web-identity@3.972.91)(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.23.0)
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.6(@cloudflare/workers-types@5.20261123.1)(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(better-sqlite3@12.9.0)(bun-types@1.4.5)(effect@4.1.5)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -843,6 +849,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(happy-dom@21.0.4)
+      workflow:
+        specifier: ^5.7.1
+        version: 5.7.1(@aws-sdk/credential-provider-web-identity@3.972.91)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nuxt/schema@4.6.4)(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/helpers@0.5.23)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(typescript@6.0.3)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))(ws@8.23.0)
       wrangler:
         specifier: 'catalog:'
         version: 4.166.0(@cloudflare/workers-types@5.20261123.1)(@types/node@24.19.2)(vitest@5.1.0)
