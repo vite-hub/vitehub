@@ -1,4 +1,4 @@
-import type { AgentProviderCredentialContext } from "../src/types.ts"
+import type { AgentProviderCredentialContext, AgentRunResult } from "../src/types.ts"
 import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
 import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
@@ -8273,5 +8273,48 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow("cleanup failed")
 
     expect(session.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe("Provider Agent Driver session log", () => {
+  it("keeps the application's session log after the Invocation and reports its path", async () => {
+    const threadId = "session-log-survives"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const sessionLog = join(root, "sessions", `${threadId}.ndjson`)
+    try {
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      createProviderRuntime.mockImplementationOnce(async (options) => {
+        const { eventLogPath } = options as { eventLogPath?: string }
+        if (!eventLogPath) throw new Error("Expected an event log path.")
+        await writeFile(eventLogPath, [
+          { type: "meta", kind: "codex", cwd: options.cwd, threadId, startedAt: "2026-11-27T00:00:00.000Z" },
+          { type: "turn.started", threadId, turnId: "turn-1" },
+        ].map(line => `${JSON.stringify(line)}\n`).join(""))
+        return providerRuntimes.shift()
+      })
+      const resolveSessionLog = vi.fn(() => sessionLog)
+      const agent = defineAgent({ driver: codexDriver({ sessionLog: resolveSessionLog }), runtime: false })
+
+      const result = await runAgentWithContext(agent, {
+        memo: <T>(_key: string, create: () => T) => create(),
+        run: { runId: `run-${threadId}`, threadId },
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, { prompt: "write a file" }) as AgentRunResult
+
+      expect(resolveSessionLog).toHaveBeenCalledOnce()
+      expect(result.sessionLog).toBe(sessionLog)
+      expect((createProviderRuntime.mock.lastCall?.[0] as { eventLogPath?: string }).eventLogPath).toBe(sessionLog)
+      const lines = (await readFile(sessionLog, "utf8")).trim().split("\n").map(line => JSON.parse(line) as { type: string })
+      expect(lines[0]).toMatchObject({ type: "meta", kind: "codex", threadId })
+      expect(lines.slice(1).length).toBeGreaterThanOrEqual(1)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a session log that is not a file path", () => {
+    expect(() => defineAgent({ driver: codexDriver({ sessionLog: " " }), runtime: false })).toThrow(expect.objectContaining({ code: "AGENT_R0476" }))
   })
 })

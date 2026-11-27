@@ -2190,7 +2190,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0476: {
       ...dynamicError,
-      fix: "Set driver.sessionStorePath to a non-empty file path, or remove it.",
+      fix: "Set driver.sessionStorePath or driver.sessionLog to a non-empty file path, or remove it.",
     },
     AGENT_R0477: {
       ...dynamicError,
