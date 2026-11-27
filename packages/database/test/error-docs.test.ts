@@ -1,5 +1,3 @@
-import { execFileSync } from "node:child_process"
-
 import { expect, it } from "vitest"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
@@ -31,11 +29,17 @@ it("requires verified history before reverting to the default Postgres ledger", 
   expect(ambiguous.fix).not.toContain("Remove `migrationsSchema`")
 })
 
-it("names the schema owner for a schema grant and quotes the SQL for the shell", () => {
-  const fix = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database: "default", missing: "usage", postgresDatabase: "app", role: "o'neil", schema: "team's ledger" }).fix ?? ""
+it("names the schema owner and shell-quotes the Database name and SQL", () => {
+  const database = "team's database"
+  const fix = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database, missing: "usage", postgresDatabase: "app", role: "o'neil", schema: "team's ledger" }).fix ?? ""
   const statement = `GRANT USAGE ON SCHEMA "team's ledger" TO "o'neil"`
   expect(fix).toContain(`As the owner of the schema "team's ledger" or a role with the grant option on it, run \`${statement}\``)
-  const argument = fix.match(/--database default (.+)` with that role/)?.[1]
-  expect(execFileSync("sh", ["-c", `printf %s ${argument}`], { encoding: "utf8" })).toBe(statement)
+  expect(fix).toContain(`--database 'team'\\''s database' 'GRANT USAGE ON SCHEMA "team'\\''s ledger" TO "o'\\''neil"'`)
   expect(databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database: "default", missing: "create-database", postgresDatabase: "app", role: "app_user", schema: "drizzle" }).fix).toMatch(/^As a role that owns the database, /)
+})
+
+it("only suggests a SQL client when the CLI cannot select the Database name", () => {
+  const { fix } = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database: "-team", schema: "ledger" })
+  expect(fix).toContain('run `CREATE SCHEMA "ledger"` in a SQL client.')
+  expect(fix).not.toContain("vitehub database sql")
 })
