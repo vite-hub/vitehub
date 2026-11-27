@@ -764,7 +764,7 @@ export function readProviderRuntimeSession(text: string, provider?: AgentSession
   }
   for (const line of lines.slice(1)) {
     const threadId = string(line.threadId)
-    if (line.type === "meta" || (threadId && session.id && threadId !== session.id)) throw agentDiagnostics.AGENT_R1055()
+    if (line.type === "meta" || (threadId && session.id && threadId !== session.id)) throw agentDiagnostics.AGENT_SESSION_LOG_MULTIPLE_SESSIONS()
     session.id ??= threadId
     const payload = record(line.payload)
     const timestamp = string(line.createdAt) ?? session.completedAt ?? session.startedAt ?? new Date(0).toISOString()

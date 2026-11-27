@@ -4074,10 +4074,6 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] This page is closed. Its queued calls cannot run.",
       fix: "Reload the page or call connectPage() again to create a new connection before sending more page calls.",
     },
-    AGENT_R1055: {
-      why: "[vitehub] A provider runtime event log must contain one session per file.",
-      fix: "Set eventLogPath to a fresh path for each T3 session. If sessions were appended to one file, import one session's meta line and events at a time.",
-    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
@@ -4799,6 +4795,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_ROUTE_NOT_STATIC: {
       why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
       fix: "Use a fixed path without `:name`, `[name]`, `*`, `?`, or `#`, such as `/hooks/github`, as each key of `vitehub({ agent: { routes: { aliases } } })`.",
+    },
+    AGENT_SESSION_LOG_MULTIPLE_SESSIONS: {
+      why: "[vitehub] A provider runtime event log must contain one session per file.",
+      fix: "Set eventLogPath to a fresh path for each T3 session. If sessions were appended to one file, import one session's meta line and events at a time.",
     },
     AGENT_SKILL_NAME_INVALID: {
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,

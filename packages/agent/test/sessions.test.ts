@@ -186,8 +186,8 @@ describe("readProviderRuntimeSession", () => {
   })
 
   it("rejects an appended session even when the thread id is reused", () => {
-    expect(() => readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${geminiRecordedByProviderRuntime}`)).toThrow(/one session per file/)
-    expect(() => readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", threadId: "t-2" }, runtimeEvent("turn.completed", { state: "completed" })))).toThrow(/one session per file/)
+    expect(() => readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${geminiRecordedByProviderRuntime}`)).toThrow(expect.objectContaining({ code: "AGENT_SESSION_LOG_MULTIPLE_SESSIONS" }))
+    expect(() => readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", threadId: "t-2" }, runtimeEvent("turn.completed", { state: "completed" })))).toThrow(expect.objectContaining({ code: "AGENT_SESSION_LOG_MULTIPLE_SESSIONS" }))
   })
 
   it("keeps streamed text but does not import an interrupted turn as completed", async () => {
