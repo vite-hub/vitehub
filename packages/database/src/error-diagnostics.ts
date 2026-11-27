@@ -16,9 +16,15 @@ function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
 }
 
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
 function ownerSql(database: string, statement: string, grantor = "a role that owns the database"): string {
-  const argument = `'${statement.replaceAll("'", "'\\''")}'`
-  return `As ${grantor}, run \`${statement}\` in a SQL client, or run \`vitehub database sql --remote --database ${database} ${argument}\` with that role in \`connection.url\`.`
+  const sqlClient = `As ${grantor}, run \`${statement}\` in a SQL client`
+  if (database.startsWith("-")) return `${sqlClient}.`
+  const target = /^[\w./][\w./-]*$/.test(database) ? database : quoteShellArgument(database)
+  return `${sqlClient}, or run \`vitehub database sql --remote --database ${target} ${quoteShellArgument(statement)}\` with that role in \`connection.url\`.`
 }
 
 function fileList(files: readonly string[]): string {
