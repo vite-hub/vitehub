@@ -122,11 +122,24 @@ export class ConfigEditor {
     const indent = firstProperty ? indentAt(this.code, start(firstProperty)) : `${indentAt(this.code, start(object))}${this.style.indent}`
     const closingIndent = indentAt(this.code, closing)
     const text = entries.map(entry => `${indent}${entry},\n`).join("")
-    if (last && !/,/.test(this.output.slice(end(last), closing))) this.output.appendLeft(end(last), ",")
+    if (last && !this.hasSeparator(object, end(last), closing)) this.output.appendLeft(end(last), ",")
     const lineStart = this.code.lastIndexOf("\n", closing - 1) + 1
     const closingOnOwnLine = /^[ \t]*$/.test(this.code.slice(lineStart, closing))
     if (closingOnOwnLine && object.properties.length) this.output.prependRight(lineStart, text)
     else this.output.prependRight(closing, `\n${text}${closingIndent}`)
+  }
+
+  /** True when a comma token that the output keeps sits between `from` and `to`. Commas in comments and in properties of `object` do not count. */
+  private hasSeparator(object: ObjectExpression, from: number, to: number): boolean {
+    const skipped: Array<readonly [number, number]> = [
+      ...this.removed,
+      ...(this.config.program.comments ?? []).flatMap(comment => comment.start === undefined || comment.end === undefined ? [] : [[comment.start, comment.end] as const]),
+      ...object.properties.map(property => [start(property), end(property)] as const),
+    ]
+    for (let position = from; position < to; position++) {
+      if (this.code[position] === "," && !inRanges(position, skipped)) return true
+    }
+    return false
   }
 
   addImport(text: string): void {

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
+import { parseProgram } from "@vite-hub/internal/ast"
+
 import { formatReport, runCodemod } from "../src/index.ts"
 import { migrateViteHubOptions } from "../src/vitehub-options/transform.ts"
 
@@ -526,6 +528,29 @@ describe("vitehub-options transform", () => {
   it("leaves configs that use the current options unchanged", () => {
     const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ logs: true, env: { server: {} } })] }\n"
     expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: false, code: input, followUps: [] })
+  })
+
+  it.each([
+    ["a line comment", "// keep it, for now"],
+    ["a block comment", "/* keep it, for now */"],
+  ])("adds a comma after the last option when %s after it has one", (_, comment) => {
+    const input = lines(
+      "import { defineConfig } from 'vite'",
+      "import { vitehub } from 'vite-hub'",
+      "",
+      "export default defineConfig({",
+      "  env: { server: { token: 'x' } },",
+      "  plugins: [",
+      "    vitehub({",
+      `      agent: { model: 'openai/gpt-5' } ${comment}`,
+      "    }),",
+      "  ],",
+      "})",
+    )
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(() => parseProgram(result.code)).not.toThrow()
+    expect(result.code).toContain(`      agent: { model: 'openai/gpt-5' }, ${comment}\n`)
+    expect(result.code).toContain("      env: {")
   })
 })
 
