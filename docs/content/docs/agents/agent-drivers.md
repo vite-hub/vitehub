@@ -362,6 +362,7 @@ export async function reviewSessionLog() {
 - A relative path resolves from the process working directory.
 - The retained log includes Channel follow-up turns, but not title or progress summary runs.
 - Use one file per Invocation. Two Invocations that share a path append to the same file.
+- Pass the file contents to [`readAgentSession()`](/docs/agents/invocations#import-a-session-that-ran-elsewhere) to read the log as an Agent session.
 
 ### Set the environment and wrap the launch
 

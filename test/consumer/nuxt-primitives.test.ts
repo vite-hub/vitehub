@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { parseAllDocuments } from "yaml"
 
 import { featureIds } from "../../packages/internal/src/features.ts"
 import { agents } from "./nuxt-primitives/agents.ts"
@@ -11,7 +12,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { ConfigSource, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
+import { ConfigSource, modes, withNitroReadiness, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -27,6 +28,18 @@ import {
 
 const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
 const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "Nuxt 5 nightly"
+
+async function lockedTiptapReleaseOverrides() {
+  const lockfile = parseAllDocuments(await readFile(join(repoRoot, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS() as {
+    catalogs: { realtime: { "@tiptap/core": { version: string } } }
+    packages: Record<string, unknown>
+  }
+  const version = lockfile.catalogs.realtime["@tiptap/core"].version
+  const suffix = `@${version}`
+  return Object.fromEntries(Object.keys(lockfile.packages)
+    .filter(id => id.startsWith("@tiptap/") && id.endsWith(suffix))
+    .map(id => [id.slice(0, -suffix.length), version]))
+}
 
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
@@ -187,7 +200,7 @@ describe("Nuxt primitives", () => {
           private: true,
           type: "module",
         }, null, 2),
-        "pnpm-workspace.yaml": workspaceConfig(specs, consumerNuxt.overrides),
+        "pnpm-workspace.yaml": workspaceConfig(specs, { ...consumerNuxt.overrides, ...await lockedTiptapReleaseOverrides() }),
       }
       await writeAppFiles(appDir, files)
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -226,9 +239,10 @@ describe("Nuxt primitives", () => {
       }
       const failures: string[] = []
       await serve(mode, port, async () => {
+        const probeFetch = withNitroReadiness(mode, (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }))
         for (const row of active) {
           try {
-            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, origin, target })
+            await row.probe({ appDir, fetch: probeFetch, mode, origin, target })
           }
           catch (error) {
             failures.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`)

@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it } from "vitest"
 
 import { agentInvocationId, createMemoryAgentInvocationStore } from "../src/invocations.ts"
-import { agentSessionInvocation, importAgentSession, readAgentSession, readClaudeCodeSession, readCodexSession } from "../src/sessions.ts"
+import { agentSessionInvocation, importAgentSession, isProviderRuntimeEventLog, readAgentSession, readClaudeCodeSession, readCodexSession, readProviderRuntimeSession } from "../src/sessions.ts"
 
 const jsonl = (...lines: unknown[]) => `${lines.map(line => JSON.stringify(line)).join("\n")}\n`
 
@@ -132,7 +134,130 @@ describe("readAgentSession", () => {
   it("reads by provider and rejects an unknown one", () => {
     expect(readAgentSession("codex", codex).id).toBe("codex-1")
     expect(readAgentSession("claude-code", claude).id).toBe("claude-1")
-    expect(() => readAgentSession("cursor" as never, "")).toThrow(/Unknown session provider/)
+    expect(() => readAgentSession("aider" as never, "")).toThrow(/Unknown session provider/)
+    expect(() => readAgentSession("cursor", codex)).toThrow(/not a provider runtime event log/)
+  })
+})
+
+const geminiRecordedByProviderRuntime = await readFile(new URL("fixtures/provider-runtime/gemini.events.jsonl", import.meta.url), "utf8")
+const runtimeEvent = (type: string, payload: unknown, extra: Record<string, unknown> = {}) => ({ type, payload, createdAt: "2026-11-01T10:00:01.000Z", threadId: "t-1", turnId: "turn-1", ...extra })
+
+describe("readProviderRuntimeSession", () => {
+  const session = readAgentSession("gemini", geminiRecordedByProviderRuntime)
+
+  it("detects a runtime event log from its meta line", () => {
+    expect(isProviderRuntimeEventLog(geminiRecordedByProviderRuntime)).toBe(true)
+    expect(isProviderRuntimeEventLog(codex)).toBe(false)
+    expect(isProviderRuntimeEventLog(claude)).toBe(false)
+  })
+
+  it("reads the Gemini fixture: one answer, a command with output, a file change, usage, and the model", () => {
+    expect(session).toMatchObject({
+      provider: "gemini",
+      id: "record-fixture",
+      cwd: "<cwd>",
+      model: "gemini-3.8-flash-high",
+      status: "completed",
+      startedAt: "2026-11-27T08:13:59.027Z",
+      completedAt: "2026-11-27T08:14:13.600Z",
+      text: "Created [`hello.txt`](<cwd>/hello.txt) and ran `cat hello.txt`:\n\n```\nhi\n```",
+      usage: { inputTokens: 30298, cachedInputTokens: 15780, outputTokens: 118, reasoningTokens: 118, totalTokens: 30416 },
+    })
+    const messages = session.steps.filter(step => step.type === "message")
+    expect(messages.filter(step => step.phase === "final")).toHaveLength(1)
+    expect(messages.filter(step => step.phase === "reasoning")).toHaveLength(2)
+    const tools = session.steps.filter(step => step.type === "tool")
+    expect(tools.map(step => step.name)).toEqual(["file_change", "command_execution"])
+    const [change, command] = tools
+    expect(change).toMatchObject({ kind: "change", completedAt: "2026-11-27T08:14:07.126Z", output: { item: { type: "fileChange", changes: [{ path: "hello.txt", kind: "add", diff: "@@ -0,0 +1,1 @@\n+hi\n" }] } } })
+    expect(command).toMatchObject({ input: { command: "", cwd: "<cwd>" }, output: { output: "hi" } })
+    expect(command!.output).not.toHaveProperty("exitCode")
+    expect(command).not.toHaveProperty("error")
+  })
+
+  it("names an ACP agent from the meta line, else from the caller, else acp", () => {
+    expect(readProviderRuntimeSession(geminiRecordedByProviderRuntime).provider).toBe("acp")
+    const opencode = jsonl({ type: "meta", kind: "opencode", model: "kimi-k2", cwd: "/work/app", threadId: "t-1", startedAt: "2026-11-01T10:00:00.000Z" })
+    expect(readAgentSession("codex", opencode).provider).toBe("codex")
+    expect(readProviderRuntimeSession(opencode).provider).toBe("opencode")
+    expect(readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", agentId: "kimi" })).provider).toBe("kimi")
+    expect(readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", agentId: "copilot" })).provider).toBe("copilot")
+    expect(readAgentSession("copilot", geminiRecordedByProviderRuntime).provider).toBe("copilot")
+  })
+
+  it("rejects an appended session even when the thread id is reused", () => {
+    expect(() => readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${geminiRecordedByProviderRuntime}`)).toThrow(expect.objectContaining({ code: "AGENT_SESSION_LOG_MULTIPLE_SESSIONS" }))
+    expect(() => readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", threadId: "t-2" }, runtimeEvent("turn.completed", { state: "completed" })))).toThrow(expect.objectContaining({ code: "AGENT_SESSION_LOG_MULTIPLE_SESSIONS" }))
+  })
+
+  it("keeps streamed text but does not import an interrupted turn as completed", async () => {
+    const truncated = geminiRecordedByProviderRuntime.trimEnd().split("\n").slice(0, -2).join("\n")
+    const unfinished = readProviderRuntimeSession(truncated)
+    expect(unfinished).toMatchObject({ status: "failed", error: expect.stringMatching(/before the turn finished/) })
+    expect(unfinished.text).toBeUndefined()
+    expect(unfinished.steps.at(-1)).toMatchObject({ phase: "commentary", text: session.text })
+    expect((await agentSessionInvocation(unfinished, { agentName: "coder", runId: "interrupted" })).status).toBe("failed")
+    const nextTurn = jsonl(runtimeEvent("turn.started", {}, { threadId: "record-fixture", turnId: "next-turn" }))
+    expect(readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${nextTurn}`).status).toBe("failed")
+  })
+
+  it("preserves web and file search arguments and results from the completion payload", () => {
+    const log = jsonl(
+      { type: "meta", kind: "claude-code" },
+      runtimeEvent("item.started", { itemType: "web_search", data: {} }, { itemId: "web" }),
+      runtimeEvent("item.completed", { itemType: "web_search", data: { patterns: ["vite"], results: ["docs"] } }, { itemId: "web" }),
+      runtimeEvent("item.completed", { itemType: "file_search", data: { pattern: "*.ts", results: ["app.ts"] } }, { itemId: "files" }),
+      runtimeEvent("turn.completed", { state: "completed" }),
+    )
+    expect(readProviderRuntimeSession(log).steps).toMatchObject([
+      { name: "web_search", input: ["vite"], output: ["docs"] },
+      { name: "file_search", input: "*.ts", output: ["app.ts"] },
+    ])
+  })
+
+  it("reads raw Codex additions and deletions and quoted multi-file hunks", async () => {
+    const log = await readFile(new URL("fixtures/provider-runtime/codex-file-changes.events.jsonl", import.meta.url), "utf8")
+    expect(readProviderRuntimeSession(log).steps).toMatchObject([
+      { output: { item: { changes: [{ path: "new.txt", kind: "add", diff: "@@ -0,0 +1,1 @@\n+hello\n" }] } } },
+      { output: { item: { changes: [{ path: "old.txt", kind: "delete", diff: "@@ -1,1 +0,0 @@\n-goodbye\n" }] } } },
+      { output: { item: { changes: [
+        { path: "my notes.txt", kind: "update", diff: "@@ -1,2 +1 @@\n--- heading\n context\n" },
+        { path: "next.txt", kind: "update", diff: "@@ -1 +1 @@\n-before\n+after\n" },
+      ] } } },
+    ])
+  })
+
+  it("reads exit codes, MCP calls, multi-file diffs, and failed turns", () => {
+    const log = jsonl(
+      { type: "meta", kind: "opencode", model: "kimi-k2", cwd: "/work/app", threadId: "t-1", startedAt: "2026-11-01T10:00:00.000Z" },
+      runtimeEvent("item.started", { itemType: "command_execution", status: "inProgress", data: { command: "pnpm test" } }, { itemId: "cmd" }),
+      runtimeEvent("content.delta", { streamKind: "command_output", delta: "1 failed" }, { itemId: "cmd" }),
+      runtimeEvent("item.completed", { itemType: "command_execution", status: "failed", data: { command: "pnpm test", exitCode: 1 } }, { itemId: "cmd", createdAt: "2026-11-01T10:00:02.500Z" }),
+      runtimeEvent("item.completed", { itemType: "mcp_tool_call", status: "completed", title: "nuxt docs", data: { toolName: "mcp__nuxt__search", input: { query: "useFetch" }, output: "docs" } }, { itemId: "mcp" }),
+      runtimeEvent("item.completed", { itemType: "file_change", status: "completed", data: { diff: "--- a/app.vue\n+++ b/app.vue\n@@ -1 +1 @@\n-a\n+b\n--- a/old.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n" } }, { itemId: "edit" }),
+      runtimeEvent("item.completed", { itemType: "assistant_message", status: "completed", data: { text: "Checking." } }, { itemId: "m1" }),
+      runtimeEvent("item.completed", { itemType: "assistant_message", status: "completed", data: { text: "Tests fail." } }, { itemId: "m2" }),
+      runtimeEvent("turn.completed", { state: "failed", errorMessage: "Rate limited.", tokenUsage: { usageScope: "main_agent", usageStatus: "partial", hasSubagents: false, inputTokens: 10, outputTokens: 5 } }),
+    )
+    const session = readProviderRuntimeSession(log)
+    expect(session).toMatchObject({ provider: "opencode", status: "failed", error: "Rate limited.", text: "Tests fail.", usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } })
+    expect(session.steps.filter(step => step.type === "message").map(step => [step.phase, step.text])).toEqual([["commentary", "Checking."], ["final", "Tests fail."]])
+    const [command, mcp, edit] = session.steps.filter(step => step.type === "tool")
+    expect(command).toMatchObject({ input: { command: "pnpm test", cwd: "/work/app" }, output: { output: "1 failed", exitCode: 1 }, error: "Exited with code 1.", timestamp: "2026-11-01T10:00:01.000Z", completedAt: "2026-11-01T10:00:02.500Z" })
+    expect(mcp).toMatchObject({ name: "mcp__nuxt__search", title: "nuxt docs", input: { query: "useFetch" }, output: "docs" })
+    expect(edit).toMatchObject({ kind: "change", output: { item: { changes: [{ path: "app.vue", kind: "update", diff: "@@ -1 +1 @@\n-a\n+b\n" }, { path: "old.ts", kind: "delete", diff: "@@ -1 +0,0 @@\n-x\n" }] } } })
+  })
+
+  it("imports a runtime session as an Invocation", async () => {
+    const record = await agentSessionInvocation(session, { agentName: "coder", runId: "gemini-1" })
+    expect(record.status).toBe("completed")
+    const start = record.observations.find(observation => observation.name === "agent.invocation.start")
+    expect(start?.attributes).toMatchObject({ "input.hasPrompt": false })
+    expect(start?.attributes).not.toHaveProperty("input.prompt")
+    expect(record.observations[0]!.attributes!["vitehub.agent.configuration"]).toMatchObject({ driver: { kind: "gemini", provider: "gemini", model: { id: "gemini-3.8-flash-high" } } })
+    const command = record.observations.find(observation => observation.name === "agent.tool.finish" && observation.attributes?.["tool.name"] === "command_execution")
+    expect(command?.attributes).toMatchObject({ "tool.output": { output: "hi" }, "tool.durationMs": 22 })
+    expect(command?.attributes).not.toHaveProperty("tool.error")
   })
 })
 

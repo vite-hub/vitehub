@@ -35,7 +35,7 @@ export async function serveComments(options: DefineCommentsOptions = {}, handler
 }
 
 /** A pill segment and the page tools context that the loader gives the Comments tool. */
-export function pageTools(options: { open?: boolean } = {}) {
+export function pageTools(options: { open?: boolean, linked?: boolean } = {}) {
   const pill = document.createElement("vitehub-pill")
   const bar = document.createElement("vitehub-tool")
   bar.slot = "comments"
@@ -47,7 +47,8 @@ export function pageTools(options: { open?: boolean } = {}) {
     tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
     bar,
     signal: controller.signal,
-    open: options.open ?? false,
+    open: options.open ?? options.linked ?? false,
+    linked: options.linked ?? false,
     exit: vi.fn(),
     onOpen: vi.fn(),
     beforeExit: vi.fn(),

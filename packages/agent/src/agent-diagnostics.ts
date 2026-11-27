@@ -4020,8 +4020,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
     },
     AGENT_R1040: {
-      why: ({ provider }: { provider: unknown }) => `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`,
-      fix: 'Pass "codex" or "claude-code" as the session provider.',
+      why: ({ provider, known }: { provider: unknown, known?: boolean }) => known
+        ? `[vitehub] The session file is not a provider runtime event log.`
+        : `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use a harness id such as "codex", "claude-code", "gemini", or "opencode".`,
+      fix: 'Pass a log written by an external T3 provider runtime build that supports eventLogPath (such as commit 1ee7ef6dd80eba8b9678a8e9696728389f5ea8c2), or a native Codex or Claude Code session file with "codex" or "claude-code".',
     },
     AGENT_R1041: {
       why: "[vitehub] importAgentSession() needs agentName and runId.",
@@ -4800,6 +4802,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_ROUTE_NOT_STATIC: {
       why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
       fix: "Use a fixed path without `:name`, `[name]`, `*`, `?`, or `#`, such as `/hooks/github`, as each key of `vitehub({ agent: { routes: { aliases } } })`.",
+    },
+    AGENT_SESSION_LOG_MULTIPLE_SESSIONS: {
+      why: "[vitehub] A provider runtime event log must contain one session per file.",
+      fix: "Set eventLogPath to a fresh path for each T3 session. If sessions were appended to one file, import one session's meta line and events at a time.",
     },
     AGENT_SKILL_DELIVERY_UNSUPPORTED: {
       why: ({ provider }: { provider: string }) => `[vitehub] ${provider} cannot load Agent-owned Skills.`,

@@ -17,6 +17,7 @@ import { accountAppStatusLabels } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
 import { consoleAuthorAvatarUrl, consoleCompareUrl, consoleFrameworkLabels, consoleHostLabels } from "../client/project-link";
 import { useConsoleProjects } from "../client/project-session";
+import ConsoleCommentOnSite from "./console-comment-on-site.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -82,6 +83,7 @@ const sectionCards = computed(() =>
   }),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+const commentsEnabled = computed(() => sections.value.includes("comments"));
 // The build that serves the app, from `project.get`. A development server has none.
 const build = computed(() => projects.info.value?.build);
 const compareUrl = computed(() => consoleCompareUrl(build.value));
@@ -194,8 +196,9 @@ onBeforeUnmount(() => {
     <UDashboardPanel id="console-home">
       <template #header>
         <ConsolePageHeader title="Overview" :toggle="false">
-          <template v-if="siteUrl" #right>
-            <UButton color="neutral" variant="outline" icon="i-lucide-external-link" label="Visit site" :to="siteUrl" target="_blank" rel="noreferrer" />
+          <template v-if="siteUrl || commentsEnabled" #right>
+            <UButton v-if="siteUrl" color="neutral" variant="outline" icon="i-lucide-external-link" label="Visit site" :to="siteUrl" target="_blank" rel="noreferrer" />
+            <ConsoleCommentOnSite v-if="commentsEnabled" />
           </template>
         </ConsolePageHeader>
       </template>

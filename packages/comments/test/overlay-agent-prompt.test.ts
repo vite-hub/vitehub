@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { installViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 
-import { commentsAgentPrompt, commentsT3CodeLink, t3CodeLinkLimit } from "../src/agent-prompt.ts"
+import { commentsAgentPrompt, commentsPagePrompt, commentsT3CodeLink, t3CodeLinkLimit } from "../src/agent-prompt.ts"
 import { defineCommentSubject } from "../src/operations-core/define.ts"
-import { commentsButton, openList, pageTools, serveComments, startOverlay } from "./overlay-harness.ts"
+import { commentsOperations } from "../src/operations-core/operations.ts"
+import { commentsButton, openList, pageTools, serveComments, startOverlay, tool } from "./overlay-harness.ts"
 
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 import type { CommentsAgentPromptInput } from "../src/agent-prompt.ts"
@@ -147,12 +149,17 @@ describe("Copy open in the panel header", () => {
     expect(tools.panel()!.querySelector('[data-action="copy-open-prompt"]')).toBeNull()
   })
 
-  it("hides both prompt actions while the next page is loading", async () => {
+  it("hides panel and pill prompts while the next page is loading", async () => {
+    const writeText = clipboard()
     const tools = await site(member, 1)
     await listed(tools)
     const actions = () => tools.panel()?.querySelector('[data-slot="comment-panel-actions"]')
     await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-open-prompt"]')).toBeTruthy())
     expect(actions()?.querySelector('[data-action="open-in-t3-code"]')).toBeTruthy()
+    const pillPrompt = () => tools.bar.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="copy-page-prompt"]')
+    tool(tools.bar, "Stop commenting (C)")!.click()
+    await vi.waitFor(() => expect(pillPrompt()).not.toBeNull())
+    const previous = pillPrompt()!
     const fetchComments = tools.server.fetch.getMockImplementation()!
     let endSession = () => {}
     const session = new Promise<void>((resolve) => { endSession = resolve })
@@ -168,12 +175,16 @@ describe("Copy open in the panel header", () => {
       history.pushState(null, "", "/details")
       await vi.waitFor(() => expect(loading).toBe(true))
       await vi.waitFor(() => expect(actions()).toBeFalsy())
+      expect(pillPrompt()).toBeNull()
+      previous.click()
+      expect(writeText).not.toHaveBeenCalled()
     }
     finally {
       endSession()
     }
     await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
     expect(actions()?.querySelector('[data-action="copy-open-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
+    expect(pillPrompt()).toBeNull()
   })
 
   it("offers the full copy instead of an oversized T3 Code link", async () => {
@@ -191,11 +202,53 @@ describe("Copy open in the panel header", () => {
   })
 })
 
-describe("the pill", () => {
-  it("has no Copy prompt button", async () => {
-    const { bar } = await site(member, 1)
-    await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
-    expect(bar.shadowRoot!.querySelector('[data-action="copy-prompt"]')).toBeNull()
+describe("Copy prompt in the pill", () => {
+  const pagePrompt = (bar: HTMLElement) => bar.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="copy-page-prompt"]')
+
+  it("copies the exact open thread IDs, including mapped subjects and their replies", async () => {
+    const writeText = clipboard()
+    const { bar, ids, server } = await site({ ...member, commentsAgent: { project: { ...project, name: "Acme Docs" }, resolve: true } }, 2, { resolvedThreads: 1 })
+    const [error] = await server.comments.reply(ids[0]!, { body: "Also on a tablet", author: { id: "grace", name: "Grace" } })
+    expect(error).toBeUndefined()
+    await vi.waitFor(() => expect(pagePrompt(bar)?.querySelector('[data-shown="true"]')?.textContent).toBe("Copy prompt"))
+    pagePrompt(bar)!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    const lines = writeText.mock.calls[0]![0].split("\n")
+    expect(lines).toEqual([
+      "I left 2 comments on http://localhost:3000/pricing",
+      expect.stringContaining(`open app "Acme Docs" (app.example.com) through the ViteHub MCP (${mcp})`),
+      "Fix each comment, then resolve it with run_operation, the app id, operation \"comments.resolve\", and input { threadId, reply }. Say what you changed in the reply.",
+    ])
+    const [, operation, json] = /operation "([^"]+)", and input \{ threadId \} for each ID in (\[.*\])\.$/.exec(lines[1]!)!
+    const selected: string[] = JSON.parse(json!)
+    expect(selected.toSorted()).toEqual(ids.slice(0, 2).toSorted())
+    const registry = createOperationRegistry([{ operations: commentsOperations }])
+    const threads = await Promise.all(selected.map(threadId => runOperation(registry, operation!, { threadId }, {
+      access: { mode: "auth", sections: "all" },
+      surface: "console",
+      user: { id: member.id, name: member.name, email: "ada@example.com" },
+    })))
+    expect(threads).toEqual(expect.arrayContaining([
+      { ok: true, value: expect.objectContaining({ id: ids[0], messages: [expect.objectContaining({ body: "Fix 0" }), expect.objectContaining({ body: "Also on a tablet" })] }) },
+      { ok: true, value: expect.objectContaining({ id: ids[1], messages: [expect.objectContaining({ body: "Fix 1" })] }) },
+    ]))
+    await vi.waitFor(() => expect(pagePrompt(bar)?.querySelector('[data-shown="true"]')?.textContent).toBe("Copied"))
+  })
+
+  it("copies the open threads' text for a guest, whose agent cannot read them in the Console", async () => {
+    const writeText = clipboard()
+    const { bar } = await site(guest, 1)
+    await vi.waitFor(() => expect(pagePrompt(bar)).not.toBeNull())
+    pagePrompt(bar)!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    expect(writeText.mock.calls[0]![0]).toContain("\"Fix 0\" — Grace")
+    expect(writeText.mock.calls[0]![0]).not.toContain("ViteHub MCP")
+  })
+
+  it("is not there while the page has no open threads", async () => {
+    const { bar } = await site(member, 0, { resolvedThreads: 1 })
+    await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments"))
+    expect(pagePrompt(bar)).toBeNull()
   })
 })
 
@@ -236,6 +289,24 @@ describe("commentsAgentPrompt()", () => {
     expect(prompt).toContain("1. \"The title wraps on a phone.\"")
     expect(prompt).toContain("2. \"Bigger logo.\"")
     expect(prompt).toContain("[\"thread-1\",\"thread-2\"]")
+  })
+})
+
+describe("commentsPagePrompt()", () => {
+  const threads = [{ id: "thread-1", anchor, messages: [{ author: "Max", body: "The title wraps." }] }]
+
+  it("names the app by its host when the Console has no name for it, and asks for a report without resolve access", () => {
+    const prompt = commentsPagePrompt({ url: "https://app.example.com/portal/pricing?tab=pro", threads, agent: { mcp, project, resolve: false } })
+    expect(prompt.split("\n")).toEqual([
+      "I left a comment on https://app.example.com/portal/pricing?tab=pro",
+      `In the ViteHub Console, open app app.example.com through the ViteHub MCP (${mcp}): find it with list_apps (id: app-1, team team-1; if it is missing, ask me to switch team), then call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ["thread-1"].`,
+      "Fix each comment and tell me what you changed.",
+    ])
+  })
+
+  it("is commentsAgentPrompt() without a Console account", () => {
+    const input = { url: "https://app.example.com/pricing", threads }
+    expect(commentsPagePrompt(input)).toBe(commentsAgentPrompt(input))
   })
 })
 

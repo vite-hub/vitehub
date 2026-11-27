@@ -3,6 +3,7 @@ import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
 import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { forgeAccessKey } from "../src/internal/forge-access.ts"
+import { readAgentSession } from "../src/sessions.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -8363,7 +8364,9 @@ describe("Provider Agent Driver session log", () => {
       expect(resolveSessionLog).toHaveBeenCalledOnce()
       expect(result).toMatchObject({ output: { answer: "ready" }, sessionLog })
       expect((await stat(sessionLog)).mode & 0o777).toBe(0o600)
-      const lines = (await readFile(sessionLog, "utf8")).trim().split("\n").map(line => JSON.parse(line) as { type: string })
+      const log = await readFile(sessionLog, "utf8")
+      expect(readAgentSession("codex", log)).toMatchObject({ id: threadId, provider: "codex", status: "completed" })
+      const lines = log.trim().split("\n").map(line => JSON.parse(line) as { type: string })
       expect(lines[0]).toMatchObject({ type: "meta", kind: "codex", threadId })
       expect(lines.map(line => line.type)).toEqual(["meta", "content.delta", "turn.completed"])
     }
