@@ -7,7 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
-import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import { resetConsoleMcp } from "../src/mcp-client.ts"
 import { databaseConsoleMcpRecords } from "../src/mcp-client-records.ts"
@@ -28,6 +28,8 @@ const migrations = resolve(import.meta.dirname, "../server/databases/default/mig
 
 let origin = ""
 let requireOAuth = false
+let rotateRefreshTokens = false
+const refreshTokens = new Map<string, { person: string, used: boolean }>()
 let toolPages = 2
 const grants = new Map<string, string>()
 const sessions = new Map<string, StreamableHTTPServerTransport>()
@@ -103,10 +105,15 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   if (url.pathname === "/token") {
     const form = new URLSearchParams(await readBody(request))
+    if (form.get("grant_type") === "refresh_token") {
+      const grant = refreshTokens.get(form.get("refresh_token") ?? "")
+      if (!grant || grant.used) return json(response, 400, { error: "invalid_grant" })
+      grant.used = true
+      return json(response, 200, issueTokens(grant.person))
+    }
     const person = form.get("grant_type") === "authorization_code" ? grants.get(form.get("code") ?? "") : undefined
     if (!person || !form.get("code_verifier") || form.get("redirect_uri") !== redirectUrl) return json(response, 400, { error: "invalid_grant" })
-    grants.set(`token-${person}`, person)
-    return json(response, 200, { access_token: `token-${person}`, expires_in: 3_600, token_type: "Bearer" })
+    return json(response, 200, issueTokens(person))
   }
   if (url.pathname !== "/mcp") return json(response, 404, { error: "not_found" })
   const bearer = request.headers.authorization?.replace(/^Bearer /, "")
@@ -116,6 +123,17 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   await fixtureServer(person).connect(transport)
   const body = request.method === "POST" ? JSON.parse(await readBody(request)) as unknown : undefined
   await transport.handleRequest(request, response, body)
+}
+
+function issueTokens(person: string): Record<string, unknown> {
+  if (!rotateRefreshTokens) {
+    grants.set(`token-${person}`, person)
+    return { access_token: `token-${person}`, expires_in: 3_600, token_type: "Bearer" }
+  }
+  const generation = refreshTokens.size + 1
+  grants.set(`token-${person}-${generation}`, person)
+  refreshTokens.set(`refresh-${person}-${generation}`, { person, used: false })
+  return { access_token: `token-${person}-${generation}`, expires_in: 3_600, refresh_token: `refresh-${person}-${generation}`, token_type: "Bearer" }
 }
 
 const http = createServer((request, response) => {
@@ -133,8 +151,10 @@ afterAll(() => new Promise<void>(done => http.close(() => done())))
 
 afterEach(async () => {
   requireOAuth = false
+  rotateRefreshTokens = false
   toolPages = 2
   grants.clear()
+  refreshTokens.clear()
   initializeRequests = 0
   otherOriginRequests = 0
   await Promise.all(Array.from(sessions.values(), transport => transport.close()))
@@ -252,6 +272,80 @@ describe("Console MCP client", () => {
     expect(raced).toBe(true)
     const stored = await records.connection("user-1", "project-1", id)
     expect(stored?.error).toBe("Changed by another request.")
+  })
+
+  describe("with two Console instances on one database", () => {
+    type ConsoleMcpModule = typeof import("../src/mcp-client.ts")
+    interface Race {
+      otherRunsWhenFirstInstance: "reads" | "saves"
+      accessTokenExpires: "after" | "before"
+      connectionStays: boolean
+      other: (instance: ConsoleMcpModule, scope: ConsoleMcpScope, id: string) => Promise<unknown>
+    }
+    const races: Record<string, Race> = {
+      "keeps a rotated grant when the other instance saves only that it used the connection": {
+        otherRunsWhenFirstInstance: "reads",
+        accessTokenExpires: "after",
+        connectionStays: true,
+        other: (instance, scope, id) => instance.callConsoleMcpTool(scope, { id, tool: "whoami" }),
+      },
+      "keeps a rotated grant when the other instance fails to refresh the same grant": {
+        otherRunsWhenFirstInstance: "saves",
+        accessTokenExpires: "before",
+        connectionStays: true,
+        other: (instance, scope, id) => instance.callConsoleMcpTool(scope, { id, tool: "whoami" }).catch((error: unknown) => error),
+      },
+      "does not bring back a connection that the other instance disconnects during a refresh": {
+        otherRunsWhenFirstInstance: "saves",
+        accessTokenExpires: "before",
+        connectionStays: false,
+        other: (instance, scope, id) => instance.disconnectConsoleMcp(scope, { id }),
+      },
+    }
+
+    it.each(Object.entries(races))("%s", async (_name, race) => {
+      requireOAuth = true
+      rotateRefreshTokens = true
+      const { client, db } = await database()
+      const started = valueOf(await call(scopeOf(db), "mcp-client.connect", { server: `${origin}/mcp` }))
+      grants.set("code-4", "Lucía")
+      const id = String(valueOf(await call(scopeOf(db), "mcp-client.complete", { code: "code-4", state: new URL(String(started.authorizationUrl)).searchParams.get("state") })).id)
+      vi.resetModules()
+      const other: ConsoleMcpModule = await import("../src/mcp-client.ts")
+      const expire = () => grants.delete("token-Lucía-1")
+      if (race.accessTokenExpires === "before") expire()
+      const records = databaseConsoleMcpRecords(db, secret)
+      let raced = false
+      const once = async () => {
+        if (raced) return
+        raced = true
+        await race.other(other, scopeOf(db), id)
+        if (race.accessTokenExpires === "after") expire()
+      }
+      const racing: ConsoleMcpRecords = {
+        ...records,
+        connection: async (...args) => {
+          const connection = await records.connection(...args)
+          if (race.otherRunsWhenFirstInstance === "reads") await once()
+          return connection
+        },
+        save: async (connection) => {
+          if (race.otherRunsWhenFirstInstance === "saves") await once()
+          return records.save(connection)
+        },
+      }
+      const answer = valueOf(await call(scopeOf(db, { records: racing }), "mcp-client.call", { id, tool: "whoami" }))
+      expect(raced).toBe(true)
+      expect(answer.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
+      if (!race.connectionStays) {
+        expect((await client.execute("SELECT id FROM console_mcp_connections")).rows).toHaveLength(0)
+        return
+      }
+      const next = valueOf(await call(scopeOf(db), "mcp-client.call", { id, tool: "whoami" }))
+      expect(next.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
+      expect(Object(next.connection)).toMatchObject({ status: "connected" })
+      expect((await records.connection("user-1", "project-1", id))?.oauth?.tokens?.refresh_token).toBe("refresh-Lucía-2")
+    })
   })
 
   it("reads all pages in one MCP session, and ends the session after the operation", async () => {

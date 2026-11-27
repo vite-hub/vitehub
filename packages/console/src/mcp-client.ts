@@ -7,7 +7,7 @@ import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
 import { allowPrivateVariable, isPrivateHost } from "./project-url.ts"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
-import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
+import type { OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
 import type { ConsoleMcpRecords, PendingAuthorization, StoredConnection } from "./mcp-client-records.ts"
 import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo } from "./mcp-client-types.ts"
 
@@ -423,6 +423,26 @@ async function save(scope: ConsoleMcpScope, connection: StoredConnection): Promi
   return !connectionRuntimes.get(connection.id)?.closing && scope.records.save(connection)
 }
 
+async function saveKeepingRotatedTokens(scope: ConsoleMcpScope, connection: StoredConnection, tokensWhenRead: OAuthTokens | undefined): Promise<boolean> {
+  if (await save(scope, connection)) return true
+  const oauth = connection.oauth
+  if (!tokensWhenRead?.refresh_token || !oauth?.tokens || oauth.tokens === tokensWhenRead) return false
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const current = await scope.records.connection(connection.userId, connection.projectId, connection.id)
+    const stored = current?.oauth
+    if (!current || !stored || stored.pending || (stored.tokens && stored.tokens.refresh_token !== tokensWhenRead.refresh_token)) return false
+    if (!stored.tokens) {
+      current.status = connection.status
+      if (connection.error) current.error = connection.error
+      else delete current.error
+    }
+    stored.tokens = oauth.tokens
+    if (oauth.receivedAt) stored.receivedAt = oauth.receivedAt
+    if (await save(scope, current)) return true
+  }
+  return false
+}
+
 async function owned(scope: ConsoleMcpScope): Promise<StoredConnection[]> {
   const connections = await scope.records.connections(scope.userId, scope.projectId)
   await Promise.all(connections.filter(connection => prune(connection)).map(connection => save(scope, connection)))
@@ -443,16 +463,17 @@ async function withConnection<T>(scope: ConsoleMcpScope, id: string, change: (co
     const connection = await connectionOf(scope, id)
     runtime.connection = connection
     const state = connection.oauth?.pending?.state
+    const tokens = connection.oauth?.tokens
     let value: T
     try {
       value = await change(connection)
       assertOpen(runtime)
     }
     catch (error) {
-      await save(scope, connection)
+      await saveKeepingRotatedTokens(scope, connection, tokens)
       throw error
     }
-    if (!await save(scope, connection) && connection.oauth?.pending?.state !== state) throw consoleMcpError(409, "CONSOLE_CONFLICT", "Another request changed this MCP connection at the same time, so the sign-in was not saved. Try again.")
+    if (!await saveKeepingRotatedTokens(scope, connection, tokens) && connection.oauth?.pending?.state !== state) throw consoleMcpError(409, "CONSOLE_CONFLICT", "Another request changed this MCP connection at the same time, so the sign-in was not saved. Try again.")
     return value
   })
 }
