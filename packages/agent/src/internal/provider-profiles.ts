@@ -28,9 +28,9 @@ export interface ProviderHarnessGateway {
   chatgpt: boolean
   /**
    * How the provider process receives the route: Codex `-c` launch arguments, the `ANTHROPIC_*` variables,
-   * an OpenCode config in `OPENCODE_CONFIG_CONTENT`, or a Pi `models.json`.
+   * an OpenCode config in `OPENCODE_CONFIG_CONTENT`, a Pi `models.json`, a Gemini CLI `settings.json`, or a Kimi Code `config.toml`.
    */
-  delivery: "anthropic-env" | "codex-config" | "opencode-config" | "pi-models"
+  delivery: "anthropic-env" | "codex-config" | "gemini-settings" | "kimi-config" | "opencode-config" | "pi-models"
   /** The `driver.env` names that a gateway sets. */
   ownedEnv: readonly string[]
 }
@@ -190,7 +190,8 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     skills: { workspace: [".gemini/skills", ".agents/skills"], home: ".gemini/skills", extra: { kind: "none" } },
     instructionFile: "GEMINI.md",
     homeInstructionFile: ".gemini/GEMINI.md",
-    signInOnly: true,
+    signInOnly: false,
+    gateway: { chatgpt: false, delivery: "gemini-settings", ownedEnv: ["GEMINI_API_KEY", "GEMINI_CLI_CUSTOM_HEADERS", "GEMINI_CLI_HOME", "GOOGLE_GEMINI_BASE_URL"] },
     pricing: { providers: ["google"], requiresCacheReadTokens: false },
     ...per,
   },
@@ -271,16 +272,18 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     ...per,
   },
   kimi: {
-    displayName: "Kimi CLI",
+    displayName: "Kimi Code",
     driverFactory: "kimiDriver",
     t3DriverKind: "acpRegistry",
     runtimeKind: "acp",
-    agentId: "kimi",
+    agentId: "kimi-code",
     command: "kimi",
-    install: "uv tool install kimi-cli",
-    authEnv: ["KIMI_API_KEY"],
+    install: "npm install -g @moonshot-ai/kimi-code",
+    authEnv: ["KIMI_MODEL_API_KEY"],
+    home: { env: "KIMI_CODE_HOME", inheritHost: true },
     instructionFile: "AGENTS.md",
-    signInOnly: true,
+    signInOnly: false,
+    gateway: { chatgpt: false, delivery: "kimi-config", ownedEnv: ["KIMI_CODE_CUSTOM_HEADERS", "KIMI_CODE_HOME", "VITEHUB_GATEWAY_API_KEY"] },
     pricing: { providers: ["moonshotai"], requiresCacheReadTokens: false },
     ...per,
   },

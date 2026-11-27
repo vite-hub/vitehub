@@ -327,7 +327,7 @@ function normalizeProviderDriver(provider: ProviderHarness, value: Record<string
   const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
   const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
   if (gateway) assertAgentDriverGatewaySupports(gateway, provider, settings)
-  if (gateway && (provider === "opencode" || provider === "pi") && value.model === undefined) {
+  if (gateway && (provider === "opencode" || provider === "pi" || provider === "kimi") && value.model === undefined) {
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.driverFactory}({ gateway }) needs driver.model, a model that the gateway serves, because ${profile.displayName} selects the model in the gateway configuration.` })
   }
   if (isChatGPTGateway(gateway) && (value.launch !== undefined || ["launchArgs", "binaryPath", "homePath", "shadowHomePath"].some(key => settings?.[key] !== undefined))) throw agentDiagnostics.AGENT_R1015()

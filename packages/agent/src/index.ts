@@ -2734,7 +2734,10 @@ export function claudeCodeDriver<TOutput = unknown>(
   return { ...options, kind: "claude-code", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
-/** Run the Agent with Gemini CLI over ACP. ViteHub installs the CLI from the ACP registry unless `providerSettings.binaryPath` names an installed copy. Needs a Node.js host. */
+/**
+ * Run the Agent with Gemini CLI over ACP. ViteHub installs the CLI from the ACP registry unless `providerSettings.binaryPath` names an installed copy.
+ * With a gateway, set `model` to a model the gateway serves. Needs a Node.js host.
+ */
 export function geminiDriver<TOutput = unknown>(options: GeminiDriverOptions<TOutput> = {}): GeminiDriver<unknown, TOutput> {
   return { ...options, kind: "gemini", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
@@ -2764,7 +2767,7 @@ export function piDriver<TOutput = unknown>(options: PiDriverOptions<TOutput> = 
   return { ...options, kind: "pi", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
-/** Run the Agent with Kimi CLI over ACP using native sign-in. Needs a Node.js host. */
+/** Run the Agent with Kimi Code over ACP. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
 export function kimiDriver<TOutput = unknown>(options: KimiDriverOptions<TOutput> = {}): KimiDriver<unknown, TOutput> {
   return { ...options, kind: "kimi", [providerAgentRuntime]: loadProviderAgentRuntime }
 }

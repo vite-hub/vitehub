@@ -10,7 +10,7 @@ import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCal
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
-import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment, withAgentDriverGatewayModel } from "./internal/agent-gateway.ts"
 import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
 import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
 import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
@@ -1478,7 +1478,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const sessionModel = agentDriverSessionModel(gateway, options.model)
     const snapshot = await inspectProvider({
       provider: providerHarnessProfiles[options.provider].runtimeKind, environment, signal,
-      settings: providerRuntimeSettings(options.provider, options.agentId, { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(sessionModel ? { model: sessionModel } : {}) }),
+      settings: providerRuntimeSettings(options.provider, options.agentId, withAgentDriverGatewayModel(options.provider, gateway, options.model, { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(sessionModel ? { model: sessionModel } : {}) })),
     })
     // A custom launcher records the child's stderr. Without it, a failed probe reports only the exit code.
     const launchFailure = snapshot.status === "error"
@@ -3691,7 +3691,7 @@ async function* runProvider<
       ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
-    const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, settings)
+    const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, withAgentDriverGatewayModel(options.provider, gateway, options.model, settings))
     const eventLogRoot = temporaryRoot?.root ?? launchRoot
     const eventLogPath = sessionLog ?? (eventLogRoot ? join(eventLogRoot, providerEventLogFile) : undefined)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {

@@ -80,7 +80,7 @@ GOOGLE_GEMINI_BASE_URL=https://proxy.example GEMINI_API_KEY="$CLIPROXY_API_KEY" 
 ```
 
 - A gateway sends the key of the `gemini` route only in `x-goog-api-key`, whatever its `auth`.
-- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi CLI, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode.
+- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode.
 - `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` requires a `gemini` route key, so `ollama()` is a type error there.
 
 ## Model providers

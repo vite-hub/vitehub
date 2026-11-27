@@ -3,7 +3,7 @@ import { aiGatewaySdkOnly, aiGatewaySupports } from "./definition.ts"
 import type { AiGatewayDefinition } from "./types.ts"
 
 /**
- * Route keys for the configurations below. Kimi CLI, OpenCode, and Pi are in Chat Completions mode.
+ * Route keys for the configurations below. Kimi Code, OpenCode, and Pi are in Chat Completions mode.
  * A harness with no route signs in to its own service, so no gateway serves it.
  */
 export interface AiGatewayHarnessRoutes {

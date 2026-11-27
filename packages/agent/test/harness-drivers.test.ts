@@ -4,10 +4,10 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { cliproxy, cloudflare, emulate } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, emulate, google } from "@vite-hub/gateways"
 import { acpDriver, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
-import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway } from "../src/internal/agent-gateway.ts"
+import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayModel } from "../src/internal/agent-gateway.ts"
 import { providerHarnessProfile, providerHarnessProfiles } from "../src/internal/provider-profiles.ts"
 import { providerRuntimeSettings } from "../src/provider-agent.ts"
 
@@ -29,7 +29,7 @@ describe("harness drivers", () => {
     ["cursor", cursorDriver(), "cursor", undefined],
     ["grok", grokDriver(), "grok", undefined],
     ["pi", piDriver(), "pi", undefined],
-    ["kimi", kimiDriver(), "acp", "kimi"],
+    ["kimi", kimiDriver(), "acp", "kimi-code"],
     ["kiro", kiroDriver(), "kiro", undefined],
     ["fx", fxDriver(), "fx", undefined],
     ["muse", museDriver(), "muse", undefined],
@@ -91,19 +91,90 @@ describe("harness drivers", () => {
     expect(() => normalized(driver())).toThrow(`${profile.displayName} signs in to its own service, so no gateway serves the ${harness} Driver. Remove driver.gateway`)
   })
 
-  it.each(["opencode", "pi"] as const)("requires a model for a %s gateway", (harness) => {
-    const factories = { opencode: opencodeDriver, pi: piDriver }
+  it.each(["opencode", "pi", "kimi"] as const)("requires a model for a %s gateway", (harness) => {
+    const factories = { opencode: opencodeDriver, pi: piDriver, kimi: kimiDriver }
     expect(() => normalized(factories[harness]({ gateway: gateway() }))).toThrow(`${providerHarnessProfile(harness).driverFactory}({ gateway }) needs driver.model`)
   })
 })
 
 describe("harness gateway environments", () => {
-  it.each([["gemini", geminiDriver], ["kimi", kimiDriver]] as const)("rejects a %s gateway before reading its credentials", async (harness, driver) => {
-    const apiKey = vi.fn(() => "not-read")
-    const gateway = cliproxy({ url: "http://proxy", apiKey })
-    expect(() => defineAgent({ driver: driver({ gateway, permissions: "allow-all" } as never) })).toThrow("cannot isolate gateway credentials")
-    await expect(resolveAgentDriverGateway(gateway, harness, context)).rejects.toThrow("cannot isolate gateway credentials")
-    expect(apiKey).not.toHaveBeenCalled()
+  const secret = "secret-gateway-key"
+  const presets = [
+    ["cliproxy", () => cliproxy({ url: "http://proxy", apiKey: secret })],
+    ["google", () => google({ apiKey: secret })],
+  ] as const
+
+  async function materialized(harness: "gemini" | "kimi", gatewayValue: Parameters<typeof resolveAgentDriverGateway>[0], model: string) {
+    const resolved = await resolveAgentDriverGateway(gatewayValue, harness, context, { model })
+    const root = await mkdtemp(join(tmpdir(), `vitehub-${harness}-home-`))
+    const home = join(root, "gateway-home")
+    const result = await materializeAgentDriverGatewayHome(resolved, home)
+    const files = Object.fromEntries(await Promise.all(Object.keys(resolved.home?.files ?? {}).map(async path => {
+      expect((await stat(join(home, path))).mode & 0o777).toBe(0o600)
+      return [path, await readFile(join(home, path), "utf8")] as const
+    })))
+    return { files, home, resolved: result, root }
+  }
+
+  it.each(presets)("runs Gemini CLI in a Home that selects API-key auth through %s", async (_name, preset) => {
+    const { files, home, resolved, root } = await materialized("gemini", preset(), "gemini-3.8-flash-high")
+    try {
+      expect(Object.keys(files)).toEqual([".gemini/settings.json"])
+      const settings = JSON.parse(files[".gemini/settings.json"] ?? "")
+      expect(settings.security.auth.selectedType).toBe("gemini-api-key")
+      expect(settings.model.name).toBe("gemini-3.8-flash-high")
+      expect(resolved.environment.GEMINI_CLI_HOME).toBe(home)
+      expect(resolved.environment.GEMINI_API_KEY).toBe(secret)
+      expect(resolved.environment.GOOGLE_GEMINI_BASE_URL).toBe(preset().name === "google" ? "https://generativelanguage.googleapis.com" : "http://proxy")
+      expect(Object.keys(resolved.environment).sort()).toEqual(providerHarnessProfile("gemini").gateway?.ownedEnv.slice().sort())
+      expect(files[".gemini/settings.json"]).not.toContain(secret)
+      expect(Object.entries(resolved.environment).filter(([name]) => name !== "GEMINI_API_KEY").map(([, value]) => value).join("\n")).not.toContain(secret)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each(presets)("runs Kimi Code in a Home whose provider reads the key from the environment through %s", async (_name, preset) => {
+    const { files, home, resolved, root } = await materialized("kimi", preset(), "kimi-k3")
+    try {
+      expect(Object.keys(files)).toEqual(["config.toml"])
+      const config = files["config.toml"] ?? ""
+      expect(config).toContain('default_model = "vitehub/kimi-k3"')
+      expect(config).toContain('[providers.vitehub]\ntype = "openai"')
+      expect(config).toContain(`base_url = "${preset().name === "google" ? "https://generativelanguage.googleapis.com/v1beta/openai" : "http://proxy/v1"}"`)
+      expect(config).toContain('api_key_env = "VITEHUB_GATEWAY_API_KEY"')
+      expect(config).toContain('[models."vitehub/kimi-k3"]\nprovider = "vitehub"\nmodel = "kimi-k3"')
+      expect(agentDriverSessionModel(resolved, "kimi-k3")).toBe("vitehub/kimi-k3")
+      expect(resolved.environment).toEqual({ KIMI_CODE_CUSTOM_HEADERS: "", KIMI_CODE_HOME: home, VITEHUB_GATEWAY_API_KEY: secret })
+      expect(config).not.toContain(secret)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("passes extra gateway headers to Gemini CLI and Kimi Code through the environment", async () => {
+    const withHeaders = cliproxy({ url: "http://proxy", apiKey: secret, headers: { "CF-Access-Client-Id": "id", "CF-Access-Client-Secret": "secret-access" } })
+    const gemini = await resolveAgentDriverGateway(withHeaders, "gemini", context, { model: "gemini-3.8-flash-high" })
+    const kimi = await resolveAgentDriverGateway(withHeaders, "kimi", context, { model: "kimi-k3" })
+    expect(gemini.environment.GEMINI_CLI_CUSTOM_HEADERS).toBe("CF-Access-Client-Id: id,CF-Access-Client-Secret: secret-access")
+    expect(kimi.environment.KIMI_CODE_CUSTOM_HEADERS).toBe("CF-Access-Client-Id: id\nCF-Access-Client-Secret: secret-access")
+    for (const resolved of [gemini, kimi]) {
+      const files = Object.values(resolved.home?.files ?? {}).join("\n")
+      expect(files).not.toContain(secret)
+      expect(files).not.toContain("secret-access")
+    }
+  })
+
+  it("names the gateway model as a custom model of an ACP harness", async () => {
+    const gemini = await resolveAgentDriverGateway(gateway(), "gemini", context, { model: "gemini-3.8-flash-high" })
+    expect(withAgentDriverGatewayModel("gemini", gemini, "gemini-3.8-flash-high", { customModels: ["mine"] })).toEqual({ customModels: ["mine", "gemini-3.8-flash-high"] })
+    const kimi = await resolveAgentDriverGateway(gateway(), "kimi", context, { model: "kimi-k3" })
+    expect(withAgentDriverGatewayModel("kimi", kimi, "kimi-k3", {})).toEqual({ customModels: ["vitehub/kimi-k3"] })
+    expect(withAgentDriverGatewayModel("gemini", undefined, "gemini-3.8-flash-high", {})).toEqual({})
+    const pi = await resolveAgentDriverGateway(gateway(), "pi", context, { model: "gpt-oss-120b" })
+    expect(withAgentDriverGatewayModel("pi", pi, "gpt-oss-120b", {})).toEqual({})
   })
 
   it("configures an OpenCode provider without writing the key into the config", async () => {

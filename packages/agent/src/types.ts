@@ -2051,7 +2051,10 @@ export interface SignInAgentDriverOptions<TOutput = unknown> extends Omit<AgentP
   gateway?: never
 }
 
-export type GeminiDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export interface GeminiDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with a `gemini` URL, such as `cliproxy()` or `google()`. Gemini CLI then runs in a ViteHub Home and never reads its own sign-in. */
+  gateway?: AiGateway<{ routes: "gemini" }>
+}
 
 /** Options of a Driver whose harness reaches a gateway through its `openai-compatible` URL. `model` is required with a gateway. */
 export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
@@ -2061,7 +2064,7 @@ export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends O
 
 export type OpenCodeDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
 export type PiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
-export type KimiDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
+export type KimiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
 export type AntigravityDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 export type CursorDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 export type GrokDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
@@ -2110,7 +2113,7 @@ export type CursorDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDri
 export type GrokDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"grok", GrokDriverOptions<TOutput>, CALL_OPTIONS>
 /** A Pi Driver. Create it with `piDriver()`. */
 export type PiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"pi", PiDriverOptions<TOutput>, CALL_OPTIONS>
-/** A Kimi CLI Driver over ACP. Create it with `kimiDriver()`. */
+/** A Kimi Code Driver over ACP. Create it with `kimiDriver()`. */
 export type KimiDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kimi", KimiDriverOptions<TOutput>, CALL_OPTIONS>
 /** A Kiro Driver. Create it with `kiroDriver()`. */
 export type KiroDriver<CALL_OPTIONS = unknown, TOutput = unknown> = HarnessDriver<"kiro", KiroDriverOptions<TOutput>, CALL_OPTIONS>

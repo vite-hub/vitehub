@@ -1,7 +1,7 @@
 import { aiGatewayHarnessRoute, aiGatewayHarnessRoutes } from "@vite-hub/gateways"
 import { isChatGPTGateway, normalizeAiGateway, resolveAiGatewayRoute } from "@vite-hub/gateways/internal"
 import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { resolveChatGPTGateway } from "./chatgpt-gateway.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
@@ -38,6 +38,17 @@ export function agentDriverSessionModel(gateway: ResolvedAgentDriverGateway | un
   return gateway?.model ?? model
 }
 
+/**
+ * Provider settings that let an ACP harness select the gateway's model. The harness lists only the models of its own service,
+ * and the provider runtime rejects a model outside that list unless the settings name it as a custom model.
+ */
+export function withAgentDriverGatewayModel(driver: BuiltInAgentDriverName, gateway: ResolvedAgentDriverGateway | undefined, model: string | undefined, settings: Record<string, unknown>): Record<string, unknown> {
+  const sessionModel = agentDriverSessionModel(gateway, model)
+  if (!gateway || !sessionModel || providerHarnessProfile(driver).runtimeKind !== "acp") return settings
+  const customModels = Array.isArray(settings.customModels) ? settings.customModels : []
+  return { ...settings, customModels: [...customModels, sessionModel] }
+}
+
 /** Validate a gateway for `driver.gateway` and keep its Driver routes. */
 export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition | ChatGPTGateway {
   return isChatGPTGateway(value) ? Object.freeze({ ...value }) : normalizeAiGateway(value)
@@ -46,9 +57,6 @@ export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition
 /** Fail at definition time when a gateway cannot serve the selected Driver. Returns the route that serves it. */
 export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName, settings?: Record<string, unknown>): AiGatewayRoute | undefined {
   const profile = providerHarnessProfile(driver)
-  if (driver === "gemini" || driver === "kimi") {
-    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.displayName} cannot isolate gateway credentials from its native sign-in. Remove driver.gateway.` })
-  }
   if (driver === "opencode" && settings?.serverUrl !== undefined) {
     throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] OpenCode cannot apply driver.gateway to an attached server. Remove providerSettings.serverUrl to let the Driver start its own server." })
   }
@@ -166,6 +174,52 @@ function piGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, header
   }
 }
 
+function geminiGateway({ apiKey, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
+  const settings = {
+    security: { auth: { selectedType: "gemini-api-key" } },
+    privacy: { usageStatisticsEnabled: false },
+    general: { disableAutoUpdate: true },
+    ...(model ? { model: { name: model } } : {}),
+  }
+  return {
+    environment: {
+      GEMINI_API_KEY: apiKey,
+      GOOGLE_GEMINI_BASE_URL: baseURL,
+      GEMINI_CLI_CUSTOM_HEADERS: headers.map(([name, value]) => `${name}: ${value}`).join(","),
+    },
+    home: { env: "GEMINI_CLI_HOME", files: { ".gemini/settings.json": `${JSON.stringify(settings, null, 2)}\n` } },
+  }
+}
+
+function kimiGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
+  if (!model) throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] Kimi Code needs driver.model with driver.gateway. Set it to a model the gateway serves." })
+  const alias = `${gatewayProviderId}/${model}`
+  const config = [
+    `default_model = ${JSON.stringify(alias)}`,
+    "",
+    `[providers.${gatewayProviderId}]`,
+    `type = "openai"`,
+    `base_url = ${JSON.stringify(baseURL)}`,
+    `api_key_env = ${JSON.stringify(codexApiKeyEnvironment)}`,
+    "",
+    `[models.${JSON.stringify(alias)}]`,
+    `provider = ${JSON.stringify(gatewayProviderId)}`,
+    `model = ${JSON.stringify(model)}`,
+    `display_name = ${JSON.stringify(`${model} (${gateway.name})`)}`,
+    "max_context_size = 131072",
+    `capabilities = ["tool_use"]`,
+    "",
+  ].join("\n")
+  return {
+    environment: {
+      [codexApiKeyEnvironment]: apiKey,
+      KIMI_CODE_CUSTOM_HEADERS: [...(auth === "x-api-key" ? [["x-api-key", apiKey] as const] : []), ...headers].map(([name, value]) => `${name}: ${value}`).join("\n"),
+    },
+    home: { env: "KIMI_CODE_HOME", files: { "config.toml": config } },
+    model: alias,
+  }
+}
+
 /** Resolve the gateway into the provider process environment and Codex launch arguments. Preset values come from Server Env. */
 export async function resolveAgentDriverGateway(
   gateway: AiGatewayDefinition | ChatGPTGateway,
@@ -186,6 +240,8 @@ export async function resolveAgentDriverGateway(
     case "anthropic-env": return claudeGateway(route)
     case "opencode-config": return opencodeGateway(gateway, route, options.model)
     case "pi-models": return piGateway(gateway, route, options.model)
+    case "gemini-settings": return geminiGateway(route, options.model)
+    case "kimi-config": return kimiGateway(gateway, route, options.model)
   }
 }
 
@@ -193,7 +249,10 @@ export async function resolveAgentDriverGateway(
 export async function materializeAgentDriverGatewayHome(gateway: ResolvedAgentDriverGateway, directory: string): Promise<ResolvedAgentDriverGateway> {
   if (!gateway.home) return gateway
   await mkdir(directory, { mode: 0o700, recursive: true })
-  for (const [path, content] of Object.entries(gateway.home.files)) await writeFile(join(directory, path), content, { mode: 0o600 })
+  for (const [path, content] of Object.entries(gateway.home.files)) {
+    await mkdir(dirname(join(directory, path)), { mode: 0o700, recursive: true })
+    await writeFile(join(directory, path), content, { mode: 0o600 })
+  }
   return { ...gateway, environment: { ...gateway.environment, [gateway.home.env]: directory } }
 }
 
