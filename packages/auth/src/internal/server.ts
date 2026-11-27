@@ -5,11 +5,11 @@ import { toResultError } from "@vite-hub/runtime"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { parseUserOutput } from "better-auth/db"
-import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { HTTPError } from "nitro/h3"
 import { canonicalAccessPath, resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
+import { clientRequestOrigin } from "../client-request.ts"
 import { resolveAuthOptions, trustsProxyHeaders } from "../runtime-options.ts"
 import { authenticationRefusalError, authenticationRefusalResponse, getAuthenticationSession, type AuthenticationRefusal, type AuthenticationSessionSnapshot } from "../session.ts"
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
@@ -1151,7 +1151,7 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
     if (isJwsToken(token) && mcpOAuthResources(options.plugins).length) {
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
-      const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
+      const origin = clientRequestOrigin(request, trustsProxyHeaders(options))
       const [error, caller] = await verifyAppAccessToken(token, origin, url.pathname, auth)
       if (error) return [error, undefined]
       return [undefined, Object.freeze({
