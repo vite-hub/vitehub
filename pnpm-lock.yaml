@@ -1694,6 +1694,9 @@ importers:
       semver:
         specifier: ^7.8.6
         version: 7.8.6
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.1
     devDependencies:
       '@types/node':
         specifier: catalog:tooling

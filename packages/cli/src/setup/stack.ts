@@ -2,9 +2,11 @@ import { isDeepStrictEqual } from "node:util"
 
 import { features, impliedFeatures } from "@vite-hub/internal/features"
 import { basename } from "pathe"
+import { subset } from "semver"
 
 import { isRecord, readAddArgs, shellQuote } from "./add.ts"
 import { isSetupFailure } from "./envelope.ts"
+import { declaresNuxt5, nuxtReleases } from "./project.ts"
 
 import type { JsonValue } from "@vite-hub/internal/config-edit"
 import type { FeatureId } from "@vite-hub/internal/features"
@@ -15,7 +17,7 @@ export interface SetupStack {
   command: string | null
   omits: readonly {
     path: string
-    reason: "opaque-config" | "spread" | "expression" | "unresolved-host" | "unresolved-feature" | "disabled-feature" | "unsupported-feature" | "non-replayable-option" | "credential-option" | "required-option" | "unplannable-stack"
+    reason: "opaque-config" | "spread" | "expression" | "unresolved-host" | "unresolved-feature" | "disabled-feature" | "unsupported-feature" | "non-replayable-option" | "credential-option" | "required-option" | "unplannable-stack" | "unresolved-nuxt-version"
   }[]
 }
 
@@ -110,6 +112,11 @@ export async function deriveSetupStack(project: SetupProject, status: SetupStatu
     }
   }
 
+  const nuxtNightly = status.framework === "nuxt" && declaresNuxt5(project.nuxt)
+  if (status.framework === "nuxt" && !nuxtNightly) {
+    const releases = nuxtReleases(project.nuxt)
+    if (!releases || !subset(releases, ">=4.7.0 <5.0.0")) omits.push({ path: "nuxt", reason: "unresolved-nuxt-version" })
+  }
   const name = basename(project.root)
   const dir = name.startsWith("-") ? `./${name}` : name || "vitehub-app"
   const args = [
@@ -118,6 +125,7 @@ export async function deriveSetupStack(project: SetupProject, status: SetupStatu
     "--features", selected.join(","),
     ...options.flatMap(option => ["--option", option]),
     "--framework", status.framework === "nuxt" ? "nuxt" : "vite",
+    ...(nuxtNightly ? ["--nuxt-nightly"] : []),
     "--pm", status.packageManager,
     "--yes",
   ]
