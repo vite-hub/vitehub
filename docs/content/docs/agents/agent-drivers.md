@@ -432,13 +432,16 @@ ViteHub maps the gateway to each provider:
 - Claude Code gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, and the key in `ANTHROPIC_AUTH_TOKEN` (bearer) or `ANTHROPIC_API_KEY` (x-api-key), with the other one empty.
 - OpenCode gets a `vitehub` provider in `OPENCODE_CONFIG_CONTENT`: the `@ai-sdk/openai-compatible` package, the route URL, and the model `vitehub/<model>`. The config refers to the key as `{env:VITEHUB_GATEWAY_API_KEY}`. OpenCode must start its own server, so `providerSettings.serverUrl` fails with `AGENT_R0976`.
 - Pi gets a private folder in `PI_CODING_AGENT_DIR` with a `0600` `models.json` that names a `vitehub` provider with `api: "openai-completions"` and the key as `$VITEHUB_GATEWAY_API_KEY`. With a gateway, Pi does not resume its session, so ViteHub sends the conversation history on each Invocation.
-- Gemini CLI and Kimi CLI fail with `AGENT_R0976`, because ViteHub cannot keep the gateway key apart from their native sign-in. The other harnesses sign in to their own service, so a gateway on them fails with `AGENT_R0976` too.
+- Gemini CLI gets a private folder in `GEMINI_CLI_HOME` with a `0600` `.gemini/settings.json` that selects API-key sign-in, and the `gemini` route in `GEMINI_API_KEY` and `GOOGLE_GEMINI_BASE_URL`. Headers go in `GEMINI_CLI_CUSTOM_HEADERS`.
+- Kimi Code gets a private folder in `KIMI_CODE_HOME` with a `0600` `config.toml` that names a `vitehub` provider of type `openai`, the route URL, and the model `vitehub/<model>`. The config reads the key from `VITEHUB_GATEWAY_API_KEY`. Headers go in `KIMI_CODE_CUSTOM_HEADERS`.
+- Gemini CLI and Kimi Code never read a sign-in saved on the host, because their Home holds only the gateway configuration. ViteHub also adds the model to the session's custom models, so the harness accepts an ID that is not on its own list.
+- The other harnesses sign in to their own service, so a gateway on them fails with `AGENT_R0976`.
 
 The gateway owns these variables. Setting one in `driver.env`, or `T3CODE_CODEX_LAUNCH_ARGS` for Codex, fails with `AGENT_R0979`. A gateway replaces `credentials` and `credentialProfile`, also those from `defineAgent({ extends })`. A `launch` wrapper gets the variable names in `requiredEnvironment`, so SSH runners forward them. Inspection shows the gateway name and `executionAuthority.credentials: "provisioned"`. `agent.status()` does not cache results for an Agent with a gateway.
 
 ViteHub does not forward host variables such as `OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, or `CLIPROXY_API_KEY`. Pass them through a gateway or `driver.env`.
 
-A gateway changes where requests go, not the protocol. It must accept OpenAI Responses requests from Codex, Anthropic Messages requests from Claude Code, and Chat Completions requests from OpenCode and Pi. `model` must be an ID it accepts. OpenCode and Pi select the model in the gateway configuration, so they need `model` with a gateway, or fail with `AGENT_R0976`. [AI gateways](/docs/gateways/agents#routes-for-each-harness) lists the route that each preset gives each harness.
+A gateway changes where requests go, not the protocol. It must accept OpenAI Responses requests from Codex, Anthropic Messages requests from Claude Code, Gemini API requests from Gemini CLI, and Chat Completions requests from OpenCode, Pi, and Kimi Code. `model` must be an ID it accepts. OpenCode, Pi, and Kimi Code select the model in the gateway configuration, so they need `model` with a gateway, or fail with `AGENT_R0976`. [AI gateways](/docs/gateways/agents#routes-for-each-harness) lists the route that each preset gives each harness.
 
 ::warning
 The key and headers are in the provider environment, so the provider's commands can read them. Treat a gateway key as visible to the Agent. Use API keys: [Anthropic's terms](https://code.claude.com/docs/en/legal-and-compliance) do not permit routing a Claude subscription sign-in through a proxy.
@@ -550,13 +553,13 @@ Provider Drivers fail explicitly with model-specific Provider Tool contributions
 | --- | --- | --- | --- | --- | --- | --- |
 | `codex` | `codexDriver()` | `codex` | `pnpm add @openai/codex@0.169.0` | `codex` (OpenAI Responses) | With a gateway: `T3CODE_CODEX_LAUNCH_ARGS`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>`. With `credentials`: `CODEX_HOME`. | Yes |
 | `claude-code` | `claudeCodeDriver()` | `claude` | `pnpm add @anthropic-ai/claude-agent-sdk@0.3.321` | `claude-code` (Anthropic Messages) | With a gateway: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS` | Yes |
-| `gemini` | `geminiDriver()` | `gemini`, over ACP | From the ACP registry, or `npm install -g @google/gemini-cli` | None, native sign-in | None | Yes, `gemini-3.8-flash-high` through CLIProxyAPI |
+| `gemini` | `geminiDriver()` | `gemini`, over ACP | From the ACP registry, or `npm install -g @google/gemini-cli` | `gemini` (Gemini API) | With a gateway: `GEMINI_CLI_HOME`, `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_CLI_CUSTOM_HEADERS` | Yes, `gemini-3.8-flash-high` through CLIProxyAPI |
 | `antigravity` | `antigravityDriver()` | `agy` | The Antigravity CLI, signed in with Google | None, native sign-in | None | Recorded fixture |
 | `opencode` | `opencodeDriver()` | `opencode` | `npm install -g opencode-ai` | `openai-compatible` (Chat Completions) | With a gateway: `OPENCODE_CONFIG_CONTENT`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>` | Yes, `claude-haiku-5-5` through CLIProxyAPI |
 | `cursor` | `cursorDriver()` | Cursor SDK | `pnpm add @cursor/sdk` | None, `CURSOR_API_KEY` | None | No |
 | `grok` | `grokDriver()` | `grok` | `npm install -g @xai-official/grok`, then `grok login` | None, native sign-in | None | No |
 | `pi` | `piDriver()` | `pi` | `npm install -g @earendil-works/pi-coding-agent` | `openai-compatible` (Chat Completions) | With a gateway: `PI_CODING_AGENT_DIR`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>` | No |
-| `kimi` | `kimiDriver()` | `kimi`, over ACP | From the ACP registry, or `uv tool install kimi-cli` | None, native sign-in | None | No |
+| `kimi` | `kimiDriver()` | Kimi Code, `kimi acp` | From the ACP registry, or `npm install -g @moonshot-ai/kimi-code` | `openai-compatible` (Chat Completions) | With a gateway: `KIMI_CODE_HOME`, `VITEHUB_GATEWAY_API_KEY`, `KIMI_CODE_CUSTOM_HEADERS` | No |
 | `kiro` | `kiroDriver()` | `kiro-cli` | The Kiro CLI, then `kiro-cli login` | None, native sign-in | None | No |
 | `fx` | `fxDriver()` | `fx` | The fx CLI, then `fx login` | None, native sign-in | None | No |
 | `muse` | `museDriver()` | `muse` | The muse CLI, then `muse login` | None, native sign-in | None | No |
@@ -571,9 +574,9 @@ All harnesses except Codex and Claude Code have these limits:
 - They do not take the Codex options `credentials`, `credentialProfile`, `reasoningEffort`, `reasoningSummary`, and `workspaceWrite`, which fail with `AGENT_R0477`.
 - They read only the Skills of their working directory, such as `.gemini/skills` for Gemini CLI or `.opencode/skills` for OpenCode. Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`. Put the Skills in the harness's own Skills directory.
 - Only Codex runs on the [AI emulator](#run-on-the-ai-emulator). With `VITEHUB_MODELS=emulate`, the others fail with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, as Claude Code does.
-- Self-hosted builds bundle only the Codex and Claude Code packages. Install the other CLIs on the host. ACP agents (Gemini CLI, Kimi CLI, and `acpDriver()`) install from the ACP registry. Set `providerSettings.binaryPath` to run an installed copy.
+- Self-hosted builds bundle only the Codex and Claude Code packages. Install the other CLIs on the host. ACP agents (Gemini CLI, Kimi Code, and `acpDriver()`) install from the ACP registry. Set `providerSettings.binaryPath` to run an installed copy.
 
-ViteHub passes the host's Home variable of the harness to it, so a sign-in on the host works: `CODEX_HOME`, `GEMINI_CLI_HOME`, `GEMINI_HOME` for Antigravity, `OPENCODE_CONFIG_DIR`, `CURSOR_CONFIG_DIR`, `GROK_HOME`, `PI_CODING_AGENT_DIR`, and `FX_HOME`. Put API keys in `driver.env`, because ViteHub does not forward other host variables.
+Without a gateway, ViteHub passes the host's Home variable of the harness to it, so a sign-in on the host works: `CODEX_HOME`, `GEMINI_CLI_HOME`, `GEMINI_HOME` for Antigravity, `OPENCODE_CONFIG_DIR`, `CURSOR_CONFIG_DIR`, `GROK_HOME`, `PI_CODING_AGENT_DIR`, `KIMI_CODE_HOME`, and `FX_HOME`. Put API keys in `driver.env`, because ViteHub does not forward other host variables.
 
 ### Codex
 
@@ -601,20 +604,25 @@ export default defineAgent({
 
 ### Gemini CLI
 
-`geminiDriver()` runs the Gemini CLI over ACP. It reads `GEMINI.md` and `.gemini/skills`. It signs in with `GEMINI_API_KEY` or `GOOGLE_API_KEY` from `driver.env`, or with the sign-in in `GEMINI_CLI_HOME`.
+`geminiDriver()` runs the Gemini CLI over ACP. It reads `GEMINI.md` and `.gemini/skills`. With a gateway, it sends requests to the gateway's `gemini` route, which `cliproxy()`, `google()`, and `litellm()` serve. `model` is optional. Set it to an ID that the gateway serves.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent, geminiDriver } from 'vite-hub/agent'
+import { cliproxy } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: geminiDriver({
-    env: { GEMINI_API_KEY: process.env.GEMINI_API_KEY },
+    // Reads CLIPROXY_URL and CLIPROXY_API_KEY.
+    gateway: cliproxy(),
+    model: 'gemini-3.8-flash-high',
     permissions: 'allow-all',
   }),
 })
 ```
 
-`driver.gateway` fails with `AGENT_R0976`. To use a proxy that serves the Gemini API, such as CLIProxyAPI, set `GOOGLE_GEMINI_BASE_URL` (the proxy root without `/v1`), `GEMINI_API_KEY`, and `GEMINI_MODEL` in `driver.env`. A Google sign-in saved in the Gemini CLI Home can take the place of the key. The Gemini CLI accepts only model IDs from its own list.
+`google()` reads `GEMINI_API_KEY` and sends requests to the Gemini API. With either gateway, ViteHub runs the CLI with `GEMINI_CLI_HOME` set to a private folder whose settings select API-key sign-in, so the CLI never reads a Google sign-in saved on the host. The settings file holds no key. The key stays in the provider environment, as [Route model requests through a gateway](#route-model-requests-through-a-gateway) explains.
+
+Without a gateway, the Gemini CLI signs in with `GEMINI_API_KEY` or `GOOGLE_API_KEY` from `driver.env`, or with the sign-in in the host's `GEMINI_CLI_HOME`.
 
 ### Antigravity
 
@@ -694,20 +702,27 @@ export default defineAgent({
 })
 ```
 
-### Kimi CLI
+### Kimi Code
 
-`kimiDriver()` runs Kimi CLI over ACP. It signs in with `KIMI_API_KEY` or the host sign-in. `driver.gateway` fails with `AGENT_R0976`.
+`kimiDriver()` runs [Kimi Code](https://moonshotai.github.io/kimi-code/) over ACP, with `kimi acp`. With a gateway, it sends Chat Completions requests to the gateway's `openai-compatible` route and needs `model`, an ID that the gateway serves. Without `model`, it fails with `AGENT_R0976`.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent, kimiDriver } from 'vite-hub/agent'
+import { moonshot } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: kimiDriver({
-    env: { KIMI_API_KEY: process.env.KIMI_API_KEY },
+    // Reads MOONSHOT_API_KEY.
+    gateway: moonshot(),
+    model: 'kimi-k3.1-pro',
     permissions: 'allow-all',
   }),
 })
 ```
+
+`cliproxy()` and the other presets with an `openai-compatible` route work the same way. ViteHub runs Kimi Code with `KIMI_CODE_HOME` set to a private folder whose `config.toml` names only the gateway provider and model, so Kimi Code never reads the host sign-in. The config reads the key from an environment variable and holds no key.
+
+Without a gateway, run `kimi login` on the host. ViteHub passes the host's `KIMI_CODE_HOME` to Kimi Code.
 
 ### Kiro
 

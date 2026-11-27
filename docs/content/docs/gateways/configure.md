@@ -79,10 +79,10 @@ The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEM
 GOOGLE_GEMINI_BASE_URL="${CLIPROXY_URL%/v1}" GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
 ```
 
-`geminiDriver()` takes no `driver.gateway`. To send it through a proxy, set the same variables in `driver.env`, as [Gemini CLI](/docs/agents/agent-drivers#gemini-cli) shows.
+`geminiDriver({ gateway })` sets these variables for you and runs the CLI in a private Home, as [Gemini CLI](/docs/agents/agent-drivers#gemini-cli) shows.
 
 - A gateway sends the key of the `gemini` route only in `x-goog-api-key`, whatever its `auth`.
-- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode. Agent Drivers use only the Codex, Claude Code, OpenCode, and Pi routes. Read [Routes for each harness](/docs/gateways/agents#routes-for-each-harness).
+- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode. Agent Drivers use the Codex, Claude Code, Gemini CLI, Kimi Code, OpenCode, and Pi routes. Read [Routes for each harness](/docs/gateways/agents#routes-for-each-harness).
 - `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` requires a `gemini` route key, so `ollama()` is a type error there.
 
 ## Model providers

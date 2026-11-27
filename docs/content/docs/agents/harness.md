@@ -101,7 +101,7 @@ An [Agent Driver](/docs/agents/agent-drivers) decides who runs the loop for one 
 | `{ model }` | ViteHub, with an AI SDK model | Answers, classification, extraction, structured output, and bounded tool use. |
 | `codexDriver()` | The Codex harness | Code changes, shell commands, and coding sessions over many turns. |
 | `claudeCodeDriver()` | Claude Code, through the Claude Agent SDK | Code changes, shell commands, and coding sessions over many turns. |
-| `geminiDriver()`, `opencodeDriver()`, `piDriver()`, and the other [harness Drivers](/docs/agents/agent-drivers#harness-drivers) | Gemini CLI, OpenCode, Pi, Cursor, Grok, Kimi CLI, or an ACP agent | Coding sessions in the harness that you already use, without ViteHub approvals. |
+| `geminiDriver()`, `opencodeDriver()`, `piDriver()`, and the other [harness Drivers](/docs/agents/agent-drivers#harness-drivers) | Gemini CLI, OpenCode, Pi, Cursor, Grok, Kimi Code, or an ACP agent | Coding sessions in the harness that you already use, without ViteHub approvals. |
 | `{ run }` | Your function | Work that does not need a model loop. |
 | `{ ask }` | TypeSafe Jev | A few typed answers, such as a label or a score. |
 

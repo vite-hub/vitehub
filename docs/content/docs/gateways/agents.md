@@ -25,9 +25,9 @@ export default defineAgent({
 
 ### Routes for each harness
 
-Each harness Driver uses one route. Codex uses `codex` (OpenAI Responses), Claude Code uses `claude-code` (Anthropic Messages), and OpenCode and Pi use `openai-compatible` (Chat Completions). A preset without that route fails at definition time with `AGENT_R0976`.
+Each harness Driver uses one route. Codex uses `codex` (OpenAI Responses), Claude Code uses `claude-code` (Anthropic Messages), Gemini CLI uses `gemini` (Gemini API), and OpenCode, Pi, and Kimi Code use `openai-compatible` (Chat Completions). A preset without that route fails at definition time with `AGENT_R0976`.
 
-| Preset | `codexDriver()` | `claudeCodeDriver()` | `opencodeDriver()`, `piDriver()` |
+| Preset | `codexDriver()` | `claudeCodeDriver()` | `opencodeDriver()`, `piDriver()`, `kimiDriver()` |
 | --- | --- | --- | --- |
 | `cliproxy()`, `litellm()`, `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` |
 | `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `https://openrouter.ai/api/v1` |
@@ -45,7 +45,7 @@ Each harness Driver uses one route. Codex uses `codex` (OpenAI Responses), Claud
 
 `emulate()` and `typesafe()` serve no harness. The China regions of `moonshot()`, `zai()`, and `minimax()` use the same paths on their own domains. [Configure](/docs/gateways/configure#model-providers) lists them.
 
-Gemini CLI, Kimi CLI, Antigravity, Cursor, Grok, Kiro, fx, Muse, and ACP agents take no gateway. They sign in to their own service, and `driver.gateway` fails with `AGENT_R0976`. To send a Gemini CLI that you start yourself through `google()`, `cliproxy()`, or `litellm()`, use the [`gemini` route](/docs/gateways/configure#gemini-cli).
+`geminiDriver()` uses the [`gemini` route](/docs/gateways/configure#gemini-cli), which `google()`, `cliproxy()`, and `litellm()` serve. Antigravity, Cursor, Grok, Kiro, fx, Muse, and ACP agents take no gateway. They sign in to their own service, and `driver.gateway` fails with `AGENT_R0976`.
 
 `aiGatewayHarnessRoute(gateway, harness)` returns the route key that a preset gives a harness, or `undefined`.
 
