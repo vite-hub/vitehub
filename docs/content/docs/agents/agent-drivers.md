@@ -1,6 +1,6 @@
 ---
 title: Agent Drivers
-description: Run an Agent with an AI SDK model, Codex, Claude Code, typed questions, or your own function. Each Driver decides how one Invocation runs.
+description: Run an Agent with an AI SDK model, Codex, Claude Code, Gemini CLI, OpenCode, another coding agent CLI, or your own function.
 seo.title: "Agent Drivers: Codex, Claude Code, AI SDK"
 navigation.order: 11
 navigation.group: Define and run
@@ -13,12 +13,12 @@ A Driver decides how one Invocation (one call to an Agent) runs. Pick the Driver
 | Choose | Use it when |
 | --- | --- |
 | Model-backed | ViteHub runs a model and the tools from your Capabilities (reusable tool and policy pieces). |
-| Provider-backed | Codex or Claude Code runs its own loop, tools, approvals, and session. |
+| Provider-backed | A coding agent CLI, such as Codex, Claude Code, Gemini CLI, or OpenCode, runs its own loop, tools, approvals, and session. |
 | Custom run | Your code does the work. |
 | Ask | A fast decision model answers a fixed set of typed questions. |
 | External | A process outside the app runs the Agent, and the app keeps its definition and journal. |
 
-`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Other Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`, or the string `'external'`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
+`codexDriver()`, `claudeCodeDriver()`, and the other [harness Drivers](#harness-drivers) from `vite-hub/agent` create provider-backed Drivers. Other Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`, or the string `'external'`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
 ## Use a model-backed Driver
 
@@ -211,9 +211,7 @@ pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
-For the other provider Drivers, set `permissions: 'allow-all'` only if you trust the harness to run native actions without ViteHub approval. These Drivers do not support ViteHub Sandboxes. Only Gemini CLI and Kimi Code with a gateway receive Agent-owned Skills, in their private Home; for the others, install Skills in the harness's native directory instead.
-
-`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. `kimiDriver()` uses the same route with an explicit `model` and requires bearer auth. `geminiDriver()` uses a gateway's `gemini` route, such as `cliproxy()` or `google()`; `model` is optional and the key is sent in `x-goog-api-key`. ViteHub rejects extra headers that Gemini CLI cannot pass unchanged. With a gateway, ViteHub runs Gemini CLI and Kimi Code in a private Home that holds only the gateway configuration and the Agent's Skills, so they never read a saved sign-in, and the key stays in the provider process environment.
+This section uses Codex and Claude Code. For Gemini CLI, OpenCode, Pi, and the other harnesses, read [Harness Drivers](#harness-drivers).
 
 Declare the Codex credentials in Server Env:
 
@@ -332,13 +330,13 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 
 ### Keep the session log
 
-The Driver writes an NDJSON log: one `meta` line, then the runtime events it reads through the end of each turn. The retained log includes Channel follow-up turns, but not title or progress summary runs. By default the log is temporary. Set `sessionLog` to keep it. Use a different path for each Invocation so a session reader sees a single log. ViteHub resolves the path once, creates new files with owner-only access, and appends without changing existing file permissions. The run result reports the path as `sessionLog`.
+Every [harness Driver](#harness-drivers) writes an NDJSON event log: one `meta` line, then the runtime events it reads through the end of each turn. By default the log is removed with the Invocation's temporary directory. Set `sessionLog` to a file path or a per-Invocation resolver to keep it. ViteHub resolves the path once, creates its parent directory and a file with owner-only access if needed, and appends without changing existing file permissions. ViteHub does not delete a retained log.
 
-```ts
-import { defineAgent, opencodeDriver, runAgent } from 'vite-hub/agent'
+```ts [server/agents/review/agent.ts]
+import { defineAgent, opencodeDriver } from 'vite-hub/agent'
 import { cliproxy } from 'vite-hub/gateways'
 
-const agent = defineAgent({
+export default defineAgent({
   driver: opencodeDriver({
     gateway: cliproxy(),
     model: 'claude-haiku-5-5',
@@ -346,16 +344,23 @@ const agent = defineAgent({
     sessionLog: () => `.data/sessions/${crypto.randomUUID()}.ndjson`,
   }),
 })
+```
 
-export async function writeHello() {
-  const [error, result] = await runAgent(agent, { prompt: 'Write hello.txt' })
+The run result reports the path as `sessionLog`, so you can read the runtime event log after the Invocation ends. This log is not a native Codex or Claude Code session file:
+
+```ts [server/lib/review.ts]
+import { runAgent } from 'vite-hub/agent'
+import review from '../agents/review/agent'
+
+export async function reviewSessionLog() {
+  const [error, result] = await runAgent(review, { prompt: 'Write hello.txt' })
   if (error) throw error
   return result.sessionLog
 }
 ```
 
 - A relative path resolves from the process working directory.
-- Title and progress summary runs do not write to it.
+- The retained log includes Channel follow-up turns, but not title or progress summary runs.
 - Use one file per Invocation. Two Invocations that share a path append to the same file.
 
 ### Set the environment and wrap the launch
@@ -425,12 +430,18 @@ ViteHub maps the gateway to each provider:
 
 - Codex gets a generated `vitehub` model provider through `-c` overrides: `base_url`, `wire_api = "responses"`, `stream_max_retries = 10`, `env_key`, and `env_http_headers`. A gateway can answer 200 and then relay an upstream error, which only Codex can retry. 10 retries back off for about 3.5 minutes, against 6 seconds for the default 5. The key and headers go in `VITEHUB_GATEWAY_API_KEY` and `VITEHUB_GATEWAY_HEADER_<n>`, and launch arguments hold only the names. These overrides come after `providerSettings.launchArgs`, so they win.
 - Claude Code gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, and the key in `ANTHROPIC_AUTH_TOKEN` (bearer) or `ANTHROPIC_API_KEY` (x-api-key), with the other one empty.
+- OpenCode gets a `vitehub` provider in `OPENCODE_CONFIG_CONTENT`: the `@ai-sdk/openai-compatible` package, the route URL, and the model `vitehub/<model>`. The config refers to the key as `{env:VITEHUB_GATEWAY_API_KEY}`. OpenCode must start its own server, so `providerSettings.serverUrl` fails with `AGENT_R0976`.
+- Pi gets a private folder in `PI_CODING_AGENT_DIR` with a `0600` `models.json` that names a `vitehub` provider with `api: "openai-completions"` and the key as `$VITEHUB_GATEWAY_API_KEY`. With a gateway, Pi does not resume its session, so ViteHub sends the conversation history on each Invocation.
+- Gemini CLI gets a private folder in `GEMINI_CLI_HOME` with a `0600` `.gemini/settings.json` that selects API-key authentication. The route URL goes in `GOOGLE_GEMINI_BASE_URL` and the key in `GEMINI_API_KEY`. ViteHub sets `GEMINI_API_KEY_AUTH_MECHANISM` to `x-goog-api-key` and puts extra headers in `GEMINI_CLI_CUSTOM_HEADERS`. A custom `x-goog-api-key` header or another header Gemini CLI cannot pass unchanged fails with `AGENT_R0976`.
+- Kimi Code gets a private folder in `KIMI_CODE_HOME` with a `0600` `config.toml` that names a `vitehub` provider of type `openai`, the route URL, and the model `vitehub/<model>`. The gateway must use bearer authentication. The config reads the key from `VITEHUB_GATEWAY_API_KEY`. Headers go in `KIMI_CODE_CUSTOM_HEADERS`.
+- Gemini CLI and Kimi Code never read a sign-in saved on the host, because their Home holds only the gateway configuration. ViteHub also adds the model to the session's custom models, so the harness accepts an ID that is not on its own list.
+- The other harnesses sign in to their own service, so a gateway on them fails with `AGENT_R0976`.
 
 The gateway owns these variables. Setting one in `driver.env`, or `T3CODE_CODEX_LAUNCH_ARGS` for Codex, fails with `AGENT_R0979`. A gateway replaces `credentials` and `credentialProfile`, also those from `defineAgent({ extends })`. A `launch` wrapper gets the variable names in `requiredEnvironment`, so SSH runners forward them. Inspection shows the gateway name and `executionAuthority.credentials: "provisioned"`. `agent.status()` does not cache results for an Agent with a gateway.
 
 ViteHub does not forward host variables such as `OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, or `CLIPROXY_API_KEY`. Pass them through a gateway or `driver.env`.
 
-A gateway changes where requests go, not the protocol. It must accept OpenAI Responses requests from Codex and Anthropic Messages requests from Claude Code, and `model` must be an ID it accepts.
+A gateway changes where requests go, not the protocol. It must accept OpenAI Responses requests from Codex, Anthropic Messages requests from Claude Code, Gemini API requests from Gemini CLI, and Chat Completions requests from OpenCode, Pi, and Kimi Code. `model` must be an ID it accepts. OpenCode, Pi, and Kimi Code select the model in the gateway configuration, so they need `model` with a gateway, or fail with `AGENT_R0976`. [AI gateways](/docs/gateways/agents#routes-for-each-harness) lists the route that each preset gives each harness.
 
 ::warning
 The key and headers are in the provider environment, so the provider's commands can read them. Treat a gateway key as visible to the Agent. Use API keys: [Anthropic's terms](https://code.claude.com/docs/en/legal-and-compliance) do not permit routing a Claude subscription sign-in through a proxy.
@@ -534,6 +545,243 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 
 Provider Drivers fail explicitly with model-specific Provider Tool contributions, Cloudflare Agents, Deno, or Workspaces on Windows. Workspace-scoped Skills and Capability tools work.
 
+## Harness Drivers
+
+`vite-hub/agent` has one Driver for each harness that the provider runtime starts. Codex and Claude Code support every option on this page. The other harnesses run with fewer controls.
+
+| Id | Driver | CLI | Install | Gateway route | Variables that the Driver sets | Live turn tested |
+| --- | --- | --- | --- | --- | --- | --- |
+| `codex` | `codexDriver()` | `codex` | `pnpm add @openai/codex@0.169.0` | `codex` (OpenAI Responses) | With a gateway: `T3CODE_CODEX_LAUNCH_ARGS`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>`. With `credentials`: `CODEX_HOME`. | Yes |
+| `claude-code` | `claudeCodeDriver()` | `claude` | `pnpm add @anthropic-ai/claude-agent-sdk@0.3.321` | `claude-code` (Anthropic Messages) | With a gateway: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS` | Yes |
+| `gemini` | `geminiDriver()` | `gemini`, over ACP | From the ACP registry, or `npm install -g @google/gemini-cli` | `gemini` (Gemini API) | With a gateway: `GEMINI_CLI_HOME`, `GEMINI_API_KEY`, `GEMINI_API_KEY_AUTH_MECHANISM`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_CLI_CUSTOM_HEADERS` | Yes, `gemini-3.8-flash-high` through CLIProxyAPI |
+| `antigravity` | `antigravityDriver()` | `agy` | The Antigravity CLI, signed in with Google | None, native sign-in | None | Recorded fixture |
+| `opencode` | `opencodeDriver()` | `opencode` | `npm install -g opencode-ai` | `openai-compatible` (Chat Completions) | With a gateway: `OPENCODE_CONFIG_CONTENT`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>` | Yes, `claude-haiku-5-5` through CLIProxyAPI |
+| `cursor` | `cursorDriver()` | Cursor SDK | `pnpm add @cursor/sdk` | None, `CURSOR_API_KEY` | None | No |
+| `grok` | `grokDriver()` | `grok` | `npm install -g @xai-official/grok`, then `grok login` | None, native sign-in | None | No |
+| `pi` | `piDriver()` | `pi` | `npm install -g @earendil-works/pi-coding-agent` | `openai-compatible` (Chat Completions) | With a gateway: `PI_CODING_AGENT_DIR`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>` | No |
+| `kimi` | `kimiDriver()` | Kimi Code, `kimi acp` | From the ACP registry, or `npm install -g @moonshot-ai/kimi-code` | `openai-compatible` (Chat Completions) | With a gateway: `KIMI_CODE_HOME`, `VITEHUB_GATEWAY_API_KEY`, `KIMI_CODE_CUSTOM_HEADERS` | No |
+| `kiro` | `kiroDriver()` | `kiro-cli` | The Kiro CLI, then `kiro-cli login` | None, native sign-in | None | No |
+| `fx` | `fxDriver()` | `fx` | The fx CLI, then `fx login` | None, native sign-in | None | No |
+| `muse` | `museDriver()` | `muse` | The muse CLI, then `muse login` | None, native sign-in | None | No |
+| `acp` | `acpDriver({ agentId })` | Any agent in the ACP registry | From the ACP registry | None, native sign-in | None | No |
+
+A live turn is one Invocation that writes a file and reads it back with a shell command. Every Driver also sets `TMPDIR`, `TMP`, and `TEMP` to the [temporary directory of the Invocation](#temporary-files).
+
+All harnesses except Codex and Claude Code have these limits:
+
+- ViteHub cannot enforce `permissions` in them, so they need `permissions: 'allow-all'`. Other values fail with `AGENT_R0470`. Set it only if you trust the harness to run native actions without ViteHub approval.
+- They do not run in a [Sandbox](#run-a-provider-driver-in-a-sandbox). `sandbox` fails with `AGENT_R0955`.
+- They do not take the Codex options `credentials`, `credentialProfile`, `reasoningEffort`, `reasoningSummary`, and `workspaceWrite`, which fail with `AGENT_R0477`.
+- Only [Gemini CLI](#gemini-cli) and [Kimi Code](#kimi-code) with a gateway receive Agent-owned Skills, in their private Home. For the others, Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`; install Skills in the harness's native Skills directory instead.
+- Only Codex runs on the [AI emulator](#run-on-the-ai-emulator). With `VITEHUB_MODELS=emulate`, the others fail with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, as Claude Code does.
+- Self-hosted builds bundle only the Codex and Claude Code packages. Install the other CLIs on the host. ACP agents (Gemini CLI, Kimi Code, and `acpDriver()`) install from the ACP registry. Set `providerSettings.binaryPath` to run an installed copy.
+
+Without a gateway, ViteHub passes the host's Home variable of the harness to it, so a sign-in on the host works: `CODEX_HOME`, `GEMINI_CLI_HOME`, `GEMINI_HOME` for Antigravity, `OPENCODE_CONFIG_DIR`, `CURSOR_CONFIG_DIR`, `GROK_HOME`, `PI_CODING_AGENT_DIR`, `KIMI_CODE_HOME`, and `FX_HOME`. Put API keys in `driver.env`, because ViteHub does not forward other host variables.
+
+### Codex
+
+`codexDriver()` supports every option on this page. Read [Use a provider-backed Driver](#use-a-provider-backed-driver).
+
+```ts [server/agents/review/agent.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: codexDriver({ model: 'gpt-5.5' }),
+})
+```
+
+### Claude Code
+
+`claudeCodeDriver()` supports every option on this page except the Codex options. It reads `.claude/skills` and `CLAUDE.md`.
+
+```ts [server/agents/review/agent.ts]
+import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: claudeCodeDriver({ permissions: 'allow-edits' }),
+})
+```
+
+### Gemini CLI
+
+`geminiDriver()` runs the Gemini CLI over ACP. It reads `GEMINI.md` and `.gemini/skills`. With a gateway, it sends requests to the gateway's `gemini` route, which `cliproxy()`, `google()`, and `litellm()` serve. `model` is optional. Set it to an ID that the gateway serves.
+
+With a gateway, the Agent's Skills go to `<GEMINI_CLI_HOME>/.gemini/skills` in the private Home, so `agentWithSkills()` and `server/agents/<name>/skills/` reach Gemini CLI. Without a gateway, Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, geminiDriver } from 'vite-hub/agent'
+import { cliproxy } from 'vite-hub/gateways'
+
+export default defineAgent({
+  driver: geminiDriver({
+    // Reads CLIPROXY_URL and CLIPROXY_API_KEY.
+    gateway: cliproxy(),
+    model: 'gemini-3.8-flash-high',
+    permissions: 'allow-all',
+  }),
+})
+```
+
+`google()` reads `GEMINI_API_KEY` and sends requests to the Gemini API. With `driver.gateway`, ViteHub runs the CLI with `GEMINI_CLI_HOME` set to a private folder whose settings select Gemini API key authentication. Use the key for the configured gateway; a saved Google sign-in cannot authenticate to the proxy. The settings file holds no key. The key stays in the provider environment, as [Route model requests through a gateway](#route-model-requests-through-a-gateway) explains.
+
+Without a gateway, set `GEMINI_API_KEY` in `driver.env` for Gemini API key authentication, or use the sign-in in the host's `GEMINI_CLI_HOME` for direct access.
+
+### Antigravity
+
+`antigravityDriver()` runs the Antigravity CLI, `agy`. Sign in with Google on the host, or set `providerSettings.authMethod` to `'gemini-api-key'` and `providerSettings.apiKey` to the key.
+
+```ts [server/agents/review/agent.ts]
+import { antigravityDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: antigravityDriver({ permissions: 'allow-all' }),
+})
+```
+
+### OpenCode
+
+`opencodeDriver()` runs OpenCode. With a gateway, set `model` to an ID that the gateway serves. ViteHub writes the provider configuration, as [Route model requests through a gateway](#route-model-requests-through-a-gateway) shows.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, opencodeDriver } from 'vite-hub/agent'
+import { openrouter } from 'vite-hub/gateways'
+
+export default defineAgent({
+  driver: opencodeDriver({
+    gateway: openrouter(),
+    model: 'moonshotai/kimi-k3.1-pro',
+    permissions: 'allow-all',
+  }),
+})
+```
+
+Without a gateway, OpenCode uses its own configuration and `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` from `driver.env`.
+
+### Cursor
+
+`cursorDriver()` runs the Cursor agent through `@cursor/sdk`. Install the SDK next to `vite-hub/agent`. `launch` fails with `AGENT_R0956`.
+
+```ts [server/agents/review/agent.ts]
+import { cursorDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: cursorDriver({
+    env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY },
+    permissions: 'allow-all',
+  }),
+})
+```
+
+### Grok
+
+`grokDriver()` runs the Grok CLI. Run `grok login` on the host, or set `XAI_API_KEY`.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, grokDriver } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: grokDriver({
+    env: { XAI_API_KEY: process.env.XAI_API_KEY },
+    permissions: 'allow-all',
+  }),
+})
+```
+
+### Pi
+
+`piDriver()` runs the Pi coding agent. With a gateway, set `model` to an ID that the gateway serves. Pi then does not resume its session, and ViteHub sends the conversation history on each Invocation.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, piDriver } from 'vite-hub/agent'
+import { deepseek } from 'vite-hub/gateways'
+
+export default defineAgent({
+  driver: piDriver({
+    gateway: deepseek(),
+    model: 'deepseek-v4-pro',
+    permissions: 'allow-all',
+  }),
+})
+```
+
+### Kimi Code
+
+`kimiDriver()` runs [Kimi Code](https://moonshotai.github.io/kimi-code/) over ACP, with `kimi acp`. With a gateway, it sends Chat Completions requests to the gateway's `openai-compatible` route and needs `model`, an ID that the gateway serves. Without `model`, it fails with `AGENT_R0976`.
+
+With a gateway, the Agent's Skills go to `<KIMI_CODE_HOME>/skills` in the private Home. Without a gateway, Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, kimiDriver } from 'vite-hub/agent'
+import { moonshot } from 'vite-hub/gateways'
+
+export default defineAgent({
+  driver: kimiDriver({
+    // Reads MOONSHOT_API_KEY.
+    gateway: moonshot(),
+    model: 'kimi-k3.1-pro',
+    permissions: 'allow-all',
+  }),
+})
+```
+
+`cliproxy()` and the other presets with an `openai-compatible` route and bearer authentication work the same way. ViteHub runs Kimi Code with `KIMI_CODE_HOME` set to a private folder whose `config.toml` names only the gateway provider and model, so Kimi Code never reads the host sign-in. The config reads the key from an environment variable and holds no key.
+
+Without a gateway, run `kimi login` on the host. ViteHub passes the host's `KIMI_CODE_HOME` to Kimi Code.
+
+### Kiro
+
+`kiroDriver()` runs `kiro-cli`. Run `kiro-cli login` on the host, or set `KIRO_API_KEY`.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, kiroDriver } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: kiroDriver({
+    env: { KIRO_API_KEY: process.env.KIRO_API_KEY },
+    permissions: 'allow-all',
+  }),
+})
+```
+
+### FX
+
+`fxDriver()` runs the fx CLI. Run `fx login` on the host. The Driver passes `FX_HOME` from the host.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, fxDriver } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: fxDriver({ permissions: 'allow-all' }),
+})
+```
+
+### Muse
+
+`museDriver()` runs the muse CLI. Run `muse login` on the host, or set `META_API_KEY`.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent, museDriver } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: museDriver({
+    env: { META_API_KEY: process.env.META_API_KEY },
+    permissions: 'allow-all',
+  }),
+})
+```
+
+### Any ACP agent
+
+`acpDriver({ agentId })` runs an agent from the Agent Client Protocol (ACP) registry. `agentId` is its registry ID, with lowercase letters, numbers, `.`, `_`, and `-`, or the Agent fails with `AGENT_R0492`. The agent signs in to its own service.
+
+```ts [server/agents/review/agent.ts]
+import { acpDriver, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: acpDriver({ agentId: 'cline', permissions: 'allow-all' }),
+})
+```
+
 ## Run a provider Driver in a Sandbox
 
 Set `sandbox` to start the provider in a [Sandbox](/docs/agents/sandboxes), an isolated command environment that supplies the working tree, private Home, environment, and boot checks per Invocation:
@@ -556,7 +804,7 @@ The runtime stays in the ViteHub process. Only the provider command runs in the 
 
 Provider Drivers start local processes, so they cannot run in a Cloudflare Worker. Deploy them to a Node.js host. Worker builds leave out the provider runtime and `@t3tools/provider-runtime` through the `workerd` and `worker` package conditions of `@vite-hub/agent`. Apps with only `{ model }`, `{ run }`, or `{ ask }` Drivers never bundle it.
 
-Only `codexDriver()` and `claudeCodeDriver()` import the runtime, so the build finds every provider Driver, also from a variable, preset, layer, or the `title()` and `progressSummary()` Capabilities. A Worker build that contains one fails with `AGENT_B0019`. In development, a Worker Invocation that selects one fails with `AGENT_R0928`.
+Only the provider Driver factories, such as `codexDriver()` and `geminiDriver()`, import the runtime, so the build finds every provider Driver, also from a variable, preset, layer, or the `title()` and `progressSummary()` Capabilities. A Worker build that contains one fails with `AGENT_B0019`. In development, a Worker Invocation that selects one fails with `AGENT_R0928`.
 
 ## Adaptive process capacity
 

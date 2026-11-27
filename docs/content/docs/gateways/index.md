@@ -16,7 +16,7 @@ icon: i-lucide-waypoints
   import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
   // Reads OPENROUTER_API_KEY when it sends the request
-  const model = languageModel(openrouter(), 'google/gemini-3-flash')
+  const model = languageModel(openrouter(), 'google/gemini-3.8-flash')
 
   export default defineEventHandler(async () => {
     const { text } = await generateText({ model, prompt: 'What is a Server Primitive?' })

@@ -7888,9 +7888,9 @@ cli_auth_credentials_store = "keyring"
       const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
       scheduleTimeout.mockClear()
       controller.abort(new DOMException("cancelled", "AbortError"))
+      await rejected
       await vi.waitFor(() => expect(scheduleTimeout).toHaveBeenCalledWith(expect.any(Function), 10_000))
       await vi.advanceTimersByTimeAsync(10_000)
-      await rejected
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
@@ -7906,6 +7906,7 @@ cli_auth_credentials_store = "keyring"
       resolveTurn?.()
       resolveExecute?.()
       toolCallController.abort()
+      await toolCall
       await client?.close().catch(() => undefined)
       scheduleTimeout.mockRestore()
       vi.useRealTimers()
