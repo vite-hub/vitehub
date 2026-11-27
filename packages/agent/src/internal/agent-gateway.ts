@@ -64,7 +64,7 @@ export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition
 export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName, settings?: Record<string, unknown>): AiGatewayRoute | undefined {
   const profile = providerHarnessProfile(driver)
   if (driver === "opencode" && settings?.serverUrl !== undefined) {
-    throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] OpenCode cannot apply driver.gateway to an attached server. Remove providerSettings.serverUrl to let the Driver start its own server." })
+    throw agentDiagnostics.AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED()
   }
   if (driver === "kimi" && !isChatGPTGateway(gateway) && gateway.auth === "x-api-key") {
     throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] Kimi Code sends OpenAI gateway keys as Bearer tokens. Use a gateway with bearer auth." })
