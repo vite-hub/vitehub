@@ -273,14 +273,14 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
 }
 
 /** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
-export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Rolldown.Plugin | undefined> {
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir, include: (id: string) => boolean = () => true): Promise<Rolldown.Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   const workingDir = idRoot.replace(/\\/g, "/").replace(/\/$/, "")
   return {
     name: "vitehub-vercel-workflow-transform",
     async load(id) {
-      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id)) return
+      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id) || !include(id.replaceAll("\\", "/"))) return
       const source = await readFile(id, "utf8")
       if (!builders.shouldTransformFile(id, builders.detectWorkflowPatterns(source))) return
       const file = id.replace(/\\/g, "/")

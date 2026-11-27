@@ -38,7 +38,6 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
-import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
@@ -1392,7 +1391,10 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   const sourceEntry = resolve(artifacts.generatedDir, "vercel-entry.mjs")
   const staticIndex = hasStaticIndex(clientDir)
   const nativeWorkflowFiles = Object.values(artifacts.workflowVercelNativeFiles)
-  const workflowTransformPlugin = nativeWorkflowFiles.length ? await createVercelWorkflowTransformPlugin(options.rootDir) : undefined
+  const nativeWorkflowIds = new Set(nativeWorkflowFiles.map(file => file.replaceAll("\\", "/")))
+  const workflowTransformPlugin = nativeWorkflowIds.size
+    ? await createVercelWorkflowTransformPlugin(options.rootDir, options.rootDir, id => nativeWorkflowIds.has(id))
+    : undefined
 
   await writeFile(sourceEntry, renderVercelEntry(sourceEntry, options, artifacts), "utf8")
   await rm(outputRoot, { force: true, recursive: true })
@@ -1413,9 +1415,6 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
       "files-sdk/s3",
       "isomorphic-git",
       "isomorphic-git/http/web",
-      "workflow",
-      "workflow/api",
-      "workflow/runtime",
     ],
     format: "esm",
     platform: "node",
@@ -1439,7 +1438,6 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
 
   if (nativeWorkflowFiles.length) {
     await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.workflowDefinitions, {}, nativeWorkflowFiles)
-    await copyVercelFunctionRuntimePackages({ packages: [{ name: "workflow" }], rootDir: options.rootDir })
   }
 
   const scheduleRegistryFile = artifacts.scheduleRegistryFile

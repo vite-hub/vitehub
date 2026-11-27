@@ -1622,7 +1622,6 @@ describe("Vite workflow provider outputs", () => {
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
-    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
