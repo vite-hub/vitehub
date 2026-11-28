@@ -610,7 +610,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function assertNoSourceClaims(path: string, workspacePath: string, claims: Set<string>) {
     if (!allSources.length) return
     const fileOwner = (file: WorkspaceFile | null | undefined) => allSources.find(source => source.key === file?.metadata?.source)
-    const owner = workspacePath ? fileOwner(await store.readFile(workspacePath)) : undefined
+    const current = await store.stat(workspacePath)
+    const owner = current?.type === "file" ? fileOwner(await store.readFile(workspacePath)) : undefined
     if (owner) throw workspaceSourceReadOnlyError(path, owner.key)
     if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
 
@@ -626,7 +627,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
     }
 
-    if ((await store.stat(workspacePath))?.type === "directory") {
+    if (current?.type === "directory") {
       for (const entry of await store.list(workspacePath, { recursive: true })) {
         if (entry.type !== "file") continue
         const childOwner = fileOwner(await store.readFile(entry.path))
