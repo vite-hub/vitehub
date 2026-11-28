@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 
 import { createClient } from "@libsql/client"
+import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
 import { describe, expect, it, vi } from "vitest"
@@ -114,5 +115,17 @@ describe("readConsoleAccount", () => {
       projects: [],
     })
     await expect(readConsoleAccount(db, { id: "u2", name: "Bob", email: "u2@passkey.invalid" }, undefined)).resolves.toMatchObject({ projects: [], roles: [] })
+  })
+
+  it("names the owner of a personal team of another person, so two Personal teams differ", async () => {
+    const db = await consoleDatabase()
+    await db.run(sql`INSERT INTO organization (id, name, slug, created_at) VALUES ('t3', 'Personal', 'personal-u2', 3)`)
+    await db.run(sql`INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m4', 't3', 'u2', 'owner', 4), ('m5', 't3', 'u1', 'member', 5)`)
+    const { teams } = await readConsoleAccount(db, { id: "u1", name: "Ada", email: "ada@example.com" }, "t1")
+    expect(teams).toEqual([
+      { id: "t1", name: "Personal", slug: "personal-u1" },
+      { id: "t2", name: "Shop", slug: "shop" },
+      { id: "t3", name: "Personal", slug: "personal-u2", owner: "Bob" },
+    ])
   })
 })
