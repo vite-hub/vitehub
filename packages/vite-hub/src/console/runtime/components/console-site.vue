@@ -189,7 +189,7 @@ const revokeBusy = ref(false);
 const revokeTitle = computed(() => revoking.value?.kind === "session" ? `Revoke ${revoking.value.session.person.name} on ${revoking.value.session.device}?` : `Revoke the invite for ${revoking.value?.invite.name}?`);
 const revokeDescription = computed(() => revoking.value?.kind === "session"
   ? (usesConsoleSiteAccess()
-      ? (revoking.value.session.kind === "guest" ? "The Console stops signing this guest in. Their comments stay." : "The Console stops signing this browser in. Members still open the site from the Console.")
+      ? (revoking.value.session.kind === "guest" ? "The Console stops signing this guest in. The browser keeps access until its cookie ends, at most 12 hours. Their comments stay." : "The Console stops signing this browser in. The browser keeps access until its cookie ends, at most 12 hours. Members still open the site from the Console.")
       : (revoking.value.session.kind === "guest" ? "This signs the browser out and deletes the guest. Their comments stay." : "This signs the browser out of the app."))
   : "The link stops working. Nobody has opened it yet.");
 
