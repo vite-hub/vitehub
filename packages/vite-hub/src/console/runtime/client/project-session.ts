@@ -776,12 +776,21 @@ export function openAccountProject(id: string): void {
   projects.navigate(projects.home)
 }
 
+/** Link an app or a site to the active team, and stay on the current page. */
+export async function registerAccountProject(url: string, label?: string, kind?: "site"): Promise<ConsoleAccountProject> {
+  const { linkConsoleAccountProject } = await import("./account")
+  return linkConsoleAccountProject(url.trim(), label?.trim() || undefined, kind)
+}
+
+/** Load the Console again on a project that was just linked, so the new project is in the list. */
+export function showLinkedAccountProject(id: string): void {
+  rememberAccountProject(useState().account.value?.teamId, id)
+  reloadConsoleAccount()
+}
+
 /** Link an app to the active team, then open it. Until the app keeps the hash of its token, it opens on the setup step. */
 export async function linkAccountProject(url: string, label?: string, kind?: "site"): Promise<void> {
-  const { linkConsoleAccountProject } = await import("./account")
-  const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined, kind)
-  rememberAccountProject(useState().account.value?.teamId, project.id)
-  reloadConsoleAccount()
+  showLinkedAccountProject((await registerAccountProject(url, label, kind)).id)
 }
 
 /** Rename an app of the active team. An empty label removes it, so the Console shows the name that the app reports. */

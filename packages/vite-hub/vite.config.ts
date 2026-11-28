@@ -113,6 +113,7 @@ const runtimeEntries = [
   "src/console/runtime/client/editor.ts",
   "src/console/runtime/client/env-groups.ts",
   "src/console/runtime/client/env-status.ts",
+  "src/console/runtime/client/link-prompts.ts",
   "src/console/runtime/client/live.ts",
   "src/console/runtime/client/media.ts",
   "src/console/runtime/client/media-library.ts",
@@ -614,6 +615,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/env-groups"];
           delete exports["./console/runtime/client/env-status"];
           delete exports["./console/runtime/client/format"];
+          delete exports["./console/runtime/client/link-prompts"];
           delete exports["./console/runtime/client/live"];
           delete exports["./console/runtime/client/mcp-client"];
           delete exports["./console/runtime/client/operation-view"];

@@ -2,6 +2,7 @@
 import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockTitle } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
+import { hostedCommentsScript } from "../client/link-prompts";
 import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { grantSummary, inviteHostedCommentsGuest, readHostedCommentsAccess, revokeHostedCommentsAccess } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
@@ -10,7 +11,7 @@ const props = defineProps<{ projectId: string }>();
 const { account, pageOrigin } = useConsoleProjects();
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const toast = useConsoleToast();
-const code = computed(() => `<script type="module" src="${pageOrigin}/hosted-comments.js" data-vitehub-comments="${props.projectId}"><${"/script"}>`);
+const code = computed(() => hostedCommentsScript(pageOrigin, props.projectId));
 const access = ref<Awaited<ReturnType<typeof readHostedCommentsAccess>>>();
 const name = ref("");
 const permission = ref("write");

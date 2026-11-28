@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { checkConsoleAccountProject } from "../client/account";
+import { appVariableLine } from "../client/link-prompts";
 import { openAccountProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import { useConsoleToast } from "../client/toast";
@@ -19,7 +20,7 @@ const result = ref<string>();
 const unlinking = ref(false);
 const host = computed(() => consoleProjectHost(props.project));
 const name = computed(() => props.project.label || host.value);
-const line = computed(() => `${props.project.keyVariable}=${props.project.publicKey}`);
+const line = computed(() => appVariableLine(props.project));
 
 async function check(): Promise<void> {
   if (busy.value) return;
