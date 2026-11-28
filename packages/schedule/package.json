@@ -83,6 +83,7 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
+    "magic-string": "^1.4.5",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

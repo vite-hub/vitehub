@@ -611,7 +611,10 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
     notConsoleAnswers.add(error)
     throw error
   }
-  throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })
+  const code = isRuntimeRecord(failure) && typeof failure.code === "string" ? failure.code : undefined
+  const fix = isRuntimeRecord(failure) && typeof failure.fix === "string" && failure.fix ? failure.fix : undefined
+  const error = agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${code ? `${code}: ` : ""}${message}` : ""}.` })
+  throw fix ? Object.assign(error, { fix }) : error
 }
 
 type InvocationSummary = AgentInvocationListResult["invocations"][number]

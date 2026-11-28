@@ -12,10 +12,12 @@ Server auto-imports are off by default, as they are for the Nitro and H3
 helpers. On Nuxt 4.7, they are on by default. See
 [Turn server auto-imports on](#turn-server-auto-imports-on).
 
+Before copying this route, run `pnpm add h3@^2.0.8` if your app does not already declare H3 2. This replaces any direct H3 1 dependency. H3 1's `readBody` cannot read Nitro 3 events.
+
 ```ts [server/api/welcome.post.ts] fragment
 import { kv } from 'vite-hub/kv'
 import { sendQueue } from 'vite-hub/queue'
-import { createError, defineEventHandler, readBody } from 'nitro/h3'
+import { createError, defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
