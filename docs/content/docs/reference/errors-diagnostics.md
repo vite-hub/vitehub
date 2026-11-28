@@ -53,6 +53,23 @@ async function saveTranslation() {
 
 A package sets the status in its catalog with `defineErrors()`: `{ why, fix, status: 409 }`.
 
+### Throw an error from a route
+
+A route can also `throw error`. ViteHub adds a Nitro error handler that answers a thrown `ResultError` or `ViteHubError` with the status of `toResponse(error)`. In development, the body is `{ code, why, fix }`. In production, the body is only `{ code }`, so the client gets a code to show or report, and the text stays in your server logs:
+
+```ts
+import { defineHandler } from 'h3'
+import { kv } from 'vite-hub/kv'
+
+export default defineHandler(async () => {
+  const [error, settings] = await kv.get('settings')
+  if (error) throw error // 500 { "code": "KV_OPERATION_FAILED" } in production
+  return settings
+})
+```
+
+Return `toResponse(error)` when the client must get the `why` and `fix` in production too. A request that accepts HTML, such as a page load, goes on to the error page of Nuxt or Nitro. Any other thrown `Error` keeps the sanitized Nitro response, because its message can name server details. The handler runs before the error handlers of your app.
+
 A catalog checks its own errors. `errors.is(error)` accepts any code of the catalog, and `errors.CODE.is(error)` accepts one code. Both narrow `code` and `data`, and both accept an error from another bundled copy or realm. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 ## Diagnostic codes
@@ -291,13 +308,13 @@ The `docs` link of a ViteHub diagnostic opens the page of its code, such as [`QU
 
 ## Production response
 
-Nitro answers an unhandled request error with a sanitized body. h3 logs only that sanitized error, and Cloudflare Workers drop its message and cause. So ViteHub adds a Nitro plugin that logs the real thrown error:
+Nitro answers an unhandled request error with a sanitized body. h3 logs only that sanitized error, and Cloudflare Workers drop its message and cause. So ViteHub adds a Nitro plugin that logs the real thrown error, once:
 
 ```txt
 [vitehub] Unhandled error in POST /api/sync { message, stack, status, code, cause: { message, status, ... } }
 ```
 
-The log follows the `cause` chain and keeps `status`, `code`, `fix`, and `requestId`. It skips errors that a route throws on purpose with a status below 500, such as a 401. With `vitehub({ observability })` on, evlog records request errors instead of this plugin.
+The log follows the `cause` chain and keeps `status`, `code`, `fix`, and `requestId`. It skips errors that a route throws on purpose with a status below 500, such as a 401. The plugin turns off the h3 log and the `[request error]` log of the Nitro dev server for the same error, so each error shows one time. With `vitehub({ observability })` on, evlog records request errors instead of this plugin. The handler for a [thrown ViteHub error](#throw-an-error-from-a-route) runs in both cases.
 
 Keep secrets out of production diagnostics. Put runtime secrets in Server Env and Secret Env. Package diagnostics hide known secret values where they support it.
 

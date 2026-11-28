@@ -186,8 +186,7 @@ describe("built-in host integration", () => {
       expect((development as typeof development & {
         nitro?: { modules?: unknown[], preset?: string }
       }).nitro).toMatchObject({
-        // The Console adds a module that refuses app route files on its route.
-        modules: [localModule, expect.objectContaining({ name: "vite-hub/console-route-guard" })],
+        modules: expect.arrayContaining([localModule, expect.objectContaining({ name: "vite-hub/console-route-guard" })]),
         preset: "node-server",
       })
       expect(getDeploymentHost(development)).toBe("cloudflare")
