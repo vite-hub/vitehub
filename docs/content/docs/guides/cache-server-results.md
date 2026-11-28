@@ -68,7 +68,7 @@ export const getPost = defineCachedFunction(
 )
 ```
 
-Call `invalidateTag()` after the data changes:
+Call `invalidateTag()` after the data changes. Before copying this route, run `pnpm add h3@^2.0.8` if your app does not already declare H3 2. H3 1 does not export `defineHandler`.
 
 ```ts [server/api/posts/[id].put.ts]
 import { defineHandler, getRouterParam } from "h3"

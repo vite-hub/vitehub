@@ -12,7 +12,7 @@ Logs shows what your server did on each request. ViteHub uses [Evlog](https://ev
 In this tutorial, you add data to the log event of one API route. Then you call the route and read its event.
 
 > [!NOTE] Before you start
-> Use a Vite app with Nitro 3, such as the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Everything runs on your computer.
+> Use a Vite app with Nitro 3, such as the app from [Installation](/docs/getting-started/installation). If your app does not already declare H3 2, run `pnpm add h3@^2.0.8` before copying the route. You need no account and no API key. Everything runs on your computer.
 
 ::tutorial-step{title="Install Evlog"}
 
