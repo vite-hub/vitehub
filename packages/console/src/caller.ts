@@ -1,6 +1,8 @@
 import type { ConsoleCaller, ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import { operationConfirmationHeader, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
+import { isPasskeyEmail } from "./accounts.ts"
+
 /** How the Console calls an app for a person: from the Console page, or from the ViteHub MCP. */
 export interface ConsoleCallOptions {
   /**
@@ -35,10 +37,14 @@ export function consoleForwardCaller(request: Request, caller: Parameters<typeof
     : undefined)
 }
 
-/** The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. */
+/**
+ * The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. The
+ * placeholder email of a passkey account is not an email, so it is left out.
+ */
 export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown, emailVerified?: unknown }): ConsoleCallerUser {
   const name = presentationText(user.name)
-  const email = presentationText(user.email)
+  const presented = presentationText(user.email)
+  const email = presented && !isPasskeyEmail(presented) ? presented : undefined
   return { id: user.id, ...(name ? { name } : {}), ...(email ? { email, ...(user.emailVerified === true ? { emailVerified: true } : {}) } : {}) }
 }
 

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { createSiteState, siteStateHash, verifySiteToken } from "@vite-hub/internal/site-token"
 
-import { readSiteIntent, siteIntentCookie, siteIntentLifetime, siteIntentSetCookie } from "../src/site-access.ts"
+import { readSiteIntent, siteIntentCookie, siteIntentLifetime, siteIntentSetCookie, siteMember } from "../src/site-access.ts"
 
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -198,6 +198,16 @@ describe("Site access in the Console", () => {
     expect(location).toMatch(/^\/open\?/)
     expect(Object.fromEntries(new URL(location, consoleOrigin).searchParams)).toMatchObject({ project: "https://app.example.com/portal", site: "/docs" })
     expect(await api("DELETE", `/sessions/${sessions[0]!.id}`)).toMatchObject({ status: 404 })
+  })
+
+  it("gives the app no email for a passkey account", async () => {
+    const { client, project } = await setup()
+    const now = Date.now()
+    await client.execute({ sql: "insert into user (id, name, email, email_verified, created_at, updated_at) values (?, ?, ?, 0, ?, ?)", args: ["u-cy", "Cy", "u-cy@passkey.invalid", now, now] })
+    await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m2", "t-ada", "u-cy", "member", now] })
+    const db = state.db as ConsoleDatabase
+    expect(await siteMember(db, project, "u-cy")).toEqual({ id: "u-cy", name: "Cy" })
+    expect(await siteMember(db, project, "u-ada")).toEqual({ id: "u-ada", name: "Ada", email: "ada@example.com" })
   })
 
   it("works a one-time code once, for a member while they are in the team", async () => {
