@@ -322,6 +322,28 @@ describe("vitehub link", () => {
     expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
   })
 
+  it("links a Vercel project by name with a saved vercel login and no VERCEL_TOKEN", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "vercel", name: "my-app" }`) })
+    const probes: string[][] = []
+    const runHostCli: HostCliRun = async (command, args) => {
+      probes.push([command, ...args])
+      return { exitCode: 0, stdout: "saved-user\n" }
+    }
+
+    const linked = await runSetup<SetupLinkResult>(["link", "--json"], root, { VERCEL_TEAM_ID: "team_1" }, { runHostCli })
+
+    expect(linked.exitCode, linked.stdout + linked.stderr).toBe(0)
+    expect(probes.map(probe => probe.at(-1))).toEqual(["whoami"])
+    expect(linked.json).toMatchObject({ created: false, credentials: { source: "host-cli" }, link: { account: { id: "team_1" }, host: "vercel", project: { name: "my-app" }, verified: false } })
+    expect(linked.json.link.project).not.toHaveProperty("id")
+    expect(linked.stderr).toContain("Set VERCEL_TOKEN to check the link.")
+    expect((await readLink(root)).targets.vercel).toMatchObject({ project: { name: "my-app" }, verified: false })
+
+    const loggedOut = await runSetup<{ error: SetupError }>(["link", "--json"], root, {})
+    expect(loggedOut.exitCode).toBe(2)
+    expect(loggedOut.json.error).toMatchObject({ code: "SETUP_LINK_CREDENTIALS_MISSING", fix: expect.stringContaining("VERCEL_TOKEN") })
+  })
+
   it("exits 2 with the login fix when credentials are missing", async () => {
     const root = await cloudflareProject()
 
@@ -472,6 +494,21 @@ describe("vitehub status with a link", () => {
     const fromCli = await runSetup<SetupStatus & SetupLinkStatus>(["status", "--json"], root, {}, { runHostCli: wrangler.run })
     expect(fromCli.json.credentials).toEqual({ accountId: cloudflareAccount, host: "cloudflare", ok: true, source: "host-cli" })
     expect(fromCli.stdout).not.toContain(TOKEN)
+  })
+
+  it("reports a saved vercel login as host-cli credentials", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "vercel", name: "my-app" }`) })
+    const runHostCli: HostCliRun = async (_command, args) => ({ exitCode: args.at(-1) === "whoami" ? 0 : 1, stdout: "saved-user\n" })
+
+    const json = await runSetup<SetupStatus & SetupLinkStatus>(["status", "--json"], root, {}, { runHostCli })
+    expect(json.json.credentials).toEqual({ host: "vercel", ok: true, source: "host-cli" })
+
+    const human = await runSetup(["status"], root, {}, { runHostCli })
+    expect(human.stdout).toContain("vercel (vercel login; deploy uses it. Set VERCEL_TOKEN for link checks, provision, and live status)")
+    expect(human.stdout).not.toContain("missing: Set VERCEL_TOKEN")
+
+    const offline = await runSetup<SetupLinkStatus>(["status", "--offline", "--json"], root, {}, { runHostCli })
+    expect(offline.json.credentials).toMatchObject({ host: "vercel", missing: ["VERCEL_TOKEN"], ok: false })
   })
 
   it("reports null credentials on the Node host and the fix when they are missing", async () => {

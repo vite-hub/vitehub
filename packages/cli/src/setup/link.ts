@@ -17,6 +17,7 @@ import { dirname, join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, setupFailure, type SetupFailure } from "./envelope.ts"
 import { createDeployRun, hostCli, hostCliFailed } from "./deploy/host.ts"
+import { hasVercelLogin } from "./deploy/vercel.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -238,6 +239,12 @@ async function linkVercel(name: string, options: SetupLinkOptions, token: string
   return { ...(accountId ? { account: { id: accountId } } : {}), created, project: { id: project.id, name: project.name }, verified: true }
 }
 
+function linkVercelLogin(name: string, options: SetupLinkOptions, context: ViteHubCliContext): HostProject {
+  const team = options.account ?? (context.env.VERCEL_TEAM_ID?.trim() || context.env.VERCEL_ORG_ID?.trim() || undefined)
+  context.stderr.write(`[vitehub] The saved vercel login gives no API token, so the link names ${name} without checking it on Vercel. \`vitehub deploy\` uses the login and creates the project when it is missing. Set VERCEL_TOKEN to check the link.\n`)
+  return { ...(team ? { account: { id: team } } : {}), created: false, project: { name }, verified: false }
+}
+
 interface NetlifySite {
   id: string
   name: string
@@ -319,8 +326,11 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   const credentials = await resolveHostCredentials(host, credentialsContext)
   const fetchImpl = context.fetch ?? globalThis.fetch
 
+  const vercelLogin = host === "vercel" && !credentials.ok && await hasVercelLogin(project.root, context)
+
   let linked: HostProject
   if (host === "deno") linked = await linkDeno(name, options, credentials.ok ? credentials.token : undefined, project.root, context)
+  else if (vercelLogin) linked = linkVercelLogin(name, options, context)
   else if (!credentials.ok) {
     throw setupFailure(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: credentials.fix, host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),
@@ -341,7 +351,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   if (added) writeSeparateResourcesNote(context, host, links)
   return {
     created: linked.created,
-    credentials: host !== "deno" && credentials.ok ? { source: credentials.source } : null,
+    credentials: vercelLogin ? { source: "host-cli" } : host !== "deno" && credentials.ok ? { source: credentials.source } : null,
     default: links.default ?? null,
     file: SETUP_LINK_FILE,
     gitignore: await ensureViteHubGitignore(project.root),
@@ -519,11 +529,12 @@ export async function readSetupLinkState(project: SetupProject, host: string, co
   const link = "link" in selected ? selected.link : links.targets.find(target => target.host === host)
   const credentialHost = link?.host ?? (isLinkHost(host) ? host : undefined)
   const credentials = credentialHost ? await readStatusCredentials(credentialHost, project.root, context, options) : undefined
+  const vercelLogin = credentials?.ok === false && credentials.host === "vercel" && !options.offline && !options.signal?.aborted && await hasVercelLogin(project.root, context, options.signal)
   return {
     credentials,
     link,
     status: {
-      credentials: credentials ? describeCredentials(credentials) : null,
+      credentials: vercelLogin ? { host: "vercel", ok: true, source: "host-cli" } : credentials ? describeCredentials(credentials) : null,
       default: links.default ?? null,
       link: link ? summary(link) : null,
       targets: links.targets.map(summary),

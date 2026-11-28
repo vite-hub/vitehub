@@ -9,11 +9,11 @@ import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 /** Check the CLI's saved session without reading its auth files or exposing a token. */
-export async function hasVercelLogin(root: string, context: ViteHubCliContext): Promise<boolean> {
+export async function hasVercelLogin(root: string, context: ViteHubCliContext, signal?: AbortSignal): Promise<boolean> {
   try {
     const [command, ...args] = hostCli("vercel", "vercel", root, context.env)
     const run = context.runHostCli ?? createDeployRun(context.stderr, [])
-    const result = await run(command, [...args, "whoami"], { cwd: root, env: context.env })
+    const result = await run(command, [...args, "whoami"], { cwd: root, env: context.env, ...(signal ? { signal } : {}) })
     return result.exitCode === 0
   }
   catch {
