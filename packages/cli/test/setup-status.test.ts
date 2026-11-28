@@ -188,7 +188,7 @@ describe("vitehub status", () => {
     })
     const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
     expect(feature(json, "comments")).toMatchObject({ enabled: "off", reason: "config" })
-    expect(feature(json, "database").enabled).toBe("off")
+    expect(feature(json, "database")).toMatchObject({ enabled: "unknown", reason: "default" })
   })
 
   it.each<Record<string, string>>([

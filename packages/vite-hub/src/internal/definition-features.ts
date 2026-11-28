@@ -12,10 +12,10 @@ import type { Plugin } from "vite"
 
 /**
  * The features that a Definition file turns on when the app does not set their key, such as Auth with
- * `server/auth.ts` or Queue with `server/queues/`. `x: false` keeps a feature off, and `x: {…}` sets its options.
+ * `server/auth.ts`, Database with `server/databases/`, or Queue with `server/queues/`. `x: false` keeps a feature off, and `x: {…}` sets its options.
  * The feature catalog lists the files of each feature in `enabledByDiscovery`.
  */
-const definitionFeatureIds = ["agent", "auth", "browser", "channels", "connections", "queue", "realtime", "schedule", "workflow", "workspace"] as const
+const definitionFeatureIds = ["agent", "auth", "browser", "channels", "connections", "database", "queue", "realtime", "schedule", "workflow", "workspace"] as const
 
 type DefinitionFeature = (typeof definitionFeatureIds)[number]
 

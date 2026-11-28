@@ -47,11 +47,12 @@ describe("resolveDefinitionFeatures", () => {
   it("turns on each feature that has a Definition file and no key", () => {
     const projectRoot = project({
       "server/auth.ts": "export default {}\n",
+      "server/databases/default.ts": "export default {}\n",
       "server/queues/welcome-email.ts": "export default {}\n",
       "server/realtime/presence.ts": "export default {}\n",
       "server/workflows/onboard-user.ts": "export default {}\n",
     })
-    expect(resolveDefinitionFeatures({}, { projectRoot })).toEqual({ auth: true, queue: true, realtime: true, workflow: true })
+    expect(resolveDefinitionFeatures({}, { projectRoot })).toEqual({ auth: true, database: true, queue: true, realtime: true, workflow: true })
   })
 
   it("keeps `false` off and keeps the options of an object", () => {

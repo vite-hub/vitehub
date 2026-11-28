@@ -145,7 +145,7 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database` or `@vite-hub/database` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database.
+A Database Definition in `server/databases/` turns Database on when `database` is unset. `database: false` keeps it off. With Database off, importing `vite-hub/database` or `@vite-hub/database` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database when `database` is unset.
 
 If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 

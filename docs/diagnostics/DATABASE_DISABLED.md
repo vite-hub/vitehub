@@ -12,7 +12,7 @@ The generated Database registry has no `default` entry. ViteHub then gives the D
 - The app has only Named Databases, such as `server/databases/analytics.ts`. No Database is named `default`. The Agent `db()` Capability without a `database` option also reads `default`.
 - An app that uses `@vite-hub/database` alone passes `false` to `hubDatabase()`. The registry is then empty.
 
-With `vitehub()`, a disabled Database fails earlier. The build stops with `VITE_HUB_B0013` when code imports accessors from `vite-hub/database`. An enabled Vite Database without a Definition always has an empty Default Database.
+With `vitehub()`, a disabled Database fails earlier. Database is off when the app has no Database Definition and no `database` option, or sets `database: false`. The build stops with `VITE_HUB_B0013` when code imports accessors from `vite-hub/database`. An enabled Vite Database without a Definition always has an empty Default Database.
 
 Some generated runtimes report a missing Default Database as [`DATABASE_NOT_FOUND`](/docs/database/diagnostics/database_not_found) for `default`. Examples are the Nuxt module and hosted Cloudflare and Vercel builds.
 
@@ -37,7 +37,7 @@ Use the name of the Named Database that has the tables. For an Agent, set `db({ 
  })
 ```
 
-Remove `false` when you register `hubDatabase()` directly. With `vitehub()`, set `database: true`.
+Remove `false` when you register `hubDatabase()` directly. With `vitehub()`, add a Default Database in `server/databases/default.ts`, or remove `database: false`.
 
 ## Check the fix
 
@@ -47,7 +47,7 @@ Run `vitehub inspect definitions --kind database`. The list must contain the nam
 
 - [Define a database](/docs/database/configure#define-a-database)
 - [Use Named Databases](/docs/database/server-api#use-named-databases)
-- [Enable Database](/docs/database/get-started#enable-database)
+- [Install Database](/docs/database/get-started#install-database)
 - [Database Capability options](/docs/database/agent-capability#options)
 - [`DATABASE_NOT_FOUND`](/docs/database/diagnostics/database_not_found)
 - [`DATABASE_MIXED_DEFINITIONS`](/docs/database/diagnostics/database_mixed_definitions)
