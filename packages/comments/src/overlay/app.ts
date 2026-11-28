@@ -478,6 +478,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return panelStatus.value === "open" && canCopyPagePrompt.value
       ? [
           h(UButton, {
+            "aria-label": pageCopied.value ? "Copied" : "Copy prompt",
             color: "neutral",
             "data-action": "copy-page-prompt",
             icon: pageCopied.value ? "i-lucide-check" : "i-lucide-copy",

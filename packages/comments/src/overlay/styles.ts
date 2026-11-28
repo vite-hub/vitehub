@@ -146,11 +146,16 @@ ${themeTokens}
 [data-slot="comment-panel"] { height: 100%; background: none; border: 0; container-type: inline-size; }
 /* One row under the window's title: the filters on the left, the page's actions on the right. It never wraps. */
 [data-slot="comment-panel-header"] { flex-wrap: nowrap; gap: 8px; padding: 6px 8px; }
-[data-slot="comment-panel-filters"] { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; }
+/* In a window too narrow for the row, the filters scroll sideways and the actions keep their size. */
+[data-slot="comment-panel-filters"] { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+[data-slot="comment-panel-filters"] > * { flex: none; }
 [data-slot="comment-panel-actions"] { flex: none; flex-wrap: nowrap; }
 [data-slot="comment-panel-header"] button, [data-slot="comment-panel-header"] a { white-space: nowrap; }
 @container (max-width: 479px) {
   [data-slot="comment-panel-actions"] [data-action="open-in-t3-code"] > span { display: none; }
+}
+@container (max-width: 299px) {
+  [data-slot="comment-panel-actions"] [data-action="copy-page-prompt"] > span:not([data-slot]) { display: none; }
 }
 ${deliveryStyles}
 `

@@ -136,6 +136,7 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
     const label = t3?.querySelector("span")
     return {
       oneRow: boxes.every(box => box.top < middle && box.bottom > middle),
+      apart: header.querySelector("[data-slot='comment-panel-filters']").getBoundingClientRect().right <= header.querySelector("[data-slot='comment-panel-actions']").getBoundingClientRect().left,
       fits: header.scrollWidth <= header.clientWidth,
       actions: [...header.querySelectorAll("[data-slot='comment-panel-actions'] [data-action]")].map(item => item.dataset.action),
       t3Label: label ? getComputedStyle(label).display !== "none" : false,
@@ -146,7 +147,7 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
       color: getComputedStyle(element).color,
     }
   })
-  const resize = width => windowHost.evaluate((host, width) => { host.shadowRoot.querySelector(".window").style.width = `${width}px` }, width)
+  const resize = width => windowHost.evaluate((host, width) => { host.shadowRoot.querySelector(".window").style.cssText += `;width:${width}px;min-width:0` }, width)
 
   await t.test("All comments opens one row of filters and actions, with no path, no Expand and no composer", async () => {
     await page.keyboard.press("c")
@@ -158,7 +159,7 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
     await resize(600)
     await page.waitForTimeout(200)
     const wide = await layout()
-    assert.deepEqual({ ...wide, color: undefined }, { oneRow: true, fits: true, actions: ["copy-page-prompt", "open-in-t3-code"], t3Label: true, heading: false, composer: false, list: "/", filters: ["Open 2", "Resolved 1"], color: undefined })
+    assert.deepEqual({ ...wide, color: undefined }, { oneRow: true, apart: true, fits: true, actions: ["copy-page-prompt", "open-in-t3-code"], t3Label: true, heading: false, composer: false, list: "/", filters: ["Open 2", "Resolved 1"], color: undefined })
     assert.ok(luminance(wide.color) < 100, `light page, dark text: ${wide.color}`)
     assert.equal(await windowHost.evaluate(host => host.style.colorScheme), "light")
     await page.evaluate(() => navigator.clipboard.writeText(""))
@@ -169,8 +170,16 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
     await resize(320)
     await page.waitForTimeout(200)
     const narrow = await layout()
-    assert.deepEqual([narrow.oneRow, narrow.fits, narrow.t3Label], [true, true, false])
+    assert.deepEqual([narrow.oneRow, narrow.apart, narrow.fits, narrow.t3Label], [true, true, true, false])
     if (evidence) await windowHost.screenshot({ path: `${evidence}/panel-light-320.png` })
+    await resize(190)
+    await page.waitForTimeout(200)
+    const tight = await layout()
+    assert.deepEqual([tight.oneRow, tight.apart, tight.fits], [true, true, true])
+    await panel.getByRole("button", { name: "Copy prompt" }).click({ trial: true })
+    await panel.getByRole("radio", { name: /Open/ }).click({ trial: true })
+    await panel.getByRole("radio", { name: /Resolved/ }).click({ trial: true })
+    await resize(320)
   })
 
   await t.test("the panel follows the page into dark and back", async () => {
@@ -179,7 +188,7 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
     await page.waitForTimeout(200)
     const dark = await layout()
     assert.ok(luminance(dark.color) > 180, `dark page, light text: ${dark.color}`)
-    assert.deepEqual([dark.oneRow, dark.fits], [true, true])
+    assert.deepEqual([dark.oneRow, dark.apart, dark.fits], [true, true, true])
     if (evidence) await windowHost.screenshot({ path: `${evidence}/panel-dark-320.png` })
     await resize(600)
     await page.waitForTimeout(200)
