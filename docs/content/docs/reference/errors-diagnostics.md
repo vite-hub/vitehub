@@ -58,7 +58,7 @@ A package sets the status in its catalog with `defineErrors()`: `{ why, fix, sta
 A route can also `throw error`. ViteHub adds a Nitro error handler that answers a thrown `ResultError` or `ViteHubError` with the status of `toResponse(error)`. In development, the body is `{ code, why, fix }`. In production, the body is only `{ code }`, so the client gets a code to show or report, and the text stays in your server logs:
 
 ```ts
-import { defineHandler } from 'nitro/h3'
+import { defineHandler } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineHandler(async () => {
