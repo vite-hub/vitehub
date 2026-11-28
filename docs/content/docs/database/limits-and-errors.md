@@ -293,7 +293,7 @@ A Database Definition still uses `config.ts`. The Database `<name>` is now `serv
 
 ### DATABASE_MISSING_D1_RESOURCE
 
-D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --host cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --host cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). To use libSQL, such as Turso, set its URL variable, such as `TURSO_DATABASE_URL`, in the shell that runs the build: a Cloudflare build bundles libSQL only when the URL is remote at build time. The error names the variable when `connection.url` reads one that the build shell does not set. For values known only at runtime, use D1 HTTP.
 
 ### DATABASE_MIXED_DEFINITIONS
 

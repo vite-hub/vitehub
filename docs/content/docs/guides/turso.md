@@ -80,7 +80,12 @@ export default defineConfig({
 A connection in the Database Definition wins over these options. If the app
 still reads SQLite, remove the old connection from the Definition.
 
-Set the variables in the migration shell and the server environment:
+Set the variables in the migration shell and the server environment. On
+Cloudflare, also set `TURSO_DATABASE_URL` in the shell that runs the build. The
+build bundles libSQL only when the URL is remote at build time. Without it, the
+build uses D1 and fails with
+[`DATABASE_MISSING_D1_RESOURCE`](/docs/database/limits-and-errors#database_missing_d1_resource).
+The build does not copy the URL into the output:
 
 ```bash [Terminal]
 export TURSO_DATABASE_URL='libsql://your-database.turso.io'

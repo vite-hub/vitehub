@@ -2232,3 +2232,24 @@ it("discovers a production named D1 resource before provisioning but validates t
   await hubDatabase({ driver: "cloudflare", databaseName: "first-deploy" })(undefined, build.nuxt)
   await expect(callHook(build.hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
 })
+
+it("names the libSQL URL variable that a Cloudflare build shell does not set", async () => {
+  vi.stubEnv("VITEHUB_TEST_TURSO_DATABASE_URL", undefined)
+  const rootDir = await mkdtemp(join(tmp, "turso-url-"))
+  try {
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/default.ts"), 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
+    const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+    await hubDatabase({ driver: "cloudflare", connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_TURSO_DATABASE_URL" } } } })(undefined, nuxt)
+
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toMatchObject({
+      code: "DATABASE_MISSING_D1_RESOURCE",
+      why: expect.stringContaining("The `connection.url` reads `VITEHUB_TEST_TURSO_DATABASE_URL`, which is not set in the shell that runs the build, so the build uses D1 and not libSQL."),
+      fix: expect.stringContaining("in the shell that runs the build"),
+    })
+  }
+  finally {
+    vi.unstubAllEnvs()
+    await rm(rootDir, { force: true, recursive: true })
+  }
+})

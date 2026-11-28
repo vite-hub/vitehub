@@ -435,8 +435,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Run `npx @vite-hub/codemods define-forms`. It moves `config.ts` to `<name>/index.ts`, moves the migrations of the default Database, and updates the imports.",
     },
     DATABASE_MISSING_D1_RESOURCE: {
-      why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
-      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
+      why: ({ databases, missing, unsetUrlEnv = [] }: { databases: readonly string[], missing: string, unsetUrlEnv?: readonly string[] }) => unsetUrlEnv.length
+        ? `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}. The \`connection.url\` reads ${unsetUrlEnv.map(name => `\`${name}\``).join(" or ")}, which is not set in the shell that runs the build, so the build uses D1 and not libSQL.`
+        : `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
+      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. To use libSQL, such as Turso, set the URL variable, such as `TURSO_DATABASE_URL`, in the shell that runs the build: a Cloudflare build bundles libSQL only when the URL is remote at build time. For values that resolve only at runtime, use D1 HTTP.",
     },
     DATABASE_MIXED_DEFINITIONS: {
       why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,

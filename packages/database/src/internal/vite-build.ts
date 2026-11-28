@@ -4,7 +4,7 @@ import { computePackageDir, createImportPath, resolveRuntimeModule as resolveRun
 import { readProvisionedId } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
-import { resolveConfigValue } from "../config-value.ts"
+import { resolveConfigValue, unsetConfigValueEnvNames } from "../config-value.ts"
 import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, mayUseRemoteLibsql, serializeGeneratedRegistry } from "../config.ts"
 import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
@@ -99,7 +99,7 @@ export function assertHostedDatabaseRuntimeResources(runtimeConfig: ResolvedDBVi
     if (opaqueNativeDatabases.length) {
       throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
-    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values", unsetUrlEnv: unsetConnectionUrlEnv(runtimeConfig, unprojectedNativeDatabases) })
   }
   resolveCloudflareD1Bindings(runtimeConfig)
 }
@@ -201,7 +201,12 @@ export function assertDefinitionD1Resources(runtimeConfig: ResolvedDBViteConfig,
   if (!databases.length) return
   // The implicit default Database has no Definition file, so it takes its D1 resource from the module options.
   const options = runtimeConfig.definitions.some(isImplicitDefaultDatabase) ? "database" : "cloudflare"
-  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`, and \`${options}.databaseId\` or provision state,` })
+  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`, and \`${options}.databaseId\` or provision state,`, unsetUrlEnv: unsetConnectionUrlEnv(runtimeConfig, databases) })
+}
+
+/** Lists the env variables of the `connection.url` values that the build shell does not set. */
+export function unsetConnectionUrlEnv(runtimeConfig: ResolvedDBViteConfig, databases: readonly string[]): string[] {
+  return [...new Set(databases.flatMap(name => unsetConfigValueEnvNames(runtimeConfig.databases[name]?.connection?.url)))]
 }
 
 /** Reports whether a Definition reaches its database over the network: D1 HTTP or a remote libSQL URL. */
