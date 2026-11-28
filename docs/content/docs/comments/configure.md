@@ -104,7 +104,7 @@ Use the project ID from the Console. `data-vitehub-repo` is optional: it is the 
 
 For automatic injection, also authorize the inline loader. ViteHub uses the page's script nonce when one is available. Without a nonce, add `'sha256-QN3vOPFNF4N34TjoyRt7mEGXSq1o76L7o2kIzzmWCUA='` to the directive that governs script elements (`script-src-elem` if set, otherwise `script-src`). If you cannot add a nonce or hash, use the explicit script tag above. That tag does not need the inline loader.
 
-Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
+Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Open pages show new threads, replies, and resolved threads at once. On a self-hosted Console on Vercel, they load threads again on tab focus and every 30 seconds while visible. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
 Owners and admins of the team use **Guest access** below the script to create a one-time invite. They can revoke an invite or a guest's access from the same menu.
 

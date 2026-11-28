@@ -37,6 +37,7 @@ export default defineConfig({
       database: database(),
       comments: true,
       console: true,
+      realtime: host !== "vercel",
       publicUrl: process.env.VITEHUB_CONSOLE_PUBLIC_URL,
       mcp: { publicRoute: "/mcp", route: "/mcp/account" },
       env: {

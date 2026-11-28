@@ -12,7 +12,7 @@ import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentsAgentPrompt, commentsPagePrompt, commentsT3CodeLink } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, onOverlayBackendChange, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -413,6 +413,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     clearTimeout(roomRefresh)
     roomRefresh = setTimeout(refresh, 100)
   }
+  const stopBackendChanges = onOverlayBackendChange(refreshFromRoom)
   const send = computed(() => {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
@@ -1277,6 +1278,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       clearTimeout(toastTimer)
       void edit.finish(false)
       leaveRoom()
+      stopBackendChanges()
       app.unmount()
       pageWindow?.destroy()
       for (const stop of stopMotion) stop()

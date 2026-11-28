@@ -49,7 +49,8 @@ export interface InstallCommentsOptions {
   webhooks?: () => Promise<CommentSendWebhooks>
   /**
    * Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. After each change of a thread, it
-   * tells the open pages of the thread to load their threads again. The generated plugin passes it.
+   * tells the open pages of the thread to load their threads again. The generated plugin passes it. With `tenant`, pass
+   * a notifier whose rooms belong to the tenant, such as the rooms of `hostedCommentNoticeRoom()`.
    */
   realtime?: () => Promise<{ notifyCommentsChange: (thread: CommentThread) => Promise<void> }>
   /**
@@ -112,7 +113,7 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     ...(install.rateLimit ? { rateLimit: install.rateLimit } : {}),
   }
   const realtime = install.realtime
-  if (realtime && !install.tenant) runtime.changed = async thread => (await realtime()).notifyCommentsChange(thread)
+  if (realtime) runtime.changed = async thread => (await realtime()).notifyCommentsChange(thread)
   let sync: Installed["sync"]
   if (comments.options.forge) {
     const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })

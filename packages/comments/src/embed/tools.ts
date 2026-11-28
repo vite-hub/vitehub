@@ -65,6 +65,17 @@ function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): Comments
         return [apiError(error), undefined]
       }
     },
+    changes(listener) {
+      let stop: (() => void) | undefined
+      let stopped = false
+      void frame.then((connected) => {
+        if (!stopped) stop = connected.onChange(listener)
+      }, () => undefined)
+      return () => {
+        stopped = true
+        stop?.()
+      }
+    },
     transport(onAnswer) {
       const call = async <M extends keyof Answers>(method: M, input: unknown): Promise<Answers[M]> => {
         const answer = await (await frame).call(method, input)
