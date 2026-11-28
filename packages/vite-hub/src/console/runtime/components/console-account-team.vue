@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
-import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
-import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
+import type { ConsoleSignInMethods, ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
+import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleSignInMethods, loadConsoleTeam, removeConsoleMember } from "../client/account";
 import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import Icon from "./console-icon.vue";
 
-/** The Members page of an `account` Console: the people and the pending invitations. Team settings has the team name. */
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -15,6 +14,8 @@ const team = computed(() => account.value?.teams.find(item => item.id === accoun
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const details = shallowRef<ConsoleTeamDetails>();
 const loadProblem = ref<string>();
+const methods = shallowRef<ConsoleSignInMethods>();
+const invitesNeedGitHub = computed(() => methods.value?.github === false);
 
 const email = ref("");
 const role = ref<"member" | "admin">("member");
@@ -24,7 +25,6 @@ const removing = ref<ConsoleTeamMember>();
 const removeBusy = ref(false);
 const removeProblem = ref<string>();
 
-/** Focus a list heading once a dialog has closed, after the row that held the focused button is gone. */
 function focusHeading(id: string): void {
   void nextTick(() => setTimeout(() => document.getElementById(id)?.focus(), 300));
 }
@@ -41,8 +41,10 @@ async function load(answer = loadConsoleTeam()): Promise<void> {
   }
 }
 
-// The link to this page starts the load when the pointer or the focus reaches it.
-onMounted(() => load(earlyConsoleTeam.take()));
+onMounted(() => {
+  void load(earlyConsoleTeam.take());
+  void loadConsoleSignInMethods().then((value) => { methods.value = value; });
+});
 
 function initials(text: string): string {
   return text.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase();
@@ -117,7 +119,10 @@ async function copy(link: string): Promise<void> {
 
     <section v-if="manage" class="grid gap-3" aria-labelledby="vitehub-team-invite">
       <h2 id="vitehub-team-invite" class="text-sm font-semibold text-highlighted">Invite people</h2>
-      <form class="grid gap-1.5" @submit.prevent="invite">
+      <p v-if="invitesNeedGitHub" class="text-sm text-pretty text-muted">
+        An invitation goes to the email of a GitHub account, and this Console has no GitHub sign-in. To invite people, set <code class="font-mono">GITHUB_CLIENT_ID</code> and <code class="font-mono">GITHUB_CLIENT_SECRET</code> on the Console server.
+      </p>
+      <form v-else class="grid gap-1.5" @submit.prevent="invite">
         <div class="flex flex-wrap gap-2">
           <UInput v-model="email" type="email" autocomplete="off" placeholder="name@example.com" aria-label="Email" aria-describedby="vitehub-team-invite-help" required class="min-w-0 flex-1 basis-56" />
           <USelect v-model="role" :items="[{ label: 'Member', value: 'member' }, { label: 'Admin', value: 'admin' }]" aria-label="Role" class="w-28" />
