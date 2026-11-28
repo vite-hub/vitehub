@@ -1309,7 +1309,9 @@ describe("composer layout", () => {
 
   it("opens a new comment on the layer as a one-line bubble of the layer's size, framed by the bubble", async () => {
     const { state, wrapper } = await draftLayer();
-    state.startDraft("page");
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x: 100, y: 100 } });
     await flushPromises();
     expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes())
       .toMatchObject({ "data-frame": "none", "data-layout": "row", "data-size": "sm" });
@@ -1383,21 +1385,124 @@ describe("composer layout", () => {
     expect(x + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left"))).toBe(left);
   });
 
-  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
-    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
-    const { state, wrapper } = await draftLayer();
-    state.startDraft("page");
-    await flushPromises();
-    const item = wrapper.get<HTMLElement>("[data-draft=true]");
-    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
-    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left")) + 144).toBe(viewport / 2);
-  });
-
   it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
     const attach = (layout?: "row") =>
       keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
         .get('button[aria-label="Add attachment"]').attributes("variant");
     expect(attach()).toBe("outline");
     expect(attach("row")).toBe("ghost");
+  });
+});
+
+describe("page island", () => {
+  async function islandLayer(threads: CommentThreadModel[] = [], props: { readOnly?: boolean } = {}) {
+    const comments = client(threads);
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state, ...props });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    const island = () => wrapper.get("[data-slot=comment-page-island]");
+    return { comments, island, state, wrapper };
+  }
+
+  it("shows nothing without whole-page threads, the open count in view mode, and a call to comment in comment mode", async () => {
+    const empty = await islandLayer();
+    expect(empty.island().attributes("data-state")).toBe("none");
+    empty.state.enter();
+    await flushPromises();
+    expect(empty.island().attributes("data-state")).toBe("hint");
+    expect(empty.island().get("[data-slot=comment-page-island-trigger]").attributes("aria-label")).toBe("Comment on the whole page");
+
+    const target = { anchor: { kind: "element", selector: "#hero", x: 0, y: 0 } } as const;
+    const { island } = await islandLayer([thread(1), thread(2, { author: ben }), thread(3, { status: "resolved" }), thread(4, target)]);
+    expect(island().attributes("data-state")).toBe("count");
+    expect(island().get("[data-slot=comment-page-island-count]").text()).toContain("2");
+    expect(island().get("[data-slot=comment-page-island-trigger]").attributes("aria-label")).toBe("2 comments on the whole page");
+  });
+
+  it("shows no call to comment to a reader, and nothing while comments are hidden", async () => {
+    const reader = await islandLayer([], { readOnly: true });
+    reader.state.enter();
+    await flushPromises();
+    expect(reader.island().attributes("data-state")).toBe("none");
+
+    const { island, state } = await islandLayer([thread(1)]);
+    state.visibility.value = "hidden";
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("none");
+    state.enter();
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("none");
+  });
+
+  it("opens the island with a focused box for a whole-page comment, with no pin on the page", async () => {
+    const { island, state, wrapper } = await islandLayer();
+    state.enter();
+    await flushPromises();
+    await island().get("[data-slot=comment-page-island-trigger]").trigger("click");
+    await flushPromises();
+    expect(state.draft.value?.anchor.kind).toBe("page");
+    expect(island().attributes("data-state")).toBe("open");
+    expect(island().get("[data-slot=comment-page-island-trigger]").attributes("aria-expanded")).toBe("true");
+    const box = island().get("[data-slot=comment-page-island-composer] > [data-slot=comment-composer]");
+    expect(box.attributes()).toMatchObject({ "data-frame": "none", "data-layout": "row" });
+    await vi.waitFor(() => expect(document.activeElement).toBe(box.get("textarea").element));
+    expect(wrapper.find("[data-slot=comment-pin]").exists()).toBe(false);
+    expect(wrapper.find("[data-slot=comment-layer-popover]").exists()).toBe(false);
+
+    await box.get("textarea").setValue("About the whole page");
+    await box.get("form").trigger("submit");
+    await vi.waitFor(() => expect(state.pageThreads.value).toHaveLength(1));
+    expect(state.pageThreads.value[0]).toMatchObject({ anchor: { kind: "page" }, messages: [{ body: "About the whole page" }] });
+    expect(wrapper.find("[data-slot=comment-pin]").exists()).toBe(false);
+  });
+
+  it("lists the whole-page threads in the open island and opens one in place", async () => {
+    const { island, state, wrapper } = await islandLayer([thread(1), thread(2, { author: ben })]);
+    await island().get("[data-slot=comment-page-island-trigger]").trigger("click");
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("open");
+    const rows = island().findAll("[data-slot=comment-page-island-item]");
+    expect(rows.map(row => row.attributes("data-thread-id"))).toEqual(["thread-1", "thread-2"]);
+    await rows[0]!.trigger("click");
+    await flushPromises();
+    expect(state.opened.value?.id).toBe("thread-1");
+    expect(island().find("[data-slot=comment-thread]").exists()).toBe(true);
+    expect(wrapper.findAll("[data-slot=comment-thread]")).toHaveLength(1);
+  });
+
+  it("opens a whole-page thread named by the link in the island, not in a card on the page", async () => {
+    const { island, state, wrapper } = await islandLayer([thread(1)]);
+    state.open(state.pageThreads.value[0]!);
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("open");
+    expect(island().get("[data-slot=comment-thread]").text()).toContain("Comment 1");
+    expect(wrapper.findAll("[data-slot=comment-thread]")).toHaveLength(1);
+  });
+
+  it("closes with Esc when the box is empty, and keeps a typed comment", async () => {
+    const { island, state } = await islandLayer();
+    state.enter();
+    await flushPromises();
+    await island().get("[data-slot=comment-page-island-trigger]").trigger("click");
+    await flushPromises();
+    await island().get("textarea").setValue("Draft");
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("open");
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(island().attributes("data-state")).toBe("open");
+
+    await island().get("textarea").setValue("");
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
+    await flushPromises();
+    expect(state.draft.value).toBeNull();
+    expect(island().attributes("data-state")).toBe("hint");
   });
 });

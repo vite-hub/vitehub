@@ -4,6 +4,7 @@ import { type CommentCan, draftPositionKey, provideComments, useComments, type C
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useCommentAttachments } from "../internal/comment-attachments.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
+import { CommentPageIsland, type CommentPageIslandComposerScope, isPageIslandThread } from "../internal/comment-page-island.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { commentThreadKey } from "../internal/comment-selection.ts";
@@ -19,10 +20,10 @@ import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 const popoverWidth = 360;
 const popoverHeight = 420;
 
-function placeDraft(point: AnchorPoint, page: boolean, width: number, viewport: number) {
+function placeDraft(point: AnchorPoint, width: number, viewport: number) {
   const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
   const inset = rem / 2;
-  const x = page ? (viewport - width) / 2 - inset : point.x;
+  const x = point.x;
   const flipX = x > viewport / 2 && x + inset + width > viewport - inset;
   const left = Math.max(inset, Math.min(flipX ? x - inset - width : x + inset, viewport - inset - width));
   return { x, y: point.y, flipX, left: left - x };
@@ -162,7 +163,8 @@ export const CommentLayer = defineComponent({
         returnTo = null;
         const active = uiRoot().activeElement;
         const thread = layer.value?.querySelector("[data-slot='comment-thread']:not([data-preview])");
-        if (previous && (!active || active === document.body || thread?.contains(active))) returnTo = previous;
+        const islandThread = state.threads.value.some((entry) => entry.id === previous && isPageIslandThread(state, entry));
+        if (previous && !islandThread && (!active || active === document.body || thread?.contains(active))) returnTo = previous;
       },
       { flush: "pre" },
     );
@@ -301,20 +303,33 @@ export const CommentLayer = defineComponent({
       return { "data-flip-x": flipX ? "true" : undefined, "data-flip-y": flipY ? "true" : undefined };
     };
 
-    const composerView = (draft: CommentDraft) =>
+    const pageDraft = (files?: File[]): CommentDraft | null => {
+      const current = state.draft.value;
+      if (current?.anchor.kind === "page") return current;
+      try {
+        state.startDraft("page", files?.length ? { files } : {});
+      } catch {}
+      const next = state.draft.value;
+      return next?.anchor.kind === "page" ? next : null;
+    };
+    const composerView = (given: CommentDraft | null, island?: CommentPageIslandComposerScope) =>
       h(CommentComposer, {
         accept: props.accept,
         attachments: attachmentsOn.value,
-        busy: draft.busy || uploadingDraft.value === draft,
-        error: draft.error,
-        mentions: draft.mentions,
-        modelValue: draft.body,
-        onCancel: () => state.cancelDraft(),
+        autofocus: island ? island.autofocus : true,
+        busy: given ? given.busy || uploadingDraft.value === given : false,
+        error: given?.error,
+        guard: !island,
+        key: island ? "page-island-composer" : undefined,
+        mentions: given?.mentions ?? [],
+        modelValue: given?.body ?? "",
+        onCancel: island ? island.onCancel : () => state.cancelDraft(),
         files: draftFiles.value,
         frame: "none",
         layout: "row",
         onSubmit: async (submit: CommentComposerSubmit) => {
-          if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
+          const draft = given ?? pageDraft(submit.files);
+          if (!draft || draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
           draft.error = undefined;
           draft.mentions = submit.mentions;
           const files = queued(submit.files);
@@ -338,9 +353,18 @@ export const CommentLayer = defineComponent({
             if (uploadingDraft.value === draft) uploadingDraft.value = null;
           }
         },
-        "onUpdate:files": (value: File[]) => (draftFiles.value = value),
-        "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
-        "onUpdate:modelValue": (value: string) => (draft.body = value),
+        "onUpdate:files": (value: File[]) => {
+          if (given || !value.length) draftFiles.value = value;
+          else pageDraft(value);
+        },
+        "onUpdate:mentions": (value: string[]) => {
+          const draft = given ?? (value.length ? pageDraft() : null);
+          if (draft) draft.mentions = value;
+        },
+        "onUpdate:modelValue": (value: string) => {
+          const draft = given ?? (value ? pageDraft() : null);
+          if (draft) draft.body = value;
+        },
         people: user.value ? [user.value] : [],
         size: props.size,
         user: user.value,
@@ -381,7 +405,7 @@ export const CommentLayer = defineComponent({
 
     const statusSlot = () => (slots.status ? { status: slots.status } : undefined);
     const threadSlots = () => ({ ...statusSlot(), ...(slots.actions ? { actions: slots.actions } : {}) });
-    const threadView = (thread: CommentThreadModel) =>
+    const threadView = (thread: CommentThreadModel, inIsland = false) =>
       h(CommentThread, {
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
@@ -389,6 +413,7 @@ export const CommentLayer = defineComponent({
         can: props.can,
         key: commentThreadKey(thread),
         detached: state.positions.value.get(thread.id)?.detached === true,
+        ...(inIsland ? { dismissible: false, navigation: "back" as const } : {}),
         readOnly: props.readOnly,
         size: props.size,
         onClose: () => state.close(),
@@ -521,17 +546,19 @@ export const CommentLayer = defineComponent({
 
       const draft = state.draft.value;
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
-      const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
-      const draftInMargin = Boolean(inMargin.value && draft && point && draft.anchor.kind !== "page");
+      const pointDraft = draft && draft.anchor.kind !== "page" ? draft : null;
+      const point = pointDraft && draftPosition && !draftPosition.detached ? draftPosition : pointDraft?.point;
+      const draftInMargin = Boolean(inMargin.value && pointDraft && point);
       const margin = inMargin.value ? marginLayout(spots, draftInMargin ? point!.y : undefined) : null;
       const inColumn = (key: string) => {
         const top = margin?.at.get(key);
         return top === undefined ? undefined : { "data-margin": "true", "data-margin-key": key, style: { top: `${top}px` } };
       };
 
-      const opened = state.opened.value;
+      const shown = state.opened.value;
+      const opened = shown && !isPageIslandThread(state, shown) ? shown : undefined;
       const openedPosition = opened && state.positions.value.get(opened.id);
-      const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? (spots.get(opened.id) ?? openedPosition) : undefined;
+      const pointForThread = opened && openedPosition && !openedPosition.detached && !openedPosition.clipped && opened.anchor.kind !== "page" ? (spots.get(opened.id) ?? openedPosition) : undefined;
       const openedColumn = opened && pointForThread ? inColumn(opened.id) : undefined;
       const openThread = opened
         ? h("div", {
@@ -549,23 +576,23 @@ export const CommentLayer = defineComponent({
           }, threadView(opened)))
         : null;
 
-      const placement = draft && point ? placeDraft(point, draft.anchor.kind === "page", draftWidth.value, screenWidth.value) : undefined;
+      const placement = pointDraft && point ? placeDraft(point, draftWidth.value, screenWidth.value) : undefined;
       const draftColumn = draftInMargin ? inColumn(draftPositionKey) : undefined;
       const composing =
-        draft && placement
+        pointDraft && placement
           ? h(
               "div",
               {
                 ...side(placement.x, placement.y),
                 "data-flip-x": placement.flipX ? "true" : undefined,
-                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && placement.y > draftAboveRoom && !draftBelow.value ? { "data-above": "true" } : {},
+                ...(pointDraft.anchor.kind === "area" || pointDraft.anchor.kind === "image") && placement.y > draftAboveRoom && !draftBelow.value ? { "data-above": "true" } : {},
                 "data-draft": "true",
-                "data-kind": draft.anchor.kind,
+                "data-kind": pointDraft.anchor.kind,
                 "data-slot": "comment-layer-item",
                 style: place(placement),
               },
               [
-                h(CommentPin, { author: user.value, "data-shape": pinShape(draft.anchor.kind), draft: true }),
+                h(CommentPin, { author: user.value, "data-shape": pinShape(pointDraft.anchor.kind), draft: true }),
                 h(
                   "div",
                   {
@@ -578,7 +605,7 @@ export const CommentLayer = defineComponent({
                       if (draftColumn) measured(draftPositionKey)(element);
                     },
                   },
-                  composerView(draft),
+                  composerView(pointDraft),
                 ),
               ],
             )
@@ -611,6 +638,10 @@ export const CommentLayer = defineComponent({
           ...items,
           composing,
           openThread,
+          h(CommentPageIsland, { comments: state, readOnly: props.readOnly }, {
+            composer: (scope: CommentPageIslandComposerScope) => [composerView(scope.draft, scope)],
+            thread: ({ thread }: { thread: CommentThreadModel }) => [threadView(thread, true)],
+          }),
           margin?.node,
           slots.default?.({ comments: state }) ?? [
             h(CommentToolbar, { comments: state, people: props.people }),

@@ -62,7 +62,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - `Esc` outside a composer leaves comment mode.
 - Hover a pin to preview its thread. Click it to open the thread, reply, resolve, or reopen.
 - Resolved threads have no pin until the Resolved filter is on.
-- `?comment=<n>` in the URL opens thread `n` when the page loads.
+- `?comment=<n>` in the URL opens thread `n` when the page loads. A thread on the whole page opens in the island.
 - Type `@` to mention a person. The client's `users` call finds people. Names that start with your text come first, then names with a later word that starts with it. Accents and case do not count, so `@jose` finds José. People who already wrote in the thread come first. You are never in the list.
 - In the mention menu, arrow keys move, `Enter` or `Tab` picks, and `Esc` closes only the menu. `Shift+Enter` still breaks the line.
 - When `@` and two or more letters find no one, the menu shows one line instead of a list: "No one by that name can be mentioned here.", or "Could not load people." when the lookup fails. The composer logs the error with `console.warn`. The line is not an option, so `Enter` and `Tab` do not pick it. After a space, the menu stays closed, because the text is then more likely a sentence.
@@ -70,7 +70,9 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - Paste, drop, or pick files when the app gives an `upload` function. See [Attachments](#attachments).
 - Select text, then press `C`: the comment is about that text.
 - A pin drops when the pointer goes up without moving. A touch that scrolls drops nothing.
-- In comment mode, `Enter` starts a comment on the focused element. The toolbar button "Comment on page" comments on the whole page.
+- In comment mode, `Enter` starts a comment on the focused element.
+- Comments on the whole page live in the island at the top center of the screen. It shows the faces and the count of the open whole-page threads. In comment mode, for people who may comment, it also says "Comment on the whole page". A click opens it as a card with those threads and a box for a new one. The box has focus when the card opened to comment. Click a thread to open it in the card, and Back returns to the list. `Esc` or a click outside closes the card, unless the box has text. The island has no pin, and it hides with the comments.
+- The island moves with CSS transitions on `data-state`: it fades in and drops 8px, its label opens to the side, and its card grows with the panel spring. Nothing moves when the page loads or with reduced motion. Set `--vh-comment-island-top` to move it down, for example under a bar at the top.
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
@@ -89,6 +91,10 @@ CommentLayer
 │       ├── CommentReply (one per message)
 │       └── CommentComposer (variant="reply")
 ├── CommentComposer (the new comment)
+├── the island (comments on the whole page)
+│   ├── the list of whole-page threads
+│   ├── CommentThread (navigation="back")
+│   └── CommentComposer (a comment on the whole page)
 ├── CommentToolbar
 └── CommentList
     └── CommentFilters
@@ -99,7 +105,7 @@ CommentPanel
 └── CommentComposer (a comment on the whole page)
 ```
 
-Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-selection-bar`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
+Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-selection-bar`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, `comment-panel`, and `comment-page-island`. The island has `data-state`: `none`, `count`, `hint`, or `open`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Build your own layout
 

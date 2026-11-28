@@ -188,7 +188,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
     await moreTools(page)
-    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
+    await page.locator("vitehub-tool").getByRole("button", { name: "All comments" }).waitFor({ timeout: 5000 })
     try {
       const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .people")]
         .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
@@ -301,7 +301,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await page.evaluate(size => { document.documentElement.style.fontSize = `${size}px` }, rootSize)
       for (const width of [375, 390]) {
         await page.setViewportSize({ width, height: 720 })
-        for (const [x, y] of [[100, 30], [180, 150], [200, 30], [width - 10, 30], [180, 600]]) {
+        for (const [x, y] of [[100, 60], [180, 150], [200, 60], [width - 10, 30], [180, 600]]) {
           await page.mouse.click(x, y)
           await composer.waitFor({ timeout: 5000 })
           const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
@@ -330,20 +330,84 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 
-  await t.test("the whole-page draft is centered", async () => {
-    await moreTools(page)
-    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).click()
-    const bubble = page.locator("vitehub-comments [data-draft='true'][data-kind='page'] > [data-slot='comment-layer-popover']")
-    await bubble.evaluate(card => new Promise((resolve) => {
-      const check = () => (card.style.translate || card.style.clipPath || card.style.opacity ? requestAnimationFrame(check) : resolve())
-      requestAnimationFrame(check)
-    }))
-    const card = await bubble.boundingBox()
-    assert.ok(Math.abs(card.x + card.width / 2 - 512) < 1, `the card centers at ${card.x + card.width / 2}`)
-    const pin = await page.locator("vitehub-comments [data-slot='comment-pin'][data-draft='true']").boundingBox()
-    assert.ok(card.y - pin.y - pin.height >= 7.5, "the card clears the pin")
-    await composer.press("Escape")
-    await composer.waitFor({ state: "detached", timeout: 5000 })
+  await t.test("the island at the top centre comments on the whole page, with no pin", async () => {
+    const island = page.locator("vitehub-comments [data-slot='comment-page-island']")
+    const trigger = island.locator("[data-slot='comment-page-island-trigger']")
+    const commentMode = () => page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))
+    await page.evaluate(() => { document.documentElement.style.fontSize = "" })
+    await page.setViewportSize({ width: 1024, height: 720 })
+    if (await composer.count()) {
+      await composer.fill("")
+      await page.keyboard.press("Escape")
+      await composer.waitFor({ state: "detached", timeout: 5000 })
+    } else await page.keyboard.press("Escape")
+    if (await commentMode()) await page.keyboard.press("c")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "none", undefined, { timeout: 2000 })
+    await page.waitForFunction(() => getComputedStyle(document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']")).display === "none", undefined, { timeout: 2000 })
+
+    await page.keyboard.press("c")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "hint")
+    await page.waitForTimeout(300)
+    assert.match(await trigger.innerText(), /Comment on the whole page/)
+    const hint = await trigger.boundingBox()
+    assert.ok(Math.abs(hint.x + hint.width / 2 - 512) < 1, `the island centers at ${hint.x + hint.width / 2}`)
+    assert.ok(hint.y >= 11.5 && hint.y < 13, `the island sits ${hint.y}px from the top`)
+    assert.equal(Math.round(hint.height), 32)
+
+    await trigger.click()
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "open")
+    const field = island.locator("textarea[aria-label='Comment']")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.activeElement?.closest("[data-slot='comment-page-island']"), undefined, { timeout: 2000 })
+    assert.equal(await page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='page']").count(), 0, "no pin for the whole-page draft")
+    await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island-card']").style.width, undefined, { timeout: 5000 })
+    const card = await island.locator("[data-slot='comment-page-island-card']").boundingBox()
+    assert.ok(Math.abs(card.width - 340) < 1 && Math.abs(card.x + card.width / 2 - 512) < 1, `the open card is ${card.width}px at ${card.x}`)
+    if (evidence) await page.screenshot({ path: `${evidence}/island-open.png` })
+
+    await field.fill("About the whole page")
+    await field.press("Enter")
+    const threads = await api.stored(threads => threads.some(item => item.messages[0].body === "About the whole page"))
+    assert.equal(threads.find(item => item.messages[0].body === "About the whole page").anchor.kind, "page")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "hint", undefined, { timeout: 5000 })
+    assert.equal(await page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='page']").count(), 0, "no pin for the whole-page thread")
+
+    await page.keyboard.press("c")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "count")
+    assert.match(await island.locator("[data-slot='comment-page-island-count']").innerText(), /(^|\n)1$/)
+    assert.equal(await island.locator("[data-slot='comment-page-island-count'] [data-slot='avatar-stack-item']").count(), 1)
+    assert.equal(await trigger.getAttribute("aria-label"), "1 comment on the whole page")
+
+    await trigger.click()
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "open")
+    await island.locator("[data-slot='comment-page-island-item']").first().click()
+    await island.locator("[data-slot='comment-thread']").waitFor({ timeout: 5000 })
+    assert.match(await island.locator("[data-slot='comment-thread']").innerText(), /About the whole page/)
+    await page.keyboard.press("Escape")
+    await page.mouse.click(900, 650)
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-page-island']").dataset.state === "count", undefined, { timeout: 5000 })
+  })
+
+  await t.test("the island moves without keyframes, and at once under reduced motion", async () => {
+    const card = page.locator("vitehub-comments [data-slot='comment-page-island-card']")
+    const timing = () => page.evaluate(() => {
+      const root = document.querySelector("vitehub-comments").shadowRoot
+      return ["comment-page-island", "comment-page-island-card", "comment-page-island-label", "comment-page-island-body"].map((slot) => {
+        const style = getComputedStyle(root.querySelector(`[data-slot='${slot}']`))
+        return { slot, animation: style.animationName, durations: style.transitionDuration.split(", ") }
+      })
+    })
+    for (const { slot, animation, durations } of await timing()) {
+      assert.equal(animation, "none", `${slot} has no keyframes`)
+      assert.ok(durations.some(value => value !== "0s"), `${slot} moves: ${durations}`)
+    }
+    try {
+      await page.emulateMedia({ reducedMotion: "reduce" })
+      for (const { slot, durations } of await timing()) assert.ok(durations.every(value => value === "0s"), `${slot} is still under reduced motion: ${durations}`)
+      assert.ok(await card.isVisible())
+    }
+    finally {
+      await page.emulateMedia({ reducedMotion: "no-preference" })
+    }
   })
 
   await t.test("two quotes of one paragraph get two pins that each take a click", async () => {
@@ -667,10 +731,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await areas(), 0)
     assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), "hidden")
+    const island = page.locator("vitehub-comments [data-slot='comment-page-island']")
+    assert.equal(await island.getAttribute("data-state"), "none", "the island hides with the comments")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-1-eye.png` })
 
     await page.keyboard.press("c")
     await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    assert.equal(await island.getAttribute("data-state"), "none", "the island stays hidden in comment mode")
     const box = await page.locator("#second").boundingBox()
     await page.mouse.click(box.x + box.width - 40, box.y + 8)
     await composer.waitFor({ timeout: 5000 })
@@ -715,6 +782,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
     await eye.click()
     await page.waitForFunction(count => document.querySelector("vitehub-comments").shadowRoot.querySelectorAll("[data-slot='comment-layer-item']").length === count, all + 1, { timeout: 5000 })
+    assert.equal(await island.getAttribute("data-state"), "count", "the island comes back with the comments")
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), null)
   })
 

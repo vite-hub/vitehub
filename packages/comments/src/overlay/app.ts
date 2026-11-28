@@ -15,6 +15,7 @@ import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinit
 import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
+import { usePillClearance } from "./island-top.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
 import { overlayStyles, panelStyles } from "./styles.ts"
 
@@ -204,8 +205,6 @@ function tipOfKey(event: KeyboardEvent): MarkerTip | undefined {
 
 const undoIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" }))
 
-const pageIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" }))
-
 const editIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" }))
 
 const plusIcon = () => h("svg", { class: "plus", width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M12 5v14M5 12h14" }))
@@ -311,7 +310,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
-  const namedMode = ref<"comment" | "mark" | "page">("comment")
+  const namedMode = ref<"comment" | "mark">("comment")
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
   const tick = ref(0)
@@ -673,8 +672,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    if (next === "page") commentOnPage()
-    else setMode(next)
+    setMode(next)
   }
 
   async function signOut(url: string) {
@@ -849,11 +847,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(() => state.draft.value, (draft) => {
         if (ink && draft !== ink.draft) dropInk()
       })
+      const islandTop = usePillClearance(options.toolbar)
 
       return () => {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl }, { default: () => [], status: delivery, actions: threadActions }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl, style: islandTop.value ? { "--vh-comment-island-top": islandTop.value } : undefined }, { default: () => [], status: delivery, actions: threadActions }))
           nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -949,18 +948,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
-  function commentOnPage() {
-    if (!canComment.value || resolving.value) return
-    if (needsName.value) {
-      namedMode.value = "page"
-      namedQuote = undefined
-      naming.value = true
-      return
-    }
-    void edit.finish(true)
-    state.startDraft("page")
-  }
-
   function toolbar(): VNode {
     void tick.value
     if (marking.value) return markerToolbar()
@@ -977,7 +964,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     const more = [
-      commenting ? h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]) : null,
       commenting ? h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]) : null,
       canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,

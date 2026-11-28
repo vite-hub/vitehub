@@ -2181,6 +2181,217 @@
     border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
   }
 
+  /* The whole-page island: a 32px capsule at the top center of the screen with the card's surface, so it follows the
+     page's theme. `data-state` is "none", "count", "hint", or "open". It comes in from 8px higher at 97%, and goes out
+     faster to 4px higher. In comment mode its label opens: the column grows from 0fr, and the text fades in after it.
+     Open, it is a card: the panel effect of the motion layer springs its width (`data-motion-panel`), and its body grows
+     from 0fr. `--vh-comment-island-top` puts it under a pill that docks to the top edge. `data-instant` keeps every
+     transition off until the threads loaded, so the island does not play on page load. */
+  [data-slot="comment-layer"] > [data-slot="comment-page-island"] {
+    display: flex;
+    justify-content: center;
+    left: 0;
+    pointer-events: none;
+    position: fixed;
+    right: 0;
+    top: var(--vh-comment-island-top, max(12px, env(safe-area-inset-top)));
+    transform-origin: top center;
+    transition:
+      opacity 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      translate 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      display 200ms allow-discrete;
+  }
+
+  [data-slot="comment-layer"] > [data-slot="comment-page-island"][data-state="none"] {
+    display: none;
+    opacity: 0;
+    scale: 0.97;
+    transition-duration: 150ms;
+    translate: 0 -4px;
+  }
+
+  @starting-style {
+    [data-slot="comment-layer"] > [data-slot="comment-page-island"]:not([data-state="none"]) {
+      opacity: 0;
+      scale: 0.97;
+      translate: 0 -8px;
+    }
+  }
+
+  [data-slot="comment-page-island-card"] {
+    background: var(--vh-bg);
+    border-radius: 1rem;
+    box-shadow: var(--vh-shadow-floating, 0 0 0 1px var(--vh-border));
+    color: var(--vh-text);
+    display: flex;
+    flex-direction: column;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    max-width: calc(100vw - 1.5rem);
+    pointer-events: auto;
+    transition:
+      background-color 150ms ease,
+      scale 150ms ease-out;
+  }
+
+  [data-slot="comment-page-island-card"][data-open] {
+    width: min(21.25rem, 100vw - 1.5rem);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    [data-slot="comment-page-island-card"]:not([data-open]):hover {
+      background: var(--vh-bg-elevated);
+    }
+  }
+
+  [data-slot="comment-page-island-card"]:not([data-open]):has(> [data-slot="comment-page-island-trigger"]:active) {
+    scale: 0.97;
+  }
+
+  /* The 18px avatars sit 7px inside the 16px corner, so they are concentric with it. */
+  [data-slot="comment-page-island-trigger"] {
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: 1rem;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    flex: none;
+    font: inherit;
+    font-weight: 500;
+    height: 2rem;
+    padding: 0 0.75rem 0 0.4375rem;
+    text-align: start;
+    white-space: nowrap;
+  }
+
+  [data-slot="comment-page-island-label"] {
+    display: grid;
+    grid-template-columns: 0fr;
+    transition: grid-template-columns 250ms cubic-bezier(0.23, 1, 0.32, 1);
+
+    & > span {
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    & > span > span {
+      align-items: center;
+      display: flex;
+      gap: 0.375rem;
+      opacity: 0;
+      padding-inline-start: 0.0625rem;
+      transition: opacity 150ms ease;
+    }
+
+    & svg,
+    & [data-slot="icon"] {
+      flex: none;
+      height: 1rem;
+      width: 1rem;
+    }
+  }
+
+  [data-label] [data-slot="comment-page-island-label"] {
+    grid-template-columns: 1fr;
+
+    & > span > span {
+      opacity: 1;
+      transition-delay: 75ms;
+    }
+  }
+
+  [data-label] [data-slot="comment-page-island-label"]:has(+ [data-slot="comment-page-island-count"]) > span > span {
+    padding-inline-end: 0.5rem;
+  }
+
+  [data-slot="comment-page-island-count"] {
+    align-items: center;
+    display: flex;
+    font-variant-numeric: tabular-nums;
+    gap: 0.375rem;
+
+    & [data-slot="avatar-stack"] {
+      --vh-avatar-size: 1.125rem;
+    }
+  }
+
+  /* The body does not count toward the width of the closed capsule. */
+  [data-slot="comment-page-island-body"] {
+    contain: inline-size;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  [data-open] > [data-slot="comment-page-island-body"] {
+    grid-template-rows: 1fr;
+    transition-duration: 250ms;
+  }
+
+  /* Once the body has its height, a mention menu may open past the card's edge. */
+  [data-slot="comment-page-island-content"] {
+    display: flex;
+    flex-direction: column;
+    max-height: min(26rem, 60dvh - 2rem);
+    min-height: 0;
+    overflow: hidden;
+
+    [data-settled] > & {
+      overflow: visible;
+    }
+
+    & > * {
+      border-block-start: 1px solid var(--vh-border);
+    }
+
+    & > [data-slot="comment-thread"] {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    & > [data-slot="comment-thread"] [data-slot="comment-thread-messages"] {
+      flex: 1 1 auto;
+      max-height: none;
+      min-height: 0;
+    }
+  }
+
+  [data-slot="comment-page-island-items"] {
+    flex: 0 1 auto;
+    list-style: none;
+    margin: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0;
+
+    & > li:last-child > [data-slot="comment-page-island-item"] {
+      border-block-end: 0;
+    }
+  }
+
+  [data-slot="comment-page-island-composer"] {
+    flex: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-layer"] > [data-slot="comment-page-island"][data-state],
+    [data-slot="comment-page-island-card"],
+    [data-slot="comment-page-island-label"],
+    [data-slot="comment-page-island-label"] > span > span,
+    [data-slot="comment-page-island-body"],
+    [data-open] > [data-slot="comment-page-island-body"] {
+      transition: none;
+    }
+  }
+
+  [data-slot="comment-layer"] > [data-slot="comment-page-island"][data-instant],
+  [data-instant] :is([data-slot="comment-page-island-card"], [data-slot="comment-page-island-label"], [data-slot="comment-page-island-label"] > span > span, [data-slot="comment-page-island-body"]) {
+    transition: none;
+  }
+
   [data-slot="comment-composer"] {
     align-items: flex-start;
     display: flex;
@@ -2863,7 +3074,7 @@
     padding: 0;
   }
 
-  [data-slot="comment-panel-item"] {
+  :is([data-slot="comment-panel-item"], [data-slot="comment-page-island-item"]) {
     align-items: flex-start;
     background: none;
     border: 0;
@@ -2878,7 +3089,7 @@
     width: 100%;
   }
 
-  [data-slot="comment-panel-item"]:hover {
+  :is([data-slot="comment-panel-item"], [data-slot="comment-page-island-item"]):hover {
     background: var(--vh-bg-elevated);
   }
 

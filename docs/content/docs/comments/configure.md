@@ -686,7 +686,9 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 
 **Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. A second click turns comment mode off. The eye beside it hides or shows the pins. For people who may only read, **Comments** opens the list.
 
-The tools that people use less wait behind **+** at the end of the segment. **+** shows them and turns into **×**, which hides them again. Behind it, **Highlight** draws on the page and **Edit** changes text when the app has Content. In comment mode, **Whole page** starts a comment on the page itself, and **All comments** opens the list of the page's threads. **Edit** opens these tools by itself, so you can see that it is on.
+The tools that people use less wait behind **+** at the end of the segment. **+** shows them and turns into **×**, which hides them again. Behind it, **Highlight** draws on the page and **Edit** changes text when the app has Content. In comment mode, **All comments** opens the list of the page's threads. **Edit** opens these tools by itself, so you can see that it is on.
+
+Comments on the page itself live in the island at the top center of the screen, not in the pill. It shows how many whole-page threads are open. In comment mode it also says **Comment on the whole page**, and a click opens a box for one. When the pill sits at the top edge, the island moves under it. The eye hides the island with the pins.
 
 With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
 
@@ -734,7 +736,7 @@ export default defineConfig({
 
 | Key | Action |
 | --- | --- |
-| <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and **+** also shows **Whole page** and **All comments**. |
+| <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, the island at the top offers a comment on the whole page, and **+** also shows **All comments**. |
 | <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws with the marker. With another tip in hand, <kbd>B</kbd> takes the marker. |
 | <kbd>P</kbd>, <kbd>A</kbd>, <kbd>T</kbd> | With **Highlight** on, take the pen, the arrow, or the text tip. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
