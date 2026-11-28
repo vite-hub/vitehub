@@ -10,33 +10,82 @@ const up = { stiffness: 380, damping: 14 };
 const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"];
 
 /**
- * Everything a person presses: native controls and the roles of docs/design/motion.md, when they are enabled. A switch
- * is not squashed: the switch effect grows its knob instead.
+ * Everything a person presses: native controls, the roles of docs/design/motion.md, and elements with
+ * `data-motion-press`, when they are enabled. The press mode then picks which of them squash. A switch is not squashed:
+ * the switch effect grows its knob instead.
  */
-export const pressSelector = `:is(button, a[href], summary, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio]), ${roles.map(role => `[role=${role}]`).join(", ")}):not(:disabled, [aria-disabled="true"], [role=switch])`;
+export const pressSelector = `:is(button, a[href], summary, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio]), ${roles.map(role => `[role=${role}]`).join(", ")}, [data-motion-press]:not([data-motion-press=none])):not(:disabled, [aria-disabled="true"], [role=switch])`;
 
 // An icon: an SVG, an image, an Iconify CSS icon such as Nuxt UI's `UIcon`, or the `SwapIcon` of a button whose icon
 // changes. A switch thumb is not one.
 const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon], [data-slot=swap-icon]";
+
+const nativeButton = ":is(button, input:is([type=button], [type=submit], [type=reset])):is(:not([role]), [role=button])";
+
+/**
+ * Which elements squash when they have no `data-motion-press` of their own: `"buttons"`, only compact native buttons;
+ * `"opt-in"`, none; `"all"`, every element of the press selector.
+ */
+export type MotionPressMode = "buttons" | "opt-in" | "all";
+
+const pressModeKey = Symbol.for("vite-hub.motion.press-mode");
+
+/**
+ * Sets the press mode of every copy of the motion layer on the page. The first copy that installs runs the press for
+ * all of them, so the mode is on the global object.
+ */
+export function setMotionPressMode(mode: MotionPressMode): void {
+  Reflect.set(globalThis, pressModeKey, mode);
+}
+
+function pressMode(): MotionPressMode {
+  const mode: unknown = Reflect.get(globalThis, pressModeKey);
+  return mode === "opt-in" || mode === "all" ? mode : "buttons";
+}
 
 const pressed = new WeakMap<Element, { spring: Spring; amount: number }>();
 
 /** How much a control of this height squashes: 3% from 40px high, 4% from 32px, and 5% below. */
 const amountFor = (height: number) => height >= 40 ? 0.03 : height >= 32 ? 0.04 : 0.05;
 
+const wholeAmount = (element: HTMLElement) => Math.min(amountFor(element.offsetHeight), 6 / Math.max(element.offsetWidth, element.offsetHeight));
+
+function pressChoice(element: HTMLElement, event: PointerEvent): string | undefined {
+  for (const node of event.composedPath()) {
+    if (!(node instanceof Element)) continue;
+    const choice = node.getAttribute("data-motion-press");
+    if (choice === "none") return choice;
+    if (node === element && choice !== null) return choice;
+  }
+  return undefined;
+}
+
+function squashesByDefault(element: HTMLElement): boolean {
+  const mode = pressMode();
+  if (mode !== "buttons") return mode === "all";
+  return element.matches(nativeButton) && element.offsetHeight < 48 && element.offsetWidth <= 4 * element.offsetHeight;
+}
+
 /**
  * How much a press squashes, from the prototype: an icon-only control squashes its icon by 15%, and a control squashes
  * by its height. A control that another element draws, such as the mark of the folded page pill, names that element
  * with `data-motion-press-target`, a selector that `closest()` finds from the control. Then that element squashes.
+ * `data-motion-press="icon"` squashes the first icon in the element. Nothing squashes when the press does not apply.
  */
-function squash(element: HTMLElement): { target: HTMLElement | SVGElement; amount: number } {
+function squash(element: HTMLElement, choice: string | undefined): { target: HTMLElement | SVGElement; amount: number } | undefined {
+  if (choice === "none") return undefined;
+  if (choice === "icon") {
+    const icon = element.querySelector(iconSelector);
+    return icon instanceof HTMLElement || icon instanceof SVGElement ? { target: icon, amount: 0.15 } : undefined;
+  }
+  if (choice === undefined && !squashesByDefault(element)) return undefined;
   const drawnBy = element.dataset.motionPressTarget ? element.closest(element.dataset.motionPressTarget) : null;
-  if (drawnBy instanceof HTMLElement) return { target: drawnBy, amount: amountFor(drawnBy.offsetHeight) };
+  if (drawnBy instanceof HTMLElement) return { target: drawnBy, amount: wholeAmount(drawnBy) };
   const icon = element.firstElementChild;
   if (element.childElementCount === 1 && !element.textContent?.trim() && (icon instanceof HTMLElement || icon instanceof SVGElement) && icon.matches(iconSelector)) {
     return { target: icon, amount: 0.15 };
   }
-  return { target: element, amount: amountFor(element.offsetHeight) };
+  return { target: element, amount: wholeAmount(element) };
 }
 
 /**
@@ -60,12 +109,15 @@ export const press: MotionEffect = {
   name: "press",
   selector: pressSelector,
   press(element, event) {
-    const { target, amount } = squash(element);
+    if (!("pointerId" in event)) return;
+    const squashed = squash(element, pressChoice(element, event));
+    if (!squashed) return;
+    const { target, amount } = squashed;
     const style = getComputedStyle(target);
     if (transitionsScale(style) || style.display === "contents") return;
     if (style.display === "inline" && target === element && !(element instanceof HTMLInputElement)) return;
     let bounds: DOMRect | undefined;
-    if (target === element && "pointerId" in event) {
+    if (target === element) {
       bounds = element.getBoundingClientRect();
       if (nearEdge(bounds, event, amount)) return;
     }

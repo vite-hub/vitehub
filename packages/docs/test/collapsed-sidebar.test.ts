@@ -70,6 +70,8 @@ it("collapses the sidebar to a strip on pages that opt in, from frontmatter or p
     // Other pages show the open sidebar, which has no collapse button, or no sidebar.
     const guide = await page("guide")
     expect({ strip: strip(guide), hide: hide(guide), pages: pages(guide), fill: fill(guide) }).toEqual({ strip: false, hide: false, pages: true, fill: false })
+    const pressOff = (html: string) => /<div[^>]*class="vh-docs-sidebars[^"]*"[^>]*data-motion-press="none"/.test(html)
+    expect({ open: pressOff(guide), collapsed: pressOff(wide) }).toEqual({ open: true, collapsed: true })
     expect(guide).toContain('id="docs-content" tabindex="-1" class="relative"')
     const plain = await page("guide/plain")
     expect({ strip: strip(plain), pages: pages(plain), headerHidden: headerHidden(plain) }).toEqual({ strip: false, pages: false, headerHidden: false })

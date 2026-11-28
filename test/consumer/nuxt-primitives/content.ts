@@ -53,14 +53,14 @@ export const content: PrimitiveRow[] = [
 
         export default defineEventHandler(async () => {
           const document = await content.get("/intro")
-          return { path: document?.path ?? null, nodes: document?.nodes.slice(0, 2) ?? null }
+          return { path: document?.path ?? null, nodes: document?.nodes.slice(0, 3) ?? null }
         })
       `,
     },
     async probe({ fetch }) {
       await expectJson(await fetch("/api/primitives/content"), {
         path: "/intro",
-        nodes: [["h1", { id: "hello-from-content" }, "Hello from Content"], ["p", {}, "This page came from a local Source."]],
+        nodes: [["typeset-styles", {}], ["h1", { id: "hello-from-content" }, "Hello from Content"], ["p", {}, "This page came from a local Source."]],
       })
     },
   },
@@ -114,7 +114,14 @@ export const content: PrimitiveRow[] = [
         publishedBefore: false,
         published: [{ collection: "posts", id, change: "add" }],
       })
-      const response = await fetch(`/api/content/get/posts/${id}`)
+      const path = `/api/content/get/posts/${id}`
+      const deadline = Date.now() + 30_000
+      let response = await fetch(path)
+      while (nitroWorkerUnavailable(mode, response) && Date.now() < deadline) {
+        await response.body?.cancel()
+        await new Promise(resolve => setTimeout(resolve, 500))
+        response = await fetch(path)
+      }
       const body = await readText(response)
       expectEqual((JSON.parse(body) as { data: unknown }).data, { title: `Post ${id}` }, `/api/content/get/posts/${id} data`)
     },

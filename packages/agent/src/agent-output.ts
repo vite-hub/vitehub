@@ -216,10 +216,12 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     ? withFallbackUsageMetadata(withFallbackUsageMetadata(selectedValue("usageRecord") as AgentUsageRecord, result), normalized)
     : usageRecordFromUsage(selectedValue("usage") ?? selectedValue("totalUsage"), result, normalized)
   const artifacts = publishedDeliveryArtifactsFromUnknown(selectedValue("artifacts"))
+  const sessionLog = selectedValue("sessionLog")
   return {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: selectedValue("finishReason"),
     raw,
+    ...(typeof sessionLog === "string" ? { sessionLog } : {}),
     text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
     usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,

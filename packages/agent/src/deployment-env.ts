@@ -18,14 +18,17 @@ function usesCloudflareState(options: ResolvedAgentModuleOptions, host: Deployme
   return options.runtime === "cloudflare-agents" || (host === "cloudflare" && options.runtime !== "vercel" && options.runtime !== "deno")
 }
 
-/** The libSQL Agent state: `VITEHUB_AGENT_STATE_URL` wins over `providers.state.url`, and is required without it. */
-function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvContext["host"]): DeploymentEnvEntry[] {
+/**
+ * The libSQL Agent state: `VITEHUB_AGENT_STATE_URL` wins over `providers.state.url`, and is required without it,
+ * unless the State uses a Postgres Database.
+ */
+function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvContext["host"], stateDatabase: boolean): DeploymentEnvEntry[] {
   const state = options.providers.state
   if (state.driver !== "auto" && state.driver !== "sqlite" && state.driver !== "libsql") return []
   const { url, authToken } = state
   if (usesCloudflareState(options, host)) return []
   return [
-    entry(["VITEHUB_AGENT_STATE_URL"], !url, true, Boolean(url)),
+    entry(["VITEHUB_AGENT_STATE_URL"], !url && !stateDatabase, true, Boolean(url) || stateDatabase),
     ...authToken ? [entry(agentStateAuthTokenEnvNames(authToken), false, true)] : [],
     entry(["VITEHUB_AGENT_STATE_AUTH_TOKEN"], false, true),
   ]
@@ -40,12 +43,12 @@ function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvCo
 export function agentDeploymentEnv(
   options: false | ResolvedAgentModuleOptions,
   context: DeploymentEnvContext,
-  input: { processDiscordGateway?: boolean } = {},
+  input: { processDiscordGateway?: boolean, stateDatabase?: boolean } = {},
 ): DeploymentEnvEntry[] {
   if (!options) return []
   const discordGateway = options.routes.discordGateway
   return [
-    ...stateEntries(options, context.host),
+    ...stateEntries(options, context.host, Boolean(input.stateDatabase)),
     entry([defaultAgentInvocationsUrlEnv], false, true, true),
     entry([defaultAgentInvocationsAuthTokenEnv], false, true),
     entry(["AI_GATEWAY_API_KEY"], false, true),

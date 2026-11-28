@@ -190,7 +190,7 @@ A discovered Agent with a process host, such as the [Babysitter](/docs/presets/b
 - Each server checks the Lease every 5 seconds. The holder renews it, and it lasts 25 seconds. During graceful shutdown the holder forwards new deliveries and renews the Lease until its host drains. If the holder crashes, another server starts the host within about 30 seconds.
 - The holder stops its host when it cannot renew the Lease before the Lease ends. It counts this time on its own monotonic clock, and the Lease ends on the Database clock, so the server clocks do not need to agree.
 - The new holder fails the inline Invocations that the old holder left running, as a restarted host does. It does not run them again. An inline Invocation runs at most once.
-- A server that waits keeps each webhook delivery for the host in Agent State and answers `202`. The holder hands the deliveries to its host at its next Lease check. Use shared Agent State, such as remote libSQL, so that the holder can read them.
+- A server that waits keeps each webhook delivery for the host in Agent State and answers `202`. The holder hands the deliveries to its host at its next Lease check. Use shared Agent State, such as a Postgres Default Database or remote libSQL, so that the holder can read them.
 - `VITEHUB_INSTANCE_ID` names the server in the Lease. `GET /_vitehub/host/health` reports `role: "holder"` or `role: "standby"` with the `holder` for each Agent.
 
 Without a Database, every server runs its own host, and the server logs a warning. The `agent-process-host` line of the boot Durability report shows which mode the server uses.

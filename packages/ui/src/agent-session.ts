@@ -4,6 +4,7 @@ export {
   AgentSessionDetailsSection,
   AgentSessionTimeline,
   AgentSessionWorkGroup,
+  agentSessionProviderLabel,
 } from "./components/agent-session.ts";
 export type {
   AgentSessionItem,

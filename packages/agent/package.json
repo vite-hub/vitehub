@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/agent",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
@@ -199,6 +199,11 @@
       "types": "./dist/state.d.ts",
       "import": "./dist/state.js",
       "default": "./dist/state.js"
+    },
+    "./state/postgres": {
+      "types": "./dist/state/postgres.d.ts",
+      "import": "./dist/state/postgres.js",
+      "default": "./dist/state/postgres.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",

@@ -215,6 +215,7 @@ order, retention, and deletion.
 | Host output | Default Agent State |
 | --- | --- |
 | Cloudflare | The generated Durable Object binding, also for Channel handlers that generated Workflows call. An explicit state provider wins. A state configuration with only `url` keeps automatic libSQL selection. |
+| Node build with a Postgres Database named `default` | Tables in that Database, which every server shares. `VITEHUB_AGENT_STATE_URL` at boot selects libSQL instead. A State `url` or non-`auto` driver overrides the default. Setting `dataDir` supplies a local SQLite file unless you set a State URL or choose a different storage backend. |
 | Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. A Vercel or Netlify build warns if State needs a URL and the variable is not visible to the build. This does not check the deployed function's environment. If the function also lacks the URL, State fails with `AGENT_R0893`. On Netlify, use the Functions scope for the target deploy context. |
 | `vite dev` | Local SQLite at `.vitehub/data/agent-state.sqlite`. On Nitro's `miniflare` dev runner, which cannot open files, none: conversations stay in memory, and queued Channel tasks and triggers are off. |
 

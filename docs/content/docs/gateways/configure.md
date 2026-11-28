@@ -10,25 +10,32 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 
 ## Presets
 
-| Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
-| --- | --- | --- | --- | --- | --- |
-| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `cloudflare()` | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
-| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
-| `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
-| `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
-| `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `emulate()` | | `<url>` (AI SDK `messages` only) | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
-| `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
-| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
-| `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
-| `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
+| Preset | Codex | Claude Code | Gemini | OpenAI-compatible | `ask()` | Variables |
+| --- | --- | --- | --- | --- | --- | --- |
+| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
+| `cloudflare()` | | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
+| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
+| `litellm()` | `<url>/v1` | `<url>` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
+| `cliproxy()` | `<url>/v1` | `<url>` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
+| `ollama()` | `<url>/v1` | `<url>` | | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `emulate()` | | `<url>` (AI SDK `messages` only) | | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
+| `google()` | | | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/openai` (`api: 'chat'` only) | | `GEMINI_API_KEY` |
+| `moonshot()` | `https://api.moonshot.ai/v1` | `https://api.moonshot.ai/anthropic` | | `https://api.moonshot.ai/v1` | | `MOONSHOT_API_KEY`, then `KIMI_API_KEY` |
+| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (`api: 'responses'` uses the Codex URL) | | `ZAI_API_KEY` |
+| `deepseek()` | `https://api.deepseek.com` | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` | | `DEEPSEEK_API_KEY` |
+| `minimax()` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | | `https://api.minimax.io/v1` | | `MINIMAX_API_KEY` |
+| `alibaba()` | `<workspace>/compatible-mode/v1`, only with `workspaceId` | `<domain>/apps/anthropic` | | `<domain>/compatible-mode/v1` (`api: 'responses'` only with `workspaceId`) | | `DASHSCOPE_API_KEY` |
+| `openai()` | `https://api.openai.com/v1` | | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
+| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | | None |
+| `anthropic()` | | `https://api.anthropic.com` | | | | `ANTHROPIC_API_KEY` |
+| `typesafe()` | | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
 Preset types list what they serve, so TypeScript catches a wrong gateway:
 
 - `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` and `languageModel(typesafe(), ...)` are type errors.
+- A preset whose endpoint lacks a model API rejects it: `languageModel(google(), 'gemini-3.8-flash', { api: 'responses' })` is a type error.
 - Only `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`; `ask()` on others is a type error.
-- CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
+- CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, the [model providers](#model-providers), OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
 - `chatgpt()` has no key and no `ask()`. It uses the plan of a ChatGPT [Connection](/docs/connections/chatgpt). Only the Agent runtime reads it.
 
 Behind Cloudflare Access, pass `cloudflareAccess()` as `headers`, such as `cliproxy({ headers: cloudflareAccess() })`. It returns `CF-Access-Client-Id` and `CF-Access-Client-Secret` from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
@@ -61,6 +68,115 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 - `undefined` fails the request instead of falling back to the variable.
 - `cloudflare()` reads `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models ([Cloudflare AI Gateway](#cloudflare-ai-gateway)).
 - `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
+
+## Gemini CLI
+
+The `gemini` route serves the [Gemini CLI](https://github.com/google-gemini/gemini-cli). The CLI sends Gemini API requests to `<url>/v1beta/models/<model>:generateContent`, with the key in `x-goog-api-key`. `google()`, `cliproxy()`, and `litellm()` serve it.
+
+The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. Set the URL to the proxy root, without `/v1` or `/v1beta`, because the CLI adds `/v1beta` itself. Choose Gemini API key authentication in the CLI, not Google sign-in:
+
+```sh
+GOOGLE_GEMINI_BASE_URL="https://proxy.example" GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
+```
+
+`geminiDriver({ gateway })` sets these variables for you and runs the CLI in a private Home, as [Gemini CLI](/docs/agents/agent-drivers#gemini-cli) shows.
+
+- A gateway sends the key of the `gemini` route only in `x-goog-api-key`, whatever its `auth`.
+- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode. Agent Drivers use the Codex, Claude Code, Gemini CLI, Kimi Code, OpenCode, and Pi routes. Read [Routes for each harness](/docs/gateways/agents#routes-for-each-harness).
+- `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` requires a `gemini` route key, so `ollama()` is a type error there.
+
+## Model providers
+
+These presets send requests to the API of one model provider, with no proxy between. Use them for open-weight and Chinese models, such as Kimi, GLM, DeepSeek, MiniMax, and Qwen. Each one reads the provider's own key. The key works only in the region where you created it, so pass the same region to the preset. All of them serve OpenCode and Pi through their OpenAI-compatible URL. [Model IDs for each provider](/docs/gateways/agents#model-ids-for-each-provider) lists current model IDs.
+
+| Preset | Models | Options | Default | Other regions |
+| --- | --- | --- | --- | --- |
+| `google()` | Gemini | | `generativelanguage.googleapis.com` | |
+| `moonshot()` | Kimi | `region` | `api.moonshot.ai` | `'china'`: `api.moonshot.cn` |
+| `zai()` | GLM | `region`, `codingPlan` | `api.z.ai` | `'china'`: `open.bigmodel.cn` |
+| `deepseek()` | DeepSeek | | `api.deepseek.com` | |
+| `minimax()` | MiniMax | `region` | `api.minimax.io` | `'china'`: `api.minimax.cn` |
+| `alibaba()` | Qwen | `region`, `workspaceId` | `dashscope-intl.aliyuncs.com` (`ap-southeast-1`) | `cn-beijing`, `cn-hongkong`, and, with `workspaceId`, `ap-northeast-1`, `eu-central-1`, `us-east-1` |
+
+### Google
+
+`google()` uses the [Gemini API](https://aistudio.google.com/api-reference). It serves the Gemini CLI and AI SDK models through its [OpenAI-compatible endpoint](https://aistudio.google.com/docs/openai), which has Chat Completions only. It has no Codex or Claude Code URL.
+
+```ts [server/api/answer.ts]
+import { google } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+// Reads GEMINI_API_KEY.
+const model = languageModel(google(), 'gemini-3.8-flash', { api: 'chat' })
+```
+
+### Moonshot AI
+
+`moonshot()` uses the [Kimi API](https://platform.kimi.ai/docs/api/overview). It serves Codex, Claude Code, and AI SDK models.
+
+```ts [server/agents/review/agent.ts]
+import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
+import { moonshot } from 'vite-hub/gateways'
+
+// Reads MOONSHOT_API_KEY, then KIMI_API_KEY. A key from platform.kimi.com needs region: 'china'.
+export default defineAgent({
+  driver: claudeCodeDriver({ model: 'kimi-k3.1-pro', gateway: moonshot() }),
+})
+```
+
+### Z.ai
+
+`zai()` uses the [Z.ai API](https://docs.z.ai/guides/overview/quick-start) for GLM models. It serves Codex, Claude Code, and AI SDK models. For Chat Completions with a GLM Coding Plan key, set `codingPlan: true` to use `/api/coding/paas/v4` ([endpoints](https://docs.z.ai/devpack/notice/api-key-management)). Responses uses `/api/v1` with or without `codingPlan`.
+
+```ts [server/agents/review/agent.ts]
+import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
+import { zai } from 'vite-hub/gateways'
+
+// Reads ZAI_API_KEY. A key from bigmodel.cn needs region: 'china'.
+export default defineAgent({
+  driver: claudeCodeDriver({ model: 'glm-5.3', gateway: zai({ codingPlan: true }) }),
+})
+```
+
+### DeepSeek
+
+`deepseek()` uses the [DeepSeek API](https://api-docs.deepseek.com). It serves Codex and AI SDK Responses at its API root, which also serves Chat Completions. It serves Claude Code and AI SDK Messages through its [Anthropic API](https://api-docs.deepseek.com/guides/anthropic_api).
+
+```ts [server/api/answer.ts]
+import { deepseek } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+// Reads DEEPSEEK_API_KEY.
+const model = languageModel(deepseek(), 'deepseek-v4-pro', { api: 'responses' })
+```
+
+### MiniMax
+
+`minimax()` uses the [MiniMax API](https://platform.minimax.io/docs/api-reference/text-anthropic-api). It serves [Codex](https://platform.minimax.io/docs/m-plan/codex), Claude Code, and AI SDK models.
+
+```ts [server/agents/review/agent.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { minimax } from 'vite-hub/gateways'
+
+// Reads MINIMAX_API_KEY. A key from minimax.cn needs region: 'china'.
+export default defineAgent({
+  driver: codexDriver({ model: 'MiniMax-M3', gateway: minimax() }),
+})
+```
+
+### Alibaba Cloud Model Studio
+
+`alibaba()` uses [Model Studio](https://www.alibabacloud.com/help/en/model-studio/regions/) for Qwen models. Without `workspaceId`, it uses the DashScope domain of the region, which serves Claude Code and AI SDK models with `api: 'chat'` and `'messages'`. With `workspaceId`, it uses the workspace domain `<workspaceId>.<region>.maas.aliyuncs.com`, which also serves Codex and `api: 'responses'` through the [Responses API](https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api). Only the workspace domain exists in `ap-northeast-1`, `eu-central-1`, and `us-east-1`.
+
+```ts [server/agents/review/agent.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { alibaba } from 'vite-hub/gateways'
+
+// Reads DASHSCOPE_API_KEY. The key and the workspace must be in the same region.
+export default defineAgent({
+  driver: codexDriver({ model: 'qwen3.7-plus', gateway: alibaba({ region: 'us-east-1', workspaceId: 'ws-...' }) }),
+})
+```
 
 ## AI emulator
 
@@ -117,7 +233,7 @@ Each request needs a gateway token, a provider key, or both:
 
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request with neither token nor provider key fails with [`GATEWAYS_R0002`](/docs/gateways/limits-and-errors#gateways_r0002) before it is sent. The keys never mix: `ask()` sends only the TypeSafe key, and model requests only the provider key. `cloudflare({ apiKey })` throws with an error that names both options.
 
-`cloudflare()` does not route Drivers. Codex and Claude Code need the gateway's vendor endpoints, such as `.../openai` with an OpenAI key or `.../anthropic` with an Anthropic key in `x-api-key`. [Custom gateways](/docs/gateways/server-api#custom-gateways) defines one for Codex through Cloudflare.
+`cloudflare()` supports AI SDK models and `ask()`, but no provider Driver accepts it as `driver.gateway`. For Codex or Claude Code through Cloudflare, define a custom gateway that uses the corresponding vendor endpoint. [Custom gateways](/docs/gateways/server-api#custom-gateways) shows an example for Codex.
 
 ### TypeSafe through Cloudflare AI Gateway
 

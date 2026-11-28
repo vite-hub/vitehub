@@ -15,7 +15,7 @@ import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.
 import { asUnknownBoundary, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
+import { assertProviderExecutionOptions, normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
 import type { ProviderAgentRuntimeLoader } from "./internal/provider-driver-runtime.ts"
 import { createAgentHealthHandler } from "./health.ts"
@@ -205,6 +205,28 @@ import type {
   ClaudeCodeDriverOptions,
   CodexDriver,
   CodexDriverOptions,
+  GeminiDriver,
+  AntigravityDriver,
+  OpenCodeDriver,
+  CursorDriver,
+  GrokDriver,
+  PiDriver,
+  KimiDriver,
+  KiroDriver,
+  FxDriver,
+  MuseDriver,
+  AcpDriver,
+  GeminiDriverOptions,
+  AntigravityDriverOptions,
+  OpenCodeDriverOptions,
+  CursorDriverOptions,
+  GrokDriverOptions,
+  PiDriverOptions,
+  KimiDriverOptions,
+  KiroDriverOptions,
+  FxDriverOptions,
+  MuseDriverOptions,
+  AcpDriverOptions,
   AgentDriverContribution,
   AgentDriverKind,
   CustomAgentDriver,
@@ -349,6 +371,17 @@ export type {
   BuiltInAgentDriverName,
   ClaudeCodeDriver,
   CodexDriver,
+  GeminiDriver,
+  AntigravityDriver,
+  OpenCodeDriver,
+  CursorDriver,
+  GrokDriver,
+  PiDriver,
+  KimiDriver,
+  KiroDriver,
+  FxDriver,
+  MuseDriver,
+  AcpDriver,
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -589,6 +622,19 @@ export type {
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
   CodexReasoningEffort,
+  GeminiDriverOptions,
+  AntigravityDriverOptions,
+  OpenCodeDriverOptions,
+  CursorDriverOptions,
+  GrokDriverOptions,
+  PiDriverOptions,
+  KimiDriverOptions,
+  KiroDriverOptions,
+  FxDriverOptions,
+  MuseDriverOptions,
+  AcpDriverOptions,
+  OpenAICompatibleAgentDriverOptions,
+  SignInAgentDriverOptions,
   CodexReasoningSummary,
   CodexWorkspaceWriteAccess,
   CustomAgentDriver,
@@ -2127,6 +2173,7 @@ async function callChannelMessageMethod<
 export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
+export type { AgentSkillFiles } from "./internal/colocated-agent-skills.ts"
 export { activeProviderSandbox, agentSettings, recordProviderCheckout, withoutForgeAccess } from "./composition.ts"
 export type { ProviderSandboxSession } from "./composition.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
@@ -2295,6 +2342,7 @@ function defineBaseAgent<
     hasWorkspace: false,
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
+  if (driver.kind === "provider") assertProviderExecutionOptions(driver.provider, { ...driver, sandbox })
   if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
   const modelGateway = driver.kind === "model" ? driver.gateway : undefined
   const inheritedModel: AgentModelResolver<TRuntimeConfig> | undefined = driver.kind === "model"
@@ -2315,6 +2363,7 @@ function defineBaseAgent<
       : driver.kind === "provider"
           ? await (providerAdapter ??= driver.runtime().then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
             sandbox,
+            agentId: driver.agentId,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             cwd: driver.cwd,
@@ -2330,6 +2379,7 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
+            sessionLog: driver.sessionLog,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
             workspaceWrite: driver.workspaceWrite,
@@ -2683,6 +2733,64 @@ export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
 ): ClaudeCodeDriver<unknown, TOutput> {
   return { ...options, kind: "claude-code", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/**
+ * Run the Agent with Gemini CLI over ACP. ViteHub installs the CLI from the ACP registry unless `providerSettings.binaryPath` names an installed copy.
+ * With a gateway, set `model` to a model the gateway serves. Needs a Node.js host.
+ */
+export function geminiDriver<TOutput = unknown>(options: GeminiDriverOptions<TOutput> = {}): GeminiDriver<unknown, TOutput> {
+  return { ...options, kind: "gemini", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Antigravity, which signs in to its own service. Needs a Node.js host. */
+export function antigravityDriver<TOutput = unknown>(options: AntigravityDriverOptions<TOutput> = {}): AntigravityDriver<unknown, TOutput> {
+  return { ...options, kind: "antigravity", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with OpenCode. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function opencodeDriver<TOutput = unknown>(options: OpenCodeDriverOptions<TOutput> = {}): OpenCodeDriver<unknown, TOutput> {
+  return { ...options, kind: "opencode", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Cursor, which signs in with `CURSOR_API_KEY`. Needs a Node.js host. */
+export function cursorDriver<TOutput = unknown>(options: CursorDriverOptions<TOutput> = {}): CursorDriver<unknown, TOutput> {
+  return { ...options, kind: "cursor", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Grok, which signs in to its own service. Needs a Node.js host. */
+export function grokDriver<TOutput = unknown>(options: GrokDriverOptions<TOutput> = {}): GrokDriver<unknown, TOutput> {
+  return { ...options, kind: "grok", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Pi. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function piDriver<TOutput = unknown>(options: PiDriverOptions<TOutput> = {}): PiDriver<unknown, TOutput> {
+  return { ...options, kind: "pi", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Kimi Code over ACP. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+export function kimiDriver<TOutput = unknown>(options: KimiDriverOptions<TOutput> = {}): KimiDriver<unknown, TOutput> {
+  return { ...options, kind: "kimi", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Kiro, which signs in to its own service. Needs a Node.js host. */
+export function kiroDriver<TOutput = unknown>(options: KiroDriverOptions<TOutput> = {}): KiroDriver<unknown, TOutput> {
+  return { ...options, kind: "kiro", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with FX, which signs in to its own service. Needs a Node.js host. */
+export function fxDriver<TOutput = unknown>(options: FxDriverOptions<TOutput> = {}): FxDriver<unknown, TOutput> {
+  return { ...options, kind: "fx", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with Muse, which signs in to its own service. Needs a Node.js host. */
+export function museDriver<TOutput = unknown>(options: MuseDriverOptions<TOutput> = {}): MuseDriver<unknown, TOutput> {
+  return { ...options, kind: "muse", [providerAgentRuntime]: loadProviderAgentRuntime }
+}
+
+/** Run the Agent with any agent in the ACP registry, such as `acpDriver({ agentId: "cline" })`. The agent signs in to its own service. Needs a Node.js host. */
+export function acpDriver<TOutput = unknown>(options: AcpDriverOptions<TOutput>): AcpDriver<unknown, TOutput> {
+  return { ...options, kind: "acp", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
 type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
@@ -7111,6 +7219,7 @@ type AgentInvocationExecutionOptions =
     holdCapacity?: boolean
     onCapacityBypass?: () => void
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
+    onSessionLog?: (path: string) => void
     tools?: AgentToolSet
     capabilities?: readonly AgentCapabilityDefinition[]
   }
@@ -7430,6 +7539,12 @@ async function executeAgentInvocationWithCapacityLease<
       return { result: { ...finished } }
     }
     return { result: finished }
+  }
+
+  if (options.onSessionLog && !customRun && definition && baseAgentDriverKind in definition
+    && definition[baseAgentDriverKind] === "provider"
+    && isRuntimeRecord(result) && typeof result.sessionLog === "string") {
+    options.onSessionLog(result.sessionLog)
   }
 
   if (options.kind === "run"
@@ -8636,6 +8751,7 @@ async function runAgentInlineWithContext<
     renderOutput: options.output !== "raw",
     tools: options.tools,
     capabilities: options.capabilities,
+    onSessionLog: options.onSessionLog,
   }) as TOutput
 }
 
@@ -8835,13 +8951,15 @@ export async function runAgent<
   try {
     await loadAgentHost()
     runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext, options.schedule)
+    let sessionLog: string | undefined
     const output = await runAgentInlineWithContext(agent, runtime.context, invocationInput, {
       capabilities: options.capabilities,
+      onSessionLog: path => { sessionLog = path },
       tools: options.tools,
     })
     const result = await toPublicAgentRunResult<TOutput>(output)
     await runtime.flushWaitUntil()
-    return [undefined, result]
+    return [undefined, sessionLog === undefined ? result : { ...result, sessionLog }]
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.

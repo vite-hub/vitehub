@@ -29,6 +29,7 @@ import {
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { TraceRunView } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { isProviderHarness } from "./internal/provider-profiles.ts"
 
 export interface AgentScore {
   metadata?: unknown
@@ -170,8 +171,8 @@ function applyVariantToExplicitDriver(
   if (!isRecord(driver)) {
     throw agentDiagnostics.AGENT_R0403({ message: "[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver." })
   }
-  if ("model" in driver || driver.kind === "codex" || driver.kind === "claude-code") {
-    const provider = driver.kind === "codex" || driver.kind === "claude-code"
+  if ("model" in driver || isProviderHarness(driver.kind)) {
+    const provider = isProviderHarness(driver.kind)
     return {
       ...driver,
       ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),

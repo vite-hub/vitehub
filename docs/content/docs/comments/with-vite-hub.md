@@ -124,7 +124,7 @@ Open `http://localhost:5173/?vitehub`. `?vitehub` turns on comment mode, and a t
 2. Click a heading on the page. A comment box opens at that point.
 3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, type `@` in a reply, and pick a person. With [Auth](/docs/auth), the list shows the users of Auth that may read the thread. Send the reply. The server checks the mention, and `onMention` gets the person. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people).
-5. Select **Resolve**, the check mark on the thread. The pin goes away. Select **All comments** in the toolbar and then **Resolved** to see it again.
+5. Select **Resolve**, the check mark on the thread. The pin goes away. Select **+** and then **All comments** in the toolbar and then **Resolved** to see it again.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not the window.
 

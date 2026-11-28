@@ -3,6 +3,7 @@ import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
 import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { forgeAccessKey } from "../src/internal/forge-access.ts"
+import { readAgentSession } from "../src/sessions.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -83,13 +84,15 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver, runAgent } from "../src/index.ts"
+import { runAgentForTest } from "../src/test.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
+import { colocatedAgentSkillsContextKey, colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
@@ -1080,6 +1083,9 @@ describe("Provider Agent Driver", () => {
 
   it("launches a provider again when it exits before its first event", async () => {
     const threadId = "thread-launch-retry"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const logPath = join(root, "events.ndjson")
+    const sessionLog = vi.fn(() => logPath)
     const failedLaunch = {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
@@ -1099,14 +1105,17 @@ describe("Provider Agent Driver", () => {
     try {
       const result = await createProviderAgentAdapter({
         launch: {
-          args: ["-e", 'process.stderr.write("failed to initialize sqlite state runtime\\n");process.exit(1)'],
+          args: ["-e", 'require("node:fs").writeSync(2, "failed to initialize sqlite state runtime\\n");process.exit(1)'],
           command: process.execPath,
         },
         provider: "codex",
+        sessionLog,
         // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise a relaunch.
       }).generate(context(threadId) as never)
 
-      expect(result).toMatchObject({ text: "ready" })
+      expect(result).toMatchObject({ text: "ready", sessionLog: logPath })
+      expect(sessionLog).toHaveBeenCalledOnce()
+      expect((await readFile(logPath, "utf8")).match(/"type":"meta"/g)).toHaveLength(1)
       expect(createProviderRuntime.mock.calls.length - launches).toBe(3)
       expect(warn).toHaveBeenCalledTimes(2)
       expect(warn.mock.calls[0]?.[1]).toBe("failed to initialize sqlite state runtime")
@@ -1114,6 +1123,7 @@ describe("Provider Agent Driver", () => {
     finally {
       providerLaunchRetry.delaysMs = []
       warn.mockRestore()
+      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -4168,6 +4178,90 @@ cli_auth_credentials_store = "keyring"
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it("rejects bundled Skills before starting Gemini", async () => {
+    const launch = vi.fn(() => ({ command: "gemini" }))
+    const agent = agentWithSkills(defineAgent({ driver: geminiDriver({ launch, permissions: "allow-all" }) }), { review: "Review changes." })
+    const invocation = context("thread-gemini-skills")
+    invocation.context.set(colocatedAgentSkillsContextKey, Reflect.get(agent, colocatedAgentSkillsSymbol))
+    const adapter = createProviderAgentAdapter({ launch, permissions: "allow-all", provider: "gemini" })
+    await expect(adapter.generate(invocation as never)).rejects.toThrow("cannot load Agent-owned Skills")
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { provider: "gemini", homeEnv: "GEMINI_CLI_HOME", skillRoot: ".gemini/skills", model: "gemini-3.8-flash-high" },
+    { provider: "kimi", homeEnv: "KIMI_CODE_HOME", skillRoot: "skills", model: "kimi-k3" },
+  ] as const)("gives $provider the Agent's Skills in its private gateway Home", async ({ provider, homeEnv, skillRoot, model }) => {
+    const threadId = `thread-${provider}-gateway-skills`
+    const apiKey = "private-gateway-key"
+    const userHome = await mkdtemp(join(tmpdir(), `vitehub-${provider}-user-home-`))
+    await mkdir(join(userHome, skillRoot, "user-skill"), { recursive: true })
+    await writeFile(join(userHome, skillRoot, "user-skill/SKILL.md"), "# User skill\n")
+    await writeFile(join(userHome, "oauth_creds.json"), "{\"token\":\"user-token\"}")
+    const previousHome = process.env[homeEnv]
+    process.env[homeEnv] = userHome
+    let home = ""
+    let homeFiles: Record<string, string> = {}
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        home = createProviderRuntime.mock.lastCall?.[0].environment?.[homeEnv] ?? ""
+        const entries = await readdir(home, { recursive: true, withFileTypes: true })
+        homeFiles = Object.fromEntries(await Promise.all(entries.filter(entry => entry.isFile()).map(async entry => {
+          const path = join(entry.parentPath, entry.name)
+          return [path.slice(home.length + 1), await readFile(path, "utf8")] as const
+        })))
+      },
+    })
+    const agent = agentWithSkills(defineAgent({ driver: { model } }), {
+      review: { "SKILL.md": "---\nname: review\ndescription: Review changes.\n---\n# Review\n", "references/checklist.md": "- tests\n" },
+    })
+    const invocation = context(threadId)
+    invocation.context.set(colocatedAgentSkillsContextKey, Reflect.get(agent, colocatedAgentSkillsSymbol))
+    try {
+      const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey }), model, permissions: "allow-all", provider })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(invocation as never)
+    }
+    finally {
+      if (previousHome === undefined) delete process.env[homeEnv]
+      else process.env[homeEnv] = previousHome
+      await rm(userHome, { force: true, recursive: true })
+    }
+    expect(home).not.toBe("")
+    expect(home).not.toBe(userHome)
+    expect(homeFiles[`${skillRoot}/review/SKILL.md`]).toContain("# Review")
+    expect(homeFiles[`${skillRoot}/review/references/checklist.md`]).toBe("- tests\n")
+    expect(Object.keys(homeFiles).filter(path => path.includes("user-skill") || path.includes("oauth_creds"))).toEqual([])
+    expect(Object.values(homeFiles).join("\n")).not.toContain(apiKey)
+    await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["pi", "gemini", "kimi"] as const)("replays a %s gateway thread after disposing its gateway home", async (provider) => {
+    const threadId = `thread-${provider}-gateway`
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "one", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { resumeCursor: "deleted-session", turnResumeCursor: "deleted-session" })
+    const second = runtime(threadId, [
+      event("content.delta", threadId, { delta: "two", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }), model: "test-model", permissions: "allow-all", provider })
+    await expect(adapter.generate(context(threadId) as never)).resolves.toMatchObject({ text: "one" })
+    await expect(adapter.generate(context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "one", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)).resolves.toMatchObject({ text: "two" })
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: '<message role="user">\nhello\n</message>\n<message role="assistant">\none\n</message>\n<message role="user">\ncontinue\n</message>',
+    }))
   })
 
   it.each([
@@ -7745,13 +7839,14 @@ cli_auth_credentials_store = "keyring"
 
   it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
     vi.useFakeTimers()
+    const scheduleTimeout = vi.spyOn(globalThis, "setTimeout")
     let client: McpClient | undefined
     const toolCallController = new AbortController()
     let resolveExecute: (() => void) | undefined
+    let resolveTurn: (() => void) | undefined
     let toolCall: Promise<void> | undefined
     try {
       const threadId = "thread-profile-deferred-runtime-tool-timeout"
-      let resolveTurn!: () => void
       const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
       const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
       const provider = runtime(threadId, [], {
@@ -7793,13 +7888,15 @@ cli_auth_credentials_store = "keyring"
 
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
       const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
+      scheduleTimeout.mockClear()
       controller.abort(new DOMException("cancelled", "AbortError"))
-      await vi.advanceTimersByTimeAsync(10_000)
       await rejected
+      await vi.waitFor(() => expect(scheduleTimeout).toHaveBeenCalledWith(expect.any(Function), 10_000))
+      await vi.advanceTimersByTimeAsync(10_000)
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
-      resolveTurn()
+      resolveTurn?.()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       expect(closeWorkspace).not.toHaveBeenCalled()
       resolveExecute?.()
@@ -7808,8 +7905,12 @@ cli_auth_credentials_store = "keyring"
       await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
     }
     finally {
+      resolveTurn?.()
+      resolveExecute?.()
       toolCallController.abort()
+      await toolCall
       await client?.close().catch(() => undefined)
+      scheduleTimeout.mockRestore()
       vi.useRealTimers()
     }
   })
@@ -8236,5 +8337,132 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow("cleanup failed")
 
     expect(session.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe("Provider Agent Driver session log", () => {
+  it("keeps a private session log and reports its path beside structured output", async () => {
+    const threadId = "session-log-survives"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const sessionLog = join(root, `${threadId}.ndjson`)
+    try {
+      await chmod(root, 0o755)
+      runtime(threadId, [
+        event("content.delta", threadId, { delta: '{"answer":"ready"}', streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+      ])
+      const resolveSessionLog = vi.fn(() => sessionLog)
+      const agent = defineAgent({ driver: codexDriver({ sessionLog: resolveSessionLog, output: { schema: z.object({ answer: z.string() }) } }), runtime: false })
+
+      const [error, result] = await runAgent(agent, { prompt: "write a file" }, { runtimeContext: {
+        memo: <T>(_key: string, create: () => T) => create(),
+        run: { runId: `run-${threadId}`, threadId },
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      } })
+
+      expect(error).toBeUndefined()
+      expect(resolveSessionLog).toHaveBeenCalledOnce()
+      expect(result).toMatchObject({ output: { answer: "ready" }, sessionLog })
+      expect((await stat(sessionLog)).mode & 0o777).toBe(0o600)
+      const log = await readFile(sessionLog, "utf8")
+      expect(readAgentSession("codex", log)).toMatchObject({ id: threadId, provider: "codex", status: "completed" })
+      const lines = log.trim().split("\n").map(line => JSON.parse(line) as { type: string })
+      expect(lines[0]).toMatchObject({ type: "meta", kind: "codex", threadId })
+      expect(lines.map(line => line.type)).toEqual(["meta", "content.delta", "turn.completed"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("reports the session log path from runAgentForTest() (structured output: %s)", async (structured) => {
+    const threadId = "session-log-test-runner"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const sessionLog = join(root, `${threadId}.ndjson`)
+    try {
+      runtime(threadId, [
+        event("content.delta", threadId, { delta: '{"answer":"ready"}', streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+      ])
+      const output = structured ? { schema: z.object({ answer: z.string() }) } : undefined
+      const agent = defineAgent({ driver: codexDriver({ sessionLog, output }), runtime: false })
+
+      const result = await runAgentForTest(agent, { run: { runId: `run-${threadId}`, threadId }, runtime: "vite", runtimeConfig: {} }, { prompt: "write a file" })
+
+      expect(result.sessionLog).toBe(sessionLog)
+      if (structured) expect(result.raw).toEqual({ answer: "ready" })
+      expect(readAgentSession("codex", await readFile(sessionLog, "utf8"))).toMatchObject({ id: threadId, status: "completed" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("keeps custom Driver data out of session log metadata (schema keeps field: %s)", async (keepField) => {
+    const raw = { answer: "ready", sessionLog: "draft" }
+    const agent = defineAgent({
+      driver: {
+        run: () => raw,
+        output: { schema: keepField ? z.object({ answer: z.string(), sessionLog: z.string() }) : z.object({ answer: z.string() }) },
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentForTest(agent, { runtime: "vite", runtimeConfig: {} }, { prompt: "hello" })
+
+    expect(result.raw).toEqual(keepField ? raw : { answer: "ready" })
+    expect(result).not.toHaveProperty("sessionLog")
+  })
+
+  it.each(["directory", "full device"])("contains log I/O errors for a %s", async (destination) => {
+    if (destination === "full device" && process.platform !== "linux") return
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const threadId = "session-log-io-error"
+    const provider = runtime(threadId, [])
+    try {
+      const adapter = createProviderAgentAdapter({ provider: "codex", sessionLog: destination === "directory" ? root : "/dev/full" })
+      await expect(adapter.generate(context(threadId) as never)).rejects.toMatchObject({ code: destination === "directory" ? "EISDIR" : "ENOSPC" })
+      expect(provider.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not resolve the retained log for a timed auxiliary run", async () => {
+    const threadId = "timed-auxiliary"
+    const sessionLog = vi.fn(() => { throw new Error("Auxiliary run resolved sessionLog") })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, { input: { prompt: "name the thread", timeout: 10_000 } }))
+    await createProviderAgentAdapter({ provider: "codex", sessionLog }).generate(auxiliary as never)
+    expect(sessionLog).not.toHaveBeenCalled()
+  })
+
+  it("appends follow-up turns to the Invocation log without another metadata line", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const threadId = "session-log-follow-up"
+    const path = join(root, "events.ndjson")
+    const sessionLog = vi.fn(() => path)
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionLog })
+    const invocation = context(threadId)
+    try {
+      await writeFile(path, "", { mode: 0o640 })
+      for (const prompt of ["first turn", "follow-up turn"]) {
+        runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await expect(adapter.generate({ ...invocation, input: { prompt } } as never)).resolves.toMatchObject({ sessionLog: path })
+      }
+      expect(sessionLog).toHaveBeenCalledOnce()
+      expect((await stat(path)).mode & 0o777).toBe(0o640)
+      const lines = (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line) as { type: string })
+      expect(lines.map(line => line.type)).toEqual(["meta", "turn.completed", "turn.completed"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a session log that is not a file path", () => {
+    expect(() => defineAgent({ driver: codexDriver({ sessionLog: " " }), runtime: false })).toThrow(expect.objectContaining({ code: "AGENT_R0476" }))
   })
 })

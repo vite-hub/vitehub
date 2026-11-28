@@ -68,9 +68,9 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | OpenWorkflow | The run stays pending in storage until its start time. | `queued` |
 | Cloudflare | The run sleeps until its start time before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
-| Vercel, generated native entry for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel, generated native entry for a single file or for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
 | Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
-| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the server process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
+| Inline runs (`vite dev`, Agent turns and `createWorkflow()` on Vercel) | A timer in the server process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
 
 On Cloudflare, ViteHub cannot tell the delay from other sleeps, so the run reports `running`. For a run that repeats, call `startWorkflow()` from a [Schedule](/docs/schedule) handler.
 

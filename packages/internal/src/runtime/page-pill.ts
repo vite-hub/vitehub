@@ -361,6 +361,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   // The mark collapses the pill to itself. The tools keep running: their windows, pins, and modes stay.
   const mark = document.createElement("button")
   mark.className = "mark"
+  mark.dataset.motionPress = ""
   mark.append(options.mark)
   const initiallyCollapsed = options.initial?.collapsed === true
   const collapse = (collapsed: boolean) => {
@@ -401,6 +402,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   if (exit) {
     button = document.createElement("button")
     button.className = "exit"
+    button.dataset.motionPress = ""
     button.setAttribute("aria-label", exit.label)
     button.title = exit.label
     button.append(viteHubPageSvgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))
@@ -430,6 +432,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     // Keep the person's dock while a temporary mark steps aside. A drag still follows the pointer.
     shown = markOnly() && !pill.hasAttribute("dragging") && next.edge === "bottom" ? { edge: "bottom", at: next.at < 50 ? 0 : 100 } : next
     pill.setAttribute("edge", shown.edge)
+    toolbar.setAttribute("aria-orientation", shown.edge === "left" || shown.edge === "right" ? "vertical" : "horizontal")
     pill.style.setProperty("--at", String(shown.at))
     const collapsed = pill.hasAttribute("collapsed")
     const thickness = collapsed ? vertical() ? viteHubPageHexagonSize(pill).width : viteHubPageHexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight

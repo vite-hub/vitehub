@@ -198,7 +198,7 @@ function literalSecret(node: unknown): boolean {
   return value !== undefined && value.trim().length > 0
 }
 
-const gatewayPresets = ["anthropic", "cliproxy", "cloudflare", "defineAiGateway", "litellm", "ollama", "openai", "openrouter", "typesafe", "vercel"]
+const gatewayPresets = ["alibaba", "anthropic", "cliproxy", "cloudflare", "deepseek", "defineAiGateway", "google", "litellm", "minimax", "moonshot", "ollama", "openai", "openrouter", "typesafe", "vercel", "zai"]
 
 export const noLiteralCredentials: DoctorRule = createRule({
   meta: {

@@ -62,6 +62,7 @@ Header controls have accessible names and pressed states. Surface tabs expose th
 | --- | --- | --- | --- |
 | `title` | `string` | Required | Session heading. |
 | `subtitle` | `string` | | Secondary heading text. |
+| `provider` | `string` | | Harness id of the session, such as `codex`, `claude-code`, `gemini`, or `opencode`. The header shows its name and mark; an unknown id shows as written with a neutral mark. `agentSessionProviderLabel(id)` returns the name. |
 | `surfaces` | `AgentSessionSurface[]` | `[]` | Panel surfaces, each with `id`, `label`, `icon`, and optional `shortcut`. |
 | `storageKey` | `string` | | Local storage key for the layout. |
 | `defaultPanelOpen` | `boolean` | `false` | Initial panel state without stored or controlled state. |

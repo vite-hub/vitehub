@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { afterAll } from "vitest"
 
 import { startAiEmulator, type AiEmulator } from "../../../packages/agent/src/internal/ai-emulator.ts"
-import { expectJson, type PrimitiveRow } from "./row.ts"
+import { expectJson, nitroWorkerUnavailable, type PrimitiveRow } from "./row.ts"
 
 const emulatorPackages = { "@emulators/ai": "0.14.0", "@emulators/core": "0.14.0" }
 const greeting = "Hello from the AI emulator."
@@ -94,19 +94,25 @@ export const agents: PrimitiveRow[] = [
       `,
     },
     async probe({ fetch, mode }) {
-      await expectJson(await fetch("/api/primitives/agent", postJson({ prompt: mode })), { text: `Hello, ${mode}.` })
-      const emulatorRuns = mode.endsWith("-dev")
-      if (emulatorRuns) await expectJson(await fetch("/api/primitives/agent?agent=greeter", postJson({ prompt: "hello there" })), { text: greeting })
+      async function runAgent(path: string, prompt: string) {
+        const init = postJson({ prompt })
+        const deadline = Date.now() + 30_000
+        for (;;) {
+          const response = await fetch(path, init)
+          if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) return response
+          await response.body?.cancel()
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+      await expectJson(await runAgent("/api/primitives/agent", mode), { text: `Hello, ${mode}.` })
+      if (mode.endsWith("-dev")) await expectJson(await runAgent("/api/primitives/agent?agent=greeter", "hello there"), { text: greeting })
     },
   },
   {
     id: "channels",
-    packages: ["@vite-hub/agent", "@vite-hub/channels"],
+    packages: ["@vite-hub/agent", "@vite-hub/channels", "@vite-hub/kv"],
+    vitehub: () => ({ kv: true }),
     files: {
-      "server/utils/primitive-inbox.ts": `
-        const store = globalThis as typeof globalThis & { primitiveInbox?: string[] }
-        export const primitiveInbox = store.primitiveInbox ??= []
-      `,
       "server/channels/alerts.ts": `
         import { defineChannel } from "vite-hub/channels"
 
@@ -132,14 +138,15 @@ export const agents: PrimitiveRow[] = [
       `,
       "server/agents/ticketing.ts": `
         import { defineAgent } from "vite-hub/agent"
-        import { primitiveInbox } from "../utils/primitive-inbox"
+        import { kv } from "vite-hub/kv"
 
         export default defineAgent({
           channels: ["tickets"],
           runtime: false,
           driver: {
-            run: ({ prompt }) => {
-              primitiveInbox.push(String(prompt))
+            run: async ({ prompt }) => {
+              const [error] = await kv.set(\`primitives:channels:\${String(prompt)}\`, true)
+              if (error) throw error
               return { text: "received" }
             },
           },
@@ -148,10 +155,14 @@ export const agents: PrimitiveRow[] = [
       "server/api/primitives/channels.ts": `
         import { defineEventHandler, getQuery, readBody } from "nitro/h3"
         import { useChannel } from "vite-hub/channels/server"
-        import { primitiveInbox } from "../../utils/primitive-inbox"
+        import { kv } from "vite-hub/kv"
 
         export default defineEventHandler(async (event) => {
-          if (event.req.method === "GET") return { received: primitiveInbox.includes(String(getQuery(event).text)) }
+          if (event.req.method === "GET") {
+            const [error, received] = await kv.get(\`primitives:channels:\${String(getQuery(event).text)}\`)
+            if (error) throw error
+            return { received: received === true }
+          }
           const { text } = await readBody<{ text: string }>(event)
           const [error, receipt] = await useChannel("alerts").send(text, { label: "primitives" })
           if (error) throw error

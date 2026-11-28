@@ -421,7 +421,6 @@
   "packages/vite-hub/test/console-session-inspector.test.ts": 2,
   "packages/vite-hub/test/console-signature.test.ts": 13,
   "packages/vite-hub/test/console-signed-out.test.ts": 8,
-  "packages/vite-hub/test/console-skills.test.ts": 1,
   "packages/vite-hub/test/console-skip-link.test.ts": 1,
   "packages/vite-hub/test/console-standalone-page.test.ts": 5,
   "packages/vite-hub/test/console-startup-graph.test.ts": 5,

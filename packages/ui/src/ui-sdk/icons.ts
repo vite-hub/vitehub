@@ -9,6 +9,7 @@ export const uiSdkIcons: Readonly<Record<string, IconShapes>> = {
   "i-lucide-arrow-up": [["path",{"d":"m5 12l7-7l7 7m-7 7V5"}]],
   "i-lucide-arrow-up-right": [["path",{"d":"M7 7h10v10M7 17L17 7"}]],
   "i-lucide-bold": [["path",{"d":"M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"}]],
+  "i-lucide-bot": [["path",{"d":"M12 8V4H8"}],["rect",{"width":"16","height":"12","x":"4","y":"8","rx":"2"}],["path",{"d":"M2 14h2m16 0h2m-7-1v2m-6-2v2"}]],
   "i-lucide-brain": [["path",{"d":"M12 18V5m3 8a4.17 4.17 0 0 1-3-4a4.17 4.17 0 0 1-3 4m8.707-6.706A3 3 0 1 0 12 5a3 3 0 1 0-5.707 1.294"}],["path",{"d":"M17.996 5.125a4 4 0 0 1 2.526 5.77"}],["path",{"d":"M18 18a4 4 0 0 0 2-7.465"}],["path",{"d":"M19.967 17.482a4 4 0 1 1-7.967.517a4 4 0 1 1-7.967-.517"}],["path",{"d":"M6 18a4 4 0 0 1-2-7.465"}],["path",{"d":"M6.004 5.125a4 4 0 0 0-2.526 5.77"}]],
   "i-lucide-check": [["path",{"d":"M20 6L9 17l-5-5"}]],
   "i-lucide-chevron-down": [["path",{"d":"m6 9l6 6l6-6"}]],

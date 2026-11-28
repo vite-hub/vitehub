@@ -2,9 +2,11 @@ import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "v
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 import { vRing } from "./components/motion.ts";
+import { setMotionPressMode, type MotionPressMode } from "./motion/effects/press.ts";
 import { installMotion } from "./motion/install.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
+export type { MotionPressMode } from "./motion/effects/press.ts";
 
 export interface ViteHubUIDefaults {
   markdown?: { class?: string };
@@ -60,6 +62,17 @@ export interface ViteHubUIIconOptions {
   reopen?: string;
 }
 
+/** What the motion layer moves. */
+export interface ViteHubUIMotionOptions {
+  /**
+   * Which elements squash on a pointer press. `"buttons"`: native buttons under 48px high and at most four times as wide
+   * as high. `"opt-in"`: none. `"all"`: buttons, links, tabs, radios, options, menu items, summaries, and checkboxes.
+   * In every mode, `data-motion-press` on an element opts it in, `data-motion-press="icon"` squashes only its icon, and
+   * `data-motion-press="none"` opts out the element and everything in it. Default: `"buttons"`.
+   */
+  press?: MotionPressMode;
+}
+
 export interface ViteHubUIOptions {
   defaults?: ViteHubUIDefaults;
   /** Components that the parts render instead of Nuxt UI's, by name, such as `{ UIcon: MyIcon }`. */
@@ -68,9 +81,9 @@ export interface ViteHubUIOptions {
   icons?: MaybeRefOrGetter<ViteHubUIIconOptions | undefined>;
   /**
    * The motion layer of `@vite-hub/ui/motion`: press, toggle, select, drag, and appear motion by role. It starts in the
-   * browser and stops when the app unmounts. `false` leaves it off. Default: `true`.
+   * browser and stops when the app unmounts. `false` leaves it off, and an object sets what it moves. Default: `true`.
    */
-  motion?: boolean;
+  motion?: boolean | ViteHubUIMotionOptions;
 }
 
 export interface ResolvedViteHubUIDefaults {
@@ -88,6 +101,7 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
 
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");
 const iconsKey: InjectionKey<MaybeRefOrGetter<ViteHubUIIconOptions | undefined>> = Symbol("ViteHubUIIcons");
+const motionEnabledKey: InjectionKey<boolean> = Symbol("ViteHubUIMotionEnabled");
 
 const defaultIcons: Required<ViteHubUIIconOptions> = {
   arrowLeft: "i-lucide-arrow-left",
@@ -125,6 +139,10 @@ export function useViteHubUI(): ResolvedViteHubUIDefaults {
   return inject(ViteHubUIInjectionKey, defaultOptions);
 }
 
+export function useViteHubUIMotionEnabled(): boolean {
+  return inject(motionEnabledKey, true);
+}
+
 /** The icons that the parts render. It reads them on each render, so a reactive app config updates them. */
 export function useViteHubUIIcons(): ComputedRef<Required<ViteHubUIIconOptions>> {
   const icons = inject(iconsKey, undefined);
@@ -140,7 +158,13 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       if (options.components) app.provide(uiComponentsKey, options.components);
       if (options.icons) app.provide(iconsKey, options.icons);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
-      if (options.motion !== false && typeof document !== "undefined") app.onUnmount(installMotion());
+      const motionEnabled = options.motion !== false;
+      app.provide(motionEnabledKey, motionEnabled);
+      if (motionEnabled && typeof document !== "undefined") {
+        const press = typeof options.motion === "object" ? options.motion.press : undefined;
+        if (press !== undefined) setMotionPressMode(press);
+        app.onUnmount(installMotion());
+      }
       app.directive("ring", vRing);
     },
   };

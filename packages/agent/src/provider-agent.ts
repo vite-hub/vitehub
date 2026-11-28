@@ -10,7 +10,7 @@ import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCal
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
-import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import { agentDriverGatewayReplacesHome, agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment, withAgentDriverGatewayModel } from "./internal/agent-gateway.ts"
 import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
 import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
 import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
@@ -25,7 +25,8 @@ import { preparePullRequestCheckout, pullRequestCheckoutPlan, type PullRequestCh
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { chmod, mkdir, mkdtemp, lstat, open, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path"
@@ -43,10 +44,12 @@ import { appendLatestFinalText, streamAgentOutputToEvents } from "./agent-output
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
-import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
+import { addProviderSandboxSkills, assertProviderSkillDelivery, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
 import { sourceSkillMounts } from "./internal/source-skills.ts"
-import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
+import { assertProviderExecutionOptions, defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerHarnessProfile, providerHarnessProfiles } from "./internal/provider-profiles.ts"
+import type { ProviderHarness } from "./internal/provider-profiles.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
 import { getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
@@ -138,11 +141,15 @@ export interface ProviderAgentAdapterOptions<
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
-  provider: "claude-code" | "codex"
+  provider: ProviderHarness
+  /** The ACP registry agent that the `acp` harness runs. */
+  agentId?: string
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   requirements?: readonly string[]
+  /** The file the provider runtime appends its event log to. ViteHub never deletes it. */
+  sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   sessionStorePath?: string
   /** Provision project-pinned Node.js and a package manager for the provider and its commands. */
   toolchain?: SandboxToolchain
@@ -368,11 +375,42 @@ const providerHostEnvironmentKeys = [
   "XDG_DATA_HOME",
 ] as const
 
+function inheritedHomeEnvironment(provider: ProviderHarness): Record<string, string | undefined> {
+  const { home } = providerHarnessProfile(provider)
+  return home?.inheritHost ? { [home.env]: process.env[home.env] } : {}
+}
+
+/**
+ * Settings for the provider runtime. The harnesses beyond Codex and Claude Code are off until enabled. An ACP harness runs
+ * its registry agent, and `providerSettings.binaryPath` names an installed copy that keeps the registry arguments.
+ */
+export function providerRuntimeSettings(provider: ProviderHarness, agentId: string | undefined, settings: Record<string, unknown>): Record<string, unknown> {
+  if (provider === "codex" || provider === "claude-code") return settings
+  const profile = providerHarnessProfile(provider)
+  if (profile.runtimeKind !== "acp") return { enabled: true, ...settings }
+  const { binaryPath } = settings
+  return {
+    enabled: true,
+    ...Object.fromEntries(Object.entries(settings).filter(([key]) => !["binaryPath", "homePath", "launchArgs", "shadowHomePath"].includes(key))),
+    source: "registry",
+    agentId: profile.agentId ?? agentId,
+    ...(typeof binaryPath === "string" && binaryPath.trim() ? { commandPath: binaryPath } : {}),
+  }
+}
+
 function providerEnvironment(env: Record<string, string | undefined> | undefined): Record<string, string> {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
     return typeof process.env[key] === "string" ? [[key, process.env[key]]] : []
   }))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+}
+
+/** The NDJSON file in the invocation's private root where the provider runtime appends a session line and then every event. */
+export const providerEventLogFile = "provider-events.ndjson"
+
+interface ProviderSessionLog {
+  path: Promise<string>
+  wroteMetadata: boolean
 }
 
 // Every process of a host pass starts with this variable. Commands that leave the provider's
@@ -1397,12 +1435,14 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     }
     const configuredOverrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
-    const gateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context), signal)
+    const resolvedGateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context, options), signal)
     signal?.throwIfAborted()
+    if (resolvedGateway?.home) root ??= await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
+    const gateway = resolvedGateway && root ? await materializeAgentDriverGatewayHome(resolvedGateway, join(root, "gateway-home")) : resolvedGateway
     const overrides = withAgentDriverGatewayEnvironment(gateway, configuredOverrides)
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
-      ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      ...(!home ? inheritedHomeEnvironment(options.provider) : {}),
       ...overrides,
     })
     // Host values such as LC_ALL=C are not secrets. Redacting them would mangle the status text.
@@ -1415,8 +1455,8 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     let launchDiagnosticSecrets: readonly string[] = []
     let requirementCapture: ProviderRequirementCapture | undefined
     if (options.launch !== undefined) {
-      root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
-      const command = typeof binary === "string" && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
+      root ??= await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
+      const command = typeof binary === "string" && binary.trim() ? binary : providerHarnessProfile(options.provider).command
       const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
         ...context, command: requirements.length ? "sh" : command, providerCommand: command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [...(home ? ["CODEX_HOME"] : []), ...Object.keys(gateway?.environment || {})],
       }), signal))
@@ -1441,9 +1481,10 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       ? await missingProviderCommands(requirements, environment, launchSecretEnvironmentKeys, root || process.cwd(), signal)
       : undefined
     signal?.throwIfAborted()
+    const sessionModel = agentDriverSessionModel(gateway, options.model)
     const snapshot = await inspectProvider({
-      provider: options.provider, environment, signal,
-      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(options.model ? { model: options.model } : {}) },
+      provider: providerHarnessProfiles[options.provider].runtimeKind, environment, signal,
+      settings: providerRuntimeSettings(options.provider, options.agentId, withAgentDriverGatewayModel(options.provider, gateway, options.model, { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(sessionModel ? { model: sessionModel } : {}) })),
     })
     // A custom launcher records the child's stderr. Without it, a failed probe reports only the exit code.
     const launchFailure = snapshot.status === "error"
@@ -2351,10 +2392,11 @@ interface ProviderInvocationUsageAccumulator {
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>, options: {
   accumulator: ProviderInvocationUsageAccumulator
   model?: string
-  provider: "claude-code" | "codex"
+  provider: ProviderHarness
   resumed: boolean
   transport?: "gateway"
 }): StreamEvent {
+  const partitionedUsage = providerHarnessProfile(options.provider).usage === "cumulative-partitions"
   const usage = event.payload.usage
   const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
@@ -2370,15 +2412,15 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cumulative = usage.totalProcessedTokens
   // A sole raw itemless snapshot can acquire its first measured partition.
   // A changed known cumulative total instead establishes a distinct partition.
-  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && (options.accumulator.previousTotalProcessedTokens === undefined || options.accumulator.previousTotalProcessedTokens === cumulative) && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && options.accumulator.calls.at(-1)?.usage === undefined
+  const completesRawOnly = partitionedUsage && responseIdentity === undefined && cumulative !== undefined && (options.accumulator.previousTotalProcessedTokens === undefined || options.accumulator.previousTotalProcessedTokens === cumulative) && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && options.accumulator.calls.at(-1)?.usage === undefined
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
       : options.accumulator.lastSignature !== signature
-  const identityFree = options.provider === "codex" && responseIdentity === undefined && cumulative === undefined
-  if (options.provider === "codex" && partitionTotal !== undefined) options.accumulator.observedPartition = true
-  const unmatchedIdentityFree = options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+  const identityFree = partitionedUsage && responseIdentity === undefined && cumulative === undefined
+  if (partitionedUsage && partitionTotal !== undefined) options.accumulator.observedPartition = true
+  const unmatchedIdentityFree = partitionedUsage && responseIdentity === undefined && partitionTotal !== undefined
     && options.accumulator.calls.some(call => call.usage === undefined && options.accumulator.lastResponseIdentity !== undefined)
   if (identityFree) {
     // Without a response boundary, snapshots cannot establish invocation totals.
@@ -2406,23 +2448,23 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.calls.push(snapshot)
     options.accumulator.lastCallIdentity = undefined
   }
-  if (unmatchedIdentityFree || (options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && options.accumulator.lastResponseIdentity !== undefined)) options.accumulator.identityAmbiguous = true
+  if (unmatchedIdentityFree || (partitionedUsage && responseIdentity === undefined && cumulative !== undefined && options.accumulator.lastResponseIdentity !== undefined)) options.accumulator.identityAmbiguous = true
   // An itemless measured partition cannot be attributed to a prior identified
   // response (even when that response already has a measured call). Keep the
   // aggregate unknown rather than pricing evidence from an unrelated response.
-  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+  if (partitionedUsage && responseIdentity === undefined && partitionTotal !== undefined
     && options.accumulator.lastResponseIdentity !== undefined) {
     options.accumulator.identityAmbiguous = true
   }
   // An itemless measured snapshot cannot complete an earlier raw-only call
   // unless the narrowly proven sole-call completion path applies. Keep the
   // aggregate unknown whenever an unresolved call would otherwise be hidden.
-  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+  if (partitionedUsage && responseIdentity === undefined && partitionTotal !== undefined
     && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly) {
     options.accumulator.identityAmbiguous = true
   }
-  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
-  if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
+  const countPartition = partitionedUsage && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
+  if (partitionedUsage && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
     options.accumulator.calls.push({
@@ -2467,7 +2509,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
   const previousCall = options.accumulator.calls.at(-1)
   const sameResponse = responseIdentity !== undefined && responseIdentity === options.accumulator.lastCallIdentity
-  if (options.provider === "codex" && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
+  if (partitionedUsage && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
     previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
     options.accumulator.inputTokens += inputTokens!
     options.accumulator.outputTokens += outputTokens!
@@ -2475,7 +2517,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
     options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
   }
-  if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
+  if (partitionedUsage && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
     const cachedInputTokens = usage.cachedInputTokens ?? (typeof previousCall.usage.details?.cachedInputTokens === "number" ? previousCall.usage.details.cachedInputTokens : undefined)
     const reasoningOutputTokens = usage.reasoningOutputTokens ?? (typeof previousCall.usage.details?.reasoningOutputTokens === "number" ? previousCall.usage.details.reasoningOutputTokens : undefined)
     if (partitionTotal !== undefined) {
@@ -2508,21 +2550,21 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   options.accumulator.lastSignature = signature
   options.accumulator.lastResponseIdentity = responseIdentity
   options.accumulator.lastUsageEvent = event
-  const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete && !options.accumulator.identityAmbiguous
+  const accumulatedPartition = partitionedUsage && options.accumulator.observedPartition && options.accumulator.partitionComplete && !options.accumulator.identityAmbiguous
   const totalTokens = accumulatedPartition
     ? options.accumulator.inputTokens + options.accumulator.outputTokens
-    : options.provider === "codex" && options.accumulator.observedPartition
+    : partitionedUsage && options.accumulator.observedPartition
       ? undefined
       : partitionTotal ?? usedTokens ?? (options.resumed ? undefined : cumulative)
   // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
-  const includePartition = options.provider === "codex" ? accumulatedPartition : partitionTotal !== undefined
-  const normalizedInputTokens = options.provider === "codex" ? options.accumulator.inputTokens : inputTokens
-  const normalizedOutputTokens = options.provider === "codex" ? options.accumulator.outputTokens : outputTokens
-  const cachedInputTokens = options.provider === "codex" ? options.accumulator.cachedInputTokens : usage.cachedInputTokens
-  const cachedInputTokensComplete = options.provider !== "codex" || options.accumulator.cachedInputTokensComplete
-  const reasoningOutputTokens = options.provider === "codex" ? options.accumulator.reasoningOutputTokens : usage.reasoningOutputTokens
-  const reasoningOutputTokensComplete = options.provider !== "codex" || options.accumulator.reasoningOutputTokensComplete
-  const usageRecordExtras = options.provider === "codex" && options.accumulator.calls.length
+  const includePartition = partitionedUsage ? accumulatedPartition : partitionTotal !== undefined
+  const normalizedInputTokens = partitionedUsage ? options.accumulator.inputTokens : inputTokens
+  const normalizedOutputTokens = partitionedUsage ? options.accumulator.outputTokens : outputTokens
+  const cachedInputTokens = partitionedUsage ? options.accumulator.cachedInputTokens : usage.cachedInputTokens
+  const cachedInputTokensComplete = !partitionedUsage || options.accumulator.cachedInputTokensComplete
+  const reasoningOutputTokens = partitionedUsage ? options.accumulator.reasoningOutputTokens : usage.reasoningOutputTokens
+  const reasoningOutputTokensComplete = !partitionedUsage || options.accumulator.reasoningOutputTokensComplete
+  const usageRecordExtras = partitionedUsage && options.accumulator.calls.length
     ? { calls: [...options.accumulator.calls] }
     : {}
   return {
@@ -2551,7 +2593,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
 
 function terminalUsageEvent(event: Extract<ProviderRuntimeEvent, { type: "turn.completed" | "turn.aborted" }>, options: {
   model?: string
-  provider: "claude-code" | "codex"
+  provider: ProviderHarness
   transport?: "gateway"
 }): StreamEvent | undefined {
   const usage = event.payload.tokenUsage
@@ -2712,7 +2754,7 @@ function providerTextDeltaId(event: Extract<ProviderRuntimeEvent, { type: "conte
 function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">, options: {
   accumulator: ProviderInvocationUsageAccumulator
   model?: string
-  provider: "claude-code" | "codex"
+  provider: ProviderHarness
   resumed: boolean
   transport?: "gateway"
   toolTitles: Map<string, string>
@@ -2840,6 +2882,7 @@ async function* runProvider<
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  sessionLog?: ProviderSessionLog,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
@@ -2847,6 +2890,7 @@ async function* runProvider<
   if (context.providerTools?.length) {
     throw agentDiagnostics.AGENT_R0710({ message: "[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools." })
   }
+  assertProviderSkillDelivery(options.provider, context.context.get(colocatedAgentSkillsContextKey), { privateHome: options.gateway !== undefined })
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
@@ -2882,8 +2926,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox, ChatGPT, and emulator homes last one invocation; conversation history is replayed on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && (options.provider !== "codex"
+  // Sandbox, ChatGPT, gateway, and emulator homes last one invocation; replay history on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && !(options.gateway && agentDriverGatewayReplacesHome(options.provider)) && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -2897,6 +2941,7 @@ async function* runProvider<
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
+  let eventLog: Awaited<ReturnType<typeof open>> | undefined
   try {
     effectiveSignal?.throwIfAborted()
     const configuredRoot = options.cwd === undefined || auxiliary
@@ -3207,7 +3252,11 @@ async function* runProvider<
       gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
     }
     else if (options.gateway !== undefined) {
-      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext, options), effectiveSignal)
+      if (gateway.home) {
+        if (!temporaryRoot) throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${providerHarnessProfile(options.provider).displayName} reads its gateway configuration from a folder, which a Sandbox run cannot receive yet. Run the Agent without a Sandbox, or sign in inside the Sandbox and remove driver.gateway.` })
+        gateway = await materializeAgentDriverGatewayHome(gateway, join(temporaryRoot.root, "gateway-home"))
+      }
     }
     if (gateway?.chatgpt && chatgptExpiry) {
       const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
@@ -3277,7 +3326,7 @@ async function* runProvider<
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1026()
     const providerCommand = providerExecutable === undefined || (typeof providerExecutable === "string" && !providerExecutable.trim())
-      ? (options.provider === "codex" ? "codex" : "claude")
+      ? providerHarnessProfile(options.provider).command
       : providerExecutable
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
     if (options.sandbox) assertProviderSandboxInvocation(options.sandbox, context, Boolean(capabilityEnvironment?.PATH))
@@ -3285,7 +3334,7 @@ async function* runProvider<
       throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: false })
     }
     providerRuntimeEnvironment = providerEnvironment({
-      ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      ...(!codexCredentialHome ? inheritedHomeEnvironment(options.provider) : {}),
       // Test fixtures, tool caches, and Node's compile cache go to $TMPDIR. driver.env can replace it.
       ...(temporaryRoot ? { TEMP: temporaryRoot.path, TMP: temporaryRoot.path, TMPDIR: temporaryRoot.path } : {}),
       ...providerEnvironmentOverrides,
@@ -3392,7 +3441,7 @@ async function* runProvider<
     let materializeInstructions = Boolean(instructions)
     let turnInstructions: string | undefined
     if (!instructions && options.provider === "claude-code") {
-      const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => undefined)
+      const nativeInstructions = await readFile(join(providerCwd, providerHarnessProfile(options.provider).instructionFile), "utf8").catch(() => undefined)
       if (nativeInstructions !== undefined) instructions = nativeInstructions
       else {
         instructions = await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => undefined)
@@ -3401,8 +3450,8 @@ async function* runProvider<
     }
     const preserveNativeInstructions = !materializeInstructions
     const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
-    if (!instructions && provenanceInstructions && options.provider === "codex") {
-      instructions = await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => undefined)
+    if (!instructions && provenanceInstructions && options.provider !== "claude-code") {
+      instructions = await readFile(join(providerCwd, providerHarnessProfile(options.provider).instructionFile), "utf8").catch(() => undefined)
     }
     if (provenanceInstructions) {
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
@@ -3485,7 +3534,11 @@ async function* runProvider<
         claudeSandboxPromptFile = ".claude/vitehub-system-prompt.md"
         providerSandboxHomeFiles[claudeSandboxPromptFile] = instructions
       }
-      else providerSandboxHomeFiles[".codex/AGENTS.md"] = instructions
+      else {
+        const { homeInstructionFile } = providerHarnessProfile(options.provider)
+        if (homeInstructionFile) providerSandboxHomeFiles[homeInstructionFile] = instructions
+        else turnInstructions = instructions
+      }
     }
     else if (instructions && materializeInstructions) {
       const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
@@ -3499,10 +3552,10 @@ async function* runProvider<
         }
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
-      } else if (unmergedInstructions.has("AGENTS.md")) {
+      } else if (unmergedInstructions.has(providerHarnessProfile(options.provider).instructionFile)) {
         if (codexDeveloperInstructions === undefined) turnInstructions = instructions
       } else {
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, providerHarnessProfile(options.provider).instructionFile), codexDeveloperInstructions === undefined ? instructions : "")
         if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
@@ -3512,14 +3565,17 @@ async function* runProvider<
     }
     // Provider Skills go to one private folder outside the checkout, so the
     // checkout keeps only its own files. A Sandbox reads them from its Home.
+    const privateHome = gateway?.home ? gateway.environment[gateway.home.env] : undefined
     const providerSkills = await selectProviderSkills({
       colocated: context.context.get(colocatedAgentSkillsContextKey),
       cwd: providerCwd,
+      privateHome: privateHome !== undefined,
       provider: options.provider,
       sources: sourceSkillMounts(context.workspaceDefinition?.sources),
       workspaceRoot: root,
     })
-    if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
+    if (privateHome !== undefined && providerHarnessProfile(options.provider).skills?.extra.kind === "private-home") await materializeProviderSkills(providerSkills, options.provider, privateHome)
+    else if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
     else if (temporaryRoot) providerSkillDirectory = await materializeProviderSkills(providerSkills, options.provider, join(temporaryRoot.root, "skills"))
     if (pullRequestRoot || preparedWorkspace?.projectRoot) {
       restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(providerCwd, generatedProviderFiles.map(file => file.path))
@@ -3536,7 +3592,7 @@ async function* runProvider<
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
       // In a Sandbox, binaryPath names the provider command inside the Sandbox.
-      const sandboxCommand = configuredCommand?.trim() || (options.provider === "codex" ? "codex" : "claude")
+      const sandboxCommand = configuredCommand?.trim() || providerHarnessProfile(options.provider).command
       const sandboxContext: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS> = {
         ...providerMetadataContext(context),
         input: context.input,
@@ -3576,7 +3632,7 @@ async function* runProvider<
       options.providerSettings?.launchArgs,
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       // Claude Code reads `.claude/skills` in every `--add-dir` directory.
-      ...(providerSkillDirectory && options.provider === "claude-code" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
+      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills?.extra.kind === "added-directory" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
       composedEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
@@ -3633,12 +3689,14 @@ async function* runProvider<
       ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
+    const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, withAgentDriverGatewayModel(options.provider, gateway, options.model, settings))
+    const eventLogRoot = temporaryRoot?.root ?? launchRoot
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: providerCwd,
       environment: providerRuntimeEnvironment,
-      provider: options.provider,
+      provider: providerHarnessProfiles[options.provider].runtimeKind,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
-      ...(Object.keys(settings).length ? { settings } : {}),
+      ...(Object.keys(runtimeSettings).length ? { settings: runtimeSettings } : {}),
     }
     runtime = await waitForProviderOperation(
       createProviderRuntime(runtimeOptions),
@@ -3687,15 +3745,31 @@ async function* runProvider<
         http_headers: { Authorization: toolServer.mcp.authorizationHeader },
         ...(nativeUnattendedTools ? { tools: Object.fromEntries(Object.keys(context.tools ?? {}).map(name => [name, { approval_mode: "approve" as const }])) } : {}),
       } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
-      model: options.model,
+      model: agentDriverSessionModel(gateway, options.model),
       resumeCursor,
       runtimeMode: providerRuntimeMode[permissions],
-      ...(providerSkillDirectory && options.provider === "codex" ? { skillRoots: [providerSkillDirectory] } : {}),
+      ...(providerSkillDirectory && providerHarnessProfile(options.provider).skills?.extra.kind === "skill-root" ? { skillRoots: [providerSkillDirectory] } : {}),
       // Deny native permission escalation without removing the edit-mode boundary.
       ...(permissions === "allow-edits-unattended" ? { approvalPolicy: "never" as const } : {}),
       ...(sandboxPolicy ? { sandboxPolicy } : {}),
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
+    const eventLogPath = sessionLog ? await sessionLog.path : eventLogRoot && join(eventLogRoot, providerEventLogFile)
+    if (eventLogPath) {
+      await mkdir(dirname(eventLogPath), { mode: 0o700, recursive: true })
+      eventLog = await open(eventLogPath, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NONBLOCK, 0o600)
+      if (!sessionLog?.wroteMetadata) {
+        await eventLog.appendFile(`${JSON.stringify({
+          type: "meta",
+          kind: runtimeOptions.provider,
+          cwd: session.cwd ?? providerCwd,
+          model: session.model,
+          threadId,
+          startedAt: session.createdAt ?? new Date().toISOString(),
+        })}\n`)
+        if (sessionLog) sessionLog.wroteMetadata = true
+      }
+    }
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     // The provider runtime starts a new native thread when it cannot resume the
     // requested one. Opaque cursors do not identify a thread, so they count as resumed.
@@ -3838,6 +3912,7 @@ async function* runProvider<
         continue
       }
       const current = raced.provider
+      if (!current.done && eventLog) await eventLog.appendFile(`${JSON.stringify(current.value)}\n`)
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
       if (current.value.threadId && current.value.threadId !== threadId) {
         nextEvent = events.next()
@@ -3938,6 +4013,7 @@ async function* runProvider<
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
+    if (eventLog) await eventLog.close().catch(error => { cleanupErrors.push(error) })
     const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
@@ -4243,11 +4319,16 @@ export function createProviderAgentAdapter<
   CALL_OPTIONS = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(configuredOptions: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
+  assertProviderExecutionOptions(configuredOptions.provider, configuredOptions)
   const options = withoutReplacedCredentials(configuredOptions)
   const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
-  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
+  const sessionLogs = new WeakMap<AgentAdapterRunContext["context"], ProviderSessionLog>()
+  const launch = async function* (
+    context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+    reportSessionLog?: (path: string) => void,
+  ) {
     // Keep the invocation deadline active across launch retries and their backoff. Each
     // runProvider attempt still gets its own timeout for normal provider work.
     const timeout = context.input.timeout
@@ -4260,14 +4341,37 @@ export function createProviderAgentAdapter<
     const retryContext = retrySignal && retrySignal !== context.input.abortSignal
       ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
-    return retryProviderLaunch(
-      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext),
+    const auxiliary = isAuxiliaryAgentAdapterContext(context)
+    if (auxiliary && retryContext !== context) markAuxiliaryMessageChannelInstructionContext(retryContext)
+    let sessionLog = auxiliary ? undefined : sessionLogs.get(context.context)
+    if (options.sessionLog !== undefined && !auxiliary && !sessionLog) {
+      const configured = options.sessionLog
+      const path = (async () => {
+        const value = await resolveRuntimeValue(configured, providerMetadataContext(retryContext))
+        if (typeof value !== "string" || !value.trim()) {
+          throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] Provider Agent Driver sessionLog must resolve to a non-empty file path." })
+        }
+        return resolve(value)
+      })()
+      sessionLog = { path, wroteMetadata: false }
+      sessionLogs.set(context.context, sessionLog)
+    }
+    if (sessionLog) {
+      const path = await waitForProviderOperation(sessionLog.path, retrySignal)
+      reportSessionLog?.(path)
+    }
+    yield* retryProviderLaunch(
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, sessionLog),
       retrySignal,
       providerLaunchRetryDelaysMs,
     )
   }
   return {
-    generate: context => generateProvider(launch(context), context),
+    async generate(context) {
+      let sessionLog: string | undefined
+      const result = await generateProvider(launch(context, (path) => { sessionLog = path }), context)
+      return sessionLog === undefined ? result : { ...result, sessionLog }
+    },
     async metadata(context) {
       const instructions = await resolveAgentInstructions(options.instructions, context)
       return {

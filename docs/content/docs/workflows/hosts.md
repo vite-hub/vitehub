@@ -23,18 +23,26 @@ ViteHub infers Vercel only on Vercel. `agent: true` does not turn on Workflow: w
 | Driver | Configure with | Driver output | Nuance |
 | --- | --- | --- | --- |
 | Cloudflare | `workflow: { driver: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
-| Vercel | `workflow: { driver: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
+| Vercel | `workflow: { driver: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | Every discovered Workflow file runs durably with Workflow DevKit. A Vercel build never runs one inline. Agent turns and Workflows made with `createWorkflow()` in code run inline and stop if the function restarts. |
 | OpenWorkflow | Inferred on Node and Docker, or `workflow: { driver: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
 
 ### Install Vercel dependencies
 
-All Vercel Workflow definitions, including plain inline handlers, require `@vercel/functions` in the app:
+All Vercel Workflow definitions require `@vercel/functions` in the app:
 
 ```bash pm
 pnpm add @vercel/functions
 ```
 
-For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. ViteHub generates a native entry for a Workflow folder with numbered step files and no index handler. An index file such as `index.ts` or `index.mjs` prevents this generation. Plain inline handlers do not need these two packages. When a native definition misses them, the build stops with `WORKFLOW_R0006` and prints the install command.
+An app with discovered Workflow files also needs `workflow` and `@workflow/builders`, because a Vercel build makes a Workflow DevKit entry for each file:
+
+- A single file, such as `server/workflows/send-report.ts`, can default-export `defineWorkflow({ handler })`. ViteHub runs the handler as one step, as the Cloudflare root step does. `context.sleep()` throws `WORKFLOW_ROOT_STEP_SLEEP`. The handler receives the DevKit run ID; you cannot pass your own `id` to `startWorkflow()`.
+- A folder with numbered step files and no index file runs each step file as one step, in order.
+- A folder with an index file, such as `index.ts` or `index.mjs`, needs a [`native` entry](/docs/workflows/configure#add-a-durable-vercel-entry) that you write. Without it, the build stops with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. Remove the index file to use the numbered steps, or add `native`.
+
+A discovered file that exports a `createWorkflow()` handle instead of a definition cannot start on Vercel. Replace the handle with a default-exported `defineWorkflow({ handler })` to fix `WORKFLOW_VERCEL_DISCOVERED_NOT_NATIVE`.
+
+When the packages are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6

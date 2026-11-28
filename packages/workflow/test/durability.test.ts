@@ -13,8 +13,14 @@ const env = (name: string) => ({ kind: "env-variable" as const, source: { kind: 
 const postgres: Durability = { primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }
 
 describe("workflowDurability", () => {
-  it("reports the inline runner of the default provider on Node as process state", () => {
-    expect(workflowDurability({ driver: "vercel" }, context())).toMatchObject([{ primitive: "workflow", store: "inline", scope: "process" }])
+  it("reports the inline runner of the Vercel driver on Node as process state", () => {
+    const [report] = workflowDurability({ driver: "vercel" }, context())
+    expect(report).toMatchObject({ primitive: "workflow", store: "inline", scope: "process" })
+    expect(report?.fix).toContain("Deploy to Vercel")
+  })
+
+  it("reports Workflow DevKit runs of a Vercel build as shared", () => {
+    expect(workflowDurability({ driver: "vercel", native: true }, context())).toEqual([{ primitive: "workflow", store: "vercel", scope: "shared", reason: "Vercel Workflow DevKit stores each run of a discovered Workflow file." }])
   })
 
   it("follows the OpenWorkflow storage order at boot", () => {

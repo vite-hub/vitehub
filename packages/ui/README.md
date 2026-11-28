@@ -255,10 +255,14 @@ Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI c
 
 ## Motion
 
-Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. A pressed `button`, link, tab, radio, option, menu item, or checkbox squashes and springs back past rest. A pressed switch grows its knob instead of squashing the whole control. Non-transformable inline controls, such as links in running text, keep their layout and do not squash. A pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
+Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. By default (press mode `"buttons"`), only compact native buttons squash on a pointer press: a `button` or an `input` of type `button`, `submit`, or `reset`. The control must have no `role` or `role="button"`, be under 48px high, and be at most four times as wide as it is high. Links, tabs, radios, options, menu items, `summary`, checkboxes, wide buttons, and `[role=button]` on other elements stay still. At its settled pressed scale, the control shrinks by at most 6px along its longer side in untransformed layout. The spring can briefly squash farther. An icon-only control squashes its icon by 15% and keeps its background still. Space and Enter do not squash. A pressed switch still grows its knob on a pointer or key press instead of squashing the whole control. Non-transformable inline controls keep their layout and do not squash, and a pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
 
-- Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
-- Turn it off for the app with `createViteHubUI({ motion: false })`.
+- Opt any element into press squash with `data-motion-press`, or squash only its icon with `data-motion-press="icon"`. An opt-in does not pass down to children.
+- Turn press squash off on an element or a subtree with `data-motion-press="none"`. An element's own `data-motion-press` beats `"none"` on an ancestor.
+- Set the app press mode with `createViteHubUI({ motion: { press: "buttons" | "opt-in" | "all" } })`. `"buttons"` is the default, `"opt-in"` squashes only elements with `data-motion-press`, and `"all"` squashes every control role.
+- Turn the whole layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
+- Turn the layer off for the app with `createViteHubUI({ motion: false })`.
+- Without Vue, set the press mode with `setMotionPressMode("opt-in")` from `@vite-hub/ui/motion` before or after `installMotion()`.
 - Without Vue, call it yourself. With no argument it covers the document. A surface on someone else's page, such as a bar in a shadow root, passes its host element and its shadow roots instead, so the page around it does not move:
 
 ```ts

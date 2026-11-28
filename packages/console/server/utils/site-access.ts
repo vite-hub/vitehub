@@ -108,11 +108,13 @@ async function memberAccess(project: { id: string, teamId: string }, userId: str
   return member && { person: member.person, roles: siteMemberRoles(member.policy), caller: member.caller }
 }
 
-async function memberCommentsAgent(caller: ConsoleTeamCaller, projectId: string): Promise<SiteCommentsAgent | undefined> {
-  const result = await callProjectOperation(caller, projectId, "project.get", {}, { surface: "mcp" })
+async function memberCommentsAgent(caller: ConsoleTeamCaller, project: { id: string, label: string | null }): Promise<SiteCommentsAgent | undefined> {
+  const result = await callProjectOperation(caller, project.id, "project.get", {}, { surface: "mcp" })
   const reference = result?.ok ? field(result.value, "reference") : undefined
   if (!Array.isArray(reference) || !reference.some(operation => field(operation, "name") === "comments.get")) return undefined
-  return { projectId, teamId: caller.teamId, resolve: reference.some(operation => field(operation, "name") === "comments.resolve") }
+  const reported = result?.ok ? field(result.value, "name") : undefined
+  const name = project.label || (typeof reported === "string" && reported ? reported : undefined)
+  return { projectId: project.id, teamId: caller.teamId, resolve: reference.some(operation => field(operation, "name") === "comments.resolve"), ...(name ? { name } : {}) }
 }
 
 async function guestRoles(project: { id: string, teamId: string }, inviter: string, roles: readonly string[]): Promise<string[]> {
@@ -130,7 +132,7 @@ async function visitLocation(project: { id: string, teamId: string }, access: { 
   const projects = useConsoleProjects(project.teamId)
   const target = projects instanceof Response ? undefined : await projects.target(project.id)
   if (!target) return undefined
-  const commentsAgent = access.caller && await memberCommentsAgent(access.caller, project.id)
+  const commentsAgent = access.caller && await memberCommentsAgent(access.caller, target.project)
   const location = await signedLocation({ project: target.project, key: target.key, person: access.person, roles: access.roles, state, path, commentsAgent })
   return location instanceof Response ? location : seeOther(location, headers)
 }
@@ -348,7 +350,7 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
       const target = await caller.projects.target(project.id)
       if (!target) return projectNotFound()
       const roles = siteMemberRoles(policy)
-      const commentsAgent = await memberCommentsAgent(caller, project.id)
+      const commentsAgent = await memberCommentsAgent(caller, target.project)
       const location = await signedLocation({ project: target.project, key: target.key, person, roles, state, path, commentsAgent })
       if (location instanceof Response) return location
       const secure = isSecure(request)

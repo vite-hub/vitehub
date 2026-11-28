@@ -22,6 +22,12 @@ describe("agentDeploymentEnv", () => {
     expect(entries.filter(entry => entry.required)).toHaveLength(1)
   })
 
+  it("keeps VITEHUB_AGENT_STATE_URL optional when the State uses a Postgres Database", () => {
+    const entries = agentDeploymentEnv(normalizeAgentOptions({}), { host: "node" }, { stateDatabase: true })
+    expect(entries[0]).toEqual({ names: ["VITEHUB_AGENT_STATE_URL"], required: false, secret: true, hasDefault: true, owners })
+    expect(entries.filter(entry => entry.required)).toHaveLength(0)
+  })
+
   it("keeps Agent state in Durable Objects on Cloudflare and names the Discord Gateway route secret", () => {
     const entries = agentDeploymentEnv(normalizeAgentOptions({ routes: { discordGateway: true } }), { host: "cloudflare" })
     expect(names(entries)).toEqual([

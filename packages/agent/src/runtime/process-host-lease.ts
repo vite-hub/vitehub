@@ -1,5 +1,6 @@
 import { getInstanceId } from "@vite-hub/runtime"
 
+import { POSTGRES_STATE_DATABASE_NOW, STATE_DATABASE_NOW } from "../internal/state-database-clock.ts"
 import { localAgentProcessHostIntake, registerAgentProcessHostForwardingIntake, type AgentProcessHostIntake } from "../process-host.ts"
 
 import type { Lease, LeaseStore } from "@vite-hub/runtime"
@@ -213,10 +214,16 @@ function createForwardedIntake(agentName: string, state: () => { extension(name:
   let storage: SqliteAgentStateExtension | undefined
   let ready: Promise<void> | undefined
   const table = () => `${storage!.tablePrefix}intake`
+  const postgres = () => storage!.dialect === "postgresql"
+  const parameter = (index: number) => postgres() ? `$${index}` : "?"
   async function open(): Promise<SqliteAgentStateExtension> {
     storage ??= state().extension("process_host")
-    ready ??= storage.execute(`CREATE TABLE IF NOT EXISTS ${table()} (agent TEXT NOT NULL, delivery_id TEXT NOT NULL, event TEXT NOT NULL,
-      payload TEXT NOT NULL, received_at INTEGER NOT NULL, PRIMARY KEY (agent, delivery_id))`).then(() => undefined, (error: unknown) => {
+    const ddl = `CREATE TABLE IF NOT EXISTS ${table()} (agent TEXT NOT NULL, delivery_id TEXT NOT NULL, event TEXT NOT NULL,
+      payload TEXT NOT NULL, received_at ${postgres() ? "BIGINT" : "INTEGER"} NOT NULL, PRIMARY KEY (agent, delivery_id))`
+    ready ??= (postgres() ? storage.transaction(async (tx) => {
+      const [relation] = await tx.execute(`SELECT to_regclass($1) IS NOT NULL AS present`, [table()])
+      if (!relation?.present) await tx.execute(ddl)
+    }) : storage.execute(ddl)).then(() => undefined, (error: unknown) => {
       ready = undefined
       throw error
     })
@@ -225,8 +232,8 @@ function createForwardedIntake(agentName: string, state: () => { extension(name:
   }
   const intake: AgentProcessHostIntake = async ({ deliveryId, event, payload }) => {
     const store = await open()
-    await store.execute(`INSERT OR IGNORE INTO ${table()} (agent, delivery_id, event, payload, received_at)
-      VALUES (?, ?, ?, ?, CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER))`, [agentName, deliveryId, event, JSON.stringify(payload ?? null)])
+    await store.execute(`INSERT INTO ${table()} (agent, delivery_id, event, payload, received_at)
+      VALUES (${[1, 2, 3, 4].map(parameter).join(", ")}, ${postgres() ? POSTGRES_STATE_DATABASE_NOW : STATE_DATABASE_NOW}) ON CONFLICT DO NOTHING`, [agentName, deliveryId, event, JSON.stringify(payload ?? null)])
     return Response.json({ accepted: true, forwarded: true }, { status: 202 })
   }
   return {
@@ -236,14 +243,14 @@ function createForwardedIntake(agentName: string, state: () => { extension(name:
       if (!target) return
       const store = await open()
       while (active()) {
-        const rows = await store.execute(`SELECT delivery_id, event, payload FROM ${table()} WHERE agent = ? ORDER BY received_at, delivery_id LIMIT 20`, [agentName])
+        const rows = await store.execute(`SELECT delivery_id, event, payload FROM ${table()} WHERE agent = ${parameter(1)} ORDER BY received_at, delivery_id LIMIT 20`, [agentName])
         if (!rows.length) return
         for (const row of rows) {
           if (!active()) return
           const deliveryId = String(row.delivery_id)
           const response = await target({ deliveryId, event: String(row.event), payload: JSON.parse(String(row.payload)) })
           if (!response.ok) return
-          await store.execute(`DELETE FROM ${table()} WHERE agent = ? AND delivery_id = ?`, [agentName, deliveryId])
+          await store.execute(`DELETE FROM ${table()} WHERE agent = ${parameter(1)} AND delivery_id = ${parameter(2)}`, [agentName, deliveryId])
         }
       }
     },

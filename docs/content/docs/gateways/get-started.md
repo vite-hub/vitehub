@@ -44,13 +44,13 @@ import { openrouter } from 'vite-hub/gateways'
 import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads OPENROUTER_API_KEY when it sends the request.
-const model = languageModel(openrouter(), 'google/gemini-3-flash')
+const model = languageModel(openrouter(), 'google/gemini-3.8-flash')
 
 const { text } = await generateText({ model, prompt: 'What is a Server Primitive?' })
 ```
 
 - `languageModel(gateway, modelId)` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes a model.
-- Pass the model ID that the gateway expects, such as `google/gemini-3-flash` on OpenRouter.
+- Pass the model ID that the gateway expects, such as `google/gemini-3.8-flash` on OpenRouter.
 - The gateway reads its URL, key, and headers on each request, so rotated keys apply at once.
 
 ::
@@ -77,7 +77,7 @@ import { ask, openrouter } from 'vite-hub/gateways'
 import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 const [error, receipt] = await ask('MERCADONA 23.10 -34.90 EUR', {
-  model: languageModel(openrouter(), 'google/gemini-3-flash'),
+  model: languageModel(openrouter(), 'google/gemini-3.8-flash'),
   schema: z.object({ merchant: z.string(), amount: z.number(), date: z.string() }),
 })
 if (error) throw error

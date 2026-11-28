@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { overlayStyles } from "../src/overlay/styles.ts"
+import { overlayStyles, pillBarStyles } from "../src/overlay/styles.ts"
 
 // The overlay's styles are outside the cascade layers of @vite-hub/ui/styles.css, so any rule of theirs beats a layered ui
 // rule. A rule here on a part of the comment field once kept a wrapped new comment in a narrow column beside empty space.
@@ -13,4 +13,11 @@ it("leaves the comment field's layout to @vite-hub/ui", () => {
 it("keeps a hairline around a card or a new comment, so it shows on a dark page", () => {
   const popover = /\n\[data-slot="comment-layer-popover"\] \{([^}]*)\}/.exec(overlayStyles)?.[1]
   expect(popover).toMatch(/box-shadow: 0 0 0 1px var\(--vh-bubble-edge, var\(--vh-border\)\),/)
+})
+
+it("draws Send's dividers across the pill's flow, so a pill docked to a side gets horizontal rules, not short vertical bars", () => {
+  const divider = /"confirm"\]\)::after \{([^}]*)\}/.exec(pillBarStyles)?.[1]
+  expect(divider).toMatch(/flex: 0 0 1px;/)
+  expect(divider).toMatch(/align-self: stretch;/)
+  expect(divider).not.toMatch(/width|height/)
 })

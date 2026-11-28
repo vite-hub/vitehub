@@ -12,20 +12,9 @@ icon: i-lucide-workflow
 ::
 
 ::code-tree
-```ts [server/workflows/onboard-user/index.ts]
-import { defineWorkflow } from 'vite-hub/workflow'
-
-// Each numbered file in this folder is a step.
-// They run in the order you call them.
-export default defineWorkflow<{ email: string }>({
-  handler: async ({ payload, steps }) => {
-    const user = await steps.createUser(payload)
-    return await steps.sendWelcome(user)
-  },
-})
-```
-
 ```ts [server/workflows/onboard-user/01.create-user.ts]
+// Each numbered file in this folder is a step. The steps run
+// in order, and each step gets the result of the step before.
 // Step 1: create the user
 export default async function createUser(input: {
   email: string

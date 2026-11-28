@@ -480,7 +480,7 @@ describe("vitehub", () => {
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
       .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
     await expect(callHook(plugin.config, [{}, { command: "serve", mode: "development" }]))
-      .resolves.toBeUndefined()
+      .resolves.toEqual({ define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") } })
   })
 
   it("derives Console KV registration from the resolved Vite KV configuration", async () => {
@@ -857,6 +857,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       kvImport: "vite-hub/kv",
+      postgresStateDatabase: true,
       processDiscordGateway: true,
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),

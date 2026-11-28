@@ -106,6 +106,7 @@ describe("mountViteHubPagePill", () => {
     const exit = element.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!
     expect(exit.previousElementSibling?.localName).toBe("slot")
     expect(exit.getAttribute("aria-label")).toBe("Close review")
+    expect([element.shadowRoot!.querySelector("button.mark")!.hasAttribute("data-motion-press"), exit.hasAttribute("data-motion-press")]).toEqual([true, true])
     exit.click()
     expect(pressed).toEqual([true])
   })

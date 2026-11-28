@@ -14,3 +14,13 @@ export function resolveConsoleSiteAccess(comments: ConsoleSiteComments, options:
   if (typeof comments === "object" && comments.overlay === false) return false
   return Boolean(comments) || commentsVite.findCommentsEntry(options.projectRoot, options.serverDirs) !== undefined
 }
+
+/**
+ * Whether the app gets the Hosted Comments pill of the ViteHub Console: it has no Comments at all, with no
+ * `server/comments.ts` and no `comments` option. `comments: false` turns the Hosted Comments pill off too. The pill
+ * shows only in a deployed app that the Console links, with a `VITEHUB_CONSOLE_KEY_<NAME>` variable.
+ */
+export function resolveConsoleHostedComments(comments: ConsoleSiteComments, options: { projectRoot: string, serverDirs?: readonly string[] }): boolean {
+  if (comments !== undefined) return false
+  return ownerModules.commentsVite?.findCommentsEntry(options.projectRoot, options.serverDirs) === undefined
+}

@@ -101,6 +101,7 @@ const runtimeEntries = [
   "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/comment-thread.ts",
+  "src/console/runtime/client/comment-on-site.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
@@ -145,6 +146,7 @@ const runtimeEntries = [
   "src/console/runtime/server/access-policy.ts",
   "src/console/runtime/server/agent-console.ts",
   "src/console/runtime/operation-loader.ts",
+  "src/console/runtime/hosted-comments-loader.ts",
   "src/console/runtime/server/development.ts",
   "src/console/runtime/server/runtime.ts",
   "src/agent/console/agents.get.ts",
@@ -163,6 +165,8 @@ const runtimeEntries = [
   "src/console/runtime/server/site-actions.ts",
   "src/console/runtime/server/entry.ts",
   "src/console/runtime/server/entry-site-access.ts",
+  "src/console/runtime/server/entry-hosted-comments.ts",
+  "src/console/runtime/server/hosted-comments.ts",
   "src/console/runtime/server/site-entry.ts",
   "src/logs/console/logs.get.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -237,6 +241,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-definitions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-comment-on-site.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -594,6 +602,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/comment-thread"];
+          delete exports["./console/runtime/client/comment-on-site"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
@@ -644,6 +653,9 @@ export default defineConfig({
           delete exports["./console/runtime/server/site-entry"];
           delete exports["./console/runtime/server/entry"];
           delete exports["./console/runtime/server/entry-site-access"];
+          delete exports["./console/runtime/server/entry-hosted-comments"];
+          delete exports["./console/runtime/server/hosted-comments"];
+          delete exports["./console/runtime/hosted-comments-loader"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/agent-console"];

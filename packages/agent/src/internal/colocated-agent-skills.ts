@@ -92,20 +92,33 @@ export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedA
   return resolved
 }
 
+/** The files of one Skill folder by path relative to it, such as `SKILL.md` and `references/checklist.md`. */
+export type AgentSkillFiles = Readonly<Record<string, string | Uint8Array>>
+
+function isSkillFilePath(path: string): boolean {
+  return path.split("/").every(segment => segment !== "" && segment !== "." && segment !== ".." && !segment.includes("\\"))
+}
+
 /**
  * Add Skills to an Agent Definition without changing the original.
- * Each key is a Skill name, and each value is its `SKILL.md` content.
+ * Each key is a Skill name. Each value is its `SKILL.md` content, or the files of the Skill folder by relative path,
+ * which must include `SKILL.md`.
  * The result keeps the Skills of the original definition, including Skills that discovery adds later.
  * A Skill with the same name replaces the original one.
  */
-export function agentWithSkills<Agent extends object>(agent: Agent, skills: Record<string, string | Uint8Array>): Agent {
+export function agentWithSkills<Agent extends object>(agent: Agent, skills: Record<string, string | Uint8Array | AgentSkillFiles>): Agent {
   const added: Record<string, { content: string | Uint8Array, materialize: "startup", mount: "", workspacePath: string }> = {}
-  for (const [name, content] of Object.entries(skills)) {
+  for (const [name, skill] of Object.entries(skills)) {
     if (!/^[\w.-]+$/.test(name) || name === "." || name === "..") {
       throw agentDiagnostics.AGENT_SKILL_NAME_INVALID({ name })
     }
-    const workspacePath = `.agents/skills/${name}/SKILL.md`
-    added[`__vitehubAgentSkill:${workspacePath}`] = { content, materialize: "startup", mount: "", workspacePath }
+    const files = typeof skill === "string" || skill instanceof Uint8Array ? { "SKILL.md": skill } : skill
+    if (!Object.hasOwn(files, "SKILL.md")) throw agentDiagnostics.AGENT_SKILL_FILE_PATH_INVALID({ name })
+    for (const [path, content] of Object.entries(files)) {
+      if (!isSkillFilePath(path)) throw agentDiagnostics.AGENT_SKILL_FILE_PATH_INVALID({ name, path })
+      const workspacePath = `.agents/skills/${name}/${path}`
+      added[`__vitehubAgentSkill:${workspacePath}`] = { content, materialize: "startup", mount: "", workspacePath }
+    }
   }
   // SAFETY: The copy keeps the prototype and every own property descriptor of the Agent Definition.
   const resolved = Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) as Agent
@@ -120,7 +133,7 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
     enumerable: true,
     get: () => {
       const inherited: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
-      return { ...(typeof inherited === "object" ? inherited : undefined), ...discovered, ...added }
+      return extendColocatedAgentSkills(extendColocatedAgentSkills(inherited, discovered ?? {}), added)
     },
   })
   return resolved

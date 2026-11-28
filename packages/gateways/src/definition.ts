@@ -24,6 +24,10 @@ export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.a
  */
 export const aiGatewayOpenAIChat: unique symbol = Symbol.for("vitehub.aiGateway.openaiChat")
 
+export const aiGatewayResponsesRoute: unique symbol = Symbol.for("vitehub.aiGateway.responsesRoute")
+
+export const aiGatewaySdkOnly: unique symbol = Symbol.for("vitehub.aiGateway.sdkOnly")
+
 /**
  * Marks a gateway whose Chat Completions endpoint accepts a JSON schema in `response_format`. A symbol key, so key
  * checks and copies skip it. `languageModel()` then sends the output schema on `api: "chat"`, not plain `json_object`.
@@ -58,7 +62,7 @@ export interface AiGatewayOptionalCredentials {
   missing: string
 }
 
-const routes: readonly AiGatewayRoute[] = ["codex", "claude-code", "openai-compatible"]
+const routes: readonly AiGatewayRoute[] = ["codex", "claude-code", "gemini", "openai-compatible"]
 
 export function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -130,7 +134,7 @@ export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
       headers[header] = item as AiGatewaySecret
     }
   }
-  return Object.freeze({
+  const normalized: AiGatewayDefinition = {
     name,
     baseURL: Object.freeze(baseURL),
     // SAFETY: isSecretInput validated the secret input shape above.
@@ -138,7 +142,9 @@ export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
     ...(apiKeyEnv === undefined ? {} : { apiKeyEnv: Object.freeze(apiKeyEnv) }),
     ...(value.auth === undefined ? {} : { auth: value.auth }),
     ...(headers === undefined ? {} : { headers: Object.freeze(headers) }),
-  })
+  }
+  if (Reflect.get(value, aiGatewaySdkOnly) === true) Object.defineProperty(normalized, aiGatewaySdkOnly, { value: true })
+  return Object.freeze(normalized)
 }
 
 /** A value or the result of its resolver. */
@@ -158,7 +164,7 @@ export async function resolveAiGatewaySecret(value: AiGatewaySecret, context: Ai
 /** One model API route of a gateway, with its key and headers resolved. */
 export interface AiGatewayResolvedRoute {
   apiKey: string
-  auth: "bearer" | "x-api-key"
+  auth: "bearer" | "x-api-key" | "x-goog-api-key"
   baseURL: string
   headers: [string, string][]
 }
@@ -166,6 +172,10 @@ export interface AiGatewayResolvedRoute {
 /** A model route whose gateway may send requests without a key. See `aiGatewayOptionalCredentials`. */
 export interface AiGatewayModelRoute extends Omit<AiGatewayResolvedRoute, "apiKey"> {
   apiKey?: string
+}
+
+function routeAuth(gateway: AiGatewayDefinition, route: AiGatewayRoute): AiGatewayResolvedRoute["auth"] {
+  return route === "gemini" ? "x-goog-api-key" : gateway.auth ?? "bearer"
 }
 
 /** Whether a gateway has a base URL for the model API. */
@@ -210,7 +220,7 @@ async function resolveBaseURL(gateway: AiGatewayDefinition, route: AiGatewayRout
 export async function resolveAiGatewayRoute(gateway: AiGatewayDefinition, route: AiGatewayRoute, context: AiGatewayContext): Promise<AiGatewayResolvedRoute> {
   const [baseURL, apiKey, headers] = await Promise.all([resolveBaseURL(gateway, route, context), resolveApiKey(gateway, context), resolveHeaders(gateway, context)])
   // SAFETY: resolveApiKey throws instead of returning undefined when the key is required.
-  return { apiKey: apiKey as string, auth: gateway.auth ?? "bearer", baseURL, headers }
+  return { apiKey: apiKey as string, auth: routeAuth(gateway, route), baseURL, headers }
 }
 
 /**
@@ -236,5 +246,5 @@ export async function resolveAiGatewayModelRoute(gateway: AiGatewayDefinition, r
     resolveHeaders(gateway, context, optionalHeaders),
   ])
   if (!apiKey && !headers.some(([name]) => optionalHeaders.includes(name))) throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] ${missing}` })
-  return { ...(apiKey ? { apiKey } : {}), auth: gateway.auth ?? "bearer", baseURL, headers }
+  return { ...(apiKey ? { apiKey } : {}), auth: routeAuth(gateway, route), baseURL, headers }
 }

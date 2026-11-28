@@ -57,7 +57,7 @@ async function readVisitor(request: Request, base: string, development: boolean)
   return {
     id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles, kind,
     ...(kind === "member" && commentsAgent
-      ? { commentsAgent: { project: { id: commentsAgent.projectId, teamId: commentsAgent.teamId, url: aud }, resolve: commentsAgent.resolve } }
+      ? { commentsAgent: { project: { id: commentsAgent.projectId, teamId: commentsAgent.teamId, url: aud, ...(commentsAgent.name ? { name: commentsAgent.name } : {}) }, resolve: commentsAgent.resolve } }
       : {}),
   }
 }

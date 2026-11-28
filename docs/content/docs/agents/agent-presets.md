@@ -85,7 +85,7 @@ const changelogAgent = agentWithSkills(
 )
 ```
 
-Keys are Skill names and values are `SKILL.md` content. Inherited Skills stay, except ones with the same name.
+Keys are Skill names and values are `SKILL.md` content, or a Skill folder's files by relative path, such as `{ 'SKILL.md': skill, 'references/checklist.md': checklist }`. Inherited Skills stay, except ones with the same name.
 
 A discovered child Agent with its own `skills/` folder also keeps the colocated Skills of its parent. A child Skill folder replaces the parent folder with the same name, including its references.
 

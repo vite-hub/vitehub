@@ -10,7 +10,7 @@ packages:
   - "playground/logs"
 catalog:
   "@cloudflare/vitest-plugin": ^1.9.0
-  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1ee7ef6
   "@types/proper-lockfile": 4.1.4
   forges: 0.4.1
   proper-lockfile: 4.1.2
@@ -117,8 +117,8 @@ catalogs:
     "@comark/html": ^0.9.2
     comark: ^0.9.2
     comark-content: 0.5.1
-    comark-ui: ^0.12.2
-    comark-zoom: ^0.12.2
+    comark-ui: ^0.14.3
+    comark-zoom: ^0.14.3
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
   # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
   nitro-compat:

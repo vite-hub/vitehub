@@ -135,6 +135,7 @@ After you turn on Database, generate the first migration with
 | Schedule | A lease in the `vitehub_leases` table lets one instance run an occurrence at a time. Keep handlers idempotent in case a lease expires. | None |
 | Workflow | OpenWorkflow in the `openworkflow` schema. Each server with discovered Workflows or Agents starts a worker | `OPENWORKFLOW_POSTGRES_URL` comes before the Database |
 | Realtime | Each instance keeps its rooms in memory and shares them through Redis pub/sub with `REDIS_URL`, else Postgres `LISTEN`/`NOTIFY` | `REDIS_URL`, `REALTIME_POSTGRES_URL` |
+| Agent State | The `vitehub_agent_state_*` tables. Chat History, locks, the Chat queue, and queued webhook deliveries expire on the database clock | `VITEHUB_AGENT_STATE_URL` selects libSQL. An explicit State URL or non-`auto` driver overrides the default. Setting `dataDir` supplies a local `agent-state.sqlite` unless you configure another State store. |
 | Blob | Not shared by default. Use `driver: 's3'` or another [S3-compatible driver](/docs/blob/hosts#s3-compatible-object-storage) | The driver's credentials |
 
 Queue, Realtime, and Workflow do not use `DATABASE_URL` to select Postgres.
@@ -162,9 +163,9 @@ The primitive pages have the details:
 ## Agents
 
 A production Node build with Agents and a Postgres Default Database uses
-Postgres for the default Invocation journal unless you override it. Postgres
-also coordinates recovery and process host Leases. It does not store Agent
-State or local Workspace files.
+Postgres for the default Invocation journal and Agent State unless you override
+their stores. Postgres also coordinates recovery and process host Leases. It
+does not store local Workspace files.
 
 | Agent store | With a Postgres Default Database | Share it |
 | --- | --- | --- |
@@ -172,7 +173,7 @@ State or local Workspace files.
 | Recovery | One server at a time [sweeps the journal](/docs/agents/invocation-storage#recover-interrupted-invocations) on a 15-second timer, under the Lease `agent-recovery:<agent>`. | Keep the journal shared so that the sweep can see records from other servers. |
 | Process hosts | Shared. One server at a time [runs the host](/docs/agents/process-hosts#run-one-host-across-servers) of each Agent, under the Lease `agent-process-host:<agent>`. Another server takes over in about 30 seconds. | Nothing to set. The files that a host writes below `dataDir`, such as provider sessions, stay on the server that ran it. |
 | Resumable web chat streams | With `resumable.scope: 'process'`, streams stay in the memory of one process. | Set [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat) on the route and use a shared SQL journal. Streams use the database of the selected journal: Postgres with the Postgres default, or remote libSQL if the journal uses that override. |
-| Agent State | Not in Postgres. `VITEHUB_AGENT_STATE_URL` selects SQLite or libSQL. A `file:` URL keeps State on one host. | Set `VITEHUB_AGENT_STATE_URL` to the same remote libSQL server on every instance. If the server requires authentication, also set `VITEHUB_AGENT_STATE_AUTH_TOKEN`. See [History and sessions](/docs/agents/chat-history-sessions). |
+| Agent State | Shared in the `vitehub_agent_state_*` tables by default. An explicit State URL, a non-`auto` State driver, or `dataDir` can override the Postgres default. A `file:` URL keeps State on one host. | Keep the Postgres default, or set `VITEHUB_AGENT_STATE_URL` to the same remote libSQL server on every instance. If the server requires authentication, also set `VITEHUB_AGENT_STATE_AUTH_TOKEN`. See [History and sessions](/docs/agents/chat-history-sessions). |
 | Workspaces | Local is the fallback, with files under `.vitehub/workspaces/<name>` by default. A Workspace Definition without a `store` or `root` can infer Vercel Blob from credentials. | Use the [Blob + Database Store](/docs/workspace/configure#share-one-workspace-across-instances) with a shared Blob store such as S3 and the Postgres history schema. GitHub and Vercel Blob are also available as direct [Workspace Store drivers](/docs/workspace/configure#store-drivers). |
 
 If your build selects the Postgres default journal, run `vitehub database generate`
@@ -242,6 +243,7 @@ first uses them, not with Drizzle migrations:
 | `vitehub_queue_jobs` | Queue |
 | `vitehub_realtime_rooms`, `vitehub_realtime_messages` | Realtime on Postgres |
 | The `openworkflow` schema | Workflow |
+| `vitehub_agent_state_*` | Agent State, when it uses Postgres |
 | `drizzle.__drizzle_migrations` | Migrations on start and `vitehub database migrate` |
 
 `vitehub database generate` compares your schema with the last migration, so it does
@@ -515,6 +517,9 @@ trust if clients can reach Node directly.
   falling back to SQLite. Set a Postgres Default Database or
   `OPENWORKFLOW_POSTGRES_URL` to share Workflow runs.
 - Queue `concurrency` counts the jobs of one process.
+- The Babysitter keeps its pull request inbox in a SQLite file in its data
+  directory when Agent State is on Postgres. Only the server that holds the
+  Babysitter's process host reads it.
 - With the default config above, `vite dev` keeps KV, Queue, Realtime, and
   Workflow state on your computer and does not migrate the Database on start.
 

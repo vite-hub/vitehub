@@ -7,6 +7,7 @@ import type {
   AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
+import { isProviderHarness, providerHarnessProfile } from "./provider-profiles.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 export interface AgentUsagePricingContext {
@@ -199,10 +200,8 @@ function modelsDevModelCandidates(provider: string, model: string): string[] {
   return [...new Set(candidates)]
 }
 
-function modelsDevProviderCandidates(provider: string): string[] {
-  if (provider === "codex") return [provider, "openai"]
-  if (provider === "claude-code") return [provider, "anthropic"]
-  return [provider]
+function modelsDevProviderCandidates(provider: string): readonly string[] {
+  return isProviderHarness(provider) ? providerHarnessProfile(provider).pricing.providers : [provider]
 }
 
 function priceForUsage(price: StaticModelPrice, usage: AgentUsage): StaticModelPrice {
@@ -268,7 +267,7 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
           ? modelId.slice(0, modelId.indexOf("/"))
           : ""
     if (!providerId) return
-    if ((providerId === "codex" || providerId === "claude-code") && usage.inputTokenDetails?.cacheReadTokens === undefined) return
+    if (isProviderHarness(providerId) && providerHarnessProfile(providerId).pricing.requiresCacheReadTokens && usage.inputTokenDetails?.cacheReadTokens === undefined) return
     const prices = await loadCatalog()
     const price = modelsDevProviderCandidates(providerId)
       .flatMap(candidateProvider => {
