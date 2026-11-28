@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Status } from "@vite-hub/ui";
+import { Status, StatusIndicator, StatusLabel } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ConsoleContributedSection } from "../definitions";
@@ -322,7 +322,8 @@ onBeforeUnmount(() => {
                     <td class="whitespace-nowrap px-3 py-2 text-xs text-muted" :class="endpoint.kind === 'url' ? 'font-mono' : ''">{{ endpoint.kind === "inbox" ? "Inbox" : endpoint.host }}</td>
                     <td class="whitespace-nowrap px-3 py-2 text-xs">
                       <Status :tone="result.tone">
-                        {{ result.label }}<template v-if="result.at !== undefined"> · <ConsoleRelativeTime :value="isoTime(result.at)" /></template>
+                        <StatusIndicator />
+                        <StatusLabel>{{ result.label }}<template v-if="result.at !== undefined"> · <ConsoleRelativeTime :value="isoTime(result.at)" /></template></StatusLabel>
                       </Status>
                     </td>
                     <td v-if="!readOnly" class="whitespace-nowrap px-3 py-2 text-right">

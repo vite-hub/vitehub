@@ -38,6 +38,7 @@ const partFamilies = {
   ],
   "connection-status": ["ConnectionStatus", "ConnectionStatusIndicator", "ConnectionStatusLabel"],
   marker: ["Marker", "MarkerContent", "MarkerIcon"],
+  status: ["Status", "StatusIndicator", "StatusLabel"],
   message: ["Message", "MessageAvatar", "MessageContent", "MessageFooter", "MessageGroup", "MessageHeader"],
   "sync-status": ["SyncStatus", "SyncStatusIndicator", "SyncStatusLabel"],
   trace: [
@@ -80,7 +81,6 @@ export const componentNames = [
   "RollNumber",
   "SwapIcon",
   "RelativeTime",
-  "Status",
   "MotionList",
   "Progress",
   "DropField",
@@ -92,6 +92,7 @@ export const componentNames = [
   ...partFamilies.comments,
   ...partFamilies["connection-status"],
   ...partFamilies.marker,
+  ...partFamilies.status,
   ...partFamilies.message,
   ...partFamilies["sync-status"],
   ...partFamilies.trace,

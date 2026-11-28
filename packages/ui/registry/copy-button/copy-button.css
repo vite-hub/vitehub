@@ -1,0 +1,105 @@
+@layer components {
+  /* Copy button: the look of a neutral button of the ViteHub theme, so it matches the buttons around it. */
+  [data-slot="copy-button"] {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-text);
+    cursor: pointer;
+    display: inline-flex;
+    flex-shrink: 0;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 500;
+    gap: 0.375rem;
+    line-height: 1rem;
+    padding: 0.375rem 0.625rem;
+    transition: color 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  [data-slot="copy-button"][data-size="xs"] {
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  [data-slot="copy-button"][data-size="md"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  /* Without a label the button is a square around its icon. */
+  [data-slot="copy-button"]:not(:has([data-slot="copy-button-label"])) {
+    padding: 0.375rem;
+  }
+
+  [data-slot="copy-button"][data-size="xs"]:not(:has([data-slot="copy-button-label"])) {
+    padding: 0.25rem;
+  }
+
+  [data-slot="copy-button"][data-variant="outline"] {
+    background: var(--vh-bg);
+    box-shadow: inset 0 0 0 1px var(--vh-border-accented);
+  }
+
+  [data-slot="copy-button"][data-variant="solid"] {
+    background: var(--vh-highlighted);
+    color: var(--vh-inverted);
+  }
+
+  @media (hover: hover) {
+    [data-slot="copy-button"]:not([data-variant="solid"]):hover:not(:disabled) {
+      background: var(--vh-bg-elevated);
+    }
+
+    [data-slot="copy-button"][data-variant="solid"]:hover:not(:disabled) {
+      background: color-mix(in oklab, var(--vh-highlighted) 90%, transparent);
+    }
+  }
+
+  [data-slot="copy-button"]:focus-visible {
+    outline: 2px solid var(--vh-ring);
+    outline-offset: 2px;
+  }
+
+  [data-slot="copy-button"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  [data-slot="copy-button"][data-loading] {
+    cursor: progress;
+  }
+
+  [data-slot="copy-button-icon"] {
+    flex: none;
+    height: 1rem;
+    opacity: 0.8;
+    width: 1rem;
+  }
+
+  [data-slot="copy-button"][data-size="md"] [data-slot="copy-button-icon"] {
+    height: 1.25rem;
+    width: 1.25rem;
+  }
+
+  [data-slot="copy-button"][data-loading] [data-slot="copy-button-icon"] {
+    animation: copy-button-spin 1s linear infinite;
+  }
+
+  @keyframes copy-button-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="copy-button"] {
+      transition: none;
+    }
+
+    [data-slot="copy-button"][data-loading] [data-slot="copy-button-icon"] {
+      animation: none;
+    }
+  }
+}

@@ -146,7 +146,7 @@ function detail(key: ConsoleApiKey): string {
       <template #body>
         <div v-if="created" class="flex gap-2">
           <UInput :model-value="created" readonly aria-label="API key" class="min-w-0 flex-1 font-mono" @focus="($event.target as HTMLInputElement).select()" />
-          <CopyButton :value="created" color="neutral" variant="outline" label="Copy" @error="copyKeyFailed" />
+          <CopyButton :value="created" variant="outline" label="Copy" @error="copyKeyFailed" />
         </div>
         <form v-else id="vitehub-api-key-create" class="grid gap-4" @submit.prevent="create">
           <UFormField label="Name" name="name" required :error="createProblem" :ui="{ error: createProblem ? undefined : 'mt-0' }">

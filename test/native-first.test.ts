@@ -32,7 +32,7 @@ describe("native first", () => {
 
   it("copies with execCommand only in the CopyButton fallback", () => {
     const found = sources
-      .filter(({ file, text }) => file !== "packages/ui/src/components/copy-button.ts" && /execCommand\(\s*["'`]copy/.test(text))
+      .filter(({ file, text }) => file !== "packages/ui/registry/copy-button/use-copy.ts" && /execCommand\(\s*["'`]copy/.test(text))
       .map(({ file }) => file)
     expect(found, `Use CopyButton or navigator.clipboard. See "Native first" in AGENTS.md.\n${found.join("\n")}`).toEqual([])
   })

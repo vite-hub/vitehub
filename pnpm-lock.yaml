@@ -3080,9 +3080,6 @@ importers:
         specifier: 0.1.0-beta.14
         version: 0.1.0-beta.14(patch_hash=bf76c628ce012f2dbeb4922c6b6099bef5a29963c8435231d98195ec8a3eefa0)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.14(patch_hash=6a5b291e80ebaeda5552e8bc955bcb9bcd3b267893adfe77194423dcdff2f17c))(nuxt-nightly@5.0.0-2611222336-0ed8910(ab449a0f0abaa7d3f8893d1207cc7234))(vue@3.5.46(typescript@6.0.3))
     devDependencies:
-      '@cfworker/json-schema':
-        specifier: 4.1.6
-        version: 4.1.6
       '@fontsource-variable/geist':
         specifier: catalog:ui
         version: 5.3.0
@@ -3984,6 +3981,9 @@ importers:
       '@lezer/highlight':
         specifier: 1.2.5
         version: 1.2.5
+      '@lucide/vue':
+        specifier: 1.80.0
+        version: 1.80.0(vue@3.5.46(typescript@6.0.3))
       '@nuxt/kit':
         specifier: 4.6.4
         version: 4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))
@@ -4039,6 +4039,9 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.179(@vue/test-utils@2.6.0(@vue/compiler-dom@3.5.46)(@vue/server-renderer@3.5.46)(vue@3.5.46(typescript@6.0.3)))(vue@3.5.46(typescript@6.0.3))(zod@4.6.7)
+      '@cfworker/json-schema':
+        specifier: 4.1.6
+        version: 4.1.6
       '@floating-ui/dom':
         specifier: 1.8.0
         version: 1.8.0
@@ -4162,6 +4165,9 @@ importers:
       vue:
         specifier: 3.5.46
         version: 3.5.46(typescript@6.0.3)
+      vue-tsc:
+        specifier: catalog:tooling
+        version: 3.3.14(typescript@6.0.3)
 
   packages/vite-hub:
     dependencies:
@@ -7113,6 +7119,11 @@ packages:
         optional: true
       vite:
         optional: true
+
+  '@lucide/vue@1.80.0':
+    resolution: {integrity: sha512-vNJr1C3Jx8yUkdTXFYx1iMQ73wkK/opZlTl6mLpvBykXdf5TE9alpfbLfGC4gzrkPV5Ra+YRsUS4TVGJFPASCA==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   '@lukeed/csprng@1.1.0':
     resolution: {integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==}
@@ -22072,6 +22083,10 @@ snapshots:
     optionalDependencies:
       '@babel/core': 8.1.3
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1)'
+
+  '@lucide/vue@1.80.0(vue@3.5.46(typescript@6.0.3))':
+    dependencies:
+      vue: 3.5.46(typescript@6.0.3)
 
   '@lukeed/csprng@1.1.0':
     optional: true

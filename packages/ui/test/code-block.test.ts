@@ -15,12 +15,6 @@ import {
   useHighlightedCode,
 } from "../src/index.ts";
 
-const ButtonStub = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, "data-stub": "UButton" });
-  },
-});
-
 describe("CodeBlock", () => {
   it("renders the shadcn/ui slots, variant, and size", () => {
     const wrapper = mount(() =>
@@ -62,17 +56,15 @@ describe("CodeBlock", () => {
   it("copies the value through CopyButton and announces it", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    const wrapper = mount(() => h(CodeBlockCopyButton, { value: "pnpm test" }), {
-      attachTo: document.body,
-      global: { components: { UButton: ButtonStub } },
-    });
+    const wrapper = mount(() => h(CodeBlockCopyButton, { value: "pnpm test" }), { attachTo: document.body });
 
-    const button = wrapper.get("[data-slot=code-block-copy-button]");
-    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", icon: "i-lucide-copy", size: "xs", variant: "ghost" });
+    const button = wrapper.get("button[data-slot=copy-button]");
+    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", "data-size": "xs", "data-variant": "ghost" });
     await button.trigger("click");
     await flushPromises();
     expect(writeText).toHaveBeenCalledWith("pnpm test");
-    expect(wrapper.get("[data-slot=code-block-copy-button]").attributes()).toMatchObject({ "data-copied": "", icon: "i-lucide-check" });
+    expect(wrapper.get("[data-slot=copy-button]").attributes("data-copied")).toBe("");
+    expect(wrapper.get("[data-slot=copy-button-icon]").classes()).toContain("lucide-check");
     await vi.waitFor(() => expect(document.querySelector("[data-slot=live-announcer]")?.textContent).toBe("Copied"));
     wrapper.unmount();
   });

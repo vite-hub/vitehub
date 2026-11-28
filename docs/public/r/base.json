@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "base",
+  "type": "registry:base",
+  "title": "ViteHub base",
+  "description": "Start an app on ViteHub UI: `shadcn-vue init --preset https://vitehub.dev/r/base.json`. It adds the @vitehub registry, Lucide icons, the theme, and the core stylesheet. It installs no Reka UI.",
+  "extends": "none",
+  "config": {
+    "iconLibrary": "lucide",
+    "registries": {
+      "@vitehub": "https://vitehub.dev/r/{name}.json"
+    }
+  },
+  "registryDependencies": [
+    "@vitehub/theme",
+    "@vitehub/core"
+  ]
+}

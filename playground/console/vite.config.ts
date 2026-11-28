@@ -8,6 +8,7 @@ import { consoleMockAPI } from "./mock-api.ts"
 import { consoleMockRPC } from "./rpc.ts"
 import { consoleMockSite } from "./site-fixture.ts"
 import { consoleAppConfig } from "../../packages/vite-hub/src/console/app.config.ts"
+import { registrySourceStyles } from "../../packages/ui/registry/source-styles.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "../..")
 
@@ -15,6 +16,8 @@ export default defineConfig({
   appType: "spa",
   base: "/_vitehub/",
   plugins: [
+    // `@vite-hub/ui` comes from source here, and its styles from `styles.css`.
+    registrySourceStyles(),
     consoleMockAPI(),
     consoleMockRPC(),
     consoleMockSite(),

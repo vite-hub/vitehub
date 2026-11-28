@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-copy-button",
+  "type": "registry:block",
+  "title": "Copy button example",
+  "description": "An icon-only copy button and one with a label.",
+  "registryDependencies": [
+    "@vitehub/copy-button"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-copy-button/CopyButtonExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CopyButton } from \"../copy-button/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-copy-button\" style=\"display: flex; align-items: center; gap: 0.5rem\">\n    <CopyButton value=\"pnpm add @vite-hub/ui\" />\n    <CopyButton value=\"https://vitehub.dev\" label=\"Copy link\" variant=\"outline\" />\n    <CopyButton value=\"vitehub deploy\" label=\"Copy\" variant=\"solid\" size=\"md\" />\n  </div>\n</template>\n"
+    }
+  ]
+}
