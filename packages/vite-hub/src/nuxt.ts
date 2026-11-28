@@ -61,7 +61,7 @@ import type { EnvDeclarations } from "@vite-hub/env"
 import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { assertViteHubOptionKeys } from "./removed-options.ts"
 import { nuxtServerAutoImportsEnabled, resolveViteHubServerImports } from "./nuxt-server-imports.ts"
 
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
@@ -970,7 +970,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   await installViteHubUIRuntime(nuxt)
 
   const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
-  assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
+  assertViteHubOptionKeys(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)

@@ -535,15 +535,18 @@ The Console Schedules page runs the same operation. A read-only grant (`"schedul
 Start the dev server, then run `vitehub schedule` in another terminal. `runs list` and `runs get` read that server's Schedule Run store, so they show the runs the app recorded: manual runs and Process Runtime runs.
 
 ```bash [Terminal]
+pnpm vitehub schedule runs list
 pnpm vitehub schedule runs list digest --limit 5
 pnpm vitehub schedule runs list digest --json
 pnpm vitehub schedule runs get srun_static_digest_2026-05-22T07:00:00.000Z
 ```
 
 ```txt [Output]
-RUN                                          STATUS     SCHEDULED AT              ATTEMPTS  ERROR
-srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
+RUN                                          SCHEDULE  STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_static_digest_2026-05-22T07:00:00.000Z  digest    succeeded  2026-05-22T07:00:00.000Z  1         -
 ```
+
+Without a name, `runs list` lists the runs of every Schedule, newest first. Pass a Schedule Definition name or a started Schedule id to list the runs of one Schedule.
 
 `list` shows every Schedule of the server: each Static Schedule Definition with its cron, then the Schedules that code started. An app with only cron Schedules lists them without a KV store:
 
