@@ -57,7 +57,18 @@ export type ViteHubCliSpawn = (
   options?: ViteHubCliSpawnOptions,
 ) => Promise<ViteHubCliSpawnResult>
 
+/** Where a call to an app goes through the Console: the operation endpoint of the app's Console project, and the token of `vitehub login`. */
+export interface ViteHubCliConsoleRoute {
+  authorization: string
+  target: string
+}
+
 export interface ViteHubCliContext extends ViteHubCliStreams {
+  /**
+   * Finds the app at `url` in the Console of `vitehub login` and returns the route that lets the Console sign the call.
+   * Returns nothing when the command must call the app directly, such as when a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` is set.
+   */
+  consoleRoute?: (url: string, signal: AbortSignal) => Promise<ViteHubCliConsoleRoute | undefined>
   cwd: string
   env: NodeJS.ProcessEnv
   /** Replaces `fetch` for commands that call a running app, so tests need no server. */

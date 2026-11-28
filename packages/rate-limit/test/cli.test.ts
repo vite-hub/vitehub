@@ -151,6 +151,18 @@ describe("Rate Limit review regressions", () => {
 })
 
 describe("vitehub rate-limit", () => {
+  it("sends a call on --url through the Console after vitehub login", async () => {
+    const output = context()
+    const fetch = devServer(known)
+    const consoleRoute = vi.fn(async () => ({ authorization: "Bearer vhk_secret", target: "https://console.example.com/p/a1" }))
+
+    await expect(runRateLimitCli(["peek", "login", "192.0.2.1", "--url", "https://app.example.com"], { ...output.context, consoleRoute }, { fetch })).resolves.toBe(0)
+
+    expect(consoleRoute).toHaveBeenCalledWith("https://app.example.com", expect.any(AbortSignal))
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(["https://console.example.com/p/a1/_vitehub/rpc"])
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer vhk_secret")
+  })
+
   it("prints a live counter with whitespace in its window", async () => {
     setRateLimitRuntimeConfig({ driver: "memory" })
     const request = new Request("https://example.com/login")

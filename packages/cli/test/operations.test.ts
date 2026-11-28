@@ -4,9 +4,9 @@ import { join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
+import { type ViteHubCliContext, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
-import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { type AnyOperation, callOperationFromCli, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
@@ -358,6 +358,24 @@ describe("generated operation commands", () => {
       const removed = await run(["reports", "delete", "r1", "--yes", "--url", "https://app.example.com"], { env, fetch: consoleServer() })
       expect(removed.code, removed.stderr).toBe(0)
       expect(removed.stdout + removed.stderr).not.toContain("vhk_secret")
+    })
+
+    it("sends a package command on --url through the Console, as kv and blob commands call it", async () => {
+      const fetch = consoleServer()
+      const stdout = stream()
+      const stderr = stream()
+      const show = {
+        name: "show",
+        async run(args: string[], context: ViteHubCliContext) {
+          const result = await callOperationFromCli({ consoleRoute: context.consoleRoute, env: context.env, fetch: context.fetch, rootDir: context.rootDir, url: args[1] }, "reports.list", { team: args[0] })
+          context.stdout.write(JSON.stringify(result))
+          return result.ok ? 0 : 1
+        },
+      }
+      const code = await runViteHubCli({ args: ["reports", "show", "acme", "https://app.example.com"], cwd: "/app", env, fetch: fetch as unknown as typeof globalThis.fetch, runtimeFeatures: [{ features: [show], name: "reports" }], stderr, stdout })
+      expect(code, stdout.output() + stderr.output()).toBe(0)
+      expect(JSON.parse(stdout.output())).toEqual({ ok: true, value: { limit: null, team: "acme" } })
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([`${console}/api/projects`, `${console}/p/a1b2c3d4-0/_vitehub/rpc`])
     })
 
     it("calls the app itself when the Console does not have it, or with a private key", async () => {

@@ -1,5 +1,6 @@
 import { resolveViteHubProjectRoot } from "./build/vite.ts"
 import { findViteHubDevServerUrl } from "./cli.ts"
+import type { ViteHubCliContext } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecordOrFunction as isObject } from "./object.ts"
 import { callOperationRpc, operationRpcPath, readOperationRpcError } from "./operation-rpc.ts"
@@ -519,6 +520,8 @@ export async function callOperation(target: OperationTarget, name: string, input
 export interface CliOperationCall {
   /** Whether the command confirmed a destructive call. */
   confirmed?: boolean
+  /** Sends a call on `url` through the Console after `vitehub login`, as generated operation commands do. */
+  consoleRoute?: ViteHubCliContext["consoleRoute"]
   /** Environment of the command, with the credentials. */
   env: NodeJS.ProcessEnv
   /** Replaces `fetch`, so tests need no server. */
@@ -533,7 +536,8 @@ export interface CliOperationCall {
 
 /**
  * Call one operation from a `vitehub` command: on `--url` when it is set, else on the dev server that the project
- * started. Never throws. Without a dev server the result is an `INTERNAL_R0024` failure that says to start one.
+ * started. A call on `--url` goes through the Console when `consoleRoute` finds the app there. Never throws. Without a
+ * dev server the result is an `INTERNAL_R0024` failure that says to start one.
  */
 export async function callOperationFromCli(call: CliOperationCall, name: string, input: unknown): Promise<OperationResult> {
   let roots: string[]
@@ -543,9 +547,15 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   catch {
     roots = [call.rootDir]
   }
+  const target = { ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}) }
+  if (call.url && call.consoleRoute) {
+    const signal = AbortSignal.timeout(call.timeout ?? 30_000)
+    const route = await call.consoleRoute(call.url, signal)
+    return await callOperation({ ...target, ...(route ? { authorization: route.authorization } : {}), signal, url: route?.target ?? call.url }, name, input)
+  }
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${roots.at(-1)}.`)
-  return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+  return await callOperation({ ...target, ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
 }
 
 /** Align rows of text cells in columns for CLI output. The last column is not padded. */

@@ -261,7 +261,7 @@ const appEnvResult = v.looseObject({
 async function listAppEnv(url: string, json: boolean, context: ViteHubCliContext): Promise<number> {
   const message = appUrlError(url)
   if (message) return writeCliFailure(json, context, { message })
-  const result = await callOperationFromCli({ env: context.env, ...(context.fetch ? { fetch: context.fetch } : {}), rootDir: context.rootDir, url }, "env.inspect", {})
+  const result = await callOperationFromCli({ consoleRoute: context.consoleRoute, env: context.env, ...(context.fetch ? { fetch: context.fetch } : {}), rootDir: context.rootDir, url }, "env.inspect", {})
   if (!result.ok) return writeCliFailure(json, context, { code: result.code, ...(result.fix ? { fix: result.fix } : {}), message: result.message })
   const parsed = v.safeParse(appEnvResult, result.value)
   if (!parsed.success) return writeCliFailure(json, context, { message: `The app at ${url} returned an env report that this CLI cannot read.` })

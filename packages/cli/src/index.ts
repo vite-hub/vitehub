@@ -11,7 +11,7 @@ import { resolve } from "pathe"
 
 import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
-import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
+import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces, throughConsole } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
 import { renamedCommandMessage } from "./renamed-commands.ts"
 import { createSeedNamespace } from "./seed.ts"
@@ -404,10 +404,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     return await runNamespace(provisionNamespace, args, { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
-  if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
+  const consoleRoute: ViteHubCliContext["consoleRoute"] = async (url, signal) => await throughConsole(url, { env, ...(options.fetch ? { fetch: options.fetch } : {}), stderr }, signal)
+  if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { consoleRoute, cwd, env, rootDir: cwd, spawn, stderr, stdout })
   const runtimeFeatures = [...options.runtimeFeatures ?? [], hostEnvFeatures].find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
   if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
-    return await runNamespace(runtimeFeatures, args, { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
+    return await runNamespace(runtimeFeatures, args, { consoleRoute, cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
 
   const helpNamespace = await loadHelpNamespace(args, options.helpNamespaces)
@@ -447,6 +448,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   else namespaces.push(hostEnvFeatures)
 
   const context: ViteHubCliContext = {
+    consoleRoute,
     cwd,
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),

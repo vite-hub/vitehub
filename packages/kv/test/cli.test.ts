@@ -279,6 +279,18 @@ describe("KV review regressions", () => {
 })
 
 describe("vitehub kv", () => {
+  it("sends a call on --url through the Console after vitehub login", async () => {
+    const output = context()
+    const fetch = devServer({ keys: ["a"], limit: 100, prefix: "", store: "default", stores: ["default"] })
+    const consoleRoute = vi.fn(async () => ({ authorization: "Bearer vhk_secret", target: "https://console.example.com/p/a1" }))
+
+    await expect(runKVCli(["list", "--url", "https://app.example.com"], { ...output.context, consoleRoute }, { fetch })).resolves.toBe(0)
+
+    expect(consoleRoute).toHaveBeenCalledWith("https://app.example.com", expect.any(AbortSignal))
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(["https://console.example.com/p/a1/_vitehub/rpc"])
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer vhk_secret")
+  })
+
   it("lists keys as lines and as JSON", async () => {
     const result = { cursor: "next", keys: ["users:1", "users:2"], limit: 2, prefix: "users:", store: "default", stores: ["default", "cache"] }
     const human = context()

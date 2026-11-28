@@ -11,14 +11,14 @@ Every call to the Console endpoint carries an Ed25519 signature, so reading the 
 
 ## Call through the Console
 
-After `vitehub login`, generated operation commands such as `logs list` can use `--url` without a separate private key. The CLI finds the app in the Console, and the Console signs the call for you with your role in the team:
+After `vitehub login`, operation commands such as `logs list`, `kv list`, `blob list`, `email outbox list`, `rate-limit peek`, `env list`, and `agent get` can use `--url` without a separate private key. The CLI finds the app in the Console, and the Console signs the call for you with your role in the team:
 
 ```bash [Terminal]
 pnpm vitehub login
 pnpm vitehub logs list --url https://app.example.com
 ```
 
-The app must be linked in that Console, such as by [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) or `vitehub apps link`, and both the Console and the deployed app must support CLI forwarding. If the Console does not support forwarding, has no matching link, or a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` is set, the CLI calls the app directly. Dedicated commands such as the [Content CLI](/docs/content/cli) always call the app directly and still need a private key for signed requests.
+The app must be linked in that Console, such as by [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) or `vitehub apps link`, and both the Console and the deployed app must support CLI forwarding. If the Console does not support forwarding, has no matching link, or a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` is set, the CLI calls the app directly. The [Content CLI](/docs/content/cli) and the Workspace checkout commands `vitehub pull` and `vitehub push` always call the app directly and still need a private key for signed requests.
 
 Discovery and the operation share the `--timeout` budget. If discovery fails, the CLI warns and calls the app directly if time remains. Once a call is sent through the Console, the CLI does not retry it directly.
 
