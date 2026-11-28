@@ -97,8 +97,8 @@
       "title": "Button",
       "description": "A button on the ui-sdk Button part, with default, outline, secondary, ghost, destructive and link variants. An async @click keeps it pending.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -121,8 +121,8 @@
       "title": "Input",
       "description": "A text field on the ui-sdk Input part. Its frame turns blue on focus and red when invalid, and it is 16px on touch screens.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -145,8 +145,8 @@
       "title": "Textarea",
       "description": "A multi-line field on the ui-sdk Textarea part that grows with its text.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -169,8 +169,8 @@
       "title": "Label",
       "description": "A field label on the ui-sdk Label part.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -257,8 +257,8 @@
       "title": "Avatar",
       "description": "An image of a person or a team, with initials while it loads or when it fails, on the ui-sdk Avatar part.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -289,8 +289,8 @@
       "title": "Dialog",
       "description": "A 448px task over the page on the ui-sdk Dialog part. It opens at once, traps focus and returns it.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -330,8 +330,8 @@
       "title": "Sheet",
       "description": "A panel from an edge of the screen on the ui-sdk Drawer part. You can drag it closed.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -375,8 +375,8 @@
       "title": "Dropdown menu",
       "description": "Actions and settings in a menu on the ui-sdk Menu part, with checkbox, radio and submenu items.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -432,8 +432,8 @@
       "title": "Tabs",
       "description": "Underline tabs on the ui-sdk Tabs part. The line follows the selected tab.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core"
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14"
       ],
       "registryDependencies": [
         "@vitehub/utils",
@@ -576,8 +576,8 @@
       "title": "Toast",
       "description": "A stack of notifications on the ui-sdk Toast part. Call toast() from anywhere and place <Toaster /> once.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -601,8 +601,8 @@
       "title": "Command palette",
       "description": "A searchable list of commands on the ui-sdk Command part, inline or in a dialog that opens with a shortcut.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -724,8 +724,8 @@
       "title": "Prompt input",
       "description": "A chat composer on the ui-sdk Textarea and FileInput parts. Enter sends on desktop when ready and adds a line on touch-only devices or while pending. Files attach by drop, paste, or the picker.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -778,8 +778,8 @@
       "title": "Tool call",
       "description": "A collapsible row for one Agent tool call, with its state, input, output or error.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -808,8 +808,8 @@
       "title": "Sidebar",
       "description": "A sidebar that folds to icons on desktop and opens as a sheet below 768px. Ctrl+B or Cmd+B toggles it.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [
@@ -901,8 +901,8 @@
       "title": "App shell",
       "description": "An app layout with a collapsible sidebar, sections that open and close, a top bar and the page.",
       "dependencies": [
-        "@ui-sdk/vue",
-        "@ui-sdk/core",
+        "@ui-sdk/vue@0.1.0-beta.14",
+        "@ui-sdk/core@0.1.0-beta.14",
         "@lucide/vue"
       ],
       "registryDependencies": [

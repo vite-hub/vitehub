@@ -19,6 +19,7 @@ interface CssVars {
 export interface RegistryItem {
   name: string;
   type: string;
+  dependencies?: string[];
   registryDependencies?: string[];
   files?: RegistryFile[];
   cssVars?: Partial<CssVars>;
@@ -34,17 +35,9 @@ export interface Registry {
 const itemSchema = "https://shadcn-vue.com/schema/registry-item.json";
 const registryValidator = new Validator(registrySchema as Schema, "7", false);
 registryValidator.addSchema(registryItemSchema as Schema, "https://ui.shadcn.com/schema/registry-item.json");
-const manifestValidator = new Validator({
-  type: "object",
-  properties: { dependencies: { type: "object", additionalProperties: { type: "string" } } },
-}, "7", false);
 
 function isRegistry(value: unknown): value is Registry {
   return registryValidator.validate(value).valid;
-}
-
-function isKitManifest(value: unknown): value is { dependencies?: Record<string, string> } {
-  return manifestValidator.validate(value).valid;
 }
 
 const themeTokens = new Set(["font-sans", "font-mono"]);
@@ -75,28 +68,16 @@ function withTokens(tokens: CssVars, own: Partial<CssVars> = {}): CssVars {
   };
 }
 
-function pin(versions: Record<string, string>): (name: string) => string {
-  return (name) => {
-    const version = versions[name];
-    return version && /^\d/.test(version) ? `${name}@${version}` : name;
-  };
-}
-
 export function buildRegistry(read: (path: string) => string): Record<string, string> {
   const registry: unknown = JSON.parse(read("registry/registry.json"));
   if (!isRegistry(registry)) throw new Error("registry/registry.json does not match the shadcn-vue registry schema.");
   const tokens = tokensToCssVars(read("src/styles/tokens.css"));
-  const kit: unknown = JSON.parse(read("package.json"));
-  if (!isKitManifest(kit)) throw new Error("package.json must declare dependency versions as strings.");
-  const version = pin(kit.dependencies ?? {});
   const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
   const out: Record<string, string> = {};
   for (const item of registry.items) {
-    const dependencies = Array.isArray(item.dependencies) ? item.dependencies.filter((name) => typeof name === "string").map(version) : undefined;
     const built: RegistryItem = {
       $schema: itemSchema,
       ...item,
-      ...(dependencies ? { dependencies } : {}),
       ...(item.type === "registry:style" || item.type === "registry:theme" ? { cssVars: withTokens(tokens, item.cssVars) } : {}),
       files: item.files?.map((file) => ({ ...file, path: file.path.replace(/^registry\//, ""), content: read(file.path) })),
     };

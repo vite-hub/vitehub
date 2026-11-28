@@ -75,19 +75,26 @@ describe("@vitehub registry", () => {
     expect(skill?.dependencies ?? []).toContain("tw-animate-css");
   });
 
-  it("pins ui-sdk to the version the kit tests against", () => {
-    const kitPackage = JSON.parse(read("package.json")) as { dependencies: Record<string, string> };
-    const button = items.find((item) => item.name === "button");
-    expect(button?.dependencies).toEqual([
-      `@ui-sdk/vue@${kitPackage.dependencies["@ui-sdk/vue"]}`,
-      `@ui-sdk/core@${kitPackage.dependencies["@ui-sdk/core"]}`,
-    ]);
+  it("pins every ui-sdk dependency to the same exact version", () => {
+    const uiSdk = (item: RegistryItem) => item.dependencies?.filter((name) => name.startsWith("@ui-sdk/")) ?? [];
+    const versions = new Set<string>();
+    for (const item of items) {
+      const dependencies = uiSdk(item);
+      if (!dependencies.length) continue;
+      expect(dependencies, item.name).toEqual([
+        expect.stringMatching(/^@ui-sdk\/vue@\d+\.\d+\.\d+(?:-[\w.-]+)?$/),
+        expect.stringMatching(/^@ui-sdk\/core@\d+\.\d+\.\d+(?:-[\w.-]+)?$/),
+      ]);
+      for (const dependency of dependencies) versions.add(dependency.slice(dependency.lastIndexOf("@") + 1));
+    }
+    expect(versions.size).toBe(1);
   });
 
-  it("rejects a manifest with a non-string dependency version", () => {
-    expect(() => buildRegistry((path) => path === "package.json"
-      ? JSON.stringify({ dependencies: { "@ui-sdk/vue": ["0.1.0"] } })
-      : read(path))).toThrow("package.json must declare dependency versions as strings.");
+  it("builds without the workspace package manifest", () => {
+    expect(buildRegistry((path) => {
+      expect(path).not.toBe("package.json");
+      return read(path);
+    })).toEqual(built);
   });
 
   it("gives every component item the utils and theme items", () => {

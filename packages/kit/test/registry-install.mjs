@@ -15,7 +15,6 @@ const appPort = Number(process.env.REGISTRY_APP_PORT ?? 4842)
 const screenshots = process.env.REGISTRY_SCREENSHOTS && resolve(process.env.REGISTRY_SCREENSHOTS)
 
 const index = JSON.parse(readFileSync(join(published, "registry.json"), "utf8"))
-const kitPackage = JSON.parse(readFileSync(join(kit, "package.json"), "utf8"))
 const componentItems = index.items.filter(item => ["registry:lib", "registry:theme", "registry:ui", "registry:block"].includes(item.type))
 
 function run(command, args) {
@@ -72,8 +71,12 @@ test("every registry item installs into a new Nuxt 4.7 app that builds without N
   assert.equal(css.match(/@layer ui-sdk;/g)?.length, 1, "shadcn-vue must not add a second ui-sdk layer")
 
   const installed = JSON.parse(readFileSync(join(app, "package.json"), "utf8"))
-  assert.equal(installed.dependencies["@ui-sdk/vue"], kitPackage.dependencies["@ui-sdk/vue"])
-  assert.equal(installed.dependencies["@ui-sdk/core"], kitPackage.dependencies["@ui-sdk/core"])
+  const dependencies = componentItems.flatMap(item => item.dependencies ?? [])
+  for (const name of ["@ui-sdk/vue", "@ui-sdk/core"]) {
+    const pin = dependencies.find(dependency => dependency.startsWith(`${name}@`))
+    assert.ok(pin, `${name} must have a registry pin`)
+    assert.equal(installed.dependencies[name], pin.slice(name.length + 1))
+  }
 
   cpSync(join(fixture, "app/app.vue"), join(app, "app/app.vue"))
   cpSync(join(fixture, "app/components"), join(app, "app/components"), { recursive: true })
