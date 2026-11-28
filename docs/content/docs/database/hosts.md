@@ -244,12 +244,14 @@ Cloudflare Nuxt output also copies D1 migration SQL next to the Wrangler config,
 
 ### Try the Cloudflare build with `wrangler dev`
 
-`wrangler dev` uses a local D1 database that is empty at first. `vitehub database migrate` does not change it. Apply the migrations to it before the first query, from the app root:
+Wrangler's local D1 database is empty at first. `vitehub database migrate` does not change it. From the app root, apply the migrations and start the Worker in local mode:
 
 ```bash [Terminal]
 pnpm wrangler d1 migrations apply DB --local --config .output/server/wrangler.json
-pnpm wrangler dev --config .output/server/wrangler.json
+pnpm wrangler dev --local --config .output/server/wrangler.json
 ```
+
+`wrangler dev --local` disables remote bindings, so the Worker uses the local D1 database even if the binding sets `remote: true`.
 
 Use the binding name of your Database, `DB` by default. Wrangler keeps the local database in `.output/server/.wrangler/state`, and each build replaces `.output`. Apply the migrations again after each build. Without them, the first query fails with `D1_ERROR: no such table`.
 
