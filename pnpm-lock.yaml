@@ -3743,6 +3743,9 @@ importers:
       cron-schedule:
         specifier: catalog:workflow
         version: 8.0.1
+      magic-string:
+        specifier: ^1.4.5
+        version: 1.4.5
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
