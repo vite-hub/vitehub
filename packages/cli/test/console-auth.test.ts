@@ -5,10 +5,15 @@ import { describe, expect, it } from "vitest"
 
 import { createProject, runSetup } from "./setup-helpers.ts"
 
+import type { ConsoleCredential } from "../src/setup/console-auth.ts"
+
 const consoleUrl = "https://console.example.com"
 const token = `vhk_${"S".repeat(43)}`
 
-function fakeConsole(options: { deny?: boolean, pending?: number } = {}) {
+const ada: ConsoleCredential["user"] = { email: "ada@example.com", id: "u1", name: "Ada" }
+
+function fakeConsole(options: { deny?: boolean, pending?: number, user?: ConsoleCredential["user"] } = {}) {
+  const user = options.user ?? ada
   const requests: { method: string, path: string, authorization: string | null, body: unknown }[] = []
   let pending = options.pending ?? 1
   let revoked = false
@@ -24,11 +29,11 @@ function fakeConsole(options: { deny?: boolean, pending?: number } = {}) {
     if (url.pathname === "/api/auth/cli/token") {
       if (options.deny) return Response.json({ error: "access_denied" }, { status: 400 })
       if (pending-- > 0) return Response.json({ error: "authorization_pending" }, { status: 400 })
-      return Response.json({ access_token: token, expires_in: 90 * 86_400, key_id: "key-1", scope: "", team: { id: "t1", name: "Ada's team" }, token_type: "Bearer", user: { email: "ada@example.com", id: "u1", name: "Ada" } })
+      return Response.json({ access_token: token, expires_in: 90 * 86_400, key_id: "key-1", scope: "", team: { id: "t1", name: "Ada's team" }, token_type: "Bearer", user })
     }
     if (url.pathname === "/api/whoami") {
       if (revoked || headers.get("authorization") !== `Bearer ${token}`) return Response.json({ code: "CONSOLE_API_KEY_INVALID" }, { status: 401 })
-      return Response.json({ key: { expiresAt: Date.UTC(2027, 1, 13), id: "key-1" }, projectIds: null, roles: ["owner"], team: { id: "t1", name: "Ada's team" }, user: { email: "ada@example.com", id: "u1", name: "Ada" } })
+      return Response.json({ key: { expiresAt: Date.UTC(2027, 1, 13), id: "key-1" }, projectIds: null, roles: ["owner"], team: { id: "t1", name: "Ada's team" }, user })
     }
     if (url.pathname === "/api/api-keys/current" && init?.method === "DELETE") {
       revoked = true
@@ -79,6 +84,24 @@ describe("vitehub login, whoami, and logout", () => {
     const after = await runSetup(["whoami", "--json"], home, env, { fetch: console.fetch })
     expect(after.exitCode).toBe(1)
     expect(after.json).toMatchObject({ error: { code: "CLI_CONSOLE_SIGNED_OUT" } })
+  })
+
+  it("signs in and shows the account of a person who has no email", async () => {
+    const home = await createProject()
+    const env = { XDG_CONFIG_HOME: home }
+    const passkeyUser: ConsoleCredential["user"] = { id: "u1", name: "Ada" }
+    const console = fakeConsole({ user: passkeyUser })
+    const login = await runSetup(["login", "--console", consoleUrl], home, env, { fetch: console.fetch })
+    expect(login.exitCode).toBe(0)
+    expect(login.stdout).toContain(`Signed in to ${consoleUrl} as Ada in team Ada's team.`)
+    const file = join(home, "vitehub", "credentials.json")
+    expect(JSON.parse(await readFile(file, "utf8")).consoles[consoleUrl].user).toEqual(passkeyUser)
+
+    const whoami = await runSetup(["whoami"], home, env, { fetch: console.fetch })
+    expect(whoami.exitCode).toBe(0)
+    expect(whoami.stdout).toBe(`Ada in team Ada's team (owner) on ${consoleUrl}\nKey from ${file}, for every project of the team, expires on 13 Feb 2027.\n`)
+    const json = await runSetup<{ user: ConsoleCredential["user"] }>(["whoami", "--json"], home, env, { fetch: console.fetch })
+    expect(json.json.user).toEqual(passkeyUser)
   })
 
   it("keeps the code prompt off stdout with --json", async () => {

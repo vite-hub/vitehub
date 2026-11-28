@@ -21,7 +21,7 @@ const clientId = "vitehub-cli"
 export interface ConsoleCredential {
   token: string
   keyId: string
-  user: { id: string, name: string, email: string }
+  user: { id: string, name: string, email?: string }
   team: { id: string, name: string }
   /** Milliseconds since 1970. */
   expiresAt: number
@@ -121,7 +121,7 @@ interface TokenAnswer {
   expires_in: number
   key_id: string
   team: { id: string, name: string }
-  user: { id: string, name: string, email: string }
+  user: { id: string, name: string, email?: string }
 }
 
 async function postJson(context: ViteHubCliContext, url: string, body: object): Promise<{ status: number, headers: Headers, data: Record<string, unknown> }> {
@@ -232,7 +232,7 @@ export const whoamiCommand: ViteHubCliCommand = {
       if (response.status === 401) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: credential.origin })
       if (!response.ok) throw cliErrorDiagnostics.CLI_R0001({ message: `[vitehub] ${credential.origin} answered ${response.status} to /api/whoami.` })
       // SAFETY: The Console's `/api/whoami` answer.
-      const me = await response.json() as { user: { id: string, name: string, email: string }, team: { id: string, name: string }, roles: string[], projectIds: string[] | null, key: { id: string, expiresAt: number } }
+      const me = await response.json() as { user: ConsoleCredential["user"], team: { id: string, name: string }, roles: string[], projectIds: string[] | null, key: { id: string, expiresAt: number } }
       const source = credential.source === "env" ? consoleTokenVariable : consoleCredentialsFile(context.env)
       if (json) {
         writeSetupJson(context, { console: credential.origin, expiresAt: new Date(me.key.expiresAt).toISOString(), projectIds: me.projectIds, roles: me.roles, source, team: me.team, user: me.user })
