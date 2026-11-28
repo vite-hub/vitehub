@@ -13,8 +13,8 @@ describe("sandboxDeploymentEnv", () => {
     ])
   })
 
-  it("keeps them optional on Vercel, where the deployment's OIDC token signs in", () => {
-    expect(sandboxDeploymentEnv({ driver: "vercel" }, "vercel", { host: "vercel" }).map(entry => entry.required)).toEqual([false, false, false])
+  it("names nothing on Vercel, so deploy never copies a shell VERCEL_TOKEN to the host", () => {
+    expect(sandboxDeploymentEnv({ driver: "vercel" }, "vercel", { host: "vercel" })).toEqual([])
   })
 
   it("skips a credential that the config sets, and never writes it", () => {
