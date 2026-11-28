@@ -587,6 +587,28 @@ describe("ViteHub Nuxt integration", () => {
     expect(extension).toMatchObject({ name: "vite-hub" })
   })
 
+  it.each(["NITRO_PRESET", "SERVER_PRESET"] as const)("names %s when it is the preset that conflicts with the host", async (variable) => {
+    vi.stubEnv(variable, "node_server")
+    onTestFinished(() => { vi.unstubAllEnvs() })
+    const { nuxt } = createNuxt()
+    nuxt.options.nitro = { preset: "node-server" }
+    await expect(viteHubNuxtModule({ console: false, env: false, host: "cloudflare" }, nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_R0082",
+      message: `[vitehub] vitehub host "cloudflare" conflicts with ${variable}="node_server".`,
+    })
+  })
+
+  it("names nitro.preset when no preset variable set it", async () => {
+    vi.stubEnv("NITRO_PRESET", "vercel")
+    onTestFinished(() => { vi.unstubAllEnvs() })
+    const { nuxt } = createNuxt()
+    nuxt.options.nitro = { preset: "node-server" }
+    await expect(viteHubNuxtModule({ console: false, env: false, host: "cloudflare" }, nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0009",
+      message: "[vitehub] vitehub host \"cloudflare\" conflicts with nitro.preset \"node-server\".",
+    })
+  })
+
   it("keeps ViteHub discovery rooted at the Nuxt project", async () => {
     const { nuxt } = createNuxt()
     delete nuxt.options.vite.root

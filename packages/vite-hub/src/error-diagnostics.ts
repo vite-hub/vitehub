@@ -443,7 +443,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0082: {
       ...dynamicError,
-      fix: "Unset the `NITRO_PRESET` or `SERVER_PRESET` variable that the message names, or set `vitehub({ host })` to the host that it selects.",
+      fix: "Unset the `NITRO_PRESET` or `SERVER_PRESET` variable that the message names, or set `host` in `vitehub()`, or in the `vitehub` key of `nuxt.config.ts`, to the host that it selects.",
     },
     VITE_HUB_R0083: {
       ...dynamicError,
