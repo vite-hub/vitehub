@@ -63,6 +63,31 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
   }
 }
 
+function vercelProjectCli(context: HostEnvContext) {
+  const vercel = hostCli("vercel", "vercel", context.root, context.env)
+  const team = context.link.account?.id ?? optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+  return { project: context.link.project.id ?? context.link.project.name, run, scope: team ? ["--scope", team] : [] }
+}
+
+/**
+ * The project of a first deploy, or of a link that has no project id, such as one made with only `vercel login`. Vercel CLI 65.11 (`vercel project inspect
+ * --help`, `vercel project add --help`, in test/fixtures/host-cli-help/): `inspect` exits 1 when the project does not
+ * exist, and `add` creates it. Vercel CLI 65 shows `add` as `create`, and Vercel CLI 50 has only `add`.
+ */
+export function vercelProject(context: HostEnvContext): { name: string, exists: () => Promise<boolean>, create: () => Promise<void> } {
+  const { project, run, scope } = vercelProjectCli(context)
+  return {
+    name: project,
+    exists: async () => (await run(["project", "inspect", project, ...scope])).exitCode === 0,
+    async create() {
+      const result = await run(["project", "add", project, ...scope])
+      if (result.exitCode !== 0) throw hostCliFailed(`vercel project add ${project}`, result, context.secrets)
+    },
+  }
+}
+
 /**
  * The Environment Variables of the linked project for `production` or `preview`. Vercel CLI 65.11 (`vercel env add
  * --help`, `vercel env ls --help`, in test/fixtures/host-cli-help/). `env add` reads the value from stdin, and `--force`
@@ -70,11 +95,8 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
  * into an error.
  */
 export function vercelEnv(context: HostEnvContext): HostEnv {
-  const vercel = hostCli("vercel", "vercel", context.root, context.env)
-  const team = context.link.account?.id ?? optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
-  const project = ["--project", context.link.project.id ?? context.link.project.name, ...(team ? ["--scope", team] : [])]
-  const run = (args: readonly string[], stdin?: string) =>
-    context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+  const { project: name, run, scope } = vercelProjectCli(context)
+  const project = ["--project", name, ...scope]
 
   return {
     async listSecretNames() {

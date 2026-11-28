@@ -376,7 +376,7 @@ Cloudflare always uploads this stage's local values, including names already on 
 
 On Cloudflare, deploy writes the stage values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. It does not use `wrangler secret put` for these values because that would roll the old code out with the new values. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
-A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. On Vercel and Netlify, use `vitehub link --host <host> --create` for a new project. On Deno, create the app in Deno Deploy and run `vitehub link --host deno`. Without the required link, deploy exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
+A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. On Vercel, with no link or a link without a project id, deploy looks for the project by name. When there is none, deploy creates it with `vercel project add`, sets the values on it, and then deploys. On Netlify, use `vitehub link --host netlify --create` for a new site. On Deno, create the app in Deno Deploy and run `vitehub link --host deno`. Without the required link, deploy exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
 
 When the build lists `VITEHUB_SECRET` as required and neither the host nor a local value has it, deploy asks to generate one. `--yes` generates it without the question. Deploy sets it on the host and prints only that it did.
 
@@ -646,7 +646,7 @@ A required env name is on neither the host nor a local value for the stage. Noth
 
 ### `SETUP_DEPLOY_ENV_NOT_LINKED`
 
-Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. On Vercel and Netlify, run `vitehub link --host <host> --create`. On Deno, create the app in Deno Deploy if needed, then run `vitehub link --host deno`. Deploy again after linking. The command exits with `2`.
+Deploy has values to set, but the Netlify or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. On Netlify, run `vitehub link --host netlify --create`. On Deno, create the app in Deno Deploy if needed, then run `vitehub link --host deno`. Deploy again after linking. The command exits with `2`.
 
 ### `SETUP_DEPLOY_PUSH_FAILED`
 

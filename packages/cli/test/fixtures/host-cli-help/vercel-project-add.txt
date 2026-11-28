@@ -1,0 +1,10 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.11.0
+▲ vercel project create <name>
+Create a new project
+
+Global Options: See `vercel --help`
+
+Examples:
+  Create a new project
+    vercel project create my-project

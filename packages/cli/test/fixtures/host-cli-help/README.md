@@ -12,6 +12,7 @@
   - `deploy --json` prints `{ id, url, productionUrl }`, or `{ status, deployment }` without a terminal.
   - `env add` reads the value from stdin. ViteHub reads `envs[].key` and `envs[].target` from the last JSON object of `env ls --json`. The help says that output includes readable values, so its stdout never goes into an error. Not checked against a live account.
   - `deploy --temporary` keeps `{ projectId, token, claimUrl, expiresAt }` in `.vercel/anonymous.json`. It refuses in CI and in a folder with `.vercel/project.json`.
+  - `vercel-project-inspect.txt` and `vercel-project-add.txt`, recorded on 2026-11-28, for the first deploy of a Vercel app with no link. `project inspect <name>` exits 1 when the project does not exist. `project add <name>` creates it: the help names it `project create`, and `add` still runs it, as it does in Vercel CLI 50.
 - Netlify CLI 27.11.2: `netlify-deploy.txt`, `netlify-env-list.txt`, `netlify-env-import.txt`, recorded on 2026-11-15.
   - `env:list --context <context> --json` prints `{ KEY: value }`. `env:set` takes the value as an argument, and `env:import` deletes and creates each variable in every context (`dist/commands/env/env-import.js`), so `vitehub env push` writes through the API: https://open-api.netlify.com/#tag/environmentVariables
   - `deploy` adds `.netlify/functions-internal` and `.netlify/v1/functions` by itself. `--allow-anonymous` makes a password-protected claimable site, so `vitehub deploy` offers no temporary Netlify deploy.

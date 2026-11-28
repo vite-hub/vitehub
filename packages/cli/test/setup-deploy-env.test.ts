@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { rm, writeFile } from "node:fs/promises"
+import { readFile, rm, writeFile } from "node:fs/promises"
 import { constants } from "node:os"
 import { dirname, join } from "node:path"
 import process from "node:process"
@@ -412,12 +412,55 @@ VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jg
     expect(deployed.stderr).toContain("Setting API_KEY on cloudflare with the new version from the shell.")
     expectNoLeak(calls, deployed.stdout + deployed.stderr, [canary])
 
-    const vercelRoot = await project("vercel", [apiKey], { linked: false, files: { ".env.production": `API_KEY=${canary}\n` } })
-    const vercel = await fakeHosts(hostEnv.vercel)
-    const unlinked = await deploy([], vercelRoot, vercel.env)
+    const netlifyRoot = await builtProject("netlify", {
+      ".netlify/deployment.json": JSON.stringify({ env: [apiKey], host: "netlify", identity: { name: "my-app", source: "package" } }),
+      ".gitignore": ".netlify\n.vitehub\n.env*\n",
+      ".env.production": `API_KEY=${canary}\n`,
+    })
+    const netlify = await fakeHosts({ NETLIFY_AUTH_TOKEN: "netlify-token-1" })
+    const unlinked = await deploy([], netlifyRoot, netlify.env)
     expect(unlinked.exitCode).toBe(2)
     expect(unlinked.json.error?.code).toBe("SETUP_DEPLOY_ENV_NOT_LINKED")
-    expect(unlinked.json.rerun).toBe("vitehub link --host vercel --create")
-    expect(await vercel.calls()).toEqual([])
+    expect(unlinked.json.rerun).toBe("vitehub link --host netlify --create")
+    expect(await netlify.calls()).toEqual([])
+  })
+
+  it("on a first Vercel deploy, creates the project, sets the local values on it, then deploys and links it", async () => {
+    const files = { ".env.production": `API_KEY=${canary}\n` }
+    const login = { VERCEL_TEAM_ID: "team_1" }
+    const loginDeploy = (root: string, env: NodeJS.ProcessEnv) => runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, env, { runHostCli: async () => ({ exitCode: 0, stdout: "ada\n" }) })
+    const root = await project("vercel", [apiKey], { files, linked: false })
+    const hosts = await fakeHosts(login)
+    const deployed = await loginDeploy(root, hosts.env)
+
+    expect(deployed.exitCode, JSON.stringify(deployed.json)).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 3))).toEqual([
+      ["project", "inspect", "my-app"],
+      ["project", "add", "my-app"],
+      ["env", "add", "API_KEY"],
+      ["deploy", "--prebuilt", "--yes"],
+    ])
+    expect((await hosts.calls()).slice(0, 3).map(call => call.argv.slice(3))).toEqual([
+      ["--scope", "team_1"],
+      ["--scope", "team_1"],
+      ["--environment", "production", "--sensitive", "--force", "--yes", "--project", "my-app", "--scope", "team_1"],
+    ])
+    expect(deployed.stderr).toContain("Creating the my-app project on vercel, so deploy can set its variables.")
+    expect(JSON.parse(await readFile(join(root, ".vitehub", "link.json"), "utf8")).targets.vercel.project.name).toBe("my-app")
+    expectNoLeak(await hosts.calls(), deployed.stdout + deployed.stderr, [canary])
+
+    const existingRoot = await project("vercel", [apiKey], { files, linked: false })
+    const existing = await fakeHosts(login)
+    await seed(existing.env, { vercel: { production: { API_KEY: "on-host" } }, vercelProjects: ["my-app"] })
+    const reused = await loginDeploy(existingRoot, existing.env)
+    expect(reused.exitCode, JSON.stringify(reused.json)).toBe(0)
+    expect((await existing.calls()).map(call => call.argv.slice(0, 2))).toEqual([["project", "inspect"], ["env", "ls"], ["deploy", "--prebuilt"]])
+
+    const loginLink = { default: "vercel", schemaVersion: 2, targets: { vercel: { account: { id: "team_1" }, linkedAt: "", project: { name: "my-app" }, verified: false } } }
+    const loginLinkedRoot = await project("vercel", [apiKey], { files: { ...files, ".vitehub/link.json": JSON.stringify(loginLink) }, linked: false })
+    const loginLinked = await fakeHosts(login)
+    const fromLink = await loginDeploy(loginLinkedRoot, loginLinked.env)
+    expect(fromLink.exitCode, JSON.stringify(fromLink.json)).toBe(0)
+    expect((await loginLinked.calls()).map(call => call.argv.slice(0, 2))).toEqual([["project", "inspect"], ["project", "add"], ["env", "add"], ["deploy", "--prebuilt"]])
   })
 })
