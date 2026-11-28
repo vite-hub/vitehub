@@ -68,8 +68,42 @@ describe("Console Logs", () => {
     expect(query).not.toHaveBeenCalled();
     await expect(consoleLogsHandler(request())).rejects.toMatchObject({
       statusCode: 502,
-      message: "Could not read the log source.",
+      code: "VITE_HUB_LOGS_SOURCE_FAILED",
+      message: 'The log source "Existing backend" failed while it read a page.',
     });
+  });
+  it.each([
+    ["?text=hello", 400, "VITE_HUB_LOGS_FILTER_UNSUPPORTED"],
+    ["", 502, "VITE_HUB_LOGS_SOURCE_FAILED"],
+  ])("answers %s with a coded failure that hides backend details", async (query, status, code) => {
+    installConsoleAccess({ mode: "open" });
+    const source: LogSource = {
+      info: { id: "external", label: "Existing backend", retention: { kind: "external", description: "Provider retention" }, filters: [] },
+      query: vi.fn().mockRejectedValue(new Error("private backend credential")),
+    };
+    installLogSource("/logs-code-tests", source);
+    const response = await logsRoute.fetch(new Request(`http://localhost/_vitehub/api/logs${query}`));
+    expect(response.status).toBe(status);
+    const body = await response.text();
+    expect(JSON.parse(body)).toMatchObject({ code, fix: expect.stringMatching(/\S/) });
+    expect(body).not.toContain("private backend credential");
+  });
+  it("names a failed source read over the Console RPC transport", async () => {
+    installConsoleAccess({ mode: "open" });
+    installLogSource("/logs-rpc-failure-tests", {
+      info: createLogBuffer().source.info,
+      query: vi.fn().mockRejectedValue(new Error("private backend credential")),
+    });
+    const response = await handleConsoleRpcRequest(
+      new Request("http://localhost/_vitehub/rpc", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+        body: operationRpcBody("logs.list", {}),
+      }),
+    );
+    const result = await operationRpcResponseResult(response);
+    expect(result).toMatchObject({ ok: false, code: "VITE_HUB_LOGS_SOURCE_FAILED", status: 502 });
+    expect(JSON.stringify(result)).not.toContain("private backend credential");
   });
   it("reads Logs through the shared Console RPC transport", async () => {
     installConsoleAccess({ mode: "open" });
