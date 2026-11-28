@@ -1,0 +1,119 @@
+@layer components {
+  /* Tabs: a row of tabs on a 1px line, with a 1px indicator under the selected tab that slides between tabs. */
+  [data-slot="tabs"] {
+    display: flex;
+    flex-direction: column;
+  }
+
+  [data-slot="tabs"][data-orientation="vertical"] {
+    flex-direction: row;
+  }
+
+  [data-slot="tabs-list"] {
+    border-bottom: 1px solid var(--vh-border);
+    display: flex;
+    position: relative;
+  }
+
+  [data-slot="tabs-list"][data-orientation="vertical"] {
+    border-bottom: 0;
+    border-inline-end: 1px solid var(--vh-border);
+    flex-direction: column;
+  }
+
+  [data-slot="tabs-trigger"] {
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    color: var(--vh-muted);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    gap: 0.375rem;
+    height: 2rem;
+    padding-inline: 0.75rem;
+    transition: color 150ms ease-out;
+  }
+
+  @media (hover: hover) {
+    [data-slot="tabs-trigger"]:hover:not([data-disabled]) {
+      color: var(--vh-text);
+    }
+  }
+
+  [data-slot="tabs-trigger"][data-selected] {
+    color: var(--vh-text);
+  }
+
+  [data-slot="tabs-trigger"][data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* The list clips nothing, but the ring stays inside the tab, so it does not cover the next tab. */
+  [data-slot="tabs-trigger"]:focus-visible {
+    outline: 2px solid var(--vh-ring);
+    outline-offset: -2px;
+  }
+
+  [data-slot="tabs-trigger"] > svg {
+    height: 1rem;
+    width: 1rem;
+  }
+
+  [data-slot="tabs-indicator"] {
+    background: var(--vh-text);
+    bottom: -1px;
+    height: 1px;
+    left: var(--active-tab-left);
+    position: absolute;
+    transition: left 200ms cubic-bezier(0.22, 1, 0.36, 1), width 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    width: var(--active-tab-width);
+  }
+
+  [data-slot="tabs-indicator"]:not([data-visible]) {
+    display: none;
+  }
+
+  [data-slot="tabs-indicator"][data-activation-direction="none"] {
+    transition: none;
+  }
+
+  [data-slot="tabs-indicator"][data-orientation="vertical"] {
+    bottom: auto;
+    height: var(--active-tab-height);
+    left: auto;
+    right: -1px;
+    top: var(--active-tab-top);
+    transition-property: top, height;
+    width: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="tabs-indicator"] {
+      transition: none;
+    }
+  }
+
+  [data-slot="tabs-content"] {
+    font-size: 0.875rem;
+    outline: none;
+  }
+
+  [data-slot="tabs-content"]:not([hidden]) {
+    padding-block-start: 0.75rem;
+  }
+
+  [data-slot="tabs-content"][data-orientation="vertical"]:not([hidden]) {
+    padding-block-start: 0;
+    padding-inline-start: 0.75rem;
+  }
+
+  [data-slot="tabs-content"]:focus-visible {
+    outline: 2px solid var(--vh-ring);
+    outline-offset: 2px;
+  }
+}

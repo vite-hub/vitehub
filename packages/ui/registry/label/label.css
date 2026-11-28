@@ -1,0 +1,14 @@
+@layer components {
+  /* Label: the text of a form control. A label around a checkbox or a switch keeps ui-sdk's row layout. */
+  [data-slot="label"] {
+    color: var(--vh-text);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+  }
+
+  [data-slot="label"]:has(:disabled) {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}

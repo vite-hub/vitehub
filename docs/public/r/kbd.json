@@ -1,0 +1,37 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "kbd",
+  "type": "registry:component",
+  "title": "Kbd",
+  "description": "A keyboard key or a key combination.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/kbd/Kbd.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./kbd.css\";\nimport type { KbdProps, KbdSlots } from \"./types.ts\";\n\nconst { size = \"md\", label } = defineProps<KbdProps>();\ndefineSlots<KbdSlots>();\n</script>\n\n<template>\n  <kbd data-slot=\"kbd\" :data-size=\"size\"><slot>{{ label }}</slot></kbd>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/kbd/KbdGroup.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { KbdGroupSlots } from \"./types.ts\";\n\ndefineSlots<KbdGroupSlots>();\n</script>\n\n<template>\n  <kbd data-slot=\"kbd-group\"><slot /></kbd>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/kbd/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Kbd } from \"./Kbd.vue\";\nexport { default as KbdGroup } from \"./KbdGroup.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/kbd/kbd.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Kbd: one key of a shortcut, a small muted box in the text font. */\n  [data-slot=\"kbd\"] {\n    align-items: center;\n    background: var(--vh-bg-muted);\n    border: 0;\n    border-radius: calc(var(--vh-radius) * 0.5);\n    color: var(--vh-muted);\n    display: inline-flex;\n    font-family: inherit;\n    font-size: 0.75rem;\n    font-weight: 500;\n    gap: 0.25rem;\n    height: 1.25rem;\n    justify-content: center;\n    min-width: 1.25rem;\n    padding: 0 0.25rem;\n    pointer-events: none;\n    user-select: none;\n  }\n\n  [data-slot=\"kbd\"][data-size=\"sm\"] {\n    font-size: 0.6875rem;\n    height: 1rem;\n    min-width: 1rem;\n  }\n\n  [data-slot=\"kbd\"] > svg {\n    height: 0.75rem;\n    width: 0.75rem;\n  }\n\n  [data-slot=\"kbd-group\"] {\n    align-items: center;\n    border: 0;\n    display: inline-flex;\n    font: inherit;\n    gap: 0.25rem;\n    padding: 0;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/kbd/types.ts",
+      "type": "registry:component",
+      "content": "export type KbdSize = \"sm\" | \"md\";\n\nexport interface KbdProps {\n  size?: KbdSize;\n  label?: string;\n}\n\nexport interface KbdSlots {\n  default?: () => unknown;\n}\n\nexport interface KbdGroupSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

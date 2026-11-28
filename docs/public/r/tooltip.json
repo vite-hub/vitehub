@@ -1,0 +1,45 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "tooltip",
+  "type": "registry:component",
+  "title": "Tooltip",
+  "description": "A short text that shows when the pointer rests on its trigger or the trigger has focus.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/tooltip/Tooltip.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./tooltip.css\";\nimport { Tooltip as TooltipRoot } from \"@ui-sdk/vue/tooltip\";\nimport TooltipContent from \"./TooltipContent.vue\";\nimport type { TooltipEmits, TooltipProps, TooltipSlots } from \"./types.ts\";\n\nconst open = defineModel<boolean | undefined>(\"open\", { default: undefined });\nconst { defaultOpen = false, delay, label } = defineProps<TooltipProps>();\ndefineEmits<TooltipEmits>();\ndefineSlots<TooltipSlots>();\n</script>\n\n<template>\n  <TooltipRoot v-model:open=\"open\" :default-open=\"defaultOpen || undefined\" :delay=\"delay\">\n    <slot />\n    <TooltipContent v-if=\"label\">{{ label }}</TooltipContent>\n  </TooltipRoot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tooltip/TooltipContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { TooltipContent as TooltipContentPart } from \"@ui-sdk/vue/tooltip\";\nimport type { TooltipContentProps, TooltipContentSlots } from \"./types.ts\";\n\nconst { side = \"top\", sideOffset = 6 } = defineProps<TooltipContentProps>();\ndefineSlots<TooltipContentSlots>();\n</script>\n\n<template>\n  <TooltipContentPart data-slot=\"tooltip-content\" :side=\"side\" :side-offset=\"sideOffset\"><slot /></TooltipContentPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tooltip/TooltipTrigger.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { TooltipTrigger as TooltipTriggerPart } from \"@ui-sdk/vue/tooltip\";\nimport type { TooltipTriggerSlots } from \"./types.ts\";\n\ndefineSlots<TooltipTriggerSlots>();\n</script>\n\n<template>\n  <TooltipTriggerPart data-slot=\"tooltip-trigger\"><slot /></TooltipTriggerPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tooltip/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Tooltip } from \"./Tooltip.vue\";\nexport { default as TooltipContent } from \"./TooltipContent.vue\";\nexport { default as TooltipTrigger } from \"./TooltipTrigger.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/tooltip/tooltip.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Tooltip: ui-sdk's stylesheet draws the inverted box. This keeps a long text short and readable. */\n  [data-slot=\"tooltip-content\"] {\n    border-radius: calc(var(--vh-radius) * 0.75);\n    font-size: 0.75rem;\n    line-height: 1rem;\n    max-width: 20rem;\n    text-wrap: balance;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/tooltip/types.ts",
+      "type": "registry:component",
+      "content": "export type TooltipSide = \"top\" | \"right\" | \"bottom\" | \"left\";\n\nexport interface TooltipProps {\n  open?: boolean;\n  defaultOpen?: boolean;\n  delay?: number;\n  label?: string;\n}\n\nexport interface TooltipEmits {\n  \"update:open\": [open: boolean];\n}\n\nexport interface TooltipSlots {\n  default?: () => unknown;\n}\n\nexport interface TooltipContentProps {\n  side?: TooltipSide;\n  sideOffset?: number;\n}\n\nexport interface TooltipTriggerSlots {\n  default?: () => unknown;\n}\n\nexport interface TooltipContentSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

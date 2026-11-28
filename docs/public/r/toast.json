@@ -1,0 +1,36 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "toast",
+  "type": "registry:component",
+  "title": "Toast",
+  "description": "Short notifications in a corner of the viewport. Call toast() from anywhere.",
+  "dependencies": [
+    "@lucide/vue",
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/toast/Toaster.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./toast.css\";\nimport { X } from \"@lucide/vue\";\nimport { Toast, ToastAction, ToastClose, ToastDescription, ToastRegion, ToastTitle } from \"@ui-sdk/vue/toast\";\nimport type { ToasterProps, ToasterSlots } from \"./types.ts\";\n\nconst { toaster, side = \"bottom\", closeLabel = \"Dismiss\" } = defineProps<ToasterProps>();\ndefineSlots<ToasterSlots>();\n</script>\n\n<template>\n  <!-- ui-sdk finds the region by `toast-region`, so the region keeps that name. -->\n  <ToastRegion data-slot=\"toast-region\" :toaster=\"toaster\" :side=\"side\">\n    <slot>\n      <Toast data-slot=\"toast\">\n        <div data-slot=\"toast-content\">\n          <ToastTitle data-slot=\"toast-title\" />\n          <ToastDescription data-slot=\"toast-description\" />\n        </div>\n        <ToastAction data-slot=\"toast-action\" />\n        <ToastClose data-slot=\"toast-close\" :aria-label=\"closeLabel\"><X aria-hidden=\"true\" /></ToastClose>\n      </Toast>\n    </slot>\n  </ToastRegion>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/toast/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Toaster } from \"./Toaster.vue\";\nexport type * from \"./types.ts\";\nexport { createToaster, Toast, ToastAction, ToastClose, ToastDescription, toast, ToastTitle } from \"@ui-sdk/vue/toast\";\n"
+    },
+    {
+      "path": "components/vitehub/toast/toast.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Toast: ui-sdk's stylesheet stacks the toasts in their region. The ViteHub toast floats on a shadow, with no border. */\n  [data-slot=\"toast\"] {\n    background: var(--vh-bg);\n    border: 0;\n    box-shadow: var(--vh-shadow-popover);\n    color: var(--vh-text);\n    flex-wrap: nowrap;\n    padding: 0.875rem 1rem;\n  }\n\n  [data-slot=\"toast-content\"] {\n    display: flex;\n    flex: 1;\n    flex-direction: column;\n    gap: 0.125rem;\n    min-width: 0;\n  }\n\n  [data-slot=\"toast-title\"] {\n    font-size: 0.875rem;\n    font-weight: 500;\n  }\n\n  [data-slot=\"toast-description\"] {\n    color: var(--vh-muted);\n    font-size: 0.8125rem;\n  }\n\n  [data-slot=\"toast-action\"]:empty,\n  [data-slot=\"toast-description\"]:empty {\n    display: none;\n  }\n\n  [data-slot=\"toast-close\"] {\n    align-self: flex-start;\n    background: transparent;\n    border: 0;\n    border-radius: calc(var(--vh-radius) * 0.75);\n    color: var(--vh-muted);\n    cursor: pointer;\n    display: inline-flex;\n    flex: none;\n    padding: 0.125rem;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"toast-close\"]:hover {\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"toast-close\"] > svg {\n    height: 1rem;\n    width: 1rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/toast/types.ts",
+      "type": "registry:component",
+      "content": "import type { Toaster } from \"@ui-sdk/vue/toast\";\n\nexport interface ToasterProps {\n  toaster?: Toaster<unknown>;\n  side?: \"top\" | \"bottom\";\n  closeLabel?: string;\n}\n\nexport interface ToasterSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-dropdown-menu",
+  "type": "registry:block",
+  "title": "Dropdown menu example",
+  "description": "A menu with a group, icons, a shortcut, a checkbox, radio items, a submenu, and a destructive item.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/dropdown-menu"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-dropdown-menu/DropdownMenuExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from \"../dropdown-menu/index.ts\";\nimport { ScrollText, Settings, Trash2 } from \"@lucide/vue\";\nimport { ref } from \"vue\";\n\nconst preview = ref(true);\nconst region = ref(\"auto\");\n</script>\n\n<template>\n  <div data-slot=\"example-dropdown-menu\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <DropdownMenu>\n      <DropdownMenuTrigger>Project</DropdownMenuTrigger>\n      <DropdownMenuContent>\n        <DropdownMenuGroup label=\"Project\">\n          <DropdownMenuItem value=\"settings\"><Settings aria-hidden=\"true\" />Settings<DropdownMenuShortcut>⌘,</DropdownMenuShortcut></DropdownMenuItem>\n          <DropdownMenuItem value=\"logs\"><ScrollText aria-hidden=\"true\" />Logs</DropdownMenuItem>\n        </DropdownMenuGroup>\n        <DropdownMenuSeparator />\n        <DropdownMenuCheckboxItem v-model:checked=\"preview\" value=\"preview\">Preview deploys</DropdownMenuCheckboxItem>\n        <DropdownMenuRadioGroup v-model=\"region\">\n          <DropdownMenuRadioItem value=\"auto\">Any region</DropdownMenuRadioItem>\n          <DropdownMenuRadioItem value=\"eu\">Europe</DropdownMenuRadioItem>\n        </DropdownMenuRadioGroup>\n        <DropdownMenuSeparator />\n        <DropdownMenuSub>\n          <DropdownMenuSubTrigger>Share</DropdownMenuSubTrigger>\n          <DropdownMenuSubContent>\n            <DropdownMenuItem value=\"link\">Copy link</DropdownMenuItem>\n            <DropdownMenuItem value=\"email\">Email</DropdownMenuItem>\n          </DropdownMenuSubContent>\n        </DropdownMenuSub>\n        <DropdownMenuSeparator />\n        <DropdownMenuItem value=\"delete\" destructive><Trash2 aria-hidden=\"true\" />Delete</DropdownMenuItem>\n      </DropdownMenuContent>\n    </DropdownMenu>\n  </div>\n</template>\n"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "field",
+  "type": "registry:component",
+  "title": "Field",
+  "description": "A form control with its label, description, and error, linked for screen readers.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/field/Field.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./field.css\";\nimport { Field as FieldPart } from \"@ui-sdk/vue/field\";\nimport type { FieldProps, FieldSlots } from \"./types.ts\";\n\nconst { invalid = false, disabled = false } = defineProps<FieldProps>();\ndefineSlots<FieldSlots>();\n</script>\n\n<template>\n  <FieldPart data-slot=\"field\" :invalid=\"invalid || undefined\" :disabled=\"disabled || undefined\"><slot /></FieldPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/field/FieldDescription.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { FieldDescription as FieldDescriptionPart } from \"@ui-sdk/vue/field\";\nimport type { FieldDescriptionSlots } from \"./types.ts\";\n\ndefineSlots<FieldDescriptionSlots>();\n</script>\n\n<template>\n  <FieldDescriptionPart data-slot=\"field-description\"><slot /></FieldDescriptionPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/field/FieldError.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { FieldError as FieldErrorPart } from \"@ui-sdk/vue/field\";\nimport type { FieldErrorSlots } from \"./types.ts\";\n\ndefineSlots<FieldErrorSlots>();\n</script>\n\n<template>\n  <FieldErrorPart data-slot=\"field-error\"><slot /></FieldErrorPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/field/FieldLabel.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { FieldLabel as FieldLabelPart } from \"@ui-sdk/vue/field\";\nimport type { FieldLabelProps, FieldLabelSlots } from \"./types.ts\";\n\nconst { label } = defineProps<FieldLabelProps>();\ndefineSlots<FieldLabelSlots>();\n</script>\n\n<template>\n  <FieldLabelPart data-slot=\"field-label\"><slot>{{ label }}</slot></FieldLabelPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/field/field.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Field: ui-sdk's stylesheet stacks the label, the control, and the texts. These set the ViteHub text sizes. */\n  [data-slot=\"field-label\"] {\n    color: var(--vh-text);\n    font-size: 0.875rem;\n    font-weight: 500;\n  }\n\n  [data-slot=\"field-description\"] {\n    color: var(--vh-muted);\n    font-size: 0.8125rem;\n  }\n\n  [data-slot=\"field-error\"] {\n    color: var(--vh-text-error, var(--vh-error));\n    font-size: 0.8125rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/field/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Field } from \"./Field.vue\";\nexport { default as FieldDescription } from \"./FieldDescription.vue\";\nexport { default as FieldError } from \"./FieldError.vue\";\nexport { default as FieldLabel } from \"./FieldLabel.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/field/types.ts",
+      "type": "registry:component",
+      "content": "export interface FieldProps {\n  invalid?: boolean;\n  disabled?: boolean;\n}\n\nexport interface FieldSlots {\n  default?: () => unknown;\n}\n\nexport interface FieldLabelProps {\n  label?: string;\n}\n\nexport interface FieldLabelSlots {\n  default?: () => unknown;\n}\n\nexport interface FieldDescriptionSlots {\n  default?: () => unknown;\n}\n\nexport interface FieldErrorSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

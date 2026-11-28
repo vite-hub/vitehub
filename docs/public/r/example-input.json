@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-input",
+  "type": "registry:block",
+  "title": "Input example",
+  "description": "Inputs with v-model, a small size, an invalid value, and a disabled state.",
+  "registryDependencies": [
+    "@vitehub/input"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-input/InputExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Input } from \"../input/index.ts\";\nimport { ref } from \"vue\";\n\nconst name = ref(\"\");\n</script>\n\n<template>\n  <div data-slot=\"example-input\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Input v-model=\"name\" aria-label=\"Project name\" placeholder=\"my-app\" />\n    <Input size=\"sm\" aria-label=\"Search\" placeholder=\"Search\" />\n    <Input aria-label=\"Domain\" default-value=\"app.example.com\" invalid />\n    <Input aria-label=\"Region\" default-value=\"auto\" disabled />\n  </div>\n</template>\n"
+    }
+  ]
+}

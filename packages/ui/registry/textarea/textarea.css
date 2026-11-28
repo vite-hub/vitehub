@@ -1,0 +1,12 @@
+@layer components {
+  /* A text field turns its own frame blue on focus: the border and a 1px shadow, with no ring outside. */
+  [data-slot="textarea"]:focus-visible {
+    border-color: var(--vh-ring);
+    box-shadow: 0 0 0 1px var(--vh-ring);
+    outline: none;
+  }
+
+  [data-slot="textarea"][aria-invalid="true"] {
+    border-color: var(--vh-error);
+  }
+}

@@ -1,0 +1,10 @@
+@layer components {
+  /* Tooltip: ui-sdk's stylesheet draws the inverted box. This keeps a long text short and readable. */
+  [data-slot="tooltip-content"] {
+    border-radius: calc(var(--vh-radius) * 0.75);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    max-width: 20rem;
+    text-wrap: balance;
+  }
+}

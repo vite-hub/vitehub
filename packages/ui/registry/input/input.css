@@ -1,0 +1,28 @@
+@layer components {
+
+  /* A text field turns its own frame blue on focus: the border and a 1px shadow, with no ring outside. */
+  [data-slot="input"]:focus-visible {
+    border-color: var(--vh-ring);
+    box-shadow: 0 0 0 1px var(--vh-ring);
+    outline: none;
+  }
+
+  [data-slot="input"][aria-invalid="true"] {
+    border-color: var(--vh-error);
+  }
+
+  [data-slot="input"][data-size="xs"] {
+    font-size: 0.75rem;
+    height: 1.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  [data-slot="input"][data-size="sm"] {
+    height: 1.75rem;
+  }
+
+  [data-slot="input"][data-size="lg"] {
+    height: 2.25rem;
+    padding-inline: 0.75rem;
+  }
+}

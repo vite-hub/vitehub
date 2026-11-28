@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-skeleton",
+  "type": "registry:block",
+  "title": "Skeleton example",
+  "description": "The skeleton of an avatar and two lines of text.",
+  "registryDependencies": [
+    "@vitehub/skeleton"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-skeleton/SkeletonExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Skeleton } from \"../skeleton/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-skeleton\" style=\"display: flex; align-items: center; gap: 0.75rem; max-width: 24rem\">\n    <Skeleton style=\"width: 2.5rem; height: 2.5rem; border-radius: 9999px\" />\n    <div data-slot=\"example-skeleton-lines\" style=\"display: flex; flex: 1; flex-direction: column; gap: 0.5rem\">\n      <Skeleton style=\"height: 0.875rem; width: 60%\" />\n      <Skeleton style=\"height: 0.875rem; width: 40%\" />\n    </div>\n  </div>\n</template>\n"
+    }
+  ]
+}

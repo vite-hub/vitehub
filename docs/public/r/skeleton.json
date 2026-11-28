@@ -1,0 +1,32 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "skeleton",
+  "type": "registry:component",
+  "title": "Skeleton",
+  "description": "A pulsing block that holds the place of content that loads.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/skeleton/Skeleton.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./skeleton.css\";\n</script>\n\n<template>\n  <div data-slot=\"skeleton\" aria-hidden=\"true\" />\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/skeleton/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Skeleton } from \"./Skeleton.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/skeleton/skeleton.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Skeleton: a muted block that pulses while its content loads. */\n  [data-slot=\"skeleton\"] {\n    animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;\n    background: var(--vh-bg-muted);\n    border-radius: calc(var(--vh-radius) * 0.75);\n    display: block;\n  }\n\n  @keyframes skeleton-pulse {\n    50% {\n      opacity: 0.5;\n    }\n  }\n\n  @media (prefers-reduced-motion: reduce) {\n    [data-slot=\"skeleton\"] {\n      animation: none;\n    }\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/skeleton/types.ts",
+      "type": "registry:component",
+      "content": "export type SkeletonProps = Record<never, never>;\n"
+    }
+  ]
+}

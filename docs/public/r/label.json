@@ -1,0 +1,35 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "label",
+  "type": "registry:component",
+  "title": "Label",
+  "description": "The name of a form control.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/label/Label.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./label.css\";\nimport { Label as LabelPart } from \"@ui-sdk/vue/label\";\nimport type { LabelProps, LabelSlots } from \"./types.ts\";\n\nconst { label } = defineProps<LabelProps>();\ndefineSlots<LabelSlots>();\n</script>\n\n<template>\n  <LabelPart data-slot=\"label\"><slot>{{ label }}</slot></LabelPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/label/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Label } from \"./Label.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/label/label.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Label: the text of a form control. A label around a checkbox or a switch keeps ui-sdk's row layout. */\n  [data-slot=\"label\"] {\n    color: var(--vh-text);\n    font-size: 0.875rem;\n    font-weight: 500;\n    line-height: 1.25rem;\n  }\n\n  [data-slot=\"label\"]:has(:disabled) {\n    cursor: not-allowed;\n    opacity: 0.5;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/label/types.ts",
+      "type": "registry:component",
+      "content": "export interface LabelProps {\n  label?: string;\n}\n\nexport interface LabelSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

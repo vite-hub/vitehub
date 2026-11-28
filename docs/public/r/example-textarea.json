@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-textarea",
+  "type": "registry:block",
+  "title": "Textarea example",
+  "description": "A textarea with v-model, and an invalid one.",
+  "registryDependencies": [
+    "@vitehub/textarea"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-textarea/TextareaExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Textarea } from \"../textarea/index.ts\";\nimport { ref } from \"vue\";\n\nconst notes = ref(\"\");\n</script>\n\n<template>\n  <div data-slot=\"example-textarea\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Textarea v-model=\"notes\" aria-label=\"Notes\" placeholder=\"What changed?\" />\n    <Textarea aria-label=\"Reason\" invalid />\n  </div>\n</template>\n"
+    }
+  ]
+}

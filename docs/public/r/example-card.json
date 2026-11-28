@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-card",
+  "type": "registry:block",
+  "title": "Card example",
+  "description": "A card with a title, a description, an action, content, and a footer.",
+  "registryDependencies": [
+    "@vitehub/button",
+    "@vitehub/card"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-card/CardExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from \"../card/index.ts\";\nimport { Button } from \"../button/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-card\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Card>\n      <CardHeader>\n        <CardTitle>Production</CardTitle>\n        <CardDescription>Deployed 3 minutes ago from main.</CardDescription>\n        <CardAction><Button size=\"xs\" variant=\"ghost\" label=\"Logs\" /></CardAction>\n      </CardHeader>\n      <CardContent>app.example.com</CardContent>\n      <CardFooter><Button size=\"sm\" label=\"Redeploy\" /></CardFooter>\n    </Card>\n  </div>\n</template>\n"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+@layer components {
+  /* Dialog: ui-sdk's stylesheet centers the box over the backdrop. The ViteHub dialog floats on a shadow, with no border. */
+  [data-slot="dialog-content"] {
+    border-width: 0;
+    box-shadow: var(--vh-shadow-dialog);
+  }
+
+  /* The icon-only close button sits in the top end corner, as in shadcn. */
+  [data-slot="dialog-content"] > [data-slot="dialog-close"][aria-label]:has(> svg:only-child) {
+    background: transparent;
+    border-color: transparent;
+    color: var(--vh-muted);
+    height: 1.75rem;
+    inset-block-start: 0.75rem;
+    inset-inline-end: 0.75rem;
+    padding: 0;
+    position: absolute;
+    width: 1.75rem;
+  }
+
+  @media (hover: hover) {
+    [data-slot="dialog-content"] > [data-slot="dialog-close"][aria-label]:has(> svg:only-child):hover {
+      background: var(--vh-bg-muted);
+      color: var(--vh-text);
+    }
+  }
+
+  [data-slot="dialog-header"] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding-inline-end: 1.5rem;
+  }
+
+  [data-slot="dialog-header"] [data-slot="dialog-description"] {
+    margin: 0;
+  }
+
+  [data-slot="dialog-footer"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+}

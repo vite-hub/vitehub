@@ -1,0 +1,71 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "sheet",
+  "type": "registry:component",
+  "title": "Sheet",
+  "description": "A panel that slides in from an edge of the viewport. A long body scrolls.",
+  "dependencies": [
+    "@lucide/vue",
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/sheet/Sheet.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./sheet.css\";\nimport { Drawer } from \"@ui-sdk/vue/drawer\";\nimport type { SheetEmits, SheetProps, SheetSlots } from \"./types.ts\";\n\nconst open = defineModel<boolean | undefined>(\"open\", { default: undefined });\nconst { defaultOpen = false, side = \"right\" } = defineProps<SheetProps>();\ndefineEmits<SheetEmits>();\ndefineSlots<SheetSlots>();\n</script>\n\n<template>\n  <Drawer v-model:open=\"open\" :default-open=\"defaultOpen || undefined\" :side=\"side\"><slot /></Drawer>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetClose.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DrawerClose } from \"@ui-sdk/vue/drawer\";\nimport type { SheetCloseSlots } from \"./types.ts\";\n\ndefineSlots<SheetCloseSlots>();\n</script>\n\n<template>\n  <DrawerClose>\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <button v-bind=\"part\" data-slot=\"sheet-close\"><component :is=\"children\" /></button>\n    </template>\n    <slot />\n  </DrawerClose>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { X } from \"@lucide/vue\";\nimport { DrawerBackdrop, DrawerClose, DrawerContent } from \"@ui-sdk/vue/drawer\";\nimport type { SheetContentProps, SheetContentSlots } from \"./types.ts\";\n\ndefineOptions({ inheritAttrs: false });\nconst { closeLabel = \"Close\" } = defineProps<SheetContentProps>();\ndefineSlots<SheetContentSlots>();\n</script>\n\n<template>\n  <DrawerBackdrop>\n    <template #render=\"{ props: part }\">\n      <div v-bind=\"part\" data-slot=\"sheet-overlay\" />\n    </template>\n  </DrawerBackdrop>\n  <!--\n    The content keeps ui-sdk's `drawer-content` slot: ui-sdk handles Escape and the Tab trap only on an element with\n    that slot. `data-sheet` scopes the sheet styles to it.\n  -->\n  <DrawerContent v-bind=\"$attrs\" data-sheet=\"\">\n    <slot />\n    <!-- An empty `close` slot removes the button. -->\n    <slot name=\"close\">\n      <DrawerClose :aria-label=\"closeLabel\">\n        <template #render=\"{ props: part, children }\">\n          <button v-bind=\"part\" data-slot=\"sheet-close\"><component :is=\"children\" /></button>\n        </template>\n        <X aria-hidden=\"true\" />\n      </DrawerClose>\n    </slot>\n  </DrawerContent>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetDescription.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DrawerDescription } from \"@ui-sdk/vue/drawer\";\nimport type { SheetDescriptionSlots } from \"./types.ts\";\n\ndefineSlots<SheetDescriptionSlots>();\n</script>\n\n<template>\n  <DrawerDescription>\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <p v-bind=\"part\" data-slot=\"sheet-description\"><component :is=\"children\" /></p>\n    </template>\n    <slot />\n  </DrawerDescription>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetFooter.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { SheetFooterSlots } from \"./types.ts\";\n\ndefineSlots<SheetFooterSlots>();\n</script>\n\n<template>\n  <div data-slot=\"sheet-footer\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetHeader.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { SheetHeaderSlots } from \"./types.ts\";\n\ndefineSlots<SheetHeaderSlots>();\n</script>\n\n<template>\n  <div data-slot=\"sheet-header\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetTitle.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DrawerTitle } from \"@ui-sdk/vue/drawer\";\nimport type { SheetTitleSlots } from \"./types.ts\";\n\ndefineSlots<SheetTitleSlots>();\n</script>\n\n<template>\n  <DrawerTitle>\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <h2 v-bind=\"part\" data-slot=\"sheet-title\"><component :is=\"children\" /></h2>\n    </template>\n    <slot />\n  </DrawerTitle>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/SheetTrigger.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DrawerTrigger } from \"@ui-sdk/vue/drawer\";\nimport type { SheetTriggerSlots } from \"./types.ts\";\n\ndefineSlots<SheetTriggerSlots>();\n</script>\n\n<template>\n  <DrawerTrigger>\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <button v-bind=\"part\" data-slot=\"sheet-trigger\"><component :is=\"children\" /></button>\n    </template>\n    <slot />\n  </DrawerTrigger>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/sheet/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Sheet } from \"./Sheet.vue\";\nexport { default as SheetClose } from \"./SheetClose.vue\";\nexport { default as SheetContent } from \"./SheetContent.vue\";\nexport { default as SheetDescription } from \"./SheetDescription.vue\";\nexport { default as SheetFooter } from \"./SheetFooter.vue\";\nexport { default as SheetHeader } from \"./SheetHeader.vue\";\nexport { default as SheetTitle } from \"./SheetTitle.vue\";\nexport { default as SheetTrigger } from \"./SheetTrigger.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/sheet/sheet.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* The trigger and the close button have the look of the plain button. */\n  :is([data-slot=\"sheet-trigger\"], [data-slot=\"sheet-close\"]) {\n    align-items: center;\n    background: var(--vh-bg);\n    border: 1px solid var(--vh-border-accented);\n    border-radius: calc(var(--vh-radius) * 0.75);\n    color: var(--vh-text);\n    cursor: pointer;\n    display: inline-flex;\n    font: inherit;\n    font-size: 0.875rem;\n    font-weight: 500;\n    gap: 0.375rem;\n    height: 2rem;\n    justify-content: center;\n    padding-inline: 0.75rem;\n    user-select: none;\n    white-space: nowrap;\n  }\n\n  @media (hover: hover) {\n    :is([data-slot=\"sheet-trigger\"], [data-slot=\"sheet-close\"]):hover:not([data-disabled]) {\n      background: var(--vh-bg-muted);\n    }\n  }\n\n  :is([data-slot=\"sheet-trigger\"], [data-slot=\"sheet-close\"]):focus-visible {\n    outline: 2px solid var(--vh-ring);\n    outline-offset: 2px;\n  }\n\n  :is([data-slot=\"sheet-trigger\"], [data-slot=\"sheet-close\"])[data-disabled] {\n    cursor: not-allowed;\n    opacity: 0.5;\n  }\n\n  [data-slot=\"sheet-overlay\"] {\n    background: var(--vh-overlay);\n    inset: 0;\n    position: fixed;\n    z-index: 50;\n  }\n\n  [data-slot=\"sheet-overlay\"][data-hidden] {\n    display: none;\n  }\n\n  /*\n   * Sheet: a panel on one edge, on a shadow. ui-sdk's drawer viewport puts it on its `data-side`. The content keeps\n   * ui-sdk's `drawer-content` slot, which ui-sdk needs for Escape and the Tab trap, so `data-sheet` scopes these rules.\n   */\n  [data-slot=\"drawer-content\"][data-sheet] {\n    background: var(--vh-bg);\n    box-shadow: var(--vh-shadow-dialog);\n    color: var(--vh-text);\n    display: flex;\n    flex-direction: column;\n    font-size: 0.875rem;\n    gap: 1rem;\n    max-height: 85dvh;\n    outline: none;\n    overflow-y: auto;\n    overscroll-behavior: contain;\n    padding: 1.5rem;\n    position: relative;\n    width: 100%;\n  }\n\n  /* web.css draws a drag handle on the drawer. A sheet has none. */\n  [data-slot=\"drawer-content\"][data-sheet]::after {\n    content: none;\n  }\n\n  [data-slot=\"drawer-content\"][data-sheet]:is([data-side=\"left\"], [data-side=\"right\"]) {\n    height: 100%;\n    max-height: none;\n    max-width: 85vw;\n    width: 24rem;\n  }\n\n  [data-slot=\"drawer-content\"][data-sheet][data-side=\"bottom\"] {\n    border-start-end-radius: calc(var(--vh-radius) * 1.5);\n    border-start-start-radius: calc(var(--vh-radius) * 1.5);\n  }\n\n  [data-slot=\"drawer-content\"][data-sheet][data-side=\"top\"] {\n    border-end-end-radius: calc(var(--vh-radius) * 1.5);\n    border-end-start-radius: calc(var(--vh-radius) * 1.5);\n  }\n\n  /* The icon-only close button sits in the top end corner, as in shadcn. */\n  [data-slot=\"drawer-content\"][data-sheet] > [data-slot=\"sheet-close\"][aria-label]:has(> svg:only-child) {\n    background: transparent;\n    border-color: transparent;\n    color: var(--vh-muted);\n    height: 1.75rem;\n    inset-block-start: 0.75rem;\n    inset-inline-end: 0.75rem;\n    padding: 0;\n    position: absolute;\n    width: 1.75rem;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"drawer-content\"][data-sheet] > [data-slot=\"sheet-close\"][aria-label]:has(> svg:only-child):hover {\n      background: var(--vh-bg-muted);\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"sheet-header\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.375rem;\n    padding-inline-end: 1.5rem;\n  }\n\n  [data-slot=\"sheet-title\"] {\n    font-size: 1rem;\n    font-weight: 600;\n    margin: 0;\n  }\n\n  [data-slot=\"sheet-description\"] {\n    color: var(--vh-muted);\n    margin: 0;\n  }\n\n  [data-slot=\"sheet-footer\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.5rem;\n    margin-top: auto;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/sheet/types.ts",
+      "type": "registry:component",
+      "content": "export type SheetSide = \"top\" | \"right\" | \"bottom\" | \"left\";\n\nexport interface SheetProps {\n  open?: boolean;\n  defaultOpen?: boolean;\n  side?: SheetSide;\n}\n\nexport interface SheetEmits {\n  \"update:open\": [open: boolean];\n}\n\nexport interface SheetSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetContentProps {\n  closeLabel?: string;\n}\n\nexport interface SheetContentSlots {\n  default?: () => unknown;\n  close?: () => unknown;\n}\n\nexport interface SheetTriggerSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetCloseSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetTitleSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetDescriptionSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetHeaderSlots {\n  default?: () => unknown;\n}\n\nexport interface SheetFooterSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-tabs",
+  "type": "registry:block",
+  "title": "Tabs example",
+  "description": "Three tabs.",
+  "registryDependencies": [
+    "@vitehub/tabs"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-tabs/TabsExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Tabs, TabsContent, TabsList, TabsTrigger } from \"../tabs/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-tabs\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Tabs default-value=\"overview\">\n      <TabsList>\n        <TabsTrigger value=\"overview\">Overview</TabsTrigger>\n        <TabsTrigger value=\"deploys\">Deploys</TabsTrigger>\n        <TabsTrigger value=\"settings\">Settings</TabsTrigger>\n      </TabsList>\n      <TabsContent value=\"overview\">The project runs on Cloudflare.</TabsContent>\n      <TabsContent value=\"deploys\">12 deploys this week.</TabsContent>\n      <TabsContent value=\"settings\">Change the name and the region.</TabsContent>\n    </Tabs>\n  </div>\n</template>\n"
+    }
+  ]
+}

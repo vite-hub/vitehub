@@ -1,0 +1,18 @@
+@layer components {
+  /* Field: ui-sdk's stylesheet stacks the label, the control, and the texts. These set the ViteHub text sizes. */
+  [data-slot="field-label"] {
+    color: var(--vh-text);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  [data-slot="field-description"] {
+    color: var(--vh-muted);
+    font-size: 0.8125rem;
+  }
+
+  [data-slot="field-error"] {
+    color: var(--vh-text-error, var(--vh-error));
+    font-size: 0.8125rem;
+  }
+}

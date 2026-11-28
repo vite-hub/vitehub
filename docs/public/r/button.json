@@ -1,0 +1,36 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "button",
+  "type": "registry:component",
+  "title": "Button",
+  "description": "A button in the ViteHub look: solid, outline, soft, ghost, link, and destructive, with a loading state.",
+  "dependencies": [
+    "@lucide/vue",
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/button/Button.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./button.css\";\nimport { LoaderCircle } from \"@lucide/vue\";\nimport { Button as ButtonPart } from \"@ui-sdk/vue/button\";\nimport type { ButtonProps, ButtonSlots } from \"./types.ts\";\n\nconst { variant = \"outline\", size = \"md\", type = \"button\", label, loading = false, disabled = false } = defineProps<ButtonProps>();\ndefineSlots<ButtonSlots>();\n</script>\n\n<template>\n  <ButtonPart\n    data-slot=\"button\"\n    :data-variant=\"variant\"\n    :data-size=\"size\"\n    :data-loading=\"loading ? '' : undefined\"\n    :type=\"type\"\n    :disabled=\"disabled || loading\"\n    :aria-busy=\"loading ? 'true' : undefined\"\n  >\n    <LoaderCircle v-if=\"loading\" data-slot=\"button-spinner\" aria-hidden=\"true\" />\n    <slot v-else name=\"icon\" />\n    <slot>{{ label }}</slot>\n  </ButtonPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/button/button.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /*\n   * Button: ui-sdk's stylesheet draws the plain button, `solid`, and `destructive`. These add `soft`, `ghost`, and\n   * `link`, the sizes, and the spinner. A rule here wins over web.css, so a rule that sets a background sets its hover too.\n   */\n  [data-slot=\"button\"]:is([data-variant=\"soft\"], [data-variant=\"ghost\"], [data-variant=\"link\"]) {\n    border-color: transparent;\n  }\n\n  [data-slot=\"button\"][data-variant=\"soft\"] {\n    background: var(--vh-bg-muted);\n  }\n\n  [data-slot=\"button\"][data-variant=\"ghost\"] {\n    background: transparent;\n  }\n\n  [data-slot=\"button\"][data-variant=\"link\"] {\n    background: transparent;\n    color: var(--vh-muted);\n    height: auto;\n    padding-inline: 0;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"button\"][data-variant=\"soft\"]:hover:not([data-disabled]) {\n      background: color-mix(in oklab, var(--vh-bg-muted), var(--vh-text) 8%);\n    }\n\n    [data-slot=\"button\"][data-variant=\"ghost\"]:hover:not([data-disabled]) {\n      background: var(--vh-bg-muted);\n    }\n\n    [data-slot=\"button\"][data-variant=\"link\"]:hover:not([data-disabled]) {\n      background: transparent;\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"button\"][data-size=\"xs\"] {\n    font-size: 0.75rem;\n    gap: 0.25rem;\n    height: 1.5rem;\n    padding-inline: 0.5rem;\n  }\n\n  [data-slot=\"button\"][data-size=\"sm\"] {\n    height: 1.75rem;\n    padding-inline: 0.625rem;\n  }\n\n  [data-slot=\"button\"][data-size=\"lg\"] {\n    height: 2.25rem;\n    padding-inline: 0.875rem;\n  }\n\n  /* An icon-only button is a square. */\n  [data-slot=\"button\"][aria-label]:has(> svg:only-child) {\n    padding: 0;\n    width: 2rem;\n  }\n\n  [data-slot=\"button\"][data-size=\"xs\"][aria-label]:has(> svg:only-child) {\n    width: 1.5rem;\n  }\n\n  [data-slot=\"button\"][data-size=\"sm\"][aria-label]:has(> svg:only-child) {\n    width: 1.75rem;\n  }\n\n  [data-slot=\"button\"][data-size=\"lg\"][aria-label]:has(> svg:only-child) {\n    width: 2.25rem;\n  }\n\n  [data-slot=\"button\"][data-loading] {\n    cursor: progress;\n  }\n\n  [data-slot=\"button-spinner\"] {\n    animation: button-spin 1s linear infinite;\n  }\n\n  @keyframes button-spin {\n    to {\n      rotate: 1turn;\n    }\n  }\n\n  @media (prefers-reduced-motion: reduce) {\n    [data-slot=\"button-spinner\"] {\n      animation-duration: 3s;\n    }\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/button/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Button } from \"./Button.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/button/types.ts",
+      "type": "registry:component",
+      "content": "export type ButtonVariant = \"solid\" | \"outline\" | \"soft\" | \"ghost\" | \"link\" | \"destructive\";\nexport type ButtonSize = \"xs\" | \"sm\" | \"md\" | \"lg\";\n\nexport interface ButtonProps {\n  variant?: ButtonVariant;\n  size?: ButtonSize;\n  type?: \"button\" | \"submit\" | \"reset\";\n  label?: string;\n  loading?: boolean;\n  disabled?: boolean;\n}\n\nexport interface ButtonSlots {\n  default?: () => unknown;\n  icon?: () => unknown;\n}\n"
+    }
+  ]
+}

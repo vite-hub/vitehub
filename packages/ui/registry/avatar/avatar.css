@@ -1,0 +1,29 @@
+@layer components {
+  /* Avatar: ui-sdk's stylesheet draws the circle, the image, and the fallback. These set the sizes. */
+  [data-slot="avatar"] {
+    background: var(--vh-bg-muted);
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    height: 2rem;
+    width: 2rem;
+  }
+
+  [data-slot="avatar"][data-size="xs"] {
+    font-size: 0.5rem;
+    height: 1.25rem;
+    width: 1.25rem;
+  }
+
+  [data-slot="avatar"][data-size="sm"] {
+    font-size: 0.625rem;
+    height: 1.5rem;
+    width: 1.5rem;
+  }
+
+  [data-slot="avatar"][data-size="lg"] {
+    font-size: 0.875rem;
+    height: 2.5rem;
+    width: 2.5rem;
+  }
+}

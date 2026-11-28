@@ -1,0 +1,21 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-empty",
+  "type": "registry:block",
+  "title": "Empty example",
+  "description": "The empty state of a project list, with an action.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/button",
+    "@vitehub/empty"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-empty/EmptyExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from \"../empty/index.ts\";\nimport { Button } from \"../button/index.ts\";\nimport { FolderOpen } from \"@lucide/vue\";\n</script>\n\n<template>\n  <div data-slot=\"example-empty\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Empty variant=\"outline\">\n      <EmptyHeader>\n        <EmptyMedia><FolderOpen aria-hidden=\"true\" /></EmptyMedia>\n        <EmptyTitle>No projects yet</EmptyTitle>\n        <EmptyDescription>Deploy an app to see it here.</EmptyDescription>\n      </EmptyHeader>\n      <EmptyContent>\n        <Button variant=\"solid\" size=\"sm\" label=\"New project\" />\n      </EmptyContent>\n    </Empty>\n  </div>\n</template>\n"
+    }
+  ]
+}
