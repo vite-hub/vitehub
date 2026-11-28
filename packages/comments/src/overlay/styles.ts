@@ -101,6 +101,8 @@ export const overlayStyles = `
   top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px;
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
+/* The whole-page island has the cards' surface and shadow. */
+[data-slot="comment-page-island-card"] { box-shadow: 0 0 0 1px var(--vh-border), 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08); }
 /* The overlay places a card beside its pin itself, so it turns off the CSS anchor placement of @vite-hub/ui/styles.css. */
 [data-slot="comment-layer-item"]:not([data-draft]) > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating]) {
   position: absolute; margin: 0; position-area: none; position-try-fallbacks: none;

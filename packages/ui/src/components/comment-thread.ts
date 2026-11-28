@@ -1,5 +1,5 @@
 import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { type Component, computed, defineComponent, h, nextTick, type PropType, provide, ref, type Ref, type SlotsType, type VNode } from "vue";
+import { type Component, computed, defineComponent, h, inject, nextTick, type PropType, provide, ref, type Ref, type SlotsType, type VNode } from "vue";
 import { RollNumber } from "./motion.ts";
 import {
   commentThreadPortals,
@@ -409,7 +409,7 @@ export const CommentThread = defineComponent({
     const sending = ref(false);
     const failure = ref<string | undefined>();
     const composer = ref<{ focus: () => void } | null>(null);
-    const portals = new Set<Ref<HTMLElement | undefined>>();
+    const portals = inject(commentThreadPortals, undefined) ?? new Set<Ref<HTMLElement | undefined>>();
     provide(commentThreadPortals, portals);
 
     const user = computed(() => props.user ?? comments?.user.value);
