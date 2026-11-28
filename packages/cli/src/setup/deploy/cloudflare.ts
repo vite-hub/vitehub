@@ -105,6 +105,14 @@ async function unmigratedD1Bindings(outputDir: string, config: string, wrangler:
   return found
 }
 
+function d1BindingsWithoutId(wrangler: Record<string, unknown>): string[] {
+  return (Array.isArray(wrangler.d1_databases) ? wrangler.d1_databases : []).flatMap((entry) => {
+    if (!isRecord(entry) || optionalString(entry.database_id)) return []
+    const binding = optionalString(entry.binding)
+    return binding ? [binding] : []
+  })
+}
+
 /** The `results` rows of `wrangler d1 execute --json`, which prints one `{ results, success, meta }` per statement. */
 function d1ResultNames(result: DeployRunResult): string[] | undefined {
   let value: unknown
@@ -203,14 +211,18 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
 
   return {
     async deploy(): Promise<DeployResult> {
-      if (!context.preview && !context.temporary) {
-        // Without `database.migrateOnDeploy`, nothing applies the migrations of the build. New code on old tables
-        // answers every query that needs a new table or column with an error, so the deploy stops before it ships.
+      if (!context.temporary) {
         const wranglerConfig = await readWranglerConfig(context.outputDir, command.config)
         const environment = env.CLOUDFLARE_ENV
         const named = environment && isRecord(wranglerConfig.env) && Object.hasOwn(wranglerConfig.env, environment) ? wranglerConfig.env[environment] : undefined
         const config = isRecord(named) ? named : wranglerConfig
-        for (const target of await unmigratedD1Bindings(context.outputDir, command.config, config, command.migrations)) {
+        const unprovisioned = d1BindingsWithoutId(config)
+        if (unprovisioned.length) {
+          throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_D1_DATABASE_ID_MISSING({ bindings: unprovisioned.join(", ") }), setupExitCodes.error)
+        }
+        // Without `database.migrateOnDeploy`, nothing applies the migrations of the build. New code on old tables
+        // answers every query that needs a new table or column with an error, so the deploy stops before it ships.
+        for (const target of context.preview ? [] : await unmigratedD1Bindings(context.outputDir, command.config, config, command.migrations)) {
           const pending = await pendingD1Migrations(target)
           if (!pending.length) continue
           throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_D1_MIGRATIONS_PENDING({
@@ -219,7 +231,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
             migrations: pending.join(", "),
           }), setupExitCodes.error)
         }
-        for (const binding of command.migrations) {
+        for (const binding of context.preview ? [] : command.migrations) {
           const result = await run(["d1", "migrations", "apply", binding, "--remote", "--config", command.config], { show: true })
           if (result.exitCode !== 0) throw hostCliFailed(`wrangler d1 migrations apply ${binding}`, result, context.secrets)
         }

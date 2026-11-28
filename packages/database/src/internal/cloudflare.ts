@@ -89,23 +89,19 @@ interface CloudflareD1ProvisionState {
 
 interface CloudflareD1WranglerBinding {
   binding: string
-  database_id: string
+  database_id?: string
   database_name: string
   migrations_dir?: string
   migrations_table?: string
   preview_database_id?: string
 }
 
-type CloudflareD1UnresolvedBindingReason = "missing-database-id" | "missing-database-name"
-
 interface CloudflareD1UnresolvedBinding {
   binding: string
   database: string
-  databaseName?: string
   migrationsDir?: string
   migrationsTable?: string
   previewDatabaseId?: string
-  reason: CloudflareD1UnresolvedBindingReason
 }
 
 interface CloudflareD1BindingInput {
@@ -166,20 +162,15 @@ function createUnresolvedBinding(
   name: string,
   binding: string,
   database: CloudflareD1BindingInput,
-  reason: CloudflareD1UnresolvedBindingReason,
 ): CloudflareD1UnresolvedBinding {
-  const databaseName = resolveNonEmptyConfigValue(database.databaseName)
   const previewDatabaseId = resolveNonEmptyConfigValue(database.previewDatabaseId)
-  const unresolved: CloudflareD1UnresolvedBinding = {
+  return {
     binding,
     database: name,
     ...(database.migrationsDir ? { migrationsDir: database.migrationsDir } : {}),
     ...(database.migrationsTable ? { migrationsTable: database.migrationsTable } : {}),
     ...(previewDatabaseId ? { previewDatabaseId } : {}),
-    reason,
   }
-  if (databaseName?.trim()) unresolved.databaseName = databaseName
-  return unresolved
 }
 
 export function resolveCloudflareD1Binding(
@@ -195,16 +186,10 @@ export function resolveCloudflareD1Binding(
   const databaseName = resolveNonEmptyConfigValue(input.databaseName)
   const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
-  if (!databaseId?.trim()) {
-    return {
-      bindingName,
-      unresolved: createUnresolvedBinding(database, bindingName, input, "missing-database-id"),
-    }
-  }
   if (!databaseName?.trim()) {
     return {
       bindingName,
-      unresolved: createUnresolvedBinding(database, bindingName, input, "missing-database-name"),
+      unresolved: createUnresolvedBinding(database, bindingName, input),
     }
   }
 
@@ -212,7 +197,7 @@ export function resolveCloudflareD1Binding(
     bindingName,
     d1Database: {
       binding: bindingName,
-      database_id: databaseId,
+      ...(databaseId?.trim() ? { database_id: databaseId } : {}),
       database_name: databaseName,
       ...(input.migrationsDir ? { migrations_dir: input.migrationsDir } : {}),
       ...(input.migrationsTable ? { migrations_table: input.migrationsTable } : {}),
@@ -245,6 +230,7 @@ export function resolveCloudflareD1Bindings(
       migrationsTable: database.migrationsTable,
       previewDatabaseId: database.previewDatabaseId,
     }, { provisionState: options.provisionState })
+    if (projection.d1Database && !projection.d1Database.database_id && isRemoteLibsqlUrl(config.databases[name]?.connection?.url)) continue
     if (projection.d1Database) {
       const previous = bindingDatabases.get(projection.bindingName)
       if (previous) {
@@ -257,6 +243,11 @@ export function resolveCloudflareD1Bindings(
   }
 
   return { d1Databases, unresolved }
+}
+
+function isRemoteLibsqlUrl(value: DatabaseConfigValue | undefined) {
+  const url = resolveConfigValue(value)
+  return typeof url === "string" && /^(?:libsql:|https?:\/\/|wss?:\/\/)/i.test(url)
 }
 
 export function mergeCloudflareD1Bindings(
@@ -277,10 +268,9 @@ export function mergeCloudflareD1Bindings(
 
   for (const binding of generated) {
     const index = bindings.findIndex(item => item.binding === binding.binding)
-    if (index === -1) {
-      bindings.push(binding)
-    }
-    else bindings[index] = { ...binding }
+    const current = bindings[index]
+    if (!current) bindings.push(binding)
+    else bindings[index] = !binding.database_id && current.database_name === binding.database_name ? { ...binding, ...current } : { ...binding }
   }
 
   return bindings
@@ -290,7 +280,7 @@ function isCloudflareD1WranglerBinding(value: unknown): value is CloudflareD1Wra
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false
   const binding = value as Partial<CloudflareD1WranglerBinding>
   return typeof binding.binding === "string"
-    && typeof binding.database_id === "string"
+    && (binding.database_id === undefined || typeof binding.database_id === "string")
     && typeof binding.database_name === "string"
 }
 

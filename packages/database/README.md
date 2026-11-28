@@ -259,7 +259,7 @@ Native D1 output requires a Cloudflare block that ViteHub can read as a literal.
 
 Keep an explicit `cloudflare` property in the Definition when its value is opaque. If the whole Definition hides that property in an identifier or spread, set `hubDatabase({ driver: 'cloudflare' })` to declare D1 intent. Without that declaration, a wholly hidden Definition does not project native D1 output. Opaque local SQLite Definitions remain supported.
 
-An owned native resource must resolve a nonblank database ID and name at build time. Its own provisioned ID can supply the ID. Use D1 HTTP or remote libSQL access when the resource values become available only at runtime.
+An owned native resource must resolve a nonblank database name at build time. Its ID comes from `databaseId` or its own provisioned ID. Without one, the build writes the binding without `database_id`, and `vitehub deploy` provisions the database before the build. Use D1 HTTP or remote libSQL access when the resource values become available only at runtime.
 
 Named Definitions without an explicit binding use their per-name binding, such as `DB_ANALYTICS`. A default Definition retains the integration binding. Named Definitions can inherit the integration resource through different binding names. Generated native D1 bindings must have unique names, including bindings for identical resources. Set distinct `cloudflare.binding` values when explicit bindings or normalized names collide.
 
@@ -339,7 +339,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`driver` takes only `"cloudflare"`; any other value, such as the former `"d1"`, fails with `DATABASE_UNKNOWN_DRIVER`. Run `vitehub provision run --host cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
+`driver` takes only `"cloudflare"`; any other value, such as the former `"d1"`, fails with `DATABASE_UNKNOWN_DRIVER`. Run `vitehub provision run --host cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Without `databaseId` or provision state, the build writes the binding with `database_name` only, and `vitehub deploy` provisions the database before it builds. A matching binding with a `database_name` that is already in Nitro Wrangler config is kept.
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
 

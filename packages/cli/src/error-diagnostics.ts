@@ -195,6 +195,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
     },
+    SETUP_DEPLOY_D1_DATABASE_ID_MISSING: {
+      fix: "Run `vitehub deploy` without --no-provision, so that it creates the database before the build. Or run `vitehub provision run --host cloudflare`, build again, then deploy.",
+      why: ({ bindings }: { bindings?: unknown }) => `The build output has no \`database_id\` for the D1 binding ${String(bindings)}, because the database was not provisioned when the app was built. Nothing was deployed.`,
+    },
     SETUP_DEPLOY_D1_MIGRATIONS_PENDING: {
       fix: ({ apply }: { apply?: unknown, binding?: unknown, migrations?: unknown }) => `Set \`database.migrateOnDeploy: true\` so that \`vitehub deploy\` applies them before the Worker deploys. Or run \`${String(apply)}\` in the build output folder, then deploy again.`,
       why: ({ binding, migrations }: { apply?: unknown, binding?: unknown, migrations?: unknown }) => `The build has D1 migrations that the remote database of the binding ${String(binding)} has not applied: ${String(migrations)}. The new code would query tables or columns that do not exist yet. Nothing was deployed.`,

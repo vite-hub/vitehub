@@ -436,7 +436,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
-      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
+      fix: "Set `cloudflare.databaseName` at build time. The build writes the D1 binding without `database_id` until `vitehub provision run --host cloudflare` or `vitehub deploy` creates the database. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
       why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
@@ -505,7 +505,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_NUXT_CONTENT_D1_MISSING: {
       why: "Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.",
-      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_id` in the Wrangler config, or add a Database Definition in `server/databases/`.",
+      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_name` in the Wrangler config, or add a Database Definition in `server/databases/`.",
     },
     DATABASE_POSTGRES_DRIVER_MISSING: {
       why: ({ name }: { name: "pg" | "postgres" }) => `Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`,

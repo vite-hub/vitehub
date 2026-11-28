@@ -238,7 +238,7 @@ Put D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database config 
 
 Run `vitehub inspect definitions --kind database` to list the Definitions that ViteHub found.
 
-A Vite app with the Nitro Vite plugin and a Cloudflare host gets each Definition's `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`, so you do not repeat it in Nitro config. The Definition's binding replaces one with the same name there. Other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied next to the generated Wrangler config.
+A Vite app with the Nitro Vite plugin and a Cloudflare host gets each Definition's `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`, so you do not repeat it in Nitro config. The Definition's binding replaces one with the same name there, except that a binding without an id keeps the Nitro binding when both have the same `database_name`. Other bindings stay. A Definition is added when it has a `databaseName`. Its `database_id` comes from `databaseId` or provision state, and the binding has none until the database is provisioned. Its migration SQL is copied next to the generated Wrangler config.
 
 Cloudflare Nuxt output also copies D1 migration SQL next to the Wrangler config, so `.output/server` can apply migrations without the sources.
 
@@ -322,7 +322,7 @@ export default defineConfig({
 :::
 ::
 
-Run `vitehub provision run --host cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
+Run `vitehub provision run --host cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build without an id in provision state or `database.databaseId` writes the D1 binding with `database_name` and no `database_id`. `vitehub deploy` provisions the database before the build, so its output has the id. A deploy of output without the id, such as `vitehub deploy --no-build --no-provision`, stops with [`SETUP_DEPLOY_D1_DATABASE_ID_MISSING`](/docs/cli/diagnostics/setup_deploy_d1_database_id_missing). The build fails only when it finds no `database.databaseName` and no matching Nitro Wrangler binding with a `database_name`.
 
 `driver` takes only `'cloudflare'`. Any other value, such as the former `'d1'`, fails with [`DATABASE_UNKNOWN_DRIVER`](/docs/database/diagnostics/database_unknown_driver). Run `npx @vite-hub/codemods driver-key` to rename `'d1'`.
 

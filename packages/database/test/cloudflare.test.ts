@@ -61,11 +61,9 @@ describe("Cloudflare D1 binding projections", () => {
       databaseName: "content-db",
     })).toEqual({
       bindingName: "DB",
-      unresolved: {
+      d1Database: {
         binding: "DB",
-        database: "content",
-        databaseName: "content-db",
-        reason: "missing-database-id",
+        database_name: "content-db",
       },
     })
   })
@@ -75,18 +73,18 @@ describe("Cloudflare D1 binding projections", () => {
       database: "blank-id",
       databaseId: "   ",
       databaseName: "blank-id-db",
-    })).toMatchObject({
+    })).toEqual({
       bindingName: "DB_BLANK_ID",
-      unresolved: { reason: "missing-database-id" },
+      d1Database: { binding: "DB_BLANK_ID", database_name: "blank-id-db" },
     })
 
     expect(resolveCloudflareD1Binding({
       database: "blank-name",
       databaseId: "blank-name-id",
       databaseName: "   ",
-    })).toMatchObject({
+    })).toEqual({
       bindingName: "DB_BLANK_NAME",
-      unresolved: { reason: "missing-database-name" },
+      unresolved: { binding: "DB_BLANK_NAME", database: "blank-name" },
     })
   })
 
@@ -140,8 +138,8 @@ describe("Cloudflare D1 binding projections", () => {
       provisionState: { cloudflare: { d1: { blank: "provisioned-id" } } },
     })
 
-    expect(projection.d1Databases).toEqual([])
-    expect(projection.unresolved).toMatchObject([{ database: "blank", reason: "missing-database-id" }])
+    expect(projection.d1Databases).toEqual([{ binding: "DB_BLANK", database_name: "blank-db", migrations_dir: "server/databases/blank/migrations" }])
+    expect(projection.unresolved).toEqual([])
   })
 
   it.each([
@@ -149,7 +147,7 @@ describe("Cloudflare D1 binding projections", () => {
     { field: "databaseName", form: "literal" },
     { field: "databaseId", form: "env" },
     { field: "databaseName", form: "env" },
-  ] as const)("rejects a whitespace-only required D1 identity in $field from $form", ({ field, form }) => {
+  ] as const)("treats a whitespace-only D1 identity in $field from $form as missing", ({ field, form }) => {
     vi.stubEnv("VITEHUB_TEST_REQUIRED_D1_IDENTITY", " \t\n")
     const value = form === "env" ? createRuntimeEnvConfigValue(["VITEHUB_TEST_REQUIRED_D1_IDENTITY"]) : " \t\n"
     const input = field === "databaseId"
@@ -157,9 +155,8 @@ describe("Cloudflare D1 binding projections", () => {
       : { databaseId: "resource-id", databaseName: value }
     const result = resolveCloudflareD1Binding(input, { provisionState: { cloudflare: { d1: { default: "provisioned-id" } } } })
 
-    expect(result.d1Database).toBeUndefined()
-    expect(result.unresolved?.reason).toBe(field === "databaseId" ? "missing-database-id" : "missing-database-name")
-    expect(result.unresolved?.databaseName).toBe(field === "databaseId" ? "resource-db" : undefined)
+    expect(result.d1Database).toEqual(field === "databaseId" ? { binding: "DB", database_name: "resource-db" } : undefined)
+    expect(result.unresolved).toEqual(field === "databaseId" ? undefined : { binding: "DB", database: "default" })
   })
 
   it("keeps nonblank required D1 identity bytes unchanged", () => {
@@ -179,16 +176,15 @@ describe("Cloudflare D1 binding projections", () => {
     expect(result.d1Database).toMatchObject({ database_id: "provisioned-id", database_name: "resource-db" })
   })
 
-  it("rejects a whitespace-only provisioned required D1 identity", () => {
+  it("leaves out a whitespace-only provisioned D1 id", () => {
     const result = resolveCloudflareD1Binding({ databaseName: "resource-db" }, {
       provisionState: { cloudflare: { d1: { default: " \t\n" } } },
     })
 
-    expect(result.d1Database).toBeUndefined()
-    expect(result.unresolved?.reason).toBe("missing-database-id")
+    expect(result).toEqual({ bindingName: "DB", d1Database: { binding: "DB", database_name: "resource-db" } })
   })
 
-  it("reports unresolved bindings instead of emitting invalid Wrangler D1 config", async () => {
+  it("writes a named D1 binding without an id, and reports a binding without a name", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "draft", [
       "    binding: 'DB_DRAFT',",
@@ -202,20 +198,14 @@ describe("Cloudflare D1 binding projections", () => {
     const config = resolveDBViteConfig(undefined, rootDir)!
     const projection = resolveCloudflareD1Bindings(config)
 
-    expect(projection.d1Databases).toEqual([])
+    expect(projection.d1Databases).toEqual([
+      { binding: "DB_DRAFT", database_name: "draft-db", migrations_dir: "server/databases/draft/migrations" },
+    ])
     expect(projection.unresolved).toEqual([
-      {
-        binding: "DB_DRAFT",
-        database: "draft",
-        databaseName: "draft-db",
-        migrationsDir: "server/databases/draft/migrations",
-        reason: "missing-database-id",
-      },
       {
         binding: "DB_UNNAMED",
         database: "unnamed",
         migrationsDir: "server/databases/unnamed/migrations",
-        reason: "missing-database-name",
       },
     ])
   })

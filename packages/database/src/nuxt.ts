@@ -277,11 +277,14 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         // a deployable build needs. An app runs it in `postinstall`, before it has D1 resources.
         // CLI discovery also runs readiness hooks before its Provision Steps can create those resources.
         const building = !nuxtOptions.dev && !nuxtOptions._prepare && !nuxtOptions.vitehubCliDiscovery
-        if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
-          if (d1.unresolved.reason === "missing-database-name") {
-            throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
+        if (building && provider === "cloudflare" && d1?.unresolved && !findNitroConfigD1Binding(config, d1.bindingName)) {
+          throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
+        }
+        if (building && provider === "cloudflare" && d1?.d1Database && !d1.d1Database.database_id) {
+          const hostD1Binding = findNitroConfigD1Binding(config, d1.bindingName)
+          if (hostD1Binding && hostD1Binding.database_name !== d1.d1Database.database_name) {
+            throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: d1.bindingName, first: "The Nuxt `database` option", kind: "D1", second: "the Nitro `cloudflare.wrangler` config" })
           }
-          throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseId` or provision state" })
         }
         if (!nuxtOptions.dev && provider) mergeNitroHostedCondition(config)
         if (nuxtOptions.dev) {
@@ -357,10 +360,9 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const { d1Databases, unresolved } = resolveCloudflareD1Bindings(runtime, { provisionState: readProvisionStateSync(provisionRoot) })
             for (const binding of unresolved) {
               if (hasRemoteDefinitionRuntime(runtime.databases[binding.database]!)) continue
-              if (d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections[binding.database]?.resource === "inherited" && findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)) continue
+              if (d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections[binding.database]?.resource === "inherited" && findNitroConfigD1Binding(config, d1.bindingName)) continue
               if (!building) continue
-              const missing = binding.reason === "missing-database-name" ? "`cloudflare.databaseName`" : "`cloudflare.databaseId` or provision state"
-              throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [binding.database], missing })
+              throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [binding.database], missing: "`cloudflare.databaseName`" })
             }
             const bindings = d1Databases.filter(binding => !(d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections.default?.resource === "inherited"))
             const wrangler = ensureRecord(ensureRecord(config, "cloudflare"), "wrangler")
@@ -373,7 +375,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
               : undefined
             const migrationCopies: Array<{ source: string, target: string }> = []
             if (d1 && inheritedSource) {
-              const inheritedBinding = findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)
+              const inheritedBinding = findNitroConfigD1Binding(config, d1.bindingName)
               if (inheritedBinding) {
                 const target = typeof inheritedBinding.migrations_dir === "string" ? inheritedBinding.migrations_dir : `${generatedNitroMigrationsDir}/${d1.bindingName}`
                 inheritedBinding.migrations_dir = target
@@ -414,7 +416,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const content = isRecord(nuxtOptions.content) ? nuxtOptions.content : undefined
             const database = content && isRecord(content.database) ? content.database : undefined
             const bindingName = database?.type === "d1" && typeof database.bindingName === "string" ? database.bindingName : "DB"
-            if ((!database || database.type === "sqlite" || database.type === "d1") && !findCompleteNitroConfigD1Binding(config, bindingName)) {
+            if ((!database || database.type === "sqlite" || database.type === "d1") && !findNitroConfigD1Binding(config, bindingName)) {
               throw databaseErrorDiagnostics.DATABASE_NUXT_CONTENT_D1_MISSING()
             }
           }
@@ -967,7 +969,7 @@ function mergeNitroConfigCloudflareConfig(config: Record<string, unknown>, d1: R
 
 function assertDistinctNuxtD1Bindings(runtime: ReturnType<typeof resolveDBViteConfig>, d1: ResolvedDatabaseNuxtD1Options | undefined, config: Record<string, unknown>) {
   if (!runtime || !d1) return
-  const host = d1.d1Database ?? findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)
+  const host = d1.d1Database?.database_id ? d1.d1Database : findNitroConfigD1Binding(config, d1.bindingName) ?? d1.d1Database
   for (const name of runtime.databaseNames) {
     const projection = runtime.definitionDefaults.cloudflareProjections[name]
     if (projection?.resource !== "configured" || projection.binding !== d1.bindingName) continue
@@ -977,18 +979,15 @@ function assertDistinctNuxtD1Bindings(runtime: ReturnType<typeof resolveDBViteCo
   }
 }
 
-function findCompleteNitroConfigD1Binding(config: Record<string, unknown>, bindingName: string, databaseName?: string) {
+function findNitroConfigD1Binding(config: Record<string, unknown>, bindingName: string) {
   const cloudflare = isRecord(config.cloudflare) ? config.cloudflare : undefined
   const wrangler = cloudflare && isRecord(cloudflare.wrangler) ? cloudflare.wrangler : undefined
   const bindings = wrangler?.d1_databases
   if (!Array.isArray(bindings)) return
   return bindings.find((binding: unknown): binding is Record<string, unknown> => isRecord(binding)
     && binding.binding === bindingName
-    && typeof binding.database_id === "string"
-    && Boolean(binding.database_id.trim())
     && typeof binding.database_name === "string"
-    && Boolean(binding.database_name.trim())
-    && (databaseName === undefined || binding.database_name === databaseName))
+    && Boolean(binding.database_name.trim()))
 }
 
 function hasNuxtContentModule(modules: unknown[] | undefined) {

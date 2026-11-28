@@ -15,8 +15,9 @@ its schema and notes routes.
 
 ## Create the D1 database
 
-A Cloudflare production build needs the database name and ID, so create the
-database before the first build. Without the ID, the build stops with
+A Cloudflare production build needs the database name. Without the ID, the
+build writes the D1 binding without `database_id`, and `vitehub deploy`
+creates the database before it builds. Without a name, the build stops with
 [`DATABASE_MISSING_D1_RESOURCE`](/docs/database/limits-and-errors#database_missing_d1_resource).
 Development does not need the database.
 
