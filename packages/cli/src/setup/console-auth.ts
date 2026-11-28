@@ -84,7 +84,7 @@ export async function namedConsole(context: Pick<ViteHubCliContext, "env" | "roo
   if (named) return named
   const project = await readSetupProject(context.rootDir, context.env).catch(() => undefined)
   const options = project?.config?.ok ? project.config.site.keys.console : undefined
-  const url = options?.kind === "literal" && options.value && typeof options.value === "object" && !Array.isArray(options.value) ? options.value.url : undefined
+  const url = options?.kind === "literal" && options.value && typeof options.value === "object" && "url" in options.value ? options.value.url : undefined
   return typeof url === "string" ? url : undefined
 }
 
