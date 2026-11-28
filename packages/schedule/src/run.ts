@@ -13,7 +13,7 @@ export type { RunScheduleOptions } from "./runtime/execute.ts"
 
 const registryModule = "#vitehub/schedule/registry"
 
-async function loadRegistry(): Promise<ScheduleDefinitionRegistry> {
+export async function loadScheduleRegistry(): Promise<ScheduleDefinitionRegistry> {
   try {
     return (await import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule) as { default: ScheduleDefinitionRegistry }).default
   }
@@ -28,7 +28,7 @@ async function loadRegistry(): Promise<ScheduleDefinitionRegistry> {
  * or a failed run store is `error`. Definition loading errors, unknown names, and Definitions without `manual: true` throw.
  */
 export async function runSchedule(name: string, options: RunScheduleOptions = {}): Promise<Result<ScheduleRunRecord, RunScheduleErrorCode>> {
-  const registry = await loadRegistry()
+  const registry = await loadScheduleRegistry()
   const definition = await resolveManualSchedule(registry, name)
   let scheduledAt: Date
   try {

@@ -138,7 +138,7 @@ The parts have no styles until you load a style family. A family is CSS that sty
 
 `default.css` has three parts:
 
-1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables and the tree chevron rotation, which web.css does not have yet. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.14.patch`, which we send to ui-sdk.
+1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables and the tree chevron rotation, which web.css does not have yet. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.19.patch`, which we send to ui-sdk.
 2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
 3. The rules for Timeline and Waterfall, which web.css does not have yet, the kit's `TagsInput`, the text field focus, the dialog close button, the [CSS-only parts](#css-only-parts), and the looks that the ui-sdk set of `@vite-hub/ui` asks for (see below), in web.css's `ui-sdk` cascade layer.
 

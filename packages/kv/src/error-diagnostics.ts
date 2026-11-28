@@ -110,8 +110,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.",
     },
     KV_INVALID_CONFIG: {
-      why: ({ path }: { path: "kv" | "kv.stores" }) => `\`${path}\` must be a plain object.`,
-      fix: "Pass an object, for example `kv: { driver: 'fs-lite' }`.",
+      why: ({ path }: { path: "kv" | "kv.stores" }) => path === "kv" ? "KV options must be a plain object or `false`. Only `vitehub()` accepts `kv: true`." : "`kv.stores` must be a plain object.",
+      fix: ({ path }: { path: "kv" | "kv.stores" }) => path === "kv"
+        ? "In `vitehub()`, set `kv: true` for the default store, `kv: { driver: 'redis' }` to choose a driver, or `kv: false` to turn KV off. Call `hubKV()` for the default store in a standalone app, pass a plain object to choose a driver, or pass `false` to turn KV off."
+        : "Set `kv.stores` to an object of named stores, such as `kv: { stores: { default: { driver: 'redis' } } }`.",
     },
     KV_INVALID_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed

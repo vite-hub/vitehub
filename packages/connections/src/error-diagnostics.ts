@@ -136,7 +136,11 @@ const codes = {
       if (problem === "path") return "Connections basePath must be a pathname without a query or fragment."
       return "Connections basePath must include a route segment."
     },
-    fix: "Set `basePath` to a pathname such as `/_vitehub/connections`, each `activityRetention` limit to a positive integer, and `connections.database` to the name of a Database, such as `default`.",
+    fix: ({ problem }: { problem: "activity-retention" | "database" | "path" | "segment" | "slash" | "type" }): string => {
+      if (problem === "database") return "Set `connections.database` to the name of a Database that the app defines, such as `\"default\"`."
+      if (problem === "activity-retention") return "Set `maxAgeMs` and `maxRecords` of `activityRetention` to positive integers, such as `activityRetention: { maxAgeMs: 1_209_600_000, maxRecords: 10_000 }`, or set `activityRetention: false` to keep all activity."
+      return "Set `basePath` to a pathname with a route segment and no query or fragment, such as `\"/_vitehub/connections\"`."
+    },
   },
   CONNECTIONS_INVALID_DEFINITION: {
     why: ({ bucket, connection, problem, provider }: { bucket?: string, connection?: string, problem: "client-id" | "definition" | "instance" | "registration" | "request-bucket" | "revocation" | "verify-result", provider?: string }): string => {

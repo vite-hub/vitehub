@@ -1,13 +1,15 @@
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { createServer } from "vite"
 
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 const temporaryDirectories: string[] = []
@@ -53,6 +55,51 @@ function ownRuntime(path: string) {
 }
 
 describe("Vite schedule integration", () => {
+  it("uses current Definitions to explain unavailable manual runs", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-run-diagnostic-")
+    const schedules = join(root, "server", "schedules")
+    const nightly = join(schedules, "nightly.ts")
+    const renamed = join(schedules, "renamed.ts")
+    const wakeName = "vitehub/started-schedules"
+    await mkdir(join(schedules, "vitehub"), { recursive: true })
+    const definition = (manual: boolean) => `export default { cron: "0 8 * * *", handler() {}, options: { manual: ${manual} } }`
+    await writeFile(nightly, definition(false))
+    await writeFile(join(schedules, "report.ts"), definition(true))
+    await writeFile(join(schedules, `${wakeName}.ts`), definition(false))
+
+    const server = await createServer({
+      appType: "custom",
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubSchedule({ providerOutput: false })],
+      root,
+      server: { middlewareMode: true, watch: null },
+    })
+    try {
+      const { scheduleOperations } = await server.ssrLoadModule(ownRuntime("operations")) as typeof import("../src/operations.ts")
+      const state = await server.ssrLoadModule(ownRuntime("runtime/state")) as typeof import("../src/runtime/state.ts")
+      const { default: registry } = await server.ssrLoadModule("#vitehub/schedule/registry") as typeof import("#vitehub/schedule/registry")
+      state.setHostScheduleInventory({ registry, timings: {} })
+      const operations = createOperationRegistry([{ operations: scheduleOperations }])
+      const run = (name: string) => runOperation(operations, "schedule.run", { name }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+      const disabled = { code: "SCHEDULE_MANUAL_RUN_DISABLED", fix: expect.stringContaining("manual: true"), ok: false, status: 403 }
+      const notFound = { code: "SCHEDULE_DEFINITION_NOT_FOUND", ok: false, status: 404 }
+
+      await expect(run("nightly")).resolves.toMatchObject(disabled)
+      await expect(run("report")).resolves.toMatchObject(notFound)
+      await expect(run(wakeName)).resolves.toMatchObject(disabled)
+
+      await rename(nightly, renamed)
+      server.watcher.emit("unlink", nightly)
+      server.watcher.emit("add", renamed)
+      await expect.poll(() => run("renamed")).toMatchObject(disabled)
+      await expect(run("nightly")).resolves.toMatchObject(notFound)
+    }
+    finally {
+      await server.close()
+    }
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubSchedule().closeBundle).toMatchObject({ order: "post", sequential: true })
   })
@@ -115,15 +162,10 @@ describe("Vite schedule integration", () => {
     const registry = {}
     const invalidateModule = vi.fn()
 
-    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
+    const hotUpdate = hookHandler<(this: object, context: object) => void>(plugin.hotUpdate)
+    hotUpdate.call({ environment: { config: { consumer: "client" }, moduleGraph: { getModuleById: () => registry, invalidateModule } } }, {
       file: join(serverDir, "schedules", "daily.ts"),
-      server: {
-        config: { root },
-        moduleGraph: {
-          getModuleById: () => registry,
-          invalidateModule,
-        },
-      },
+      server: { config: { root } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registry)
@@ -138,20 +180,16 @@ describe("Vite schedule integration", () => {
     const invalidateNitroModule = vi.fn()
     const send = vi.fn()
 
-    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
-      file: join(root, "server", "schedules", "daily.ts"),
-      server: {
-        config: { root },
-        environments: {
-          client: { config: { consumer: "client" }, hot: { send: vi.fn() }, moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() } },
-          nitro: {
-            config: { consumer: "server" },
-            hot: { send },
-            moduleGraph: { getModuleById: (id: string) => id === "\0#vitehub/schedule/registry" ? nitroRegistry : undefined, invalidateModule: invalidateNitroModule },
-          },
-        },
-        moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() },
+    const hotUpdate = hookHandler<(this: object, context: object) => void>(plugin.hotUpdate)
+    hotUpdate.call({
+      environment: {
+        config: { consumer: "server" },
+        hot: { send },
+        moduleGraph: { getModuleById: (id: string) => id === "\0#vitehub/schedule/registry" ? nitroRegistry : undefined, invalidateModule: invalidateNitroModule },
       },
+    }, {
+      file: join(root, "server", "schedules", "daily.ts"),
+      server: { config: { root } },
     })
 
     expect(invalidateNitroModule).toHaveBeenCalledWith(nitroRegistry)
@@ -336,6 +374,15 @@ describe("Vite schedule integration", () => {
     await resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
+  })
+
+  it("points the registry import at the Schedule registry and returns its source map", () => {
+    const transform = hookHandler<(code: string) => { code: string, map: { mappings: string } } | undefined>(hubSchedule({ providerOutput: false }).transform)
+    const code = "const registryModule = './registry.js'\nexport const load = () => import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule)\n"
+    const result = transform(code)
+    expect(result?.code).toBe("const registryModule = './registry.js'\nexport const load = () => import(\"#vitehub/schedule/registry\")\n")
+    expect(result?.map.mappings).toMatch(/^[A-Za-z0-9+/,]+;[A-Za-z0-9+/,]+/)
+    expect(transform("/* @vitehub-schedule-registry */ export {}\n")).toBeUndefined()
   })
 
   it("filters the resolveId and load hooks to the Schedule registry", () => {
