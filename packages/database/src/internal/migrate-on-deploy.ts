@@ -15,6 +15,8 @@ export interface MigrateOnDeployTarget {
   /** The D1 bindings whose migrations the build copies into the server output. */
   bindings: readonly string[]
   config: ResolvedDBViteConfig | undefined
+  /** True when a D1 database has a name but no id yet, because `vitehub provision run` has not created it. */
+  unprovisioned?: boolean
 }
 
 /** Fails the build when a database has no native D1 binding. Only Wrangler's apply runs in the deploy command. */
@@ -61,7 +63,7 @@ export function installMigrateOnDeploy(nitro: MigrateOnDeployNitro, target: () =
     if (getHostingProvider(preset) !== "cloudflare") {
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED({ problem: `The build targets ${preset ?? "an unknown host"}.` })
     }
-    const { bindings, config } = resolved
+    const { bindings, config, unprovisioned } = resolved
     assertMigrateOnDeploySupported(config)
     const deploy = commands?.deploy
     if (deploy === written) return
@@ -71,6 +73,7 @@ export function installMigrateOnDeploy(nitro: MigrateOnDeployNitro, target: () =
     if (!config?.databaseNames.length) return
     // A Nuxt build that learns its Cloudflare preset after `nitro:config` has no D1 output, so it has nothing to apply.
     if (!bindings.length) {
+      if (unprovisioned) return
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED({ problem: "The build wrote no D1 migrations into the server output. Set the Cloudflare preset in the Nitro config." })
     }
     written = withD1MigrationsBeforeDeploy(deploy, [...new Set(bindings)], wranglerConfigArgument(output.dir, output.serverDir))

@@ -327,6 +327,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let updateMigrateOnDeploy: (() => void) | undefined
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ binding: string, source: string, target: string }> = []
+  let unprovisionedD1 = false
   let providerOutput: ProviderOutputCatalog | undefined
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
@@ -460,7 +461,8 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
       wrangler.hyperdrive = mergeCloudflareHyperdriveBindings(wrangler.hyperdrive, hyperdrive)
     }
-    const { d1Databases } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved?.root ?? process.cwd()) })
+    const { d1Databases, unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved?.root ?? process.cwd()) })
+    unprovisionedD1 = unresolved.some(binding => binding.reason === "missing-database-id" && binding.databaseName !== undefined)
     if (!d1Databases.length) return
     const bindings = d1Databases.map(binding => binding.migrations_dir
       ? { ...binding, migrations_dir: `${NITRO_MIGRATIONS_DIR}/${binding.binding}` }
@@ -574,7 +576,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
           const database = resolvedOptions()
           // In Nuxt the Database module installs it.
           if (!database || !database.migrateOnDeploy || "nuxtHostResource" in database || !runtimeConfig) return
-          return { bindings: nitroMigrations.map(item => item.binding), config: runtimeConfig }
+          return { bindings: nitroMigrations.map(item => item.binding), config: runtimeConfig, unprovisioned: unprovisionedD1 }
         })
         hooks.hook("vitehub:bundle:rules", (rules) => {
           const rule = libsqlStartupRule(runtimeConfig, nitro.options.preset)
