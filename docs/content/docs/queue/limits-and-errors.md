@@ -42,7 +42,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`error.code` is typed as the codes that the method can return. `sendQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION`, or `RUNTIME_DURATION_INVALID`. A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
+`error.code` is typed as the codes that the method can return. `sendQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION`, or [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid). A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
+
+An invalid `delay` or an invalid value for supported `retention` returns `RUNTIME_DURATION_INVALID`. If the provider does not support `retention`, it returns `QUEUE_UNSUPPORTED_OPTION` instead. See [Queue enqueue options](/docs/queue/server-api#queue-enqueue-options) for accepted values.
 
 `JSON.stringify(error)` keeps only `name`, `code`, `why`, `fix`, and `docs`. It drops `cause` and `stack`, because provider errors can hold credentials or private data. Log `cause` only on the server.
 
@@ -53,7 +55,6 @@ Config errors throw instead, such as an unknown queue name or a missing Cloudfla
 | `QUEUE_PROVIDER_FAILED` | Every send method | `useQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `sendQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid) | Every send method, for a `delay` or `retention` that is not a duration | |
 | `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_DRIVER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
 | `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_DRIVER`, `QUEUE_MISSING_DRIVER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
 
