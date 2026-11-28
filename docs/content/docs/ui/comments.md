@@ -759,6 +759,8 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 | `thread` | `string \| null` | | The open thread id. Use `v-model:thread`. Without it, the panel keeps its own. |
 | `status` | `"open" \| "resolved"` | | Which threads the list shows. Use `v-model:status`. Defaults to `"open"`. |
 | `title` | `string` | `"Comments"` | The heading of the list. |
+| `heading` | `boolean` | `true` | Show `title` above the list. Set `false` when the frame around the panel already names it. `title` still labels the list for screen readers. |
+| `composer` | `boolean` | `true` | Show the page box under the list. Set `false` when the page has another way to comment on the whole page. |
 | `readOnly` | `boolean` | `false` | Hide the page box and all reply, edit, delete, and status controls. |
 | `can` | `(action, { thread, message }) => boolean` | | What the user may do in a thread. Defaults to the state's `can`. |
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Takes precedence over `queueFiles`. |

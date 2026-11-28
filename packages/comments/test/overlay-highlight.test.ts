@@ -58,10 +58,15 @@ function stroke(points: Array<[number, number]>) {
 }
 
 describe("Highlight in the Comments segment", () => {
-  it("keeps Highlight and Edit behind More until + opens them", async () => {
+  it("shows Highlight inline when it is the only tool, and behind + with Whole page in comment mode", async () => {
     const { bar } = await site()
+    expect(tool(bar, "Highlight")!.closest("#vitehub-comments-more")).toBeNull()
+    expect(bar.shadowRoot!.querySelector("[data-action=more-tools]")).toBeNull()
+    press(document.body, "c")
+    await vi.waitFor(() => expect(bar.shadowRoot!.querySelector("[data-action=more-tools]")).not.toBeNull())
     const more = bar.shadowRoot!.querySelector<HTMLButtonElement>("[data-action=more-tools]")!
     const group = bar.shadowRoot!.querySelector<HTMLElement>("#vitehub-comments-more")!
+    expect(tool(bar, "Comment on the whole page")!.closest("#vitehub-comments-more")).toBe(group)
     expect(tool(bar, "Highlight")!.closest("#vitehub-comments-more")).toBe(group)
     expect(group.hidden).toBe(true)
     expect(more.getAttribute("aria-expanded")).toBe("false")

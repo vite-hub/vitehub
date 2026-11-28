@@ -26,6 +26,6 @@ start({
   createWindow() {
     const body = document.createElement("div")
     document.body.append(body)
-    return { body, show() {}, hide() {}, destroy() {} }
+    return { body, show() {}, hide() {}, destroy() {}, syncColorScheme() {} }
   },
 } as unknown as Parameters<typeof start>[0])

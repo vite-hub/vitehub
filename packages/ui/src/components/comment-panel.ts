@@ -68,6 +68,8 @@ export const CommentPanel = defineComponent({
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     status: { type: String as PropType<CommentStatus> },
     title: { default: "Comments", type: String },
+    heading: { default: true, type: Boolean },
+    composer: { default: true, type: Boolean },
     readOnly: { default: false, type: Boolean },
     upload: { type: Function as PropType<CommentUpload> },
     queueFiles: { default: false, type: Boolean },
@@ -264,7 +266,7 @@ export const CommentPanel = defineComponent({
           : status.value === "open" ? "No open comments." : "No resolved comments.";
       return [
         h("header", { "data-slot": "comment-panel-header" }, [
-          h("h2", { "data-slot": "comment-panel-title" }, props.title),
+          props.heading ? h("h2", { "data-slot": "comment-panel-title" }, props.title) : null,
           h("div", { "aria-label": "Filter comments", "data-slot": "comment-panel-filters", role: "radiogroup" }, [
             filter("open", "Open", counts.open),
             filter("resolved", "Resolved", counts.resolved),
@@ -276,7 +278,7 @@ export const CommentPanel = defineComponent({
           : props.group || groups.value.some((group) => group.label !== undefined)
             ? h("div", { "data-slot": "comment-panel-groups" }, grouped())
             : items(rows.value, props.title),
-        props.readOnly
+        props.readOnly || !props.composer
           ? null
           : h("div", { "data-slot": "comment-panel-composer" }, [
               h(CommentComposer, {
