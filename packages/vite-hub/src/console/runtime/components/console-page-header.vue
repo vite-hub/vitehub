@@ -10,7 +10,8 @@ import ConsoleAppCrumb from "./console-app-crumb.vue";
  * one place for the next action.
  *
  * Ancestors hide on small screens; Back then leads one level up. A `UTabs` view switch goes in the `tabs` slot, after the
- * title, never in `right`.
+ * title, never in `right`. Tabs keep their full labels and scroll when the row is too narrow. On small screens a tab with
+ * an icon shows only the icon, and its label stays in the accessible name.
  */
 withDefaults(defineProps<{
   /** One level up. Pages with ancestors usually pass the last one. */
@@ -78,5 +79,20 @@ withDefaults(defineProps<{
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.vitehub-page-header__tabs > [data-slot="root"] {
+  width: max-content;
+}
+
+@media (width < 40rem) {
+  .vitehub-page-header__tabs [data-slot="trigger"]:has([data-slot="leadingIcon"]) [data-slot="label"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 </style>
