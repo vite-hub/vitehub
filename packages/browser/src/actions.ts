@@ -71,9 +71,6 @@ async function readQuickActionText(
   action: BrowserAction,
   input: Record<string, unknown>,
 ): Promise<string> {
-  if (!response.ok) {
-    throw browserProviderError("cloudflare", `run ${action} quick action (${response.status})`)
-  }
   if (!response.body) return ""
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -135,9 +132,7 @@ export async function runBrowserAction(
   input: BrowserActionInput,
 ): Promise<BrowserRunResult> {
   try {
-    const binding = await resolveBinding()
-    const normalized = normalizeInput(input)
-    return await runQuickAction(binding, action, normalized)
+    return await runQuickAction(await resolveBinding(), action, normalizeInput(input))
   }
   catch (error) {
     const normalized = toBrowserError(error)
@@ -145,19 +140,49 @@ export async function runBrowserAction(
   }
 }
 
-/** Read a page as HTML text with the Browser Run `content` action. A failed request returns `BROWSER_CONTENT_FAILED`. */
+function isJsonResponse(response: Response): boolean {
+  return response.headers.get("content-type")?.toLowerCase().includes("json") === true
+}
+
+function parseQuickActionJson(text: string): { result?: unknown, success?: unknown } | undefined {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value && typeof value === "object" && !Array.isArray(value) ? value : undefined
+  }
+  catch {
+    return
+  }
+}
+
+/**
+ * Read a page as HTML text with the Browser Run `content` action. A failed request returns `BROWSER_CONTENT_FAILED`:
+ * inspect `error.cause` on the server for the provider diagnostics or underlying error.
+ */
 export async function runBrowserContent(
   input: BrowserActionInput,
 ): Promise<Result<string, "BROWSER_CONTENT_FAILED">> {
-  const response = await runBrowserAction("content", input)
-  if (!response.ok) {
-    void response.body?.cancel().catch(() => {})
-    return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status }), undefined]
-  }
+  const normalized = normalizeInput(input)
+  let response: Response
   try {
-    return [undefined, await readQuickActionText(response, "content", normalizeInput(input))]
+    response = await runQuickAction(await resolveBinding(), "content", normalized)
   }
   catch (error) {
     return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause: toBrowserError(error) }), undefined]
   }
+  if (!response.ok && !isJsonResponse(response)) {
+    void response.body?.cancel().catch(() => {})
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status }), undefined]
+  }
+  let text: string
+  try {
+    text = await readQuickActionText(response, "content", normalized)
+  }
+  catch (error) {
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause: toBrowserError(error), status: response.ok ? undefined : response.status }), undefined]
+  }
+  if (!isJsonResponse(response)) return [undefined, text]
+  const body = parseQuickActionJson(text)
+  if (response.ok && body?.success === true && typeof body.result === "string") return [undefined, body.result]
+  if (response.ok && body?.success !== false) return [undefined, text]
+  return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status, cause: body }), undefined]
 }

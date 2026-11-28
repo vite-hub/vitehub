@@ -13,8 +13,8 @@ export const browserRunErrors: ErrorCatalog<BrowserRunErrorCodes> = /*#__PURE__*
   codes: {
     // Runtime errors.
     BROWSER_CONTENT_FAILED: {
-      why: ({ status }: { status?: number }) => status === undefined ? "The Browser content request failed." : `Browser content request failed with status ${status}`,
-      fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name. `error.cause` has the provider error when the read failed.",
+      why: ({ status }: { status?: number }) => status === undefined ? "The Browser content request failed." : `The Browser content request failed with status ${status}.`,
+      fix: "Inspect `error.cause` on the server for provider diagnostics or a binding error, then check the Browser configuration and request input.",
       status: 502,
     },
     BROWSER_DEFINITION_NOT_FOUND: {
