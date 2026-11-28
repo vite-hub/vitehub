@@ -23,6 +23,15 @@ describe("shared Console navigation layout", () => {
     expect(invocation).not.toMatch(/import \{[^}]*\bPatchDiff\b[^}]*\} from "@vite-hub\/ui"/)
   })
 
+  it("keeps page header tabs whole and shows only the icon of an icon tab on a phone", () => {
+    const header = readFileSync(new URL("../src/console/runtime/components/console-page-header.vue", import.meta.url), "utf8")
+    expect(header).toMatch(/\.vitehub-page-header__tabs > \[data-slot="root"\] \{\s*width: max-content;/)
+    const phone = header.match(/@media \(width < 40rem\) \{([\s\S]*?)\n\}/)?.[1] ?? ""
+    expect(phone).toContain('.vitehub-page-header__tabs [data-slot="trigger"]:has([data-slot="leadingIcon"]) [data-slot="label"]')
+    expect(phone).toContain("clip-path: inset(50%);")
+    expect(phone).not.toMatch(/display:\s*none|visibility:\s*hidden/)
+  })
+
   it("loads only the requested syntax grammar for workspace previews", () => {
     const preview = readFileSync(new URL("../src/console/runtime/components/console-session-code-preview.vue", import.meta.url), "utf8")
     const languages = readFileSync(new URL("../src/console/runtime/client/highlight-languages.ts", import.meta.url), "utf8")
