@@ -69,7 +69,7 @@ export function componentViolations(component: ApiComponent): Violation[] {
   if (!component.types.includes(`${component.name}Props`)) add("props-type")
   if (component.events.length && !component.types.includes(`${component.name}Emits`)) add("emits-type")
   if (component.slots.length && !component.types.includes(`${component.name}Slots`)) add("slots-type")
-  if (!component.dataSlots.includes(kebab(component.name))) add("root-data-slot")
+  if (!component.rootDataSlots.includes(kebab(component.name))) add("root-data-slot")
   if (component.dataAttributes.includes("data-state")) add("data-state")
   return found
 }

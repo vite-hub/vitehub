@@ -93,20 +93,40 @@
     "rule": "props-type"
   },
   {
+    "component": "AttachmentAction",
+    "rule": "slots-type"
+  },
+  {
     "component": "AttachmentActions",
     "rule": "props-type"
+  },
+  {
+    "component": "AttachmentActions",
+    "rule": "slots-type"
   },
   {
     "component": "AttachmentContent",
     "rule": "props-type"
   },
   {
+    "component": "AttachmentContent",
+    "rule": "slots-type"
+  },
+  {
     "component": "AttachmentDescription",
     "rule": "props-type"
   },
   {
+    "component": "AttachmentDescription",
+    "rule": "slots-type"
+  },
+  {
     "component": "AttachmentGroup",
     "rule": "props-type"
+  },
+  {
+    "component": "AttachmentGroup",
+    "rule": "slots-type"
   },
   {
     "component": "AttachmentMedia",
@@ -124,6 +144,10 @@
   {
     "component": "AttachmentTitle",
     "rule": "props-type"
+  },
+  {
+    "component": "AttachmentTitle",
+    "rule": "slots-type"
   },
   {
     "component": "AttachmentTrigger",
@@ -195,6 +219,10 @@
     "rule": "props-type"
   },
   {
+    "component": "BubbleGroup",
+    "rule": "slots-type"
+  },
+  {
     "component": "BubbleReactions",
     "rule": "props-type"
   },
@@ -291,6 +319,10 @@
   {
     "component": "ChoicesInputField",
     "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInputField",
+    "rule": "slots-type"
   },
   {
     "component": "ChoicesInputStatus",
@@ -327,6 +359,10 @@
     "rule": "props-type"
   },
   {
+    "component": "CodeBlockActions",
+    "rule": "slots-type"
+  },
+  {
     "component": "CodeBlockContent",
     "rule": "props-type"
   },
@@ -343,8 +379,16 @@
     "rule": "props-type"
   },
   {
+    "component": "CodeBlockFooter",
+    "rule": "slots-type"
+  },
+  {
     "component": "CodeBlockHeader",
     "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockHeader",
+    "rule": "slots-type"
   },
   {
     "component": "CodeBlockLine",
@@ -362,6 +406,10 @@
   {
     "component": "CodeBlockTitle",
     "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockTitle",
+    "rule": "slots-type"
   },
   {
     "component": "CodeView",
@@ -753,8 +801,16 @@
     "rule": "props-type"
   },
   {
+    "component": "MarkerContent",
+    "rule": "slots-type"
+  },
+  {
     "component": "MarkerIcon",
     "rule": "props-type"
+  },
+  {
+    "component": "MarkerIcon",
+    "rule": "slots-type"
   },
   {
     "component": "Message",
@@ -769,24 +825,48 @@
     "rule": "props-type"
   },
   {
+    "component": "MessageAvatar",
+    "rule": "slots-type"
+  },
+  {
     "component": "MessageContent",
     "rule": "props-type"
+  },
+  {
+    "component": "MessageContent",
+    "rule": "slots-type"
   },
   {
     "component": "MessageFooter",
     "rule": "props-type"
   },
   {
+    "component": "MessageFooter",
+    "rule": "slots-type"
+  },
+  {
     "component": "MessageGroup",
     "rule": "props-type"
+  },
+  {
+    "component": "MessageGroup",
+    "rule": "slots-type"
   },
   {
     "component": "MessageHeader",
     "rule": "props-type"
   },
   {
+    "component": "MessageHeader",
+    "rule": "slots-type"
+  },
+  {
     "component": "MessageParts",
     "rule": "props-type"
+  },
+  {
+    "component": "MessageParts",
+    "rule": "slots-type"
   },
   {
     "component": "MessageScroller",
@@ -1007,6 +1087,10 @@
     "rule": "props-type"
   },
   {
+    "component": "Trace",
+    "rule": "slots-type"
+  },
+  {
     "component": "TraceCollapsible",
     "rule": "emits-type"
   },
@@ -1039,8 +1123,16 @@
     "rule": "props-type"
   },
   {
+    "component": "TraceDescription",
+    "rule": "slots-type"
+  },
+  {
     "component": "TraceIcon",
     "rule": "props-type"
+  },
+  {
+    "component": "TraceIcon",
+    "rule": "slots-type"
   },
   {
     "component": "TraceLine",
@@ -1065,6 +1157,10 @@
   {
     "component": "TraceTitle",
     "rule": "props-type"
+  },
+  {
+    "component": "TraceTitle",
+    "rule": "slots-type"
   },
   {
     "component": "UnresolvedFile",

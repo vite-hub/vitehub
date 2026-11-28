@@ -93,7 +93,8 @@
         "default",
         "details",
         "heading",
-        "surface"
+        "surface",
+        "surface-*"
       ],
       "dataSlots": [
         "agent-session-body",
@@ -109,6 +110,7 @@
         "agent-session-resizer",
         "agent-session-scroll"
       ],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-active",
         "data-closable",
@@ -174,6 +176,9 @@
       "dataSlots": [
         "agent-session-details-row"
       ],
+      "rootDataSlots": [
+        "agent-session-details-row"
+      ],
       "dataAttributes": [
         "data-interactive",
         "data-tone"
@@ -201,6 +206,9 @@
       "dataSlots": [
         "agent-session-details-section"
       ],
+      "rootDataSlots": [
+        "agent-session-details-section"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -219,6 +227,7 @@
       ],
       "events": [],
       "slots": [
+        "item-*",
         "item-assistant",
         "item-divider",
         "item-user",
@@ -227,6 +236,9 @@
       ],
       "dataSlots": [
         "agent-session-assistant",
+        "agent-session-timeline"
+      ],
+      "rootDataSlots": [
         "agent-session-timeline"
       ],
       "dataAttributes": [],
@@ -264,6 +276,9 @@
         "agent-session-work",
         "agent-session-work-detail",
         "agent-session-work-row"
+      ],
+      "rootDataSlots": [
+        "agent-session-work"
       ],
       "dataAttributes": [
         "data-kind",
@@ -321,6 +336,9 @@
       "dataSlots": [
         "attachment"
       ],
+      "rootDataSlots": [
+        "attachment"
+      ],
       "dataAttributes": [
         "data-orientation",
         "data-size",
@@ -336,8 +354,16 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "*",
+        "default",
+        "leading",
+        "trailing"
+      ],
       "dataSlots": [
+        "attachment-action"
+      ],
+      "rootDataSlots": [
         "attachment-action"
       ],
       "dataAttributes": [],
@@ -351,8 +377,13 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "attachment-actions"
+      ],
+      "rootDataSlots": [
         "attachment-actions"
       ],
       "dataAttributes": [],
@@ -366,8 +397,13 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "attachment-content"
+      ],
+      "rootDataSlots": [
         "attachment-content"
       ],
       "dataAttributes": [],
@@ -381,8 +417,13 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "attachment-description"
+      ],
+      "rootDataSlots": [
         "attachment-description"
       ],
       "dataAttributes": [],
@@ -396,8 +437,13 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "attachment-group"
+      ],
+      "rootDataSlots": [
         "attachment-group"
       ],
       "dataAttributes": [],
@@ -428,6 +474,9 @@
       "dataSlots": [
         "attachment-media"
       ],
+      "rootDataSlots": [
+        "attachment-media"
+      ],
       "dataAttributes": [
         "data-variant"
       ],
@@ -441,8 +490,13 @@
       "source": "src/components/attachment.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "attachment-title"
+      ],
+      "rootDataSlots": [
         "attachment-title"
       ],
       "dataAttributes": [],
@@ -466,6 +520,9 @@
         "default"
       ],
       "dataSlots": [
+        "attachment-trigger"
+      ],
+      "rootDataSlots": [
         "attachment-trigger"
       ],
       "dataAttributes": [
@@ -522,6 +579,9 @@
         "avatar-stack-image",
         "avatar-stack-item"
       ],
+      "rootDataSlots": [
+        "avatar-stack"
+      ],
       "dataAttributes": [
         "data-size",
         "data-variant"
@@ -574,6 +634,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -617,6 +678,9 @@
       "dataSlots": [
         "bubble"
       ],
+      "rootDataSlots": [
+        "bubble"
+      ],
       "dataAttributes": [
         "data-align",
         "data-variant"
@@ -643,6 +707,9 @@
       "dataSlots": [
         "bubble-content"
       ],
+      "rootDataSlots": [
+        "bubble-content"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -654,8 +721,13 @@
       "source": "src/components/bubble.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "bubble-group"
+      ],
+      "rootDataSlots": [
         "bubble-group"
       ],
       "dataAttributes": [],
@@ -694,6 +766,9 @@
         "default"
       ],
       "dataSlots": [
+        "bubble-reactions"
+      ],
+      "rootDataSlots": [
         "bubble-reactions"
       ],
       "dataAttributes": [
@@ -746,16 +821,29 @@
       ],
       "events": [],
       "slots": [
+        "actions",
         "composer",
         "default",
+        "fallback",
+        "file",
+        "header",
+        "leading",
+        "markdown",
         "message",
+        "part",
+        "reasoning",
         "scroll-button",
-        "status"
+        "source",
+        "status",
+        "step",
+        "text",
+        "tool"
       ],
       "dataSlots": [
         "chat-composer",
         "chat-status"
       ],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -782,10 +870,20 @@
       "slots": [
         "actions",
         "default",
+        "fallback",
+        "file",
         "header",
-        "leading"
+        "leading",
+        "markdown",
+        "part",
+        "reasoning",
+        "source",
+        "step",
+        "text",
+        "tool"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-role"
       ],
@@ -818,10 +916,27 @@
       ],
       "events": [],
       "slots": [
+        "actions",
+        "composer",
+        "default",
+        "fallback",
+        "file",
         "footer",
-        "header"
+        "header",
+        "leading",
+        "markdown",
+        "message",
+        "part",
+        "reasoning",
+        "scroll-button",
+        "source",
+        "status",
+        "step",
+        "text",
+        "tool"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-session-id"
       ],
@@ -846,6 +961,9 @@
         "default"
       ],
       "dataSlots": [
+        "choices-input"
+      ],
+      "rootDataSlots": [
         "choices-input"
       ],
       "dataAttributes": [
@@ -880,6 +998,9 @@
       "dataSlots": [
         "choices-input-clear"
       ],
+      "rootDataSlots": [
+        "choices-input-clear"
+      ],
       "dataAttributes": [
         "data-state"
       ],
@@ -898,6 +1019,9 @@
         "default"
       ],
       "dataSlots": [
+        "choices-input-error"
+      ],
+      "rootDataSlots": [
         "choices-input-error"
       ],
       "dataAttributes": [
@@ -926,8 +1050,13 @@
         }
       ],
       "events": [],
-      "slots": [],
+      "slots": [
+        "*"
+      ],
       "dataSlots": [
+        "choices-input-field"
+      ],
+      "rootDataSlots": [
         "choices-input-field"
       ],
       "dataAttributes": [
@@ -948,6 +1077,9 @@
         "default"
       ],
       "dataSlots": [
+        "choices-input-status"
+      ],
+      "rootDataSlots": [
         "choices-input-status"
       ],
       "dataAttributes": [
@@ -990,6 +1122,9 @@
       "dataSlots": [
         "code-block"
       ],
+      "rootDataSlots": [
+        "code-block"
+      ],
       "dataAttributes": [
         "data-size",
         "data-variant"
@@ -1004,8 +1139,13 @@
       "source": "src/components/code-block.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "code-block-actions"
+      ],
+      "rootDataSlots": [
         "code-block-actions"
       ],
       "dataAttributes": [],
@@ -1045,6 +1185,9 @@
         "code-block-code",
         "code-block-content"
       ],
+      "rootDataSlots": [
+        "code-block-content"
+      ],
       "dataAttributes": [
         "data-focus-inset",
         "data-numbered",
@@ -1070,6 +1213,9 @@
       "dataSlots": [
         "code-block-copy-button"
       ],
+      "rootDataSlots": [
+        "code-block-copy-button"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -1081,8 +1227,13 @@
       "source": "src/components/code-block.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "code-block-footer"
+      ],
+      "rootDataSlots": [
         "code-block-footer"
       ],
       "dataAttributes": [],
@@ -1096,8 +1247,13 @@
       "source": "src/components/code-block.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "code-block-header"
+      ],
+      "rootDataSlots": [
         "code-block-header"
       ],
       "dataAttributes": [],
@@ -1131,6 +1287,9 @@
         "code-block-line",
         "code-block-line-content"
       ],
+      "rootDataSlots": [
+        "code-block-line"
+      ],
       "dataAttributes": [
         "data-variant"
       ],
@@ -1144,8 +1303,13 @@
       "source": "src/components/code-block.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "code-block-title"
+      ],
+      "rootDataSlots": [
         "code-block-title"
       ],
       "dataAttributes": [],
@@ -1183,6 +1347,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -1357,6 +1522,9 @@
         "comment-composer-status",
         "prompt-input-attachments"
       ],
+      "rootDataSlots": [
+        "comment-composer"
+      ],
       "dataAttributes": [
         "data-busy",
         "data-dirty",
@@ -1390,6 +1558,9 @@
       "slots": [],
       "dataSlots": [
         "comment-filter",
+        "comment-filters"
+      ],
+      "rootDataSlots": [
         "comment-filters"
       ],
       "dataAttributes": [
@@ -1516,6 +1687,9 @@
         "comment-margin",
         "comment-margin-card"
       ],
+      "rootDataSlots": [
+        "comment-layer"
+      ],
       "dataAttributes": [
         "data-above",
         "data-active",
@@ -1573,6 +1747,9 @@
         "comment-list-items",
         "comment-list-scope",
         "comment-list-scopes"
+      ],
+      "rootDataSlots": [
+        "comment-list"
       ],
       "dataAttributes": [
         "data-comments-ui",
@@ -1733,6 +1910,9 @@
         "comment-panel-items",
         "comment-panel-title"
       ],
+      "rootDataSlots": [
+        "comment-panel"
+      ],
       "dataAttributes": [
         "data-comments-ui",
         "data-focus-inset",
@@ -1809,6 +1989,9 @@
       "dataSlots": [
         "comment-pin",
         "comment-pin-number"
+      ],
+      "rootDataSlots": [
+        "comment-pin"
       ],
       "dataAttributes": [
         "data-active",
@@ -1917,6 +2100,9 @@
         "comment-reply-status",
         "comment-reply-time"
       ],
+      "rootDataSlots": [
+        "comment-reply"
+      ],
       "dataAttributes": [
         "data-agent",
         "data-compact",
@@ -1968,6 +2154,9 @@
         "comment-selection-bar-action",
         "comment-selection-bar-kbd"
       ],
+      "rootDataSlots": [
+        "comment-selection-bar"
+      ],
       "dataAttributes": [
         "data-action",
         "data-motion-appear",
@@ -2001,6 +2190,9 @@
         "comment-send-logo",
         "comment-send-message",
         "comment-send-status"
+      ],
+      "rootDataSlots": [
+        "comment-send"
       ],
       "dataAttributes": [
         "data-action",
@@ -2173,6 +2365,9 @@
         "comment-thread-spacer",
         "comment-thread-title"
       ],
+      "rootDataSlots": [
+        "comment-thread"
+      ],
       "dataAttributes": [
         "data-preview",
         "data-size",
@@ -2210,6 +2405,9 @@
         "comment-toolbar-list",
         "comment-toolbar-mode",
         "comment-toolbar-page"
+      ],
+      "rootDataSlots": [
+        "comment-toolbar"
       ],
       "dataAttributes": [
         "data-comments-ui"
@@ -2270,6 +2468,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2316,6 +2515,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-1p-ignore",
         "data-provider",
@@ -2354,6 +2554,9 @@
       "dataSlots": [
         "connection-status"
       ],
+      "rootDataSlots": [
+        "connection-status"
+      ],
       "dataAttributes": [
         "data-status"
       ],
@@ -2369,6 +2572,9 @@
       "events": [],
       "slots": [],
       "dataSlots": [
+        "connection-status-indicator"
+      ],
+      "rootDataSlots": [
         "connection-status-indicator"
       ],
       "dataAttributes": [
@@ -2388,6 +2594,9 @@
         "default"
       ],
       "dataSlots": [
+        "connection-status-label"
+      ],
+      "rootDataSlots": [
         "connection-status-label"
       ],
       "dataAttributes": [
@@ -2483,6 +2692,9 @@
       "dataSlots": [
         "copy-button"
       ],
+      "rootDataSlots": [
+        "copy-button"
+      ],
       "dataAttributes": [
         "data-copied"
       ],
@@ -2553,6 +2765,9 @@
       "dataSlots": [
         "device-frame"
       ],
+      "rootDataSlots": [
+        "device-frame"
+      ],
       "dataAttributes": [
         "data-dragging",
         "data-edge",
@@ -2615,6 +2830,9 @@
         "drop-field-input",
         "drop-field-label"
       ],
+      "rootDataSlots": [
+        "drop-field"
+      ],
       "dataAttributes": [
         "data-disabled",
         "data-focus-ring"
@@ -2660,6 +2878,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2706,6 +2925,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2746,6 +2966,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2795,6 +3016,7 @@
       "dataSlots": [
         "visually-hidden"
       ],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2861,6 +3083,9 @@
       "dataSlots": [
         "hold-to-delete"
       ],
+      "rootDataSlots": [
+        "hold-to-delete"
+      ],
       "dataAttributes": [
         "data-icon-only"
       ],
@@ -2904,6 +3129,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -2959,6 +3185,7 @@
         "default"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-comark-typeset"
       ],
@@ -2995,6 +3222,9 @@
       "dataSlots": [
         "marker"
       ],
+      "rootDataSlots": [
+        "marker"
+      ],
       "dataAttributes": [
         "data-variant"
       ],
@@ -3008,8 +3238,13 @@
       "source": "src/components/marker.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "marker-content"
+      ],
+      "rootDataSlots": [
         "marker-content"
       ],
       "dataAttributes": [],
@@ -3023,8 +3258,13 @@
       "source": "src/components/marker.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "marker-icon"
+      ],
+      "rootDataSlots": [
         "marker-icon"
       ],
       "dataAttributes": [],
@@ -3055,6 +3295,9 @@
       "dataSlots": [
         "message"
       ],
+      "rootDataSlots": [
+        "message"
+      ],
       "dataAttributes": [
         "data-align"
       ],
@@ -3068,8 +3311,13 @@
       "source": "src/components/message.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "message-avatar"
+      ],
+      "rootDataSlots": [
         "message-avatar"
       ],
       "dataAttributes": [],
@@ -3083,8 +3331,13 @@
       "source": "src/components/message.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "message-content"
+      ],
+      "rootDataSlots": [
         "message-content"
       ],
       "dataAttributes": [],
@@ -3098,8 +3351,13 @@
       "source": "src/components/message.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "message-footer"
+      ],
+      "rootDataSlots": [
         "message-footer"
       ],
       "dataAttributes": [],
@@ -3113,8 +3371,13 @@
       "source": "src/components/message.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "message-group"
+      ],
+      "rootDataSlots": [
         "message-group"
       ],
       "dataAttributes": [],
@@ -3128,8 +3391,13 @@
       "source": "src/components/message.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "message-header"
+      ],
+      "rootDataSlots": [
         "message-header"
       ],
       "dataAttributes": [],
@@ -3155,8 +3423,21 @@
         }
       ],
       "events": [],
-      "slots": [],
+      "slots": [
+        "fallback",
+        "file",
+        "markdown",
+        "part",
+        "reasoning",
+        "source",
+        "step",
+        "text",
+        "tool"
+      ],
       "dataSlots": [
+        "message-parts"
+      ],
+      "rootDataSlots": [
         "message-parts"
       ],
       "dataAttributes": [],
@@ -3212,6 +3493,9 @@
       "dataSlots": [
         "message-scroller"
       ],
+      "rootDataSlots": [
+        "message-scroller"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -3246,6 +3530,9 @@
         "default"
       ],
       "dataSlots": [
+        "message-scroller-button"
+      ],
+      "rootDataSlots": [
         "message-scroller-button"
       ],
       "dataAttributes": [
@@ -3287,6 +3574,9 @@
       "dataSlots": [
         "message-scroller-content"
       ],
+      "rootDataSlots": [
+        "message-scroller-content"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -3323,6 +3613,9 @@
       "dataSlots": [
         "message-scroller-item"
       ],
+      "rootDataSlots": [
+        "message-scroller-item"
+      ],
       "dataAttributes": [
         "data-message-id"
       ],
@@ -3348,6 +3641,9 @@
         "default"
       ],
       "dataSlots": [
+        "message-scroller-viewport"
+      ],
+      "rootDataSlots": [
         "message-scroller-viewport"
       ],
       "dataAttributes": [
@@ -3377,6 +3673,9 @@
       "events": [],
       "slots": [],
       "dataSlots": [
+        "morph-text"
+      ],
+      "rootDataSlots": [
         "morph-text"
       ],
       "dataAttributes": [],
@@ -3411,6 +3710,7 @@
         "default"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -3456,6 +3756,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -3496,6 +3797,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -3526,6 +3828,9 @@
       "events": [],
       "slots": [],
       "dataSlots": [
+        "progress"
+      ],
+      "rootDataSlots": [
         "progress"
       ],
       "dataAttributes": [],
@@ -3664,6 +3969,9 @@
         "prompt-input-toolbar",
         "visually-hidden"
       ],
+      "rootDataSlots": [
+        "prompt-input"
+      ],
       "dataAttributes": [
         "data-focus-frame"
       ],
@@ -3716,6 +4024,9 @@
       "dataSlots": [
         "relative-time"
       ],
+      "rootDataSlots": [
+        "relative-time"
+      ],
       "dataAttributes": [
         "data-mode"
       ],
@@ -3753,6 +4064,9 @@
       "events": [],
       "slots": [],
       "dataSlots": [
+        "roll-number"
+      ],
+      "rootDataSlots": [
         "roll-number"
       ],
       "dataAttributes": [],
@@ -3815,6 +4129,9 @@
         "status-indicator",
         "status-label"
       ],
+      "rootDataSlots": [
+        "status"
+      ],
       "dataAttributes": [
         "data-colored",
         "data-pulse",
@@ -3874,6 +4191,9 @@
       "dataSlots": [
         "swap-icon"
       ],
+      "rootDataSlots": [
+        "swap-icon"
+      ],
       "dataAttributes": [
         "data-icon-key"
       ],
@@ -3905,6 +4225,9 @@
       "dataSlots": [
         "sync-status"
       ],
+      "rootDataSlots": [
+        "sync-status"
+      ],
       "dataAttributes": [
         "data-status"
       ],
@@ -3920,6 +4243,9 @@
       "events": [],
       "slots": [],
       "dataSlots": [
+        "sync-status-indicator"
+      ],
+      "rootDataSlots": [
         "sync-status-indicator"
       ],
       "dataAttributes": [
@@ -3939,6 +4265,9 @@
         "default"
       ],
       "dataSlots": [
+        "sync-status-label"
+      ],
+      "rootDataSlots": [
         "sync-status-label"
       ],
       "dataAttributes": [
@@ -3972,6 +4301,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-used"
       ],
@@ -3985,8 +4315,13 @@
       "source": "src/components/trace.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "trace"
+      ],
+      "rootDataSlots": [
         "trace"
       ],
       "dataAttributes": [],
@@ -4023,6 +4358,9 @@
       "dataSlots": [
         "trace-collapsible"
       ],
+      "rootDataSlots": [
+        "trace-collapsible"
+      ],
       "dataAttributes": [],
       "types": []
     },
@@ -4040,6 +4378,9 @@
       "dataSlots": [
         "trace-collapsible-content",
         "trace-collapsible-content-inner"
+      ],
+      "rootDataSlots": [
+        "trace-collapsible-content"
       ],
       "dataAttributes": [],
       "types": []
@@ -4059,6 +4400,9 @@
         "trace-collapsible-trigger",
         "trace-icon"
       ],
+      "rootDataSlots": [
+        "trace-collapsible-trigger"
+      ],
       "dataAttributes": [
         "data-trace-chevron"
       ],
@@ -4072,8 +4416,13 @@
       "source": "src/components/trace.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "trace-description"
+      ],
+      "rootDataSlots": [
         "trace-description"
       ],
       "dataAttributes": [],
@@ -4087,8 +4436,13 @@
       "source": "src/components/trace.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "trace-icon"
+      ],
+      "rootDataSlots": [
         "trace-icon"
       ],
       "dataAttributes": [],
@@ -4117,6 +4471,9 @@
         "default"
       ],
       "dataSlots": [
+        "trace-line"
+      ],
+      "rootDataSlots": [
         "trace-line"
       ],
       "dataAttributes": [
@@ -4149,6 +4506,7 @@
         "title"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-run-status",
         "data-trace-step"
@@ -4163,8 +4521,13 @@
       "source": "src/components/trace.ts",
       "props": [],
       "events": [],
-      "slots": [],
+      "slots": [
+        "default"
+      ],
       "dataSlots": [
+        "trace-title"
+      ],
+      "rootDataSlots": [
         "trace-title"
       ],
       "dataAttributes": [],
@@ -4207,6 +4570,7 @@
       "events": [],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4318,10 +4682,20 @@
         }
       ],
       "slots": [
+        "*",
+        "banner",
+        "bar-actions",
+        "bar-lead",
+        "connect",
         "fallback",
-        "intro"
+        "guide",
+        "intro",
+        "preview",
+        "sidebar",
+        "terminal"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-runner",
         "data-state"
@@ -4364,6 +4738,7 @@
         "lead"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4428,6 +4803,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-stage",
         "data-state",
@@ -4482,6 +4858,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-path",
         "data-wrap"
@@ -4523,6 +4900,7 @@
         "default"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4558,6 +4936,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4584,6 +4963,7 @@
         "default"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-path"
       ],
@@ -4627,6 +5007,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4666,6 +5047,7 @@
         "footer"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-step"
       ],
@@ -4697,6 +5079,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-empty"
       ],
@@ -4751,6 +5134,7 @@
         "empty"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-device"
       ],
@@ -4809,15 +5193,22 @@
         }
       ],
       "slots": [
+        "*",
         "banner",
         "bar",
+        "connect",
+        "editor",
         "editor-head",
         "files",
         "guide",
         "overlay",
-        "status"
+        "preview",
+        "status",
+        "tab-*",
+        "terminal"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-layout",
         "data-split",
@@ -4885,6 +5276,7 @@
         "footer"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [
         "data-open"
       ],
@@ -4925,6 +5317,7 @@
         "footer"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4963,6 +5356,7 @@
         "default"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -4997,6 +5391,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -5020,6 +5415,7 @@
         "title"
       ],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     },
@@ -5051,6 +5447,7 @@
       ],
       "slots": [],
       "dataSlots": [],
+      "rootDataSlots": [],
       "dataAttributes": [],
       "types": []
     }

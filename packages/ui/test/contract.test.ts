@@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
+import ts from "typescript"
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { uiMigrations } from "../contract/migrations.ts"
-import { buildReport, entrySources, serializeReport } from "../contract/report.ts"
+import type { UISurfaceKind } from "../contract/migrations.ts"
+import { buildReport, entrySources, scanSource, serializeReport } from "../contract/report.ts"
 import type { ApiComponent, ApiReport } from "../contract/report.ts"
 import { componentViolations, contractViolations, violationKey } from "../contract/rules.ts"
 import type { Violation } from "../contract/rules.ts"
@@ -34,6 +36,14 @@ describe("api.json", () => {
     const names = report.components.map((component) => component.name)
     expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([])
   })
+
+  it("reports forwarded, computed, and factory slots", () => {
+    expect(component("Workspace").slots).toEqual(expect.arrayContaining(["bar-lead", "bar-actions", "sidebar"]))
+    expect(component("WorkspaceShell").slots).toEqual(expect.arrayContaining(["editor", "preview", "terminal", "connect", "tab-*"]))
+    expect(component("MessageContent").slots).toContain("default")
+    expect(component("ChatSession").slots).toContain("markdown")
+    expect(component("AgentSession").slots).toContain("surface-*")
+  })
 })
 
 describe("the props contract", () => {
@@ -45,6 +55,7 @@ describe("the props contract", () => {
     events: [],
     slots: [],
     dataSlots: ["probe"],
+    rootDataSlots: ["probe"],
     dataAttributes: [],
     types: ["ProbeProps"],
     ...component,
@@ -81,6 +92,7 @@ describe("the props contract", () => {
       events: [{ name: "update:sidebar", type: "[open: boolean]" }],
       slots: ["default"],
       dataSlots: ["probe-root"],
+      rootDataSlots: ["probe-root"],
       dataAttributes: ["data-state"],
       types: [],
     })).toEqual([
@@ -103,6 +115,18 @@ describe("the props contract", () => {
       "Probe data-state",
     ])
   })
+
+  it("does not count a descendant's data-slot as a root value", () => {
+    const file = ts.createSourceFile("probe.ts", `const Probe = defineComponent({
+      setup() { return () => h('div', {}, [h('span', { 'data-slot': 'probe' })]) }
+    })`, ts.ScriptTarget.Latest)
+    const statement = file.statements[0]
+    if (!statement || !ts.isVariableStatement(statement)) throw new Error("Missing probe declaration")
+    const scan = scanSource(file, statement.declarationList.declarations[0]!)
+    expect([...scan.dataSlots]).toEqual(["probe"])
+    expect(rules({ dataSlots: [...scan.dataSlots], rootDataSlots: [...scan.rootDataSlots] })).toEqual(["Probe root-data-slot"])
+    expect(component("Status").rootDataSlots).toEqual(["status"])
+  })
 })
 
 describe("violations.json", () => {
@@ -119,42 +143,43 @@ describe("violations.json", () => {
     const fixed = listed.filter((violation) => !current.has(violationKey(violation))).map(violationKey)
     expect(fixed, "These are fixed. Remove them from contract/violations.json, so the list only gets shorter.").toEqual([])
   })
+
+  it("cannot add exceptions to the merge-base baseline", () => {
+    const base = baseContractFile<Violation[]>("violations.json")
+    if (!base) return
+    expect(addedViolations(base, listed), "Do not add exceptions to contract/violations.json.").toEqual([])
+  })
+
+  it("rejects a new exception even when regeneration lists it", () => {
+    const existing: Violation = { component: "Status", rule: "props-type" }
+    const added: Violation = { component: "Status", rule: "class-prop", prop: "contentClass" }
+    expect(addedViolations([existing], [existing, added])).toEqual([violationKey(added)])
+  })
 })
 
 describe("migrations.ts", () => {
   it("has a row for each name that left api.json since the base branch", () => {
-    const base = baseReport()
+    const base = baseContractFile<ApiReport>("api.json")
     if (!base) return
-    const current = new Map(report.components.map((component) => [component.name, component]))
-    const covered = (component: string, from: string) => uiMigrations.some((row) => row.component === component && row.from === from)
-    const missing: string[] = []
-    for (const before of base.components) {
-      const after = current.get(before.name)
-      if (!after) {
-        if (!covered(before.name, before.name)) missing.push(`${before.name} (component)`)
-        continue
-      }
-      const kept = {
-        prop: new Set(after.props.map((prop) => prop.name)),
-        event: new Set(after.events.map((event) => event.name)),
-        slot: new Set(after.slots),
-      }
-      const removed = [
-        ...before.props.map((prop) => ["prop", prop.name] as const),
-        ...before.events.map((event) => ["event", event.name] as const),
-        ...before.slots.map((slot) => ["slot", slot] as const),
-      ].filter(([kind, name]) => !kept[kind].has(name))
-      for (const [kind, name] of removed) if (!covered(before.name, name)) missing.push(`${before.name} ${name} (${kind})`)
-    }
-    expect(missing, "Add a row to contract/migrations.ts for each name, so `vitehub migrate` and the migration page know where it went.").toEqual([])
+    expect(missingMigrations(base.components, report.components), "Add a row to contract/migrations.ts for each removed surface.").toEqual([])
   })
 
-  it("names only known components and kinds", () => {
-    const kinds = new Set(["prop", "event", "slot", "component", "removed"])
-    for (const row of uiMigrations) {
-      expect(kinds.has(row.kind), `${row.component} ${row.from}`).toBe(true)
-      expect(row.note.length, `${row.component} ${row.from} needs a note`).toBeGreaterThan(0)
-    }
+  it("does not let a prop migration cover a same-name slot", () => {
+    const before = component("AgentSessionDetailsRow")
+    expect(before.props.some((prop) => prop.name === "icon")).toBe(true)
+    expect(before.slots).toContain("icon")
+    const after = { ...before, props: before.props.filter((prop) => prop.name !== "icon"), slots: before.slots.filter((slot) => slot !== "icon") }
+    expect(missingMigrations([before], [after])).toEqual(["AgentSessionDetailsRow icon (slot)"])
+  })
+
+  it("requires a migration when a public import or alias disappears", () => {
+    const before = component("ChoicesInput")
+    expect(before.entries).toEqual([".", "./headless"])
+    const alias = { ...before, name: "ChoicesInputAlias" }
+    expect(missingMigrations([before, alias], [{ ...before, entries: ["."] }])).toEqual([
+      "ChoicesInput ./headless (entry)",
+      "ChoicesInputAlias ChoicesInputAlias (component)",
+    ])
   })
 })
 
@@ -165,10 +190,43 @@ describe("audit.md", () => {
   })
 })
 
-function baseReport(): ApiReport | undefined {
+function component(name: string): ApiComponent {
+  const found = report.components.find((item) => item.name === name)
+  if (!found) throw new Error(`Missing component ${name}`)
+  return found
+}
+
+function addedViolations(base: Violation[], current: Violation[]): string[] {
+  const known = new Set(base.map(violationKey))
+  return current.map(violationKey).filter((key) => !known.has(key))
+}
+
+function missingMigrations(base: ApiComponent[], current: ApiComponent[]): string[] {
+  const byName = new Map(current.map((item) => [item.name, item]))
+  const missing: string[] = []
+  for (const before of base) {
+    const check = (kind: UISurfaceKind, name: string) => {
+      if (!uiMigrations.some((row) => row.component === before.name && row.from === name && row.fromKind === kind)) {
+        missing.push(`${before.name} ${name} (${kind})`)
+      }
+    }
+    const after = byName.get(before.name)
+    if (!after) {
+      check("component", before.name)
+      continue
+    }
+    for (const entry of before.entries) if (!after.entries.includes(entry)) check("entry", entry)
+    for (const prop of before.props) if (!after.props.some(({ name }) => name === prop.name)) check("prop", prop.name)
+    for (const event of before.events) if (!after.events.some(({ name }) => name === event.name)) check("event", event.name)
+    for (const slot of before.slots) if (!after.slots.includes(slot)) check("slot", slot)
+  }
+  return missing
+}
+
+function baseContractFile<T>(name: string): T | undefined {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: packageRoot, encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] }).trim()
   const base = git("merge-base", "HEAD", `origin/${process.env.GITHUB_BASE_REF || "main"}`)
-  const file = `${base}:${git("rev-parse", "--show-prefix")}contract/api.json`
+  const file = `${base}:${git("rev-parse", "--show-prefix")}contract/${name}`
   try {
     git("cat-file", "-e", file)
   }

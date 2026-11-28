@@ -37,6 +37,7 @@ export interface ApiComponent {
   events: ApiEvent[]
   slots: string[]
   dataSlots: string[]
+  rootDataSlots: string[]
   dataAttributes: string[]
   types: string[]
 }
@@ -76,7 +77,7 @@ export function buildReport(packageRoot: string): ApiReport {
       if (!declaration || !ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name)) continue
       const type = typeChecker.getTypeOfSymbolAtLocation(symbol, declaration)
       if (!type.getConstructSignatures().some((signature) => signature.getReturnType().getProperty("$props"))) continue
-      const key = `${declaration.getSourceFile().fileName}#${declaration.name.text}`
+      const key = `${declaration.getSourceFile().fileName}#${declaration.name.text}#${exported.getName()}`
       const item = found.get(key) ?? { name: exported.getName(), declaration, entries: new Set<string>() }
       item.entries.add(entry)
       found.set(key, item)
@@ -106,8 +107,9 @@ export function buildReport(packageRoot: string): ApiReport {
       source: relative(packageRoot, file.fileName),
       props: props.sort(byName),
       events: [...events.values()].sort(byName),
-      slots: sorted([...meta.slots.map((slot) => slot.name), ...scan.slots]),
+      slots: sorted([...meta.slots.map((slot) => slot.name), ...forwardedSlots(declaration, typeChecker, scan)]),
       dataSlots: sorted(scan.dataSlots),
+      rootDataSlots: sorted(scan.rootDataSlots),
       dataAttributes: sorted(scan.dataAttributes),
       types: ["Props", "Emits", "Slots"].map((suffix) => `${name}${suffix}`).filter((typeName) => exportedNames.has(typeName)),
     }
@@ -145,12 +147,15 @@ function clean(type: string, repoRoot: string): string {
 
 interface SourceScan {
   dataSlots: Set<string>
+  rootDataSlots: Set<string>
   dataAttributes: Set<string>
   slots: Set<string>
+  slotAccesses: ts.ElementAccessExpression[]
+  renders: ts.CallExpression[]
   emits: string[]
 }
 
-function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): SourceScan {
+export function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): SourceScan {
   const topLevel = new Map<string, ts.Node>()
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name) topLevel.set(statement.name.text, statement)
@@ -163,7 +168,7 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
     const index = slotParameter(node)
     if (index !== undefined) slotHelpers.set(name, index)
   }
-  const scan: SourceScan = { dataSlots: new Set(), dataAttributes: new Set(), slots: new Set(), emits: [] }
+  const scan: SourceScan = { dataSlots: new Set(), rootDataSlots: new Set(), dataAttributes: new Set(), slots: new Set(), slotAccesses: [], renders: [], emits: [] }
   const visited = new Set<ts.Node>()
   const others = new Set([...topLevel.values()].filter((node) => isComponentDeclaration(node) && node !== declaration))
 
@@ -187,9 +192,14 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
       const slot = index === undefined ? undefined : node.arguments[index]
       if (slot) for (const value of literals(slot)) scan.dataSlots.add(value)
     }
-    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isIdentifier(node.expression) && node.expression.text === "slots") {
-      const key = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : undefined
-      if (key) scan.slots.add(key)
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isSlots(node.expression)) {
+      const keys = ts.isPropertyAccessExpression(node) ? [node.name.text] : literals(node.argumentExpression)
+      for (const key of keys) scan.slots.add(key)
+      if (ts.isElementAccessExpression(node)) scan.slotAccesses.push(node)
+    }
+    if (isCall(node, "h") && node.arguments.length >= 3) scan.renders.push(node)
+    if (isCall(node, "renderSlot") && isSlots(node.arguments[0]) && node.arguments[1]) {
+      for (const key of literals(node.arguments[1])) scan.slots.add(key)
     }
     if (ts.isIdentifier(node)) {
       const target = topLevel.get(node.text)
@@ -203,8 +213,158 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
 
   visited.add(declaration)
   visit(declaration)
+  const localValues = new Map<string, ts.Expression>()
+  const getRootSlots = (expression: ts.Expression): string[] => {
+    if (ts.isParenthesizedExpression(expression)) return getRootSlots(expression.expression)
+    if (ts.isConditionalExpression(expression)) return [...getRootSlots(expression.whenTrue), ...getRootSlots(expression.whenFalse)]
+    if (!isCall(expression, "h") && !isCall(expression, "slotPart")) return []
+    const attrs = expression.arguments[1]
+    if (isCall(expression, "slotPart")) return attrs ? literals(attrs) : []
+    const fromAttrs = (node: ts.Expression, seen = new Set<ts.Expression>()): string[] => {
+      if (seen.has(node)) return []
+      const next = new Set(seen).add(node)
+      if (ts.isIdentifier(node)) {
+        const value = localValues.get(node.text)
+        return value ? fromAttrs(value, next) : []
+      }
+      if (isCall(node, "mergeProps")) return node.arguments.flatMap((arg) => fromAttrs(arg, next))
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const index = slotHelpers.get(node.expression.text)
+        const slot = index === undefined ? undefined : node.arguments[index]
+        return slot ? literals(slot) : []
+      }
+      if (!ts.isObjectLiteralExpression(node)) return []
+      return node.properties.flatMap((prop) => {
+        if (ts.isSpreadAssignment(prop)) return fromAttrs(prop.expression, next)
+        return ts.isPropertyAssignment(prop) && ts.isStringLiteral(prop.name) && prop.name.text === "data-slot" ? literals(prop.initializer) : []
+      })
+    }
+    const children = expression.arguments[2]
+    const render = children && ts.isObjectLiteralExpression(children) && children.properties.find((prop) => ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === "render")
+    const override = render && ts.isPropertyAssignment(render) && isCall(render.initializer, "kitSlot") ? render.initializer.arguments[1] : undefined
+    return [...attrs ? fromAttrs(attrs) : [], ...override ? literals(override) : []]
+  }
+  const call = declaration.initializer
+  if (isCall(call, "slotPart")) {
+    for (const key of getRootSlots(call)) scan.rootDataSlots.add(key)
+  }
+  const options = isCall(call, "defineComponent") ? call.arguments[0] : undefined
+  const setup = options && ts.isObjectLiteralExpression(options) && options.properties.find((prop) => ts.isMethodDeclaration(prop) && ts.isIdentifier(prop.name) && prop.name.text === "setup")
+  if (setup && ts.isMethodDeclaration(setup) && setup.body) {
+    for (const render of returns(setup.body)) {
+      if (!ts.isArrowFunction(render) && !ts.isFunctionExpression(render)) continue
+      if (ts.isBlock(render.body)) {
+        for (const statement of render.body.statements) {
+          if (!ts.isVariableStatement(statement)) continue
+          for (const item of statement.declarationList.declarations) {
+            if (ts.isIdentifier(item.name) && item.initializer) localValues.set(item.name.text, item.initializer)
+          }
+        }
+      }
+      for (const root of ts.isBlock(render.body) ? returns(render.body) : [render.body]) {
+        for (const key of getRootSlots(root)) scan.rootDataSlots.add(key)
+      }
+    }
+  }
   scan.emits = emitNames(declaration)
   return scan
+}
+
+function isCall<Name extends string>(node: ts.Node | undefined, name: Name): node is ts.CallExpression & { expression: ts.Identifier & { text: Name } } {
+  return !!node && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name
+}
+
+function forwardedSlots(declaration: ts.VariableDeclaration, checker: ts.TypeChecker, sourceScan: SourceScan): Set<string> {
+  const seen = new Set<ts.VariableDeclaration>()
+  const referencedDeclaration = (node: ts.Node) => {
+    const symbol = checker.getSymbolAtLocation(node)
+    return (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol)?.valueDeclaration
+  }
+  const forwards = (node: ts.Node, seenNodes = new Set<ts.Node>()): boolean => {
+    if (seenNodes.has(node)) return false
+    seenNodes.add(node)
+    if (isSlots(node)) return true
+    if (ts.isObjectLiteralExpression(node)) return node.properties.some((prop) => ts.isSpreadAssignment(prop) && forwards(prop.expression, seenNodes))
+    if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression) && ts.isCallExpression(node.expression.expression) && forwards(node.expression.expression, seenNodes)) return true
+      if (node.arguments.some((arg) => forwards(arg, seenNodes))) return true
+      return ts.isIdentifier(node.expression) && forwards(node.expression, seenNodes)
+    }
+    if (ts.isIdentifier(node)) {
+      const target = referencedDeclaration(node)
+      return !!target && ts.isVariableDeclaration(target) && !!target.initializer && forwards(target.initializer, seenNodes)
+    }
+    return ts.isArrowFunction(node) && forwards(node.body, seenNodes)
+  }
+  const slotKeys = (node: ts.Node) => {
+    const result = new Set<string>()
+    for (const signature of checker.getTypeAtLocation(node).getConstructSignatures()) {
+      const slots = signature.getReturnType().getProperty("$slots")
+      if (!slots) continue
+      const type = checker.getTypeOfSymbol(slots)
+      for (const prop of type.getProperties()) result.add(prop.name)
+      for (const index of checker.getIndexInfosOfType(type)) {
+        if (index.keyType.flags & ts.TypeFlags.String) result.add("*")
+        if (index.keyType.flags & ts.TypeFlags.TemplateLiteral) result.add((index.keyType as ts.TemplateLiteralType).texts.join("*"))
+      }
+    }
+    return result
+  }
+  const collect = (item: ts.VariableDeclaration, scan: SourceScan): Set<string> => {
+    if (seen.has(item)) return new Set()
+    seen.add(item)
+    const result = new Set(scan.slots)
+    for (const read of scan.slotAccesses) {
+      const type = checker.getTypeAtLocation(read.argumentExpression)
+      for (const member of type.isUnion() ? type.types : [type]) {
+        if (member.isStringLiteral()) result.add(member.value)
+      }
+      if (ts.isPropertyAccessExpression(read.argumentExpression) && read.argumentExpression.name.text === "value") result.add("*")
+    }
+    if (isCall(item.initializer, "slotPart")) {
+      const factory = referencedDeclaration(item.initializer.expression)
+      const visit = (node: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(node) && isSlots(node.expression)) result.add(node.name.text)
+        ts.forEachChild(node, visit)
+      }
+      if (factory) visit(factory)
+    }
+    for (const render of scan.renders) {
+      const [target, , children] = render.arguments
+      if (!target || !children || !forwards(children)) continue
+      const component = referencedDeclaration(target)
+      if (component && isComponentDeclaration(component) && ts.isVariableDeclaration(component)) {
+        for (const slot of collect(component, scanSource(component.getSourceFile(), component))) result.add(slot)
+      } else {
+        const keys = slotKeys(target)
+        if (component && ts.isVariableDeclaration(component) && isCall(component.initializer, "useUIComponent")) {
+          const name = component.initializer.arguments[0]
+          if (name && ts.isStringLiteral(name) && name.text === "UButton") {
+            for (const slot of ["default", "leading", "trailing", "*"]) keys.add(slot)
+          }
+        }
+        if (!keys.size) keys.add("*")
+        for (const slot of keys) result.add(slot)
+      }
+    }
+    return result
+  }
+  return collect(declaration, sourceScan)
+}
+
+function isSlots(node: ts.Node | undefined): boolean {
+  return !!node && ts.isIdentifier(node) && node.text === "slots"
+}
+
+function returns(block: ts.Block): ts.Expression[] {
+  const result: ts.Expression[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression) result.push(node.expression)
+    else ts.forEachChild(node, visit)
+  }
+  visit(block)
+  return result
 }
 
 function slotParameter(node: ts.Node): number | undefined {
