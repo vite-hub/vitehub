@@ -171,6 +171,20 @@ describe("Console database inspection", () => {
     expect(filtered.rows[0]?.email).toEqual({ kind: "text", value: "ada@example.com" });
   });
 
+  it("names the missing migration when a declared table is not in the database", async () => {
+    const client = createClient({ url: "file::memory:" });
+    clients.push(client);
+    installConsoleDatabase("/project", { default: { db: drizzle({ client }), schema } }, ["default"]);
+
+    await expect(browseConsoleDatabase({})).resolves.toMatchObject({ tables: expect.arrayContaining([expect.objectContaining({ name: "users" })]) });
+    await expect(browseConsoleDatabase({ table: "users" })).rejects.toMatchObject({
+      code: "DATABASE_TABLE_MISSING",
+      fix: expect.stringContaining("vitehub database migrate"),
+      message: expect.stringContaining("declares the table \"users\""),
+      status: 409,
+    });
+  });
+
   it("selects named databases and rejects free-form query inputs", async () => {
     installConsoleDatabase(
       "/project",

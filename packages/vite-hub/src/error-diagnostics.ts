@@ -31,6 +31,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Check that the cache driver supports the requested storage operation. Vercel Runtime Cache cannot list keys.",
     },
+    DATABASE_TABLE_MISSING: {
+      why: ({ database, table }: { database: string, table: string }) => `The Database Definition "${database}" declares the table "${table}", but the database has no such table. No migration has created it yet.`,
+      fix: "Run `vitehub database generate` to write a migration for the Definition, and `vitehub database migrate` to apply it. Then open the table again.",
+    },
     LOGS_CURSOR_EXPIRED: {
       why: "The log cursor has expired. Refresh to read the retained events.",
       fix: "Read the logs again from the first page without a cursor. The log source no longer keeps the events that the cursor pointed to.",
