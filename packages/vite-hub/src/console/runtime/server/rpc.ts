@@ -8,6 +8,7 @@ import * as v from "valibot"
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleRpcPath } from "./console-signature.ts"
+import { consoleFeatureFix } from "./feature-operations.ts"
 import { consoleOperationRegistry, isHeldBackConsoleOperation } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { consoleDevelopmentContext } from "./development.ts"
@@ -222,14 +223,18 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
 }
 
 /**
- * The failure for a call that names no registered operation. A caller that reaches this app with a name that it does
- * not know has another ViteHub version, so reloading does not help.
+ * The failure for a call that names no registered operation. A name from a Console operation module belongs to a
+ * feature that this app does not have. Any other name comes from another ViteHub version, so reloading does not help.
  */
 function unknownConsoleOperation(name: string): ConsoleHttpError {
-  const [message, fix] = isHeldBackConsoleOperation(name)
-    ? [`\`${name}\` runs app code, so the app has it only when \`console.invoke\` is on.`, "Set `console: { invoke: true }` in `vitehub()`, then build and deploy the app again."]
-    : ["Console operation not found.", "Use a Console or `vitehub` CLI of the same ViteHub version as the app, or deploy the app again with the feature that has this operation."]
-  return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_NOT_FOUND", message), { fix }))
+  if (isHeldBackConsoleOperation(name)) {
+    return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_NOT_FOUND", `\`${name}\` runs app code, so the app has it only when \`console.invoke\` is on.`), { fix: "Set `console: { invoke: true }` in `vitehub()`, then build and deploy the app again." }))
+  }
+  const featureFix = consoleFeatureFix(name)
+  if (featureFix) {
+    return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_FEATURE_DISABLED", `This app does not serve \`${name}\`, because its feature is off.`), { fix: `${featureFix} Then restart the dev server, or build and deploy the app again.` }))
+  }
+  return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_NOT_FOUND", "Console operation not found."), { fix: "Use a Console or `vitehub` CLI of the same ViteHub version as the app." }))
 }
 
 /**
