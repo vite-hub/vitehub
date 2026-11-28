@@ -10,7 +10,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
 import ConsoleHostedCommentsEmbed from "./console-hosted-comments-embed.vue";
 
-const props = defineProps<{ project: ConsoleAccountProject }>();
+const props = defineProps<{ project: ConsoleAccountProject, reason?: "missing" | "key" }>();
 const emit = defineEmits<{ checked: [status: ConsoleAccountAppStatus] }>();
 
 const toast = useConsoleToast();
@@ -34,6 +34,7 @@ async function check(): Promise<void> {
     }
     if (answer.status === "setup") result.value = `Checked at ${time}. ${host.value} does not accept the signature yet. Set this variable, redeploy, and check again.`;
     else if (answer.status === "unreachable") result.value = `Checked at ${time}. The Console could not reach ${host.value}. Check the URL and that the app is deployed.`;
+    else if (answer.code === 404) result.value = `Checked at ${time}. No ViteHub app answers at ${props.project.url}. Check that the app is deployed there and has console: true, then check again.`;
     else if (answer.code >= 500) result.value = `Checked at ${time}. ${host.value} returned a server error. Check its logs and try again.`;
     else result.value = `Checked at ${time}. ${host.value} is not set up for the Console yet. Add console: true, redeploy, and check again.`;
   }
@@ -53,9 +54,12 @@ async function check(): Promise<void> {
     </div>
   </div>
   <div v-else class="grid max-w-2xl gap-6">
-    <p class="text-sm text-pretty text-muted">
-      {{ host }} needs <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] whitespace-nowrap text-highlighted">console: true</code> in its config.
+    <p v-if="reason === 'missing'" class="text-sm text-pretty text-muted">
+      No ViteHub app answers at {{ project.url }}. Check that the app is deployed at this address and that its config has <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] whitespace-nowrap text-highlighted">console: true</code>.
       Then add this environment variable to its deployment settings, redeploy, and check the connection.
+    </p>
+    <p v-else class="text-sm text-pretty text-muted">
+      {{ host }} does not have the key of this link yet. Add this environment variable to its deployment settings, redeploy, and check the connection.
     </p>
 
     <CodeBlock size="sm">

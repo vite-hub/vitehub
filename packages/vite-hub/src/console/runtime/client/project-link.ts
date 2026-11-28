@@ -199,6 +199,7 @@ export async function probeConsoleProject(
   if (response.status === 401) {
     return { kind: "signed", code: fields.code ?? "CONSOLE_SIGNATURE_INVALID", ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
   }
+  if (fields.code === "CONSOLE_FORWARD_UNREACHABLE") return { kind: "unreachable" }
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
   // A page that is not JSON means the app has no Console route, unless the server failed: a proxy's 502 page is an outage.

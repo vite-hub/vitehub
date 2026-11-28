@@ -208,6 +208,11 @@ describe("project.get probe", () => {
       .toBe("app.example.com/portal did not answer this Console. Check that the app is online at https://app.example.com/portal.")
   })
 
+  it("reads the Console server's answer for an app that did not answer as unreachable", async () => {
+    const answer = { code: "CONSOLE_FORWARD_UNREACHABLE", message: "The Console could not reach app.example.com.", ok: false, status: 502 }
+    expect(await probeConsoleProject(target, { fetch: json(502, answer) })).toEqual({ kind: "unreachable" })
+  })
+
   it("lets an abort through", async () => {
     const abort = new DOMException("Aborted", "AbortError")
     await expect(probeConsoleProject(target, { fetch: async () => { throw abort } })).rejects.toBe(abort)
@@ -552,18 +557,24 @@ describe("account Console", () => {
   })
 
   it("shows the variable to set while the project has no public key for the link, or another one, or no Console yet", async () => {
-    for (const answer of [
-      json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }),
-      // An app without `console: true` answers the Console route with its 404 page.
-      operationRpcFetch(async () => new Response("<!doctype html><title>404</title>", { headers: { "content-type": "text/html" }, status: 404 })),
-      json(401, { code: "CONSOLE_KEY_UNKNOWN", message: "unknown", ok: false, status: 401 }),
-      json(401, { code: "CONSOLE_SIGNATURE_INVALID", message: "refused", ok: false, status: 401 }),
-    ]) {
+    for (const [answer, reason] of [
+      [json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }), "key"],
+      [operationRpcFetch(async () => new Response("<!doctype html><title>404</title>", { headers: { "content-type": "text/html" }, status: 404 })), "missing"],
+      [operationRpcFetch(async () => new Response("error code: 1042", { headers: { "content-type": "text/plain" }, status: 404 })), "missing"],
+      [json(401, { code: "CONSOLE_KEY_UNKNOWN", message: "unknown", ok: false, status: 401 }), "key"],
+      [json(401, { code: "CONSOLE_SIGNATURE_INVALID", message: "refused", ok: false, status: 401 }), "key"],
+    ] as const) {
       const { module, state } = await account(answer)
       await module.openConsoleProject()
-      expect(state.gate.value).toEqual({ kind: "setup", project: linked })
+      expect(state.gate.value).toEqual({ kind: "setup", project: linked, reason })
       vi.resetModules()
     }
+  })
+
+  it("shows why an app did not answer instead of the setup step", async () => {
+    const { module, state } = await account(json(502, { code: "CONSOLE_FORWARD_UNREACHABLE", message: "The Console could not reach app.example.com.", ok: false, status: 502 }))
+    await module.openConsoleProject()
+    expect(state.gate.value).toMatchObject({ kind: "problem", problem: { title: "Cannot reach app.example.com/portal" } })
   })
 
   it("keeps the problem page when the app's server fails with a page that is not JSON", async () => {
@@ -635,7 +646,7 @@ describe("account Console", () => {
     pending.resolve(Response.json(status === 200 ? projectGet : signatureRejection, { status }))
     await opening
 
-    expect(state.gate.value).toEqual(status === 200 ? { kind: "ready" } : { kind: "setup", project: linked })
+    expect(state.gate.value).toEqual(status === 200 ? { kind: "ready" } : { kind: "setup", project: linked, reason: "key" })
   })
 })
 

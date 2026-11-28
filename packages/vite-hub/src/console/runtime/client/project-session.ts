@@ -38,8 +38,12 @@ export type ConsoleProjectGate =
    * `/open` link that the person followed, which the sign-in opens again when it completes.
    */
   | { kind: "account", invitation?: string, returnTo?: string }
-  /** An `account` Console linked the project, but the project does not have the public key of the link yet. */
-  | { kind: "setup", project: ConsoleAccountProject }
+  /**
+   * An `account` Console linked the project, but the project does not take its calls yet. `missing`: no ViteHub Console
+   * answers at the URL, so the app is not deployed there or has no `console: true`. `key`: the app does not have the
+   * public key of the link.
+   */
+  | { kind: "setup", project: ConsoleAccountProject, reason?: "missing" | "key" }
   /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
   | { kind: "home", page: ConsoleAccountPage }
   /**
@@ -228,7 +232,7 @@ function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget): Conso
   // variable and the next step in one place instead of a retry.
   if (probe.kind === "signed" || probe.kind === "missing" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED")) {
     const linked = projects.account.value?.projects.find(project => project.url === target.url)
-    if (linked) return { kind: "setup", project: linked }
+    if (linked) return { kind: "setup", project: linked, reason: probe.kind === "missing" ? "missing" : "key" }
   }
   return { kind: "problem", problem: consoleProjectProblem(probe, { host: consoleProjectHost(target), url: target.url }) }
 }
