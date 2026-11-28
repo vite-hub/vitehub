@@ -1,0 +1,74 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry.json",
+  "name": "vitehub",
+  "homepage": "https://vitehub.dev",
+  "items": [
+    {
+      "name": "base",
+      "type": "registry:base",
+      "title": "ViteHub base",
+      "description": "Start an app on ViteHub UI: `shadcn-vue init --preset https://vitehub.dev/r/base.json`. It adds the @vitehub registry, Lucide icons, the theme, and the core stylesheet. It installs no Reka UI.",
+      "extends": "none",
+      "config": {
+        "iconLibrary": "lucide",
+        "registries": { "@vitehub": "https://vitehub.dev/r/{name}.json" }
+      },
+      "registryDependencies": ["@vitehub/theme", "@vitehub/core"]
+    },
+    {
+      "name": "theme",
+      "type": "registry:theme",
+      "title": "ViteHub theme",
+      "description": "The shadcn tokens with ViteHub values, light and dark."
+    },
+    {
+      "name": "core",
+      "type": "registry:file",
+      "title": "ViteHub core",
+      "description": "vitehub.css: the ui-sdk stylesheet, the shadcn tokens mapped onto its --ui-* variables, the status colors, and the focus ring. Every component item imports it.",
+      "css": {
+        "@layer components": {
+          ":where([data-slot])": { "box-sizing": "border-box" }
+        }
+      }
+    },
+    {
+      "name": "status",
+      "type": "registry:component",
+      "title": "Status",
+      "description": "A dot in a status color with an optional label."
+    },
+    {
+      "name": "copy-button",
+      "type": "registry:component",
+      "title": "Copy button",
+      "description": "A button that copies text and shows a check for a moment."
+    },
+    {
+      "name": "example-status",
+      "type": "registry:block",
+      "title": "Status example",
+      "description": "Every tone of Status, with and without a label."
+    },
+    {
+      "name": "example-copy-button",
+      "type": "registry:block",
+      "title": "Copy button example",
+      "description": "An icon-only copy button and one with a label."
+    },
+    {
+      "name": "vitehub-ui-skill",
+      "type": "registry:item",
+      "title": "ViteHub UI agent skill",
+      "description": "A skill that tells a coding agent how to use, style, and install ViteHub UI parts.",
+      "dependencies": ["tw-animate-css"],
+      "files": [
+        {
+          "path": "skill/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/vitehub-ui/SKILL.md"
+        }
+      ]
+    }
+  ]
+}

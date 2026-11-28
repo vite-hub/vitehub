@@ -1,0 +1,29 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "core",
+  "type": "registry:file",
+  "title": "ViteHub core",
+  "description": "vitehub.css: the ui-sdk stylesheet, the shadcn tokens mapped onto its --ui-* variables, the status colors, and the focus ring. Every component item imports it.",
+  "css": {
+    "@layer components": {
+      ":where([data-slot])": {
+        "box-sizing": "border-box"
+      }
+    }
+  },
+  "dependencies": [
+    "@ui-sdk/core@0.1.0-beta.14"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/core/announce.ts",
+      "type": "registry:component",
+      "content": "// One polite live region per dialog, or one for the page, that parts use to announce a short result such as \"Copied\".\n// A region must exist before its text changes, so a part calls `prepareAnnouncer()` when it mounts. A modal dialog hides\n// the rest of the page from screen readers, so a part inside a dialog announces through a region inside that dialog.\n\nconst regionSlot = \"live-announcer\";\n// Visually hidden, so the region needs no stylesheet.\nconst hidden = \"position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0\";\n\nfunction regionFor(element: Element): HTMLElement {\n  const container = element.closest<HTMLElement>(\"[role=dialog], [role=alertdialog]\") ?? element.ownerDocument.body;\n  for (const child of container.children) {\n    if (child instanceof HTMLElement && child.dataset.slot === regionSlot) return child;\n  }\n  const region = element.ownerDocument.createElement(\"div\");\n  region.dataset.slot = regionSlot;\n  region.setAttribute(\"aria-live\", \"polite\");\n  region.setAttribute(\"aria-atomic\", \"true\");\n  region.style.cssText = hidden;\n  container.append(region);\n  return region;\n}\n\n/** Adds the live region that `announce()` will use for `element`, so that the first message is read. */\nexport function prepareAnnouncer(element: Element | null | undefined): void {\n  if (element) regionFor(element);\n}\n\nconst clearTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();\n\n/** Reads `message` to screen readers without moving focus, and clears it after `duration` ms. */\nexport function announce(element: Element | null | undefined, message: string, duration = 2_000): void {\n  if (!element) return;\n  const region = regionFor(element);\n  clearTimeout(clearTimers.get(region));\n  // Empty first, so the same message twice in a row is read twice.\n  region.textContent = \"\";\n  requestAnimationFrame(() => {\n    region.textContent = message;\n  });\n  clearTimers.set(region, setTimeout(() => (region.textContent = \"\"), duration));\n}\n"
+    },
+    {
+      "path": "components/vitehub/core/vitehub.css",
+      "type": "registry:component",
+      "content": "/*\n * The core of the @vitehub registry: ui-sdk's stylesheet, the shadcn tokens mapped onto its `--ui-*` variables, the\n * status colors, the focus ring, and the `--vh-*` tokens that the item stylesheets read. Every component item imports\n * this file, so the app loads it once.\n *\n * web.css styles plain `a`, `kbd`, and `button`, and it shares `--ui-*` names with Nuxt UI. In a Nuxt UI app, the two\n * restyle each other.\n */\n\n@import \"@ui-sdk/core/web.css\";\n\n:root {\n  --success: oklch(0.696 0.17 162.48);\n  --warning: oklch(0.769 0.188 70.08);\n  --info: oklch(0.685 0.169 237.323);\n}\n\n:is(.dark, [data-theme=\"dark\"]) {\n  --success: oklch(0.765 0.177 163.223);\n  --warning: oklch(0.828 0.189 84.429);\n  --info: oklch(0.746 0.16 232.661);\n}\n\n/* On `.dark` and `[data-theme=\"dark\"]` too, so a dark subtree reads its own tokens and not the page's. */\n:root,\n.dark,\n[data-theme=\"dark\"] {\n  --ui-background: var(--background);\n  --ui-foreground: var(--foreground);\n  --ui-muted: var(--muted);\n  --ui-muted-foreground: var(--muted-foreground);\n  --ui-border: var(--border);\n  --ui-input: var(--input);\n  --ui-primary: var(--primary);\n  --ui-primary-foreground: var(--primary-foreground);\n  --ui-destructive: var(--destructive);\n  /* The ViteHub focus: a 2px ring in `--ring`, 2px outside the part. */\n  --ui-ring: var(--ring);\n  --ui-ring-border: var(--ring);\n  --ui-ring-width: 2px;\n  --ui-ring-offset: 2px;\n  --ui-overlay: var(--overlay);\n  /* `--radius` is the base step: 6px controls, 12px menus, popovers, and dialogs. */\n  --ui-radius: calc(var(--radius) * 1.5);\n  --ui-radius-popup: calc(var(--radius) * 3);\n  --ui-font-size: 0.875rem;\n  --ui-font-sans: var(--font-sans);\n  --ui-font-mono: var(--font-mono);\n\n  /* The item stylesheets read `--vh-*`. Set `--vh-ui-*` on an element to change the items inside it. */\n  --vh-radius: var(--vh-ui-radius, calc(var(--radius) * 2));\n  --vh-border: var(--vh-ui-border, var(--border));\n  --vh-border-accented: var(--vh-ui-border-accented, var(--input));\n  --vh-muted: var(--vh-ui-muted, var(--muted-foreground));\n  --vh-dimmed: var(--vh-ui-dimmed, var(--muted-foreground));\n  --vh-text: var(--vh-ui-text, var(--foreground));\n  --vh-bg: var(--vh-ui-bg, var(--background));\n  --vh-bg-muted: var(--vh-ui-bg-muted, var(--muted));\n  --vh-bg-elevated: var(--vh-ui-bg-elevated, var(--accent));\n  --vh-bg-accented: var(--vh-ui-bg-accented, var(--accent));\n  --vh-highlighted: var(--vh-ui-highlighted, var(--foreground));\n  --vh-inverted: var(--vh-ui-inverted, var(--background));\n  --vh-primary: var(--vh-ui-primary, var(--primary));\n  --vh-ring: var(--vh-ui-ring, var(--ring));\n  --vh-error: var(--vh-ui-error, var(--destructive));\n  --vh-info: var(--vh-ui-info, var(--info));\n  --vh-success: var(--vh-ui-success, var(--success));\n  --vh-warning: var(--vh-ui-warning, var(--warning));\n}\n\n/* web.css has no page base. It has no specificity, so any app rule wins. */\n:where(html) {\n  background: var(--background);\n  color: var(--foreground);\n  font-family: var(--font-sans);\n}\n"
+    }
+  ]
+}

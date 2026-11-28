@@ -2,7 +2,7 @@
 import { consoleTimeOfDay } from "../client/format";
 import { Time, today } from "@internationalized/date";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
-import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel, CopyButton, Status, useCopy } from "@vite-hub/ui";
+import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel, CopyButton, Status, StatusIndicator, StatusLabel, useCopy } from "@vite-hub/ui";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 
 import {
@@ -2113,10 +2113,11 @@ const menuItems = computed(() => [[
         </UButton>
         <UTooltip v-else-if="headerStatus" :text="creating ? 'Create saves the first draft' : 'Drafts save as you type. ⌘S saves now.'" :content="{ side: 'bottom' }">
           <!-- On a phone only the dot shows, so the title keeps its place. Screen readers still hear the label. -->
-          <Status :label="headerStatus.label" :tone="headerStatus.tone" :pulse="headerStatus.pending">
-            <span class="max-sm:sr-only">{{ headerStatus.label }}<template v-if="headerStatus.savedAt">
+          <Status :tone="headerStatus.tone" :pulse="headerStatus.pending">
+            <StatusIndicator />
+            <StatusLabel><span class="max-sm:sr-only">{{ headerStatus.label }}<template v-if="headerStatus.savedAt">
               · <ConsoleRelativeTime :value="headerStatus.savedAt" prefix="Saved" seconds />
-            </template></span>
+            </template></span></StatusLabel>
           </Status>
         </UTooltip>
       </span>

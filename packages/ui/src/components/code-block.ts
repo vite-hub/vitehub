@@ -31,7 +31,7 @@ export const CodeBlockCopyButton = defineComponent({
     value: { required: true, type: String },
   },
   setup(props, { attrs }) {
-    return () => h(CopyButton, { size: "xs", ...attrs, "data-slot": "code-block-copy-button", value: props.value });
+    return () => h(CopyButton, { size: "xs", ...attrs, value: props.value });
   },
 });
 

@@ -1,5 +1,7 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import vue from "@vitejs/plugin-vue";
+import { registrySourceStyles } from "./registry/source-styles.ts";
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
@@ -16,11 +18,28 @@ const parts = Object.fromEntries(["components", "composables", "headless", "play
 // Without `canvas`, both builds return null in Node, so the browser build is bundled for every host.
 const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import.meta.resolve("vega-canvas")));
 
+// `styles.css` imports the stylesheet of each registry item. npm apps load one file, so the build inlines them.
+function inlineRegistryStyles(css: string): string {
+  return css.replace(/^@import "\.\/(registry\/[\w-]+\/[\w-]+\.css)";\n/gm, (_, path: string) => readFileSync(new URL(path, import.meta.url), "utf8"));
+}
+
 export default defineConfig({
   pack: {
     ...packDefaults,
     alias: { "vega-canvas": vegaCanvasBrowser },
-    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }, { from: "comment-marks.css", to: "dist" }, { from: "comment-send.css", to: "dist" }],
+    dts: { vue: true },
+    plugins: [
+      registrySourceStyles(),
+      vue({ isProduction: true }),
+      {
+        // The stylesheet that a registry item imports is in `styles.css` for npm apps, so the JavaScript imports no CSS.
+        name: "vitehub-ui-styles",
+        generateBundle() {
+          this.emitFile({ type: "asset", fileName: "styles.css", source: inlineRegistryStyles(readFileSync(new URL("styles.css", import.meta.url), "utf8")) });
+        },
+      },
+    ],
+    copy: [{ from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }, { from: "comment-marks.css", to: "dist" }, { from: "comment-send.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
       // Keep vega-loader's Node/browser exports selectable by the consuming host.

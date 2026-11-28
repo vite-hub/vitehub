@@ -1,40 +1,25 @@
 // @vitest-environment happy-dom
 
 import { flushPromises, mount } from "@vue/test-utils";
-import { defineComponent, h } from "vue";
+import { h } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createViteHubUI, CopyButton, useCopy } from "../src/index.ts";
-
-const ButtonStub = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, "data-stub": "UButton" });
-  },
-});
-
-// Renders the leading slot as Nuxt UI's UButton does, with the classes of its leading icon.
-const SlotButtonStub = defineComponent({
-  setup(_props, { attrs, slots }) {
-    return () => h("button", { ...attrs, "data-stub": "UButton" }, [
-      slots.leading?.({ ui: { leadingIcon: () => "size-4 shrink-0" } }) ?? h("i", { "data-stub-icon": attrs.icon }),
-      slots.default?.(),
-    ]);
-  },
-});
-
-const IconStub = defineComponent({
-  props: { name: { required: true, type: String } },
-  setup: (props) => () => h("svg", { "data-name": props.name }),
-});
+import { CopyButton, useCopy } from "../src/index.ts";
+import type { CopyButtonProps } from "../src/index.ts";
 
 function useClipboard(writeText: (text: string) => Promise<void>) {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 }
 
-function mountButton(props: InstanceType<typeof CopyButton>["$props"] & { disabled?: boolean }, plugins: ReturnType<typeof createViteHubUI>[] = []) {
-  return mount(() => h(CopyButton, props), { attachTo: document.body, global: { components: { UButton: ButtonStub }, plugins } });
+type Listeners = { onCopy?: () => void; onError?: () => void; "aria-label"?: string };
+
+function mountButton(props: CopyButtonProps & Listeners, slots: Record<string, () => unknown> = {}) {
+  return mount(() => h(CopyButton, props, slots), { attachTo: document.body });
 }
 
 const announcement = () => document.querySelector("[data-slot=live-announcer]");
+/** The Lucide icon that the button shows, such as `copy`, `check`, or `loader-circle`. */
+const icon = (wrapper: ReturnType<typeof mountButton>) =>
+  wrapper.get("[data-slot=copy-button-icon]").classes().find((name) => name.startsWith("lucide-"))?.slice("lucide-".length);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -51,36 +36,36 @@ describe("CopyButton", () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it("is an icon-only ghost button named Copy, with the theme copy icon", () => {
+  it("is an icon-only small ghost button named Copy, with Lucide's copy icon", () => {
     const wrapper = mountButton({ value: "pnpm test" });
-    const button = wrapper.get("[data-slot=copy-button]");
-    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", icon: "i-lucide-copy", variant: "ghost" });
-    expect(button.attributes("label")).toBeUndefined();
+    const button = wrapper.get("button[data-slot=copy-button]");
+    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", "data-size": "sm", "data-variant": "ghost" });
+    expect(icon(wrapper)).toBe("copy");
+    expect(wrapper.find("[data-slot=copy-button-label]").exists()).toBe(false);
     // The live region exists before the first copy, so the first announcement is read.
     expect(announcement()?.getAttribute("aria-live")).toBe("polite");
   });
 
   it("uses the label as the name, and an aria-label over both", () => {
     expect(mountButton({ value: "x", label: "Copy run ID" }).get("button").attributes("aria-label")).toBeUndefined();
-    expect(mountButton({ value: "x", label: "Copy", ariaLabel: "Copy the run ID" }).get("button").attributes("aria-label")).toBe("Copy the run ID");
+    expect(mountButton({ value: "x", label: "Copy", "aria-label": "Copy the run ID" }).get("button").attributes("aria-label")).toBe("Copy the run ID");
+    expect(mountButton({ value: "x", copyLabel: "Kopieren" }).get("button").attributes("aria-label")).toBe("Kopieren");
   });
 
-  it("reads the icons from the app config", () => {
-    const wrapper = mountButton({ value: "x" }, [createViteHubUI({ icons: { copy: "i-ph-copy", copyCheck: "i-ph-check" } })]);
-    expect(wrapper.get("button").attributes("icon")).toBe("i-ph-copy");
-  });
-
-  it("shows its own resting icon, and the theme check and copiedLabel after a copy", async () => {
+  it("shows the icon slot at rest, and the check and copiedLabel after a copy", async () => {
     useClipboard(() => Promise.resolve());
-    const wrapper = mountButton({ value: "https://vitehub.dev", icon: "i-lucide-link", label: "Copy link" });
-    expect(wrapper.get("button").attributes()).toMatchObject({ icon: "i-lucide-link", label: "Copy link" });
+    const wrapper = mountButton({ value: "https://vitehub.dev", label: "Copy link" }, { icon: () => h("svg", { "data-slot": "copy-button-icon", class: "lucide-link" }) });
+    expect(icon(wrapper)).toBe("link");
+    expect(wrapper.get("[data-slot=copy-button-label]").text()).toBe("Copy link");
     await wrapper.get("button").trigger("click");
     await flushPromises();
-    expect(wrapper.get("button").attributes()).toMatchObject({ icon: "i-lucide-check", label: "Copied" });
+    expect(icon(wrapper)).toBe("check");
+    expect(wrapper.get("[data-slot=copy-button-label]").text()).toBe("Copied");
     const custom = mountButton({ value: "x", label: "Copy link", copiedLabel: "Link copied" });
     await custom.get("button").trigger("click");
     await flushPromises();
-    expect(custom.get("button").attributes("label")).toBe("Link copied");
+    expect(custom.get("[data-slot=copy-button-label]").text()).toBe("Link copied");
+    await vi.waitFor(() => expect(announcement()?.textContent).toBe("Link copied"));
   });
 
   it("copies a string, shows the check for 2 seconds, and announces it", async () => {
@@ -92,13 +77,14 @@ describe("CopyButton", () => {
     await wrapper.get("button").trigger("click");
     await flushPromises();
     expect(writeText).toHaveBeenCalledWith("pnpm test");
-    expect(wrapper.get("button").attributes()).toMatchObject({ "data-copied": "", icon: "i-lucide-check", "aria-label": "Copy" });
+    expect(wrapper.get("button").attributes()).toMatchObject({ "data-copied": "", "aria-label": "Copy" });
+    expect(icon(wrapper)).toBe("check");
     await vi.waitFor(() => expect(announcement()?.textContent).toBe("Copied"));
     expect(wrapper.emitted()).not.toHaveProperty("error");
 
     vi.advanceTimersByTime(2_000);
     await flushPromises();
-    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-copy");
+    expect(icon(wrapper)).toBe("copy");
     expect(wrapper.get("button").attributes("data-copied")).toBeUndefined();
     expect(announcement()?.textContent).toBe("");
   });
@@ -128,7 +114,7 @@ describe("CopyButton", () => {
 
     await wrapper.get("button").trigger("click");
     await flushPromises();
-    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-copy");
+    expect(icon(wrapper)).toBe("copy");
     await vi.waitFor(() => expect(announcement()?.textContent).toBe("Copy failed"));
     expect(onError).toHaveBeenCalledOnce();
     expect(onCopy).not.toHaveBeenCalled();
@@ -182,26 +168,21 @@ describe("CopyButton", () => {
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
     document.body.append(dialog);
-    const wrapper = mount(() => h(CopyButton, { value: "x" }), { attachTo: dialog, global: { components: { UButton: ButtonStub } } });
+    const wrapper = mount(() => h(CopyButton, { value: "x" }), { attachTo: dialog });
     await wrapper.get("button").trigger("click");
     await vi.waitFor(() => expect(dialog.querySelector(":scope > [data-slot=live-announcer]")?.textContent).toBe("Copied"));
   });
 
-  it("swaps its one icon slot to the check for `duration` ms, and draws the check in", async () => {
+  it("shows the check for `duration` ms", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     useClipboard(() => Promise.resolve());
-    const wrapper = mount(() => h(CopyButton, { value: "x", duration: 500 }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
-    const shown = () => {
-      const icon = wrapper.findAll("[data-slot=swap-icon] > [data-icon-key] > svg").at(-1)!;
-      return [icon.attributes("data-name"), icon.classes().join(" ")];
-    };
-    expect(wrapper.get("[data-slot=swap-icon]").attributes("aria-hidden")).toBe("true");
-    expect(shown()).toEqual(["i-lucide-copy", "size-4 shrink-0"]);
+    const wrapper = mountButton({ value: "x", duration: 500 });
+    expect(wrapper.get("[data-slot=copy-button-icon]").attributes("aria-hidden")).toBe("true");
 
     await wrapper.get("button").trigger("click");
     await flushPromises();
     expect(wrapper.get("button").attributes("data-copied")).toBe("");
-    expect(shown()).toEqual(["i-lucide-check", "size-4 shrink-0"]);
+    expect(icon(wrapper)).toBe("check");
 
     vi.advanceTimersByTime(499);
     await flushPromises();
@@ -209,21 +190,20 @@ describe("CopyButton", () => {
     vi.advanceTimersByTime(1);
     await flushPromises();
     expect(wrapper.get("button").attributes("data-copied")).toBeUndefined();
-    expect(shown()).toEqual(["i-lucide-copy", "size-4 shrink-0"]);
+    expect(icon(wrapper)).toBe("copy");
   });
 
-  it("shows a turning spinner in the icon slot while the text loads", async () => {
+  it("shows a spinner and data-loading while the text loads", async () => {
     useClipboard(() => Promise.resolve());
     let resolve: (text: string) => void = () => {};
-    const wrapper = mount(() => h(CopyButton, { value: () => new Promise<string>((done) => (resolve = done)) }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
-    const shown = () => wrapper.findAll("[data-slot=swap-icon] > [data-icon-key] > svg").at(-1)!;
+    const wrapper = mountButton({ value: () => new Promise<string>((done) => (resolve = done)) });
     await wrapper.get("button").trigger("click");
     await flushPromises();
-    expect(shown().attributes("data-name")).toBe("i-lucide-loader-circle");
-    expect(shown().classes()).toContain("animate-spin");
+    expect(icon(wrapper)).toBe("loader-circle");
+    expect(wrapper.get("button").attributes("data-loading")).toBe("");
     resolve("loaded");
     await flushPromises();
-    expect(shown().attributes("data-name")).toBe("i-lucide-check");
+    expect(icon(wrapper)).toBe("check");
     expect(wrapper.get("button").attributes("data-copied")).toBe("");
   });
 

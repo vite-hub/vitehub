@@ -34,6 +34,10 @@ The `@vitehub` registry speaks the shadcn-vue format. Add it to `components.json
 { "registries": { "@vitehub": "https://vitehub.dev/r/{name}.json" } }
 ```
 
-Then run `npx shadcn-vue@latest add @vitehub/<item>`, or pass the item URL. Install `@vitehub` items only: a stock shadcn-vue item brings Reka UI back into the app.
+Then run `npx shadcn-vue@2.9 add @vitehub/<item>`, or pass the item URL. Install `@vitehub` items only: a stock shadcn-vue item brings Reka UI back into the app. A new app can start from `npx shadcn-vue@2.9 init --preset https://vitehub.dev/r/base.json`.
 
-- `@vitehub/vitehub`: the style. It writes the tokens into the app's CSS and copies the family CSS to `styles/vitehub.css`, which the app's main stylesheet imports after `@layer ui-sdk;`.
+- `@vitehub/base`: the preset. It adds `theme` and `core`.
+- `@vitehub/theme`: the tokens, written into the app's CSS.
+- `@vitehub/core`: `vitehub.css` (the ui-sdk base CSS and the `--vh-*` tokens) and the live region helper. Every component item imports it.
+- `@vitehub/status`, `@vitehub/copy-button`: Vue components. shadcn-vue writes them to `components/vitehub/<item>/`. Import from that folder, for example `import { CopyButton } from "@/components/vitehub/copy-button"`.
+- `@vitehub/example-<item>`: one usage example for each component.

@@ -33,6 +33,7 @@ jobs:
       - package-tests-success
       - typecheck
       - ui-sdk
+      - registry
       - service-tests
       - agent-codex-emulator
       - prepublish-contracts
@@ -443,6 +444,50 @@ jobs:
       - if: ${{ steps.changed.outputs.run == 'true' }}
         run: vp run --filter @vite-hub/kit test:styles
 
+  # Installs every @vitehub registry item with shadcn-vue into four new apps (Vite + Vue + Tailwind 4, Nuxt 5,
+  # stock shadcn-vue with Reka UI, and Nuxt 5 with Nuxt UI), builds each one, and renders the examples in Chromium.
+  registry:
+    name: registry install
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the checks
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(packages/ui/registry/|docs/public/r/|test/registry-install/|patches/@ui-sdk__)' <<<"$files"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch the @vitehub registry."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check that docs/public/r matches the registry source
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          vp run --cache -t @vite-hub/internal#build
+          vp run --filter @vite-hub/ui build:registry
+          git diff --exit-code -- docs/public/r
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      - name: Install every item into four apps
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: node --test --test-timeout=2400000 test/registry-install/install.mjs
+
   # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
   # need a real Postgres and Redis. test/service-tests.mjs finds these files by
   # the variable they read, so a new test file needs no change here.
@@ -575,7 +620,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$BASE_REF...HEAD" -- \
             test/consumer/nuxt-primitives test/consumer/nuxt-primitives.test.ts test/consumer/packed-app.ts test/consumer/vitest.config.ts \
-            test/layers.ts test/utils/release-artifacts.ts packages/internal packages/ui/src \
+            test/layers.ts test/utils/release-artifacts.ts packages/internal packages/ui/src packages/ui/registry \
             packages/agent packages/auth packages/blob packages/browser packages/bundle packages/channels packages/choices packages/cli packages/comments packages/connections \
             packages/cms packages/content packages/i18n \
             packages/database packages/device packages/email packages/env packages/forge packages/forms packages/gateways packages/kv packages/markdown-template packages/mcp packages/queue \

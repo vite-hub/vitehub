@@ -24,7 +24,7 @@ function copyFailed(): void {
     <USkeleton v-if="loading" class="h-3 w-40" />
     <span v-else class="min-w-0 flex-1 truncate" :class="mono ? 'font-mono text-[0.8125rem]' : ''"><slot>{{ value }}</slot></span>
     <UTooltip v-if="copy && value && !loading" :text="`Copy ${label.toLowerCase()}`">
-      <CopyButton :value="value" size="xs" color="neutral" :aria-label="`Copy ${label.toLowerCase()}`" @error="copyFailed" />
+      <CopyButton :value="value" size="xs" :aria-label="`Copy ${label.toLowerCase()}`" @error="copyFailed" />
     </UTooltip>
   </div>
 </template>

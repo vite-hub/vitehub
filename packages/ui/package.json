@@ -91,6 +91,7 @@
   "scripts": {
     "bench:headless": "node scripts/headless-weight.ts",
     "build": "vp pack",
+    "build:registry": "node registry/build.ts",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run --cache -t @vite-hub/runtime#build && vp run --cache -t @vite-hub/ui#build && vp test",
@@ -133,12 +134,14 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@lezer/highlight": "1.2.5",
+    "@lucide/vue": "1.80.0",
     "@vite-hub/web-container": "workspace:*",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0"
   },
   "devDependencies": {
     "@ai-sdk/vue": "catalog:ai",
+    "@cfworker/json-schema": "4.1.6",
     "@floating-ui/dom": "1.8.0",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
@@ -166,6 +169,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
+    "vue-tsc": "catalog:tooling",
     "@types/markdown-it": "^14.2.0",
     "comark-ui": "catalog:markdown-ui",
     "@vite-hub/content": "workspace:*",

@@ -151,6 +151,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   schedule: { ignoreBinaries: ["systemd-analyze"] },
   ui: {
+    // The registry builder, and the example items that only the registry ships.
+    entry: ["registry/build.ts", "registry/example-*/*.vue"],
     ignoreBinaries: ["ffmpeg", "ffprobe"],
     ignoreUnresolved: ["/@uploads-today"],
     ignoreDependencies: [
@@ -215,6 +217,7 @@ const config: KnipConfiguration = {
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",
         "test/local/vercel-bridge-server.mjs",
+        "test/registry-install/install.mjs",
         "test/local/vercel-bridge.d.mts",
         ...matching("playground/vite", ["vite.config.ts", ...viteConfigEntries("playground/vite"), ...viteHubAppEntries])
           .map(pattern => `playground/vite/${pattern}`),

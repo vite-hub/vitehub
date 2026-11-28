@@ -347,6 +347,33 @@ createApp(App).use(createViteHubUI({ components: uiSdkComponents })).mount("#app
 
 `pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard. `pnpm --filter @vite-hub/ui test:editor` drives the editor parts with the keyboard and the pointer, with Nuxt UI's parts and with the set.
 
+## Registry
+
+The `@vitehub` registry in the shadcn-vue format is built from the same files as the npm package. Each item lives in `registry/<item>/`. `src/` re-exports the components from there, so `@vite-hub/ui` and `shadcn-vue add` ship the same `.vue` files.
+
+`pnpm --filter @vite-hub/ui build:registry` writes the registry to `docs/public/r/`, which vitehub.dev serves at `https://vitehub.dev/r/{name}.json`. `test/registry.test.ts` fails when those files are out of date or do not match the vendored shadcn-vue 2.9.0 schema.
+
+The builder reads `registry/registry.json`. An item without `files` publishes every file in `registry/<item>/` to `components/vitehub/<item>/`. It derives the rest from the imports:
+
+- `../<name>` becomes the registry dependency `@vitehub/<name>`. An item can depend only on `@vitehub` items, because a stock shadcn-vue item installs Reka UI.
+- A bare import becomes an npm dependency. `@ui-sdk/*` is pinned to the exact version in `package.json`.
+- `registry.json` carries no file content. Each `<item>.json` does.
+
+| Item | Type | What `shadcn-vue add` writes |
+| --- | --- | --- |
+| `base` | `registry:base` | The preset for `shadcn-vue init --preset https://vitehub.dev/r/base.json`: Lucide icons, the `@vitehub` registry, `theme`, and `core` |
+| `theme` | `registry:theme` | The tokens from `@vite-hub/kit`, light and dark, into the app's CSS |
+| `core` | `registry:file` | `vitehub.css` (ui-sdk's `web.css`, the `--ui-*` and `--vh-*` aliases), the live region helper, and one `@layer components` rule in the app's CSS |
+| `status`, `copy-button` | `registry:component` | The component and its CSS in `components/vitehub/<item>/` |
+| `example-<item>` | `registry:block` | One page that uses the item |
+| `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
+
+An item component follows one contract: compound parts, `data-slot` on the root, `variant`, `size`, and `tone` as `data-<prop>`, boolean props as presence attributes, label props with English defaults, and icon slots with `@lucide/vue` defaults. Its CSS is in `@layer components`. The npm build replaces the CSS imports of the item files with an empty module and puts the item CSS in `styles.css`, because `core` imports ui-sdk's `web.css`, which styles `a`, `kbd`, and `button` and sets the same `--ui-*` names as Nuxt UI.
+
+`core` also writes `:where([data-slot]) { box-sizing: border-box }` in `@layer components` into the app's CSS. That rule changes nothing, but it keeps the `components` layer after `base`. Without it, Tailwind 4 emits an empty `components` layer as the statement `@layer components;`, and when the app's CSS keeps an external `@import`, such as the Google Fonts line from `shadcn-vue init`, Vite's postcss-import (16.2.0 in Vite 8.4) moves that statement to the top. Then `components` is the first layer, and Tailwind's Preflight in `base` removes the padding and background of a button.
+
+`node --test test/registry-install/install.mjs` (from the repository root, after `build:registry`) serves `docs/public/r/` on a local port and makes four apps: Vite + Vue + Tailwind 4 from `init --preset`, Nuxt 5, Vite with stock shadcn-vue and Reka UI, and Nuxt 5 with Nuxt UI. It runs `shadcn-vue@2.9.0 add` for every item, builds each app, and renders every example in Chromium. It fails on a console error, a root without `data-slot`, a copy button that lost its padding or background to Preflight, or Reka UI in the item files of the first two apps. It needs the npm registry. `REGISTRY_APPS=vite-vue,nuxt` runs some apps, `REGISTRY_INSTALL_DIR` keeps them, and `REGISTRY_SCREENSHOTS` saves a screenshot of each.
+
 ## Verify the setup
 
 Render a public component directly:

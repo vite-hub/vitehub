@@ -310,16 +310,7 @@ The group takes ui-sdk `Avatar`s from `@ui-sdk/vue/avatar`, round and 24px (20px
 
 ## Registry
 
-`registry/` holds the `@vitehub` registry in the shadcn-vue format. `pnpm --filter @vite-hub/kit build:registry` writes it to `docs/public/r/`, which vitehub.dev serves at `/r/<name>.json`. A test fails when the files there are out of date, when an item does not match the vendored shadcn-vue 2.9.0 schema, or when an item depends on a registry item outside `@vitehub`, since stock shadcn-vue items install Reka UI.
-
-| Item | Type | What `shadcn-vue add` writes |
-| --- | --- | --- |
-| `vitehub` | `registry:style` | The tokens into the app's CSS, and the family to `styles/vitehub.css` |
-| `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
-
-In an app with Tailwind 4 and a font set in `components.json`, shadcn-vue 2.9.0 can also add its base CSS when it installs the skill. The skill item declares `tw-animate-css` so the base CSS import resolves.
-
-To check this in a Vite + Vue + Tailwind 4 app, point the `@vitehub` entry in `components.json` at the registry under test (`/r/{name}.json` on your local docs server). Set a `font` in `components.json` and start without `tw-animate-css` installed. Run `npx shadcn-vue@2.9.0 add @vitehub/vitehub`, import the installed `styles/vitehub.css` in the app's main stylesheet, and check that the app builds. Then run `npx shadcn-vue@2.9.0 add @vitehub/vitehub-ui-skill`. Check that the skill file exists, `tw-animate-css` is installed, and the app still builds.
+The `@vitehub` registry moved to `@vite-hub/ui`. See the Registry section of `packages/ui/README.md`.
 
 ## Nuxt
 

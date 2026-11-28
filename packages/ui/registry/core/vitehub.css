@@ -1,0 +1,76 @@
+/*
+ * The core of the @vitehub registry: ui-sdk's stylesheet, the shadcn tokens mapped onto its `--ui-*` variables, the
+ * status colors, the focus ring, and the `--vh-*` tokens that the item stylesheets read. Every component item imports
+ * this file, so the app loads it once.
+ *
+ * web.css styles plain `a`, `kbd`, and `button`, and it shares `--ui-*` names with Nuxt UI. In a Nuxt UI app, the two
+ * restyle each other.
+ */
+
+@import "@ui-sdk/core/web.css";
+
+:root {
+  --success: oklch(0.696 0.17 162.48);
+  --warning: oklch(0.769 0.188 70.08);
+  --info: oklch(0.685 0.169 237.323);
+}
+
+:is(.dark, [data-theme="dark"]) {
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+  --info: oklch(0.746 0.16 232.661);
+}
+
+/* On `.dark` and `[data-theme="dark"]` too, so a dark subtree reads its own tokens and not the page's. */
+:root,
+.dark,
+[data-theme="dark"] {
+  --ui-background: var(--background);
+  --ui-foreground: var(--foreground);
+  --ui-muted: var(--muted);
+  --ui-muted-foreground: var(--muted-foreground);
+  --ui-border: var(--border);
+  --ui-input: var(--input);
+  --ui-primary: var(--primary);
+  --ui-primary-foreground: var(--primary-foreground);
+  --ui-destructive: var(--destructive);
+  /* The ViteHub focus: a 2px ring in `--ring`, 2px outside the part. */
+  --ui-ring: var(--ring);
+  --ui-ring-border: var(--ring);
+  --ui-ring-width: 2px;
+  --ui-ring-offset: 2px;
+  --ui-overlay: var(--overlay);
+  /* `--radius` is the base step: 6px controls, 12px menus, popovers, and dialogs. */
+  --ui-radius: calc(var(--radius) * 1.5);
+  --ui-radius-popup: calc(var(--radius) * 3);
+  --ui-font-size: 0.875rem;
+  --ui-font-sans: var(--font-sans);
+  --ui-font-mono: var(--font-mono);
+
+  /* The item stylesheets read `--vh-*`. Set `--vh-ui-*` on an element to change the items inside it. */
+  --vh-radius: var(--vh-ui-radius, calc(var(--radius) * 2));
+  --vh-border: var(--vh-ui-border, var(--border));
+  --vh-border-accented: var(--vh-ui-border-accented, var(--input));
+  --vh-muted: var(--vh-ui-muted, var(--muted-foreground));
+  --vh-dimmed: var(--vh-ui-dimmed, var(--muted-foreground));
+  --vh-text: var(--vh-ui-text, var(--foreground));
+  --vh-bg: var(--vh-ui-bg, var(--background));
+  --vh-bg-muted: var(--vh-ui-bg-muted, var(--muted));
+  --vh-bg-elevated: var(--vh-ui-bg-elevated, var(--accent));
+  --vh-bg-accented: var(--vh-ui-bg-accented, var(--accent));
+  --vh-highlighted: var(--vh-ui-highlighted, var(--foreground));
+  --vh-inverted: var(--vh-ui-inverted, var(--background));
+  --vh-primary: var(--vh-ui-primary, var(--primary));
+  --vh-ring: var(--vh-ui-ring, var(--ring));
+  --vh-error: var(--vh-ui-error, var(--destructive));
+  --vh-info: var(--vh-ui-info, var(--info));
+  --vh-success: var(--vh-ui-success, var(--success));
+  --vh-warning: var(--vh-ui-warning, var(--warning));
+}
+
+/* web.css has no page base. It has no specificity, so any app rule wins. */
+:where(html) {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}

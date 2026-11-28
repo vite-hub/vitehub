@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-status",
+  "type": "registry:block",
+  "title": "Status example",
+  "description": "Every tone of Status, with and without a label.",
+  "registryDependencies": [
+    "@vitehub/status"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-status/StatusExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Status } from \"../status/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-status\" style=\"display: flex; flex-direction: column; gap: 0.5rem\">\n    <Status label=\"Idle\" />\n    <Status tone=\"success\" label=\"Deployed\" />\n    <Status tone=\"warning\" label=\"Building\" pulse />\n    <Status tone=\"error\" label=\"Failed\" colored />\n    <Status tone=\"info\" label=\"Queued\" size=\"md\" />\n    <Status tone=\"success\" />\n  </div>\n</template>\n"
+    }
+  ]
+}

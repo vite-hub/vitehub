@@ -1,0 +1,42 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "status",
+  "type": "registry:component",
+  "title": "Status",
+  "description": "A dot in a status color with an optional label.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/status/Status.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./status.css\";\nimport StatusIndicator from \"./StatusIndicator.vue\";\nimport StatusLabel from \"./StatusLabel.vue\";\nimport type { StatusProps, StatusSlots } from \"./types.ts\";\n\nconst { tone = \"neutral\", size = \"sm\", colored = false, pulse = false, label } = defineProps<StatusProps>();\ndefineSlots<StatusSlots>();\n</script>\n\n<template>\n  <span data-slot=\"status\" :data-tone=\"tone\" :data-size=\"size\" :data-colored=\"colored ? '' : undefined\" :data-pulse=\"pulse ? '' : undefined\">\n    <slot>\n      <StatusIndicator />\n      <StatusLabel v-if=\"label\">{{ label }}</StatusLabel>\n    </slot>\n  </span>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/status/StatusIndicator.vue",
+      "type": "registry:component",
+      "content": "<template>\n  <span data-slot=\"status-indicator\" aria-hidden=\"true\" />\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/status/StatusLabel.vue",
+      "type": "registry:component",
+      "content": "<template>\n  <span data-slot=\"status-label\"><slot /></span>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/status/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Status } from \"./Status.vue\";\nexport { default as StatusIndicator } from \"./StatusIndicator.vue\";\nexport { default as StatusLabel } from \"./StatusLabel.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/status/status.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Status: a 6px dot in the brighter status color and a label. A colored label uses the darker text shade of the theme. */\n  [data-slot=\"status\"] {\n    align-items: center;\n    display: inline-flex;\n    font-size: 0.75rem;\n    gap: 0.375rem;\n    line-height: 1rem;\n    min-width: 0;\n  }\n\n  [data-slot=\"status\"][data-size=\"md\"] {\n    font-size: 0.875rem;\n    line-height: 1.25rem;\n  }\n\n  [data-slot=\"status-indicator\"] {\n    background: var(--vh-dimmed);\n    border-radius: 9999px;\n    flex: none;\n    height: 0.375rem;\n    position: relative;\n    width: 0.375rem;\n  }\n\n  [data-slot=\"status\"][data-tone=\"success\"] [data-slot=\"status-indicator\"] {\n    background: var(--vh-success);\n  }\n\n  [data-slot=\"status\"][data-tone=\"warning\"] [data-slot=\"status-indicator\"] {\n    background: var(--vh-warning);\n  }\n\n  [data-slot=\"status\"][data-tone=\"error\"] [data-slot=\"status-indicator\"] {\n    background: var(--vh-error);\n  }\n\n  [data-slot=\"status\"][data-tone=\"info\"] [data-slot=\"status-indicator\"] {\n    background: var(--vh-info);\n  }\n\n  [data-slot=\"status\"][data-colored][data-tone=\"success\"] {\n    color: var(--vh-text-success, var(--vh-success));\n  }\n\n  [data-slot=\"status\"][data-colored][data-tone=\"warning\"] {\n    color: var(--vh-text-warning, var(--vh-warning));\n  }\n\n  [data-slot=\"status\"][data-colored][data-tone=\"error\"] {\n    color: var(--vh-text-error, var(--vh-error));\n  }\n\n  [data-slot=\"status\"][data-colored][data-tone=\"info\"] {\n    color: var(--vh-text-info, var(--vh-info));\n  }\n\n  [data-slot=\"status-label\"] {\n    min-width: 0;\n    overflow: hidden;\n    text-overflow: ellipsis;\n    white-space: nowrap;\n  }\n\n  /* A live or pending status pulses, as the connection dot does. */\n  [data-slot=\"status\"][data-pulse] [data-slot=\"status-indicator\"] {\n    animation: status-pulse 1.5s ease-in-out infinite;\n  }\n\n  @keyframes status-pulse {\n    50% {\n      opacity: 0.35;\n    }\n  }\n\n  @media (prefers-reduced-motion: reduce) {\n    [data-slot=\"status\"][data-pulse] [data-slot=\"status-indicator\"] {\n      animation: none;\n    }\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/status/types.ts",
+      "type": "registry:component",
+      "content": "export type StatusTone = \"neutral\" | \"success\" | \"warning\" | \"error\" | \"info\";\nexport type StatusSize = \"sm\" | \"md\";\n\nexport interface StatusProps {\n  /** The color of the dot. */\n  tone?: StatusTone;\n  /** The text after the dot. Without it and without children, only the dot renders. */\n  label?: string;\n  size?: StatusSize;\n  /** The label takes the tone's color too, when the label is the status itself, such as \"Failed\". */\n  colored?: boolean;\n  /** The dot pulses, for a live or pending status. */\n  pulse?: boolean;\n}\n\nexport interface StatusSlots {\n  /** Replaces the default composition: put `StatusIndicator` and `StatusLabel` in it. */\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}
