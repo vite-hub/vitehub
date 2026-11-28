@@ -17,6 +17,7 @@ interface GeneratedNitroPluginOptions {
   /** Declarations to write next to the plugin. `.vitehub/types.d.ts` references them. */
   types?: string
   configure?: (nitro: Record<string, unknown>, env: ConfigEnv) => void
+  errorHandler?: () => string
   when?: (projectRoot: string) => boolean
 }
 
@@ -36,6 +37,12 @@ export function generatedNitroPlugin(name: string, file: string, render: () => s
       if (options.types) await writeIfChanged(plugin.replace(/\.mjs$/, "-types.d.ts"), options.types)
       const kit = createNitroServerKit(viteConfig.nitro)
       kit.addPlugin(plugin, options.position)
+      if (options.errorHandler) {
+        const handler = plugin.replace(/\.mjs$/, "-handler.mjs")
+        await writeIfChanged(handler, options.errorHandler())
+        const handlers = [kit.config.errorHandler ?? []].flat()
+        if (!handlers.includes(handler)) kit.config.errorHandler = [...handlers, handler]
+      }
       options.configure?.(kit.config, env)
       viteConfig.nitro = kit.config
     },

@@ -291,13 +291,13 @@ The `docs` link of a ViteHub diagnostic opens the page of its code, such as [`QU
 
 ## Production response
 
-Nitro answers an unhandled request error with a sanitized body. h3 logs only that sanitized error, and Cloudflare Workers drop its message and cause. So ViteHub adds a Nitro plugin that logs the real thrown error:
+Nitro answers an unhandled request error with a sanitized body. h3 logs only that sanitized error, and Cloudflare Workers drop its message and cause. So ViteHub adds a Nitro plugin that logs the real thrown error, once:
 
 ```txt
 [vitehub] Unhandled error in POST /api/sync { message, stack, status, code, cause: { message, status, ... } }
 ```
 
-The log follows the `cause` chain and keeps `status`, `code`, `fix`, and `requestId`. It skips errors that a route throws on purpose with a status below 500, such as a 401. With `vitehub({ observability })` on, evlog records request errors instead of this plugin.
+The log follows the `cause` chain and keeps `status`, `code`, `fix`, and `requestId`. It skips errors that a route throws on purpose with a status below 500, such as a 401. The plugin turns off the h3 log and the `[request error]` log of the Nitro dev server for the same error, so each error shows one time. With `vitehub({ observability })` on, evlog records request errors instead of this plugin.
 
 Keep secrets out of production diagnostics. Put runtime secrets in Server Env and Secret Env. Package diagnostics hide known secret values where they support it.
 

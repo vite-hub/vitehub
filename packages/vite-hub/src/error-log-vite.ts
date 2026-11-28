@@ -3,15 +3,17 @@ import { generatedNitroPlugin } from "./generated-nitro-plugin.ts"
 import type { Plugin } from "vite"
 
 /**
- * Render the Nitro plugin that logs unhandled request errors with their message, stack, status, and cause chain.
+ * Render the Nitro plugin that logs unhandled request errors with their message, stack, status, code, fix, and cause chain.
  * h3 logs only the sanitized HTTPError, and Cloudflare Workers serialize it through toJSON(), which drops all of these.
- * The response body stays sanitized. Errors that a route throws on purpose, such as a 401, are not logged.
+ * The plugin turns off that h3 log, so each error is logged once. The response body stays sanitized. Errors that a route
+ * throws on purpose, such as a 401, are not logged.
  */
 export function renderErrorLogNitroPlugin(): string {
   return [
     `import { normalizeRuntimeDiagnosticError } from "vite-hub/runtime"`,
     "",
     "export default function viteHubErrorLogPlugin(nitroApp) {",
+    "  if (nitroApp.h3) nitroApp.h3.config.silent = true",
     `  nitroApp.hooks.hook("error", (error, context) => {`,
     "    const status = Number(error?.status ?? error?.statusCode ?? 500)",
     "    if (error?.unhandled !== true && status < 500) return",
@@ -27,7 +29,21 @@ export function renderErrorLogNitroPlugin(): string {
   ].join("\n")
 }
 
-/** Register the generated Nitro plugin that logs unhandled request errors with their cause chain. */
+/**
+ * Render the Nitro error handler that answers with Nitro's default response but does not log it again.
+ * In development, Nitro's default handler also logs every unhandled error as `[request error]`.
+ */
+export function renderErrorLogNitroHandler(): string {
+  return [
+    "export default async function viteHubErrorLogHandler(error, event, { defaultHandler }) {",
+    "  const response = await defaultHandler(error, event, { silent: true })",
+    "  return new Response(typeof response.body === \"string\" ? response.body : JSON.stringify(response.body, null, 2), response)",
+    "}",
+    "",
+  ].join("\n")
+}
+
+/** Register the generated Nitro plugin that logs unhandled request errors once, with their cause chain. */
 export function errorLogVitePlugin(): Plugin {
-  return generatedNitroPlugin("vite-hub/error-log", "error-log.mjs", renderErrorLogNitroPlugin)
+  return generatedNitroPlugin("vite-hub/error-log", "error-log.mjs", renderErrorLogNitroPlugin, { errorHandler: renderErrorLogNitroHandler })
 }
