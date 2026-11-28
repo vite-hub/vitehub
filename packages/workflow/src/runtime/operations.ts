@@ -2,17 +2,18 @@ import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/
 import { isRecord } from "@vite-hub/internal/object"
 
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveWorkflowOperationSupport } from "../results.ts"
 import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./client.ts"
 import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
-import { findOpenWorkflowRunWorkflows, listOpenWorkflowRuns } from "./openworkflow.ts"
+import { cancelOpenWorkflowRun, findOpenWorkflowRuns, getOpenWorkflowRun, listOpenWorkflowRuns } from "./openworkflow.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
-import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsListStatus, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
-import type { WorkflowRun } from "../types.ts"
+import type { WorkflowOperationName, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsListStatus, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
+import type { ResolvedWorkflowOptions, WorkflowRun } from "../types.ts"
 import type { WorkflowDevRecorder, WorkflowDevRunRecord } from "./dev-recorder.ts"
 
 export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult }
@@ -230,30 +231,58 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
     return { signal: { id: signal.id, provider: signal.provider } }
   }
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]
-  // `vite dev` records each run with its steps, also a run that the app started, so `get` shows them.
-  const recorded = operation === "get" ? getWorkflowDevRecorder()?.list().filter(record => record.id === runId && (named === undefined || record.workflow === named)) ?? [] : []
-  if (recorded.length > 1) {
-    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: runId, workflows: recorded.map(record => record.workflow).join(", ") }))
+  const config = getWorkflowRuntimeConfig()
+  if (config && config.driver === "openworkflow" && !getViteHubTestMode()) {
+    return await inspectOpenWorkflowRun(config, operation, runId, named)
+  }
+  if (operation === "get") {
+    const recorded = inlineRunMatches(runId, named)
+    requireUnambiguousRun(runId, recorded)
+    const [record] = recorded
+    if (record) return await inspectRecordedRun(record)
+  }
+  return await inspectRuntimeRun(operation, runId, named)
+}
+
+function inlineRunMatches(runId: string, name: string | undefined): WorkflowDevRunRecord[] {
+  return getWorkflowDevRecorder()?.list().filter(record => record.id === runId && (name === undefined || record.workflow === name)) ?? []
+}
+
+function requireUnambiguousRun(runId: string, matches: ReadonlyArray<{ workflow: string }>): void {
+  if (matches.length > 1) {
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: runId, workflows: matches.map(match => match.workflow).join(", ") }))
+  }
+}
+
+async function inspectRecordedRun(record: WorkflowDevRunRecord): Promise<WorkflowRunResult> {
+  return { run: { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) } }
+}
+
+async function inspectOpenWorkflowRun(config: ResolvedWorkflowOptions, operation: "get" | "cancel", runId: string, name: string | undefined): Promise<WorkflowRunResult> {
+  const stored = await findOpenWorkflowRuns(config, runId, name)
+  const recorded = inlineRunMatches(runId, name)
+  requireUnambiguousRun(runId, [...stored, ...recorded])
+  const [run] = stored
+  if (run) {
+    const inspect = operation === "get" ? getOpenWorkflowRun : cancelOpenWorkflowRun
+    return { run: await toWorkflowRunView(await inspect(config, run.workflow, run.id, "provider-id"), run.workflow) }
   }
   const [record] = recorded
-  if (record) return { run: { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) } }
-  const workflow = named ?? startedRuns.get(runId) ?? await storedRunWorkflow(runId)
+  if (record) {
+    if (operation === "get") return await inspectRecordedRun(record)
+    throw failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "cancellation", provider: "openworkflow" }))
+  }
+  return await inspectRuntimeRun(operation, runId, name)
+}
+
+async function inspectRuntimeRun(operation: "get" | "cancel", runId: string, name: string | undefined): Promise<WorkflowRunResult> {
+  const workflow = name ?? startedRuns.get(runId)
   if (!workflow) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId }))
   }
   const [error, found] = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
   if (error) throw error
   return { run: await toWorkflowRunView(found, workflow) }
-}
-
-async function storedRunWorkflow(runId: string): Promise<string | undefined> {
-  const config = getWorkflowRuntimeConfig()
-  if (!config || config.driver !== "openworkflow") return
-  const workflows = await findOpenWorkflowRunWorkflows(config, runId)
-  if (workflows.length > 1) {
-    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: runId, workflows: workflows.join(", ") }))
-  }
-  return workflows[0]
 }
 
 export interface WorkflowRunsListInput {

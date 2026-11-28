@@ -37,7 +37,7 @@ interface OpenWorkflowRuntime {
   client: OpenWorkflowClient
   definitions: Map<string, WorkflowDefinition>
   findRunId: (name: string, key: string) => Promise<string | undefined>
-  findRunWorkflows: (id: string) => Promise<string[]>
+  findRuns: (id: string, name?: string) => Promise<StoredRunIdentity[]>
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
@@ -282,7 +282,7 @@ async function createOpenWorkflowRuntime(
     client,
     definitions,
     findRunId: createRunIdLookup(backend, options),
-    findRunWorkflows: createRunWorkflowLookup(backend, options),
+    findRuns: createStoredRunLookup(backend, options),
     workflows: new Map(),
   }
 }
@@ -310,6 +310,10 @@ function readRowId(row: unknown): string | undefined {
   return typeof id === "string" ? id : undefined
 }
 
+function missingBackendConnection(backend: OpenWorkflowStorageConfig["backend"]): never {
+  throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${backend} backend has neither`)
+}
+
 function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRunId"] {
   const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
   return async (name, key) => {
@@ -321,30 +325,42 @@ function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowSt
       const [row] = await connection`SELECT "id" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = ${name} AND "idempotency_key" = ${key} ORDER BY "created_at" ASC, "id" ASC LIMIT 1`
       return readRowId(row)
     }
-    throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
+    return missingBackendConnection(options.backend)
   }
 }
 
-function readRowWorkflowName(row: unknown): string | undefined {
-  if (typeof row !== "object" || row === null) return undefined
-  const name: unknown = Reflect.get(row, "workflow_name")
-  return typeof name === "string" ? name : undefined
+interface StoredRunIdentity {
+  id: string
+  workflow: string
 }
 
-function createRunWorkflowLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRunWorkflows"] {
+function readStoredRunIdentity(row: unknown): StoredRunIdentity | undefined {
+  if (typeof row !== "object" || row === null) return undefined
+  const id = readRowId(row)
+  const workflow: unknown = Reflect.get(row, "workflowName")
+  return id !== undefined && typeof workflow === "string" ? { id, workflow } : undefined
+}
+
+function createStoredRunLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRuns"] {
   const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
-  return async (id) => {
+  return async (id, name) => {
+    let rows: unknown[]
     if (options.backend === "sqlite" && isSqliteHandle(connection)) {
-      return connection.prepare(`SELECT DISTINCT "workflow_name" FROM "workflow_runs" WHERE "namespace_id" = ? AND ("id" = ? OR "idempotency_key" = ?) ORDER BY "workflow_name" ASC`)
-        .all(options.namespaceId, id, id)
-        .map(readRowWorkflowName)
-        .filter(name => name !== undefined)
+      rows = connection.prepare(`SELECT "id", "workflow_name" AS "workflowName" FROM "workflow_runs" WHERE "namespace_id" = ? AND "workflow_name" = COALESCE(?, "workflow_name") AND ("id" = ? OR "idempotency_key" = ?) ORDER BY "workflow_name", ("id" = ?) DESC, "created_at", "id"`)
+        .all(options.namespaceId, name ?? null, id, id, id)
     }
-    if (options.backend === "postgres" && isPostgresHandle(connection)) {
-      const rows = await connection`SELECT DISTINCT "workflow_name" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND ("id"::text = ${id} OR "idempotency_key" = ${id}) ORDER BY "workflow_name" ASC`
-      return rows.map(readRowWorkflowName).filter(name => name !== undefined)
+    else if (options.backend === "postgres" && isPostgresHandle(connection)) {
+      rows = await connection`SELECT "id", "workflow_name" AS "workflowName" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = COALESCE(${name ?? null}, "workflow_name") AND ("id"::text = ${id} OR "idempotency_key" = ${id}) ORDER BY "workflow_name", ("id"::text = ${id}) DESC, "created_at", "id"`
     }
-    throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
+    else {
+      return missingBackendConnection(options.backend)
+    }
+    const matches = new Map<string, StoredRunIdentity>()
+    for (const row of rows) {
+      const run = readStoredRunIdentity(row)
+      if (run && !matches.has(run.workflow)) matches.set(run.workflow, run)
+    }
+    return [...matches.values()]
   }
 }
 
@@ -595,10 +611,12 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   config: ResolvedWorkflowOptions,
   name: string,
   id: string,
+  lookup: "key-or-id" | "provider-id" = "key-or-id",
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   return await runWorkflowProviderOperation("openworkflow", "get", async () => {
-    const run = await runtime.backend.getWorkflowRun({ workflowRunId: await runtime.findRunId(name, id) ?? id })
+    const workflowRunId = lookup === "provider-id" ? id : await runtime.findRunId(name, id) ?? id
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId })
     if (!run || run.workflowName !== name) return { id, provider: "openworkflow" as const, status: "unknown" as const }
     // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
     const serialized = serializeOpenWorkflowRun(run, name) as WorkflowRun<TPayload, TResult>
@@ -606,10 +624,9 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   })
 }
 
-/** The names of the Workflows that have a stored run with this run id or idempotency key. */
-export async function findOpenWorkflowRunWorkflows(config: ResolvedWorkflowOptions, id: string): Promise<string[]> {
+export async function findOpenWorkflowRuns(config: ResolvedWorkflowOptions, id: string, name?: string): Promise<StoredRunIdentity[]> {
   const runtime = await getOpenWorkflowRuntime(config)
-  return await runWorkflowProviderOperation("openworkflow", "get-run", async () => await runtime.findRunWorkflows(id))
+  return await runWorkflowProviderOperation("openworkflow", "get-run", async () => await runtime.findRuns(id, name))
 }
 
 const openWorkflowRunStatuses: Readonly<Record<WorkflowRunsListStatus, readonly OpenWorkflowRunStatus[]>> = {
@@ -653,19 +670,20 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
   config: ResolvedWorkflowOptions,
   name: string,
   id: string,
+  lookup: "key-or-id" | "provider-id" = "key-or-id",
 ): Promise<WorkflowRun<TPayload, TResult>> {
-  const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+  const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup)
   if (current.status === "unknown" || terminalOpenWorkflowStatuses.has(current.status)) return current
   const runtime = await getOpenWorkflowRuntime(config)
   try {
-    await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(await runtime.findRunId(name, id) ?? id))
+    await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(lookup === "provider-id" ? id : await runtime.findRunId(name, id) ?? id))
   }
   catch (error) {
-    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id).catch(() => undefined)
+    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup).catch(() => undefined)
     if (latest && terminalOpenWorkflowStatuses.has(latest.status)) return latest
     throw error
   }
-  return await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+  return await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup)
 }
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {
