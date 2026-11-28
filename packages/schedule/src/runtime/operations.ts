@@ -122,10 +122,10 @@ function newestFirst(left: ScheduleRunRecord, right: ScheduleRunRecord): number 
   return new Date(right.scheduledAt).getTime() - new Date(left.scheduledAt).getTime()
 }
 
-/** Lists the recorded runs of one Schedule Definition, newest first. */
-export async function listScheduleRuns(scheduleId: string, options: { limit?: number } = {}): Promise<ScheduleRunSummary[]> {
-  const runs = (await getScheduleRunStore().listRuns({ scheduleId, limit: options.limit }))
-    .filter(run => run.scheduleId === scheduleId)
+/** Lists the recorded Schedule Runs, newest first, or only the runs of `scheduleId`. */
+export async function listScheduleRuns(scheduleId: string | undefined, options: { limit?: number } = {}): Promise<ScheduleRunSummary[]> {
+  const runs = (await getScheduleRunStore().listRuns({ ...(scheduleId === undefined ? {} : { scheduleId }), limit: options.limit }))
+    .filter(run => scheduleId === undefined || run.scheduleId === scheduleId)
     .sort(newestFirst)
   return (options.limit === undefined ? runs : runs.slice(0, options.limit)).map(summarizeScheduleRun)
 }
@@ -188,7 +188,7 @@ export interface ScheduleRunResult {
   run: ManualScheduleRunSummary
 }
 
-export async function runScheduleRuns(input: { id: string, limit?: number }): Promise<ScheduleRunsResult> {
+export async function runScheduleRuns(input: { id?: string, limit?: number }): Promise<ScheduleRunsResult> {
   return await attempt(async () => ({ runs: await listScheduleRuns(input.id, { limit: input.limit ?? 100 }) }))
 }
 
