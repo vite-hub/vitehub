@@ -38,7 +38,7 @@ export interface PageObservedChange {
  */
 export interface PageBridge {
   snapshot: () => unknown
-  query: (input: { text?: string, within?: string, kind?: string }) => Promise<unknown>
+  query: (input: { text?: string, within?: string, kind?: string, from?: number }) => Promise<unknown>
   act: (input: { steps: Array<{ ref: string, action: string, args?: unknown[] }> }) => Promise<unknown>
   subscribe: (listener: (change: PageObservedChange) => void) => () => void
 }
@@ -131,7 +131,6 @@ export interface ConnectPageOptions {
   allow?: PageAllow
 }
 
-/** What one Agent call runs under: the server's rules, or an undo, which is the person's own action. */
 type CallMode = { kind: "act", rules: PageStepRules, approvals: PageApproval[], refusal?: PageRefusalCode } | { kind: "undo" }
 
 const methods = new Set(["act", "query", "snapshot", "undo"])
@@ -228,14 +227,11 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     return approved
   }
 
-  // ui-sdk calls this for every step after it resolves it. The server's rules apply only while an Agent call runs.
   const allow: PageAllow = async (step, context) => {
     if (lifetime.signal.aborted || context.signal.aborted) return false
     const current = mode
     if (current?.kind === "undo") return step.confirm === undefined || await needsPerson(step, context, undefined)
     if (!current) return pageAllow ? await askPage(step, context) : step.confirm === undefined
-    // The pinned SDK identifies a container, not the descendant button it presses. Refuse that
-    // ambiguous path under policy; callers can press the registered button directly instead.
     if (step.action === "press" && step.component !== "button" && (current.rules.deny.length || current.rules.requireApproval.length)) {
       current.refusal = "AGENT_R1047"
       return false
@@ -255,7 +251,6 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
   const agent = createAgent({ allow })
   if (!agent || typeof agent.act !== "function" || typeof agent.subscribe !== "function") throw agentDiagnostics.AGENT_R1051()
 
-  // The Agent's changes during one call, by ref and key, in the order they first changed.
   let recording: Map<string, PageChange> | undefined
   agent.subscribe((change) => {
     if (!recording || change.source !== "agent" || !recordedKeys.has(change.key)) return
@@ -278,7 +273,6 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     })
   })
 
-  // One Agent call at a time, in order, so the rules of one call never apply to another.
   let queue: Promise<unknown> = Promise.resolve()
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
     const next = queue.then(() => {
@@ -314,7 +308,6 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     }
     const error = result && typeof result === "object" && "error" in result && result.error && typeof result.error === "object" ? result.error : undefined
     const message = error && "message" in error && typeof error.message === "string" ? error.message : ""
-    // Only a refusal ends `act` with these words. A refused step that ui-sdk skips, like a section it did not open, does not.
     const refused = current.refusal && /^(The app refused |The person said no to )/.test(message) && error && "step" in error && typeof error.step === "number"
       ? { step: error.step, code: current.refusal }
       : undefined
@@ -333,7 +326,6 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     const targets = (id === undefined ? changes.filter(change => !change.undone) : changes.filter(change => change.id === id)).reverse()
     const notRestored: PageChange[] = []
     for (const change of targets) {
-      // A person's later edit wins, and a private value reads "[redacted]", which must never land in the field.
       if (change.undone || change.redacted || !same(current(change), change.after)) {
         notRestored.push(change)
         continue
@@ -356,39 +348,44 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     return notRestored
   }
 
-  // A new id for each page load: a duplicated tab copies sessionStorage, and two tabs must never share one room.
   const id = crypto.randomUUID()
   const baseURL = options.baseURL ?? appBaseURL()
   const room = options.join(pageRealtimeDefinition, id, baseURL ? { baseURL } : {})
   const warned = new Set<string>()
   room.onRequest(body => answer(body))
 
-  /** Runs one Agent call. The input is the model's, so its shape is checked here. */
   async function answer(body: unknown): Promise<unknown> {
     if (!body || typeof body !== "object" || !("method" in body) || typeof body.method !== "string" || !methods.has(body.method)) {
       return { ok: false, error: "Unknown page call: use page_snapshot, page_query, or page_act." }
     }
-    const input: unknown = "input" in body && body.input && typeof body.input === "object" ? body.input : {}
+    const input = "input" in body && body.input && typeof body.input === "object" ? body.input : {}
     const rules = readRules("rules" in body ? body.rules : undefined)
     if (body.method === "snapshot") {
       const snapshot = await inTurn(async () => agent.snapshot())
       if (rules) warnUnmatched(rules, snapshot)
       return snapshot
     }
-    // SAFETY: ui-sdk checks each query field itself, and answers a bad one with `ok: false`.
-    if (body.method === "query") return await inTurn(() => agent.query(input as Parameters<PageBridge["query"]>[0]))
+    if (body.method === "query") {
+      if ("closed" in input && input.closed !== false) {
+        return { error: "page_query does not open closed tabs or sections." }
+      }
+      const text = "text" in input && typeof input.text === "string" ? input.text : undefined
+      const within = "within" in input && typeof input.within === "string" ? input.within : undefined
+      const kind = "kind" in input && typeof input.kind === "string" ? input.kind : undefined
+      const from = "from" in input && typeof input.from === "number" ? input.from : undefined
+      if (!text && !within && !kind) return { error: "page_query takes text, within, or kind. page_snapshot lists what is on the page." }
+      return await inTurn(() => agent.query({ text, within, kind, from }))
+    }
     if (body.method === "undo") {
       const change = input && typeof input === "object" && "change" in input && typeof input.change === "string" ? input.change : undefined
       if (!change || !changes.some(item => item.id === change)) return { rules: pageRulesVersion, ok: false, error: "This page has no such change. It may have been reloaded." }
       const notRestored = await inTurn(() => undo(change))
       return { rules: pageRulesVersion, ok: notRestored.length === 0, notRestored }
     }
-    // A page that gets no rules refuses to act, so an old server cannot run steps the developer meant to stop.
     if (!rules) return { ok: false, error: "This page needs the server's rules to act. Update vite-hub on the server." }
     return await inTurn(() => act(input, rules))
   }
 
-  // In development, a `label` rule that matches nothing on the page is likely a copy change: say so once.
   function warnUnmatched(rules: PageStepRules, snapshot: unknown) {
     // SAFETY: Vite sets `import.meta.env`; elsewhere it is undefined, and the warning stays off.
     if (!Array.isArray(snapshot) || !(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return
@@ -403,7 +400,6 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
   const ready = room.status() === "connected"
     ? Promise.resolve()
     : new Promise<void>((resolve) => {
-        // The server waits a few seconds for a page to join, so a slow connection does not hold the request.
         const timer = setTimeout(done, 5_000)
         const stop = room.onUpdate(() => {
           if (room.status() === "connected") done()

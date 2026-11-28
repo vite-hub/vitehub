@@ -27,6 +27,27 @@ for (const template of selectedTemplates) {
       expect(await response.text()).toContain(`<title>${template.title}</title>`)
     })
 
+    it("serves the home page assets", async () => {
+      const response = await app.fetch("/")
+      expect(response.status).toBe(200)
+      const html = await response.text()
+
+      const stylesheet = html.match(/<link\b[^>]*\srel=["']stylesheet["'][^>]*>/i)?.[0]
+      const css = stylesheet?.match(/\shref=["']([^"']+)["']/i)?.[1]
+      const script = html.match(/<script\b[^>]*\ssrc=["']([^"']+)["']/i)?.[1]
+      expect(script, "home page script").toBeTruthy()
+      if (selectedMode !== "dev") expect(css, "home page stylesheet").toBeTruthy()
+
+      for (const [asset, contentType] of [[css, /^text\/css\b/i], [script, /^(?:application|text)\/(?:java|ecma)script\b/i]] as const) {
+        if (!asset) continue
+        const url = new URL(asset.replaceAll("&amp;", "&"), response.url)
+        const assetResponse = await fetch(url, { signal: AbortSignal.timeout(60_000) })
+        expect(assetResponse.status, url.href).toBe(200)
+        expect(assetResponse.headers.get("content-type"), url.href).toMatch(contentType)
+        expect((await assetResponse.arrayBuffer()).byteLength, url.href).toBeGreaterThan(0)
+      }
+    }, 120_000)
+
     for (const primitive of template.primitives) {
       it(primitive, async () => {
         const flow = flows[template.name]?.[primitive]
