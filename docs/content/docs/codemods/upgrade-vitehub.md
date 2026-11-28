@@ -681,14 +681,16 @@ Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a
 
 ## nuxt-server-imports
 
-On Nuxt 5, the `vite-hub/nuxt` module auto-imports its server helpers only when the app turns on Nuxt's server auto-imports. `nuxt-server-imports` adds an explicit import to each server file that uses a helper without one:
+On Nuxt 5, the `vite-hub/nuxt` module auto-imports its server helpers only when the app turns on Nuxt's server auto-imports. `nuxt-server-imports` adds an explicit import to each server file that uses a ViteHub helper without one:
 
 ```bash [Terminal]
 npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
 ```
 
+The diff below starts with an explicit import from H3 2. The codemod does not install or upgrade H3. To use the `h3` import shown here, run `pnpm add h3@^2.0.8` if your app does not already declare H3 2. If the route already imports its H3 helpers from Nitro or Nuxt, keep that import.
+
 ```diff [server/api/welcome.post.ts]
- import { createError, defineEventHandler, readBody } from 'nitro/h3'
+ import { createError, defineEventHandler, readBody } from 'h3'
 +import { kv } from 'vite-hub/kv'
 +import { sendQueue } from 'vite-hub/queue'
 

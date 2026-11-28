@@ -94,7 +94,7 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
 
     const missing = await cli(["cancel", "missing"], fixture.host)
     expect(missing.exitCode).toBe(1)
-    expect(missing.stderr).toMatch(/^\[AGENT_R0511\] Console request failed with HTTP 404: Invocation not found\.\n.*fix: /s)
+    expect(missing.stderr).toMatch(/^\[AGENT_R0511\] Console request failed with HTTP 404: VITE_HUB_R0054: Invocation not found\.\n.*fix: /s)
     fixture.release()
   })
 })

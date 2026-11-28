@@ -67,6 +67,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Nitro tasks are not enabled in this runtime.",
       fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
     },
+    VITE_HUB_AGENT_JOURNAL_IN_WORKER_MEMORY: {
+      why: "The default Agent Invocation journal has no D1 binding or libSQL URL. It keeps records in Worker memory and loses its records when the isolate stops.",
+      fix: "Configure a D1 binding on the `default` or only Database Definition, or set `agent.invocations.databaseUrl` to a remote libSQL URL.",
+    },
     VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
       why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
       fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",

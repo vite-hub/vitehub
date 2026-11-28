@@ -68,8 +68,8 @@ function app(sources: Record<string, ReturnType<typeof github>> = { docs: github
   const content = defineContent({ sources, access: "public", logger: false })
   cleanup.push(() => content.dispose())
   const registry = createOperationRegistry([{ operations: contentOperations }])
-  Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+  Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
   const server = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
     const { input, operation } = operationRpcRequest(init?.body)
     const result = await runOperation(registry, operation, input, { access, development: true, surface: "cli", user: null })

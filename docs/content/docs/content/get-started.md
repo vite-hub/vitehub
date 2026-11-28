@@ -99,10 +99,10 @@ curl http://localhost:3000/api/guide
 The response is the `Hello from Content` document, as JSON:
 
 ```json [output/guide.json]
-{"path":"/intro","data":{},"meta":{"issues":[],"issueRules":{},"readingTime":{"words":10,"minutes":1},"key":"docs/intro.md","source":"docs","stem":"intro","extension":".md","kind":"document","type":"text/markdown","partial":false,"hash":"5760765759451925"},"nodes":[["typeset-styles",{}],["h1",{"id":"hello-from-content"},"Hello from Content"],["p",{},"This page came from a local Source."]]}
+{"path":"/intro","data":{},"meta":{"issues":[],"issueRules":{},"readingTime":{"words":10,"minutes":1},"key":"docs/intro.md","source":"docs","stem":"intro","extension":".md","kind":"document","type":"text/markdown","partial":false,"hash":"5760765759451925"},"nodes":[["typeset-styles",{}],["h1",{"id":"hello-from-content"},"Hello from Content"],["p",{},"This page came from a local Source."],["motion-runtime",{}]]}
 ```
 
-`nodes` is the body of the file. The first node, `typeset-styles`, loads comark-ui's prose styles, and the `# Hello from Content` heading follows it.
+`nodes` is the body of the file. The first node, `typeset-styles`, loads comark-ui's prose styles, and the `# Hello from Content` heading follows it. The last node, `motion-runtime`, starts comark-ui's motion layer for buttons, links, and tabs.
 
 To show the document on a page, use [ViteHub UI Markdown](/docs/ui/markdown#content-pages). To search your documents, add [full-text search](/docs/content/configure#providers).
 

@@ -41,7 +41,7 @@ icon: i-lucide-circle-alert
 - When a read fails, `/api/content/**` answers `500` with `{ error: "internal_error", message }`. A ViteHub error also gives its `code`, `fix`, and `docs` link, such as `WORKSPACE_R0072` for a GitHub Store without a token.
 - Without `authorize`, `content.can()` denies every action, and the Content readers serve everyone.
 - The Store retains every revision. There is no pruning.
-- [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.
+- Without `--url`, [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. With `--url`, it calls a deployed app that has the [Console](/docs/console) on.
 
 ## Preview
 
