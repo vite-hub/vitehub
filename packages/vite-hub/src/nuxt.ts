@@ -1603,8 +1603,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         // Nitro's final Vite environment must also resolve imports from linked workspace packages. Its virtual
         // config alone is not available to Nuxt's bare import resolver in that environment.
         const disabledConfig = join(projectRoot, ".vitehub/nuxt/disabled-kv-config.mjs")
-        await mkdir(dirname(disabledConfig), { recursive: true })
-        await writeFile(disabledConfig, disabledKVConfigModule, "utf8")
+        await writeFileIfChanged(disabledConfig, disabledKVConfigModule)
         alias["#vitehub/kv/config"] ??= disabledConfig
       }
     }

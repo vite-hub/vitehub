@@ -62,7 +62,7 @@ The approval is stale. Request again.
 
 ### CONNECTIONS_INVALID_CONFIG
 
-Bad `basePath` or `activityRetention`.
+Bad `basePath`, `activityRetention`, or `database`. The fix names the option and an example value.
 
 ### CONNECTIONS_INVALID_DEFINITION
 

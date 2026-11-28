@@ -464,6 +464,11 @@ describe("vitehub", () => {
     expect(getResolvedFeatureOptions(config, "queue")).toEqual({ cache: true, namePrefix: "jobs-app-", driver: "cloudflare" })
   })
 
+  it("leaves a `queue` option that is not `true`, `false`, or an object for Queue to reject", async () => {
+    const config = await applyDeploymentConfig({ name: "jobs-app", host: "cloudflare", queue: "cloudflare" as never })
+    expect(getResolvedFeatureOptions(config, "queue")).toBeUndefined()
+  })
+
   it("does not install console plugins when explicitly disabled", () => {
     expect(pluginNames(vitehub({ console: false, host: "node" }))).not.toEqual(expect.arrayContaining([
       "vite-hub/console",

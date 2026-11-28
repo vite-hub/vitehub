@@ -2,7 +2,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { readdirSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
@@ -56,6 +56,24 @@ const CONTENT_ENTRY_PATTERN = /\/content\.[cm]?[jt]s(?:\?.*)?$/
 const CONTENT_NITRO_PLUGIN_NAME = "@vite-hub/content/nitro"
 
 type BuiltSnapshots = { file: string, snapshots: Record<string, BuiltContentSnapshot> }
+
+async function writeContentOperationsModule(projectRoot: string, file: string): Promise<string> {
+  const module = join(projectRoot, ".vitehub/nitro/content/operations.mjs")
+  const code = [
+    `import { contentOperations, installContentModule } from ${JSON.stringify(ownModule(import.meta.url, "operations"))}`,
+    "",
+    `installContentModule(() => import(${JSON.stringify(pathToFileURL(file).href)}))`,
+    "",
+    "export { contentOperations }",
+    "",
+  ].join("\n")
+  const current = await readFile(module, "utf8").catch(() => undefined)
+  if (current !== code) {
+    await mkdir(dirname(module), { recursive: true })
+    await writeFile(module, code)
+  }
+  return module
+}
 
 /**
  * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once, and the branch commit of
@@ -261,9 +279,12 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
     vitehub: {
       // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
       // An app without server/content.ts has no Content to operate on, so it contributes nothing.
-      operations: async () => await discover()
-        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: ownModule(import.meta.url, "operations") }]
-        : [],
+      operations: async () => {
+        const file = await discover()
+        if (!file) return []
+        const module = await writeContentOperationsModule(projectRoot ?? process.cwd(), file)
+        return [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module }]
+      },
       cli: async () => {
         if (!await discover()) return
         const { createContentCliContributor } = await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./cli.ts" : "./cli.js")
