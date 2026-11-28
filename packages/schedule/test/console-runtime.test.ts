@@ -213,4 +213,8 @@ describe("Schedule Console runtime records", () => {
   it("names the runtime reader in the Console section", () => {
     expect(scheduleConsoleSection).toMatchObject({ runtime: { export: "readScheduleConsoleRecords", module: expect.stringMatching(/[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) } })
   })
+
+  it("says which setting lets a deployed app run a manual Schedule from the Console", () => {
+    expect(scheduleConsoleSection.view).toMatchObject({ notice: expect.stringContaining("`console: { invoke: true }`") })
+  })
 })
