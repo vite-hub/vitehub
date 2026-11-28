@@ -120,6 +120,7 @@ const kvOperationStatus: Readonly<Record<string, number>> = {
   KV_DISABLED: 409,
   KV_INVALID_CURSOR: 400,
   KV_INVALID_INPUT: 400,
+  KV_INVALID_KEY: 400,
   KV_RESERVED_KEY: 403,
   KV_STORE_NOT_FOUND: 404,
   KV_VALUE_UNSUPPORTED: 422,

@@ -554,8 +554,10 @@ describe("kv runtime", () => {
     const { kv } = await import("../src/runtime/storage.ts")
     for (const key of ["", ":", "/", "a/../b", "./a"]) {
       const [error] = await kv.set(key, "empty key")
-      expect(error).toMatchObject({ code: "KV_OPERATION_FAILED", cause: { message: `[unstorage] Invalid key: ${JSON.stringify(key)}` } })
-      expect((await kv.get(key))[0]).toMatchObject({ code: "KV_OPERATION_FAILED" })
+      expect(error).toMatchObject({ code: "KV_INVALID_KEY", message: expect.stringContaining(JSON.stringify(key)), fix: expect.stringContaining("users:alice") })
+      for (const [keyError] of [await kv.get(key), await kv.has(key), await kv.delete(key), await kv.getMany(["ok", key]), await kv.setMany([{ key, value: 1 }]), await kv.setIfAbsent(key, 1), await kv.increment(key, 60), await kv.getAndDelete(key), await kv.deleteIfEquals(key, 1), await kv.lock(key, { ttl: 60 }).acquire()]) {
+        expect(keyError).toMatchObject({ code: "KV_INVALID_KEY" })
+      }
     }
     expect(data.size).toBe(0)
   })

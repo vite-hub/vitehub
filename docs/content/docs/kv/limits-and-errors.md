@@ -41,6 +41,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | Code | Returned by | Thrown |
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
+| `KV_INVALID_KEY` | Every method that takes a key | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
@@ -85,6 +86,10 @@ A `database` store deletes expired rows in the background, at most once a minute
 
 The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.
 
+### KV_INVALID_KEY
+
+The key is empty, such as `''` or `':'`, or has a `.` or `..` segment, such as `'a/../b'`. Both `/` and `:` separate segments. Every store rejects these keys, so KV returns this code before any provider call. Use a key such as `users:alice`. To put text from a request in a key, encode it first, for example with `encodeURIComponent()`.
+
 ### KV_INVALID_LIMIT
 
 `kv.list()` needs `limit` as a positive integer.
@@ -104,8 +109,6 @@ The key is longer than 512 UTF-8 bytes, the Cloudflare KV limit. ViteHub measure
 ### KV_OPERATION_FAILED
 
 The provider failed. `error.why` names the operation and the store. `error.cause` has the provider error. A retry can help when the provider is back.
-
-An invalid key also returns this code, before any provider call: an empty key such as `''` or `':'`, or a `.` or `..` segment such as `'a/../b'`. `error.cause.message` is `[unstorage] Invalid key: ""` with the key. Use another key; a retry cannot help.
 
 ### KV_UNSUPPORTED_OPERATION
 

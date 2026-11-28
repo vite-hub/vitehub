@@ -2,7 +2,7 @@ import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import type { Result } from "@vite-hub/runtime"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { kvResult } from "../errors.ts"
+import { kvInvalidKeyError, kvResult } from "../errors.ts"
 import type { KVLock, KVLockAcquisition, KVLockErrorCode, KVLockOptions } from "../types.ts"
 import type { RuntimeStorage } from "./hosted-storage.ts"
 import { ttlSeconds } from "./ttl.ts"
@@ -20,6 +20,8 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
   async function acquire(): Promise<Result<KVLockAcquisition, KVLockErrorCode>> {
     const ttl = ttlSeconds(options.ttl)
     const wait = options.wait ?? 0
+    const keyError = kvInvalidKeyError([key])
+    if (keyError) return [keyError, undefined]
     if (ttl === undefined) return [kvErrorDiagnostics.KV_INVALID_TTL(), undefined]
     if (!Number.isFinite(wait) || wait < 0) return [kvErrorDiagnostics.KV_INVALID_WAIT(), undefined]
     const storage = await resolveStorage()

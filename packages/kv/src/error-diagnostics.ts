@@ -24,6 +24,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: KVCursorProblem }) => cursorProblems[problem],
       fix: "Pass the `cursor` of the previous page once, to the same store. If it fails, start again without `cursor`.",
     },
+    KV_INVALID_KEY: {
+      why: ({ key }: { key: string }) => `The key ${JSON.stringify(key)} is empty, or has a "." or ".." segment. Both "/" and ":" separate segments.`,
+      fix: "Use a key with at least one segment and no `.` or `..` segment, such as `users:alice`. To use text from a request in a key, encode it first, for example with `encodeURIComponent()`.",
+    },
     KV_INVALID_LIMIT: {
       why: "`limit` must be a positive integer.",
       fix: "Pass a positive integer, for example `kv.list({ limit: 100 })`.",

@@ -4,7 +4,7 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import { kvClearOptionsError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvSetCodes, kvSetTTL, listKVKeys } from "../errors.ts"
+import { kvClearOptionsError, kvInvalidKeyError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvSetCodes, kvSetTTL, listKVKeys } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
@@ -122,6 +122,18 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   return kvResult(operation, name, () => run(storage), codes)
 }
 
+async function runKeyedKVOperation<TResult, TCode extends KVErrorCode = never>(
+  operation: KVOperation,
+  name: string,
+  keys: unknown,
+  run: (storage: RuntimeStorage) => Promise<TResult>,
+  codes: readonly TCode[] = [],
+): Promise<Result<TResult, TCode | "KV_INVALID_KEY" | "KV_OPERATION_FAILED">> {
+  const error = kvInvalidKeyError(keys)
+  if (error) return [error, undefined]
+  return runKVOperation(operation, name, run, codes)
+}
+
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(options) {
@@ -129,24 +141,24 @@ function createKVStorage(name = "default"): KVStorage {
       if (error) return [error, undefined]
       return runKVOperation("clear", name, async storage => storage.clear(options?.prefix))
     },
-    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKeyedKVOperation("delete", name, [key], async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
-      return runKVOperation("deleteIfEquals", name, async (storage) => {
+      return runKeyedKVOperation("deleteIfEquals", name, [key], async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
         return storage.deleteIfEqualsItem(key, expected)
       }, ["KV_INVALID_VALUE", "KV_UNSUPPORTED_OPERATION"])
     },
-    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
+    async get(key, options) { return runKeyedKVOperation("get", name, [key], storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
-      return runKVOperation("getAndDelete", name, async (storage) => {
+      return runKeyedKVOperation("getAndDelete", name, [key], async (storage) => {
         if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
-    async getMany(keys, options) { return runKVOperation("getMany", name, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
-    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
+    async getMany(keys, options) { return runKeyedKVOperation("getMany", name, keys, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
+    async has(key, options) { return runKeyedKVOperation("has", name, [key], storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
-      return runKVOperation("increment", name, async (storage) => {
+      return runKeyedKVOperation("increment", name, [key], async (storage) => {
         if (!storage.incrementItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "increment", store: name })
         const seconds = ttlSeconds(ttl)
         if (seconds === undefined) throw kvErrorDiagnostics.KV_INVALID_TTL()
@@ -159,19 +171,19 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("list", name, storage => listKVKeys(page => storage.listKeys(page), options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) {
-      return runKVOperation("set", name, async (storage) => {
+      return runKeyedKVOperation("set", name, [key], async (storage) => {
         const ttl = kvSetTTL("set", options)
         return storage.setItem(key, value, ttl === undefined ? undefined : { ttl })
       }, kvSetCodes)
     },
     async setMany(entries, options) {
-      return runKVOperation("setMany", name, async (storage) => {
+      return runKeyedKVOperation("setMany", name, Array.isArray(entries) ? entries.map(entry => Reflect.get(Object(entry), "key")) : entries, async (storage) => {
         const ttl = kvSetTTL("setMany", options)
         return storage.setMany(entries, ttl === undefined ? undefined : { ttl })
       }, kvSetCodes)
     },
     async setIfAbsent(key, value, options) {
-      return runKVOperation("setIfAbsent", name, async (storage) => {
+      return runKeyedKVOperation("setIfAbsent", name, [key], async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
         return storage.setIfAbsentItem(key, value, kvSetTTL("setIfAbsent", options))
       }, ["KV_INVALID_OPTION", "KV_INVALID_TTL", "KV_INVALID_VALUE", "KV_UNSUPPORTED_OPERATION"])
