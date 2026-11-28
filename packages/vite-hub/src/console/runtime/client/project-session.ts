@@ -402,10 +402,14 @@ export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">)
 // which opens nothing for another account.
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
 
-/** The project that an `account` Console opens next for a team, kept in this browser. */
+/**
+ * The project that an `account` Console opens next for a team. A reload opens the project of its tab, and a new tab
+ * opens the project that this browser opened last.
+ */
 export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
   if (!teamId) return
   try {
+    globalThis.sessionStorage?.setItem(accountProjectKey(teamId), projectId)
     globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
   }
   catch {}
@@ -414,7 +418,7 @@ export function rememberAccountProject(teamId: string | undefined, projectId: st
 function rememberedAccountProject(teamId: string | undefined): string | undefined {
   if (!teamId) return undefined
   try {
-    return globalThis.localStorage?.getItem(accountProjectKey(teamId)) ?? undefined
+    return globalThis.sessionStorage?.getItem(accountProjectKey(teamId)) ?? globalThis.localStorage?.getItem(accountProjectKey(teamId)) ?? undefined
   }
   catch {
     return undefined

@@ -498,6 +498,24 @@ describe("account Console", () => {
     expect(stored.get("vitehub-console:account-project:t")).toBe("p-1")
   })
 
+  it("reopens the app of this tab after a reload, when another tab opened another app since", async () => {
+    const storageOf = (map: Map<string, string>) => ({ getItem: (key: string) => map.get(key) ?? null, setItem: (key: string, value: string) => void map.set(key, value) })
+    const browser = new Map([["vitehub-console:account-project:t", "p-2"]])
+    const tab = new Map([["vitehub-console:account-project:t", "p-1"]])
+    vi.stubGlobal("localStorage", storageOf(browser))
+    vi.stubGlobal("sessionStorage", storageOf(tab))
+    const other = { ...linked, id: "p-2", url: "https://other.example.com", label: "Shop" }
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com", image: null }, hasEmail: true, teams: [], teamId: "t", roles: ["owner"], projects: [other, linked] }
+    vi.stubGlobal("fetch", vi.fn(operationRpcFetch(async (url: string) => url === "/api/account" ? Response.json(session) : Response.json(projectGet))))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    await module.startConsoleAccount({ boot: "app", home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/", search: "", showPath: () => {} })
+    expect(module.useConsoleProjects().current.value?.id).toBe("p-1")
+
+    await module.startConsoleAccount({ boot: "app", home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/", search: "?app=p-2", showPath: () => {} })
+    expect(tab.get("vitehub-console:account-project:t")).toBe("p-2")
+    expect(browser.get("vitehub-console:account-project:t")).toBe("p-2")
+  })
+
   it("sends the project's calls to the Console server, with the page cookies and no token", async () => {
     const fetch = vi.fn(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
     const { module, state } = await account(fetch)
