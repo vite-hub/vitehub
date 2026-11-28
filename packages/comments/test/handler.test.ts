@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentSubject } from "../src/operations-core/define.ts"
-import { anchor, createComments } from "./harness.ts"
+import { anchor, createComments, createD1LimitedDatabase } from "./harness.ts"
 
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
 import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsIdentifyContext, CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
@@ -48,9 +49,9 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
   return { runtime, saves }
 }
 
-async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], build?: CommentsHandlerOptions["build"] } = {}) {
+async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], build?: CommentsHandlerOptions["build"], database?: CommentsDatabase } = {}) {
   // Each test names its policy; the default policy has tests of its own.
-  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
+  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options }, input.database)
   const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({
     comments,
     session: input.session,
@@ -222,6 +223,18 @@ describe("Comments API", () => {
       expect((await fetchFile(`/attachments/${key}`, headers)).status).toBe(404)
       expect(readAttachment).not.toHaveBeenCalled()
     })
+  })
+
+  it("serves an attachment whose key is longer than a D1 LIKE pattern", async () => {
+    const key = "comments/page/4642b2c6-c837-4bc3-a542-852415e0167e/image.png"
+    const { comments, fetchFile } = await setup({ database: createD1LimitedDatabase(), options: {
+      readAttachment: async () => new Blob(["png"], { type: "image/png" }),
+    } })
+    await comments.create({ page: "/", anchor, body: "Look", author: { id: "ada", name: "Ada" }, attachments: [key] })
+    const file = await fetchFile(`/attachments/${key}`)
+    expect(file.status).toBe(200)
+    expect(file.headers.get("content-type")).toBe("image/png")
+    expect(await file.text()).toBe("png")
   })
 
   it("keeps guest authors anonymous to Comments policies without identify", async () => {

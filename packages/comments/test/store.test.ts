@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createCommentsStore } from "../src/operations-core/store.ts"
-import { ada, anchor, commentsMigration, grace } from "./harness.ts"
+import { ada, anchor, commentsMigration, createD1LimitedDatabase, grace } from "./harness.ts"
 
 import type { Client } from "@libsql/client"
 import type { CommentsDatabase, NewMessage } from "../src/operations-core/store.ts"
@@ -147,6 +147,41 @@ it("deletes the messages of one person and keeps the replies of other people", a
   expect(resolved).toMatchObject({ status: "resolved", messages: [{ body: "Grace only" }] })
   expect(resolved?.resolvedBy).toBeUndefined()
   expect(await store.deleteUser("ada")).toEqual([])
+})
+
+describe("on a Database with the D1 limit of 50 bytes per LIKE pattern", () => {
+  const end = "4642b2c6-c837-4bc3-a542-852415e0167e/image.png"
+
+  it("finds the threads of a long attachment key, and not those of a key with the same end", async () => {
+    const store = createCommentsStore(createD1LimitedDatabase())
+    const key = `comments/page/${end}`
+    const wanted = await store.createThread({ ...thread("Look"), attachments: [key] })
+    await store.createThread({ ...thread("Other"), attachments: [`drops/${end}`] })
+    expect((await store.getByAttachment(key)).threads.map(entry => entry.id)).toEqual([wanted.id])
+  })
+
+  it("finds a long attachment on the first page despite other uploads with the same filename", async () => {
+    const store = createCommentsStore(createD1LimitedDatabase())
+    const filename = "monthly-design-review-desktop-dark-mode-screenshot.png"
+    const key = `comments/page/wanted/${filename}`
+    for (let index = 0; index < 200; index++) {
+      await store.createThread({ ...thread("Other"), id: `other-${index}`, attachments: [`comments/page/${index}/${filename}`] })
+    }
+    const wanted = await store.createThread({ ...thread("Look"), id: "wanted", attachments: [key] })
+
+    const page = await store.getByAttachment(key)
+    expect(page.threads.map(entry => entry.id)).toEqual([wanted.id])
+    expect(page.cursor).toBeUndefined()
+  })
+
+  it("deletes a person with a long id who resolved a thread", async () => {
+    const store = createCommentsStore(createD1LimitedDatabase())
+    const person = { id: `github:${end}`, name: "Ada" }
+    const opened = await store.createThread({ ...thread("Grace asks"), author: grace })
+    await store.setStatus(opened.id, "resolved", person, Date.now())
+    expect(await store.deleteUser(person.id)).toEqual([opened.id])
+    expect((await store.getById(opened.id))?.resolvedBy).toBeUndefined()
+  })
 })
 
 it("checks for surviving replies and the current resolver after locking the thread", async () => {
