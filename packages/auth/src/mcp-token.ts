@@ -180,20 +180,26 @@ const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bea
 
 /**
  * Check an MCP access token for `requireCaller()` on any route of the app. The token must name the `mcpOAuth()` resource
- * of the origin whose path holds the request path, the longest one when several do. On a path outside every resource,
- * it must name the first resource of the origin.
+ * of the origin with the longest matching path. At that path, prefer an exact query match, then a resource without a
+ * query. If the path is outside every resource or the origin has just one resource, use the first resource of the origin.
  */
-export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<McpTokenResult> {
+export async function verifyAppAccessToken(token: string, origin: string, url: URL, instance: object): Promise<McpTokenResult> {
   const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
-  return await verifyToken(token, auth, state, appResourceAt(state.resources, origin, pathname), pathname)
+  return await verifyToken(token, auth, state, appResourceAt(state.resources, origin, url), url.pathname)
 }
 
-function appResourceAt(resources: readonly string[], origin: string, pathname: string): string | undefined {
-  const atOrigin = resources.filter(entry => new URL(entry).origin === origin)
-  const path = pathname.replace(/\/+$/, "")
-  const holding = atOrigin.filter(entry => path === pathOf(entry) || path.startsWith(`${pathOf(entry)}/`))
-  return holding.sort((a, b) => pathOf(b).length - pathOf(a).length)[0] ?? atOrigin[0]
+function appResourceAt(resources: readonly string[], origin: string, url: URL): string | undefined {
+  const atOrigin = resources.map(identifier => ({ identifier, url: new URL(identifier) })).filter(entry => entry.url.origin === origin)
+  if (atOrigin.length <= 1) return atOrigin[0]?.identifier
+  const path = url.pathname.replace(/\/+$/, "")
+  const matching = atOrigin.map(entry => ({ ...entry, path: entry.url.pathname.replace(/\/+$/, "") }))
+    .filter(entry => path === entry.path || path.startsWith(`${entry.path}/`))
+    .sort((first, second) => second.path.length - first.path.length)
+  const longest = matching[0]?.path
+  if (longest === undefined) return atOrigin[0]?.identifier
+  const atPath = matching.filter(entry => entry.path === longest)
+  return (atPath.find(entry => entry.url.search === url.search) ?? atPath.find(entry => !entry.url.search))?.identifier
 }
 
 async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<McpTokenResult> {

@@ -459,10 +459,27 @@ describe("requireCaller", () => {
       expect(await callerAt(auth, path, notesToken)).toBe("agent")
       expect(await callerAt(auth, path, mcpToken)).toBe("wrong_resource")
     }
-    for (const path of ["/mcp", "/mcp/sessions"]) {
+    for (const path of ["/mcp", "/mcp/sessions", "/mcp?trace=on"]) {
       expect(await callerAt(auth, path, mcpToken)).toBe("agent")
       expect(await callerAt(auth, path, notesToken)).toBe("wrong_resource")
     }
+  })
+
+  it("selects the audience by query when resources share a path", async () => {
+    const design = "/mcp?workspace=design"
+    const engineering = "/mcp?workspace=engineering"
+    const auth = await setup({ resource: [`${app}${design}`, `${app}${engineering}`] })
+    const designAgent = await signInAgent(auth, "ada@example.com", {}, undefined, `${app}${design}`)
+    const engineeringAgent = await signInAgent(auth, "grace@example.com", {}, undefined, `${app}${engineering}`)
+
+    expect(await callerAt(auth, design, designAgent.accessToken)).toBe("agent")
+    expect(await callerAt(auth, engineering, engineeringAgent.accessToken)).toBe("agent")
+    expect(await callerAt(auth, engineering, designAgent.accessToken)).toBe("wrong_resource")
+    expect(await callerAt(auth, design, engineeringAgent.accessToken)).toBe("wrong_resource")
+    expect(await callerAt(auth, "/mcp", designAgent.accessToken)).toBe("wrong_resource")
+    expect(await callerAt(auth, "/mcp?workspace=other", designAgent.accessToken)).toBe("wrong_resource")
+    expect(await callerAt(auth, "/api/drops", designAgent.accessToken)).toBe("agent")
+    expect(await callerAt(auth, "/api/drops", engineeringAgent.accessToken)).toBe("wrong_resource")
   })
 
   it("with several resources, accepts on a path outside every resource only the tokens of the first resource", async () => {
@@ -480,8 +497,9 @@ describe("requireCaller", () => {
   })
 
   it("with one resource, accepts its token on every path of the origin", async () => {
-    const auth = await setup()
-    const { accessToken } = await signInAgent(auth)
+    const audience = `${resource}?workspace=design`
+    const auth = await setup({ resource: audience })
+    const { accessToken } = await signInAgent(auth, "ada@example.com", {}, undefined, audience)
 
     for (const path of ["/mcp", "/mcp/sessions", "/api/drops", "/api/review/notes", "/"]) expect(await callerAt(auth, path, accessToken)).toBe("agent")
   })

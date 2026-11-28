@@ -1109,8 +1109,9 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthCall
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
- * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()`. The token must name the `mcpOAuth()` resource whose
- * path holds the request path, or the first resource of the origin on a path outside every resource. Like
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()`. The longest matching resource path wins. At that
+ * path, the query must match exactly unless a resource has no query. On other paths, or when the origin has just one
+ * resource, the token must name the first resource of the origin. Like
  * `verifyMcpRequest()`, it accepts `jwt()` and an `oauthProvider()` with `resources` that the app adds without
  * `mcpOAuth()`. A bearer token that is not a JWT, such as a session token of `bearer()`, is read as a session.
  * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a JWT bearer token that fails a check.
@@ -1153,7 +1154,7 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
       const origin = clientRequestOrigin(request, trustsProxyHeaders(options))
-      const [error, caller] = await verifyAppAccessToken(token, origin, url.pathname, auth)
+      const [error, caller] = await verifyAppAccessToken(token, origin, url, auth)
       if (error) return [error, undefined]
       return [undefined, Object.freeze({
         client: { id: caller.clientId, name: caller.clientName },
