@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/webhooks",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Send ViteHub events to an outside URL: signed, retried, and debounced on every host.",
   "keywords": [
     "debounce",
