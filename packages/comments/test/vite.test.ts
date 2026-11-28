@@ -91,7 +91,6 @@ describe("hubComments", () => {
     const realtime = await plugin.api.contributeRealtime({ driver: "memory", directory: join(root, ".vitehub/realtime"), projectRoot: root })
     expect(realtime?.definitions).toEqual([expect.objectContaining({ name: "comments" }), expect.objectContaining({ name: "comments-notices" })])
     expect(await readFile(join(root, ".vitehub/realtime/comments.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
-    // The Console, the CLI, and MCP get the comment operations too.
     const operations = async (target: ReturnType<typeof hubComments>) => {
       const entries = target.vitehub.operations
       return typeof entries === "function" ? await entries() : entries
@@ -113,7 +112,6 @@ describe("hubComments", () => {
       expect.objectContaining({ baseURL: "/_vitehub/comments/assets" }),
     ])
     expect(await readFile(join(root, ".vitehub/nitro/comments/page-tools-route.mjs"), "utf8")).toBe("export { viteHubPageSessionHandler as default } from \"@vite-hub/comments/runtime\"\n")
-    // The page tool check reads the same session as the API.
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession,")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
@@ -140,10 +138,8 @@ describe("hubComments", () => {
     expect(nitro?.publicAssets?.map(asset => asset.baseURL)).toEqual(["/portal/_vitehub/page/assets", "/portal/_vitehub/comments/assets"])
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("overlay: \"/_vitehub/comments/assets/overlay.js?v=4\", base: \"/portal\"")
-    // Nitro serves its routes below its own baseURL, as Nuxt does for `app.baseURL`.
     const nested = await configure(hubComments(), root, "build", { base: "/portal/", nitro: { baseURL: "/portal/" } })
     expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/_vitehub/comments/**", "/_vitehub/page/tools"])
-    // The overlay finds the API next to itself.
     expect(commentsApiRoute("http://site.test/portal/_vitehub/comments/assets/overlay.js?v=4")).toBe("/portal/_vitehub/comments")
     expect(commentsApiRoute("http://site.test/_vitehub/comments/assets/chunk-1.js")).toBe("/_vitehub/comments")
   })
@@ -157,8 +153,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), "build", { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=23\")")
-    // A second owner, such as the Console, sees the loader and adds no other.
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=24\")")
     expect(transform(plugin, page!)).toBeUndefined()
   })
 
@@ -318,7 +313,6 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     })])
     const pluginSource = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(pluginSource).toContain(".databases, \"content\")")
-    // The Database registry imports the app's schema and drizzle-orm. It loads on the first Comments call.
     expect(pluginSource).not.toMatch(/^import .* from "[^"]*database\/drizzle"/m)
   })
 
@@ -338,7 +332,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=23")')
+    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=24")')
   })
 
   it.each([
@@ -417,7 +411,6 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
       { handler: join(directory, "comments-notices.mjs"), name: "comments-notices" },
     ] })
     expect(await readFile(join(directory, "comments-notices.mjs"), "utf8")).toContain('commentsRealtime(comments, { session: undefined, githubLogin }, "notices")')
-    // Without Auth or the Console, the people of the rooms are the people signed in with GitHub.
     expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined, githubLogin })")
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
@@ -488,7 +481,7 @@ describe("comments() without vite-hub", () => {
     const transform = plugin.transformIndexHtml
     if (!transform) throw new Error("Expected a standalone Comments HTML transform")
     const page: unknown = await Reflect.apply(typeof transform === "function" ? transform : transform.handler, {}, ["<body>Guide</body>"])
-    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=23")')
+    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=24")')
   }, 30_000)
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
@@ -502,7 +495,6 @@ describe("comments() without vite-hub", () => {
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
     expect(plugin).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}, { name: "comments" })`)
-    // Comments opened the file itself, so it creates and migrates the tables.
     expect(plugin).toContain("schema: \"comments\"")
     expect(await readFile(join(root, ".vitehub/data/.gitignore"), "utf8")).toBe("*\n")
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("githubLogin: createCommentsGitHubLogin(")
@@ -532,7 +524,6 @@ describe("comments() without vite-hub", () => {
       docs: "https://vitehub.dev/docs/comments/diagnostics/comments_database_token_in_build",
     })])
 
-    // The next build without a token starts an empty report.
     configResolved("env:COMMENTS_DATABASE_URL")({ root, command: "build", logger: { warn } })
     expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
   })
@@ -543,7 +534,6 @@ describe("comments() without vite-hub", () => {
     await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
     await symlink(join(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/comments"), "dir")
     await configure(comments({ database })[0] as Plugin, root, "build", { nitro: { preset: "node-server", compatibilityDate: "2026-10-27" } })
-    // Supply the file only after generation: neither its path nor its token belongs in the build.
     const file = `file:${join(root, "data/comments.sqlite")}`
     vi.stubEnv("DATABASE_URL", database === undefined ? file : "")
     vi.stubEnv("COMMENTS_DATABASE_URL", file)
@@ -598,7 +588,6 @@ describe("comments() without vite-hub", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("connectDatabase(\"d1:COMMENTS\"")
     await writeFile(join(root, "wrangler.jsonc"), `{ "d1_databases": [{ "binding": "COMMENTS", "database_id": "abc" }] }`)
     expect((await configure(d1(), root))?.cloudflare).toBeUndefined()
-    // The development server has no binding, so it keeps the threads in the local file.
     await configure(d1(), root, "serve")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
   })
@@ -648,7 +637,6 @@ describe("comments() without vite-hub", () => {
     expect(await plugin()).toContain(`import { connectDatabase } from "@vite-hub/comments/runtime/connect"\n`)
     expect(await plugin()).toContain(`connectDatabase("d1:COMMENTS"`)
     expect(nitro?.cloudflare?.wrangler?.d1_databases).toEqual([{ binding: "COMMENTS", database_name: "comments" }])
-    // Nitro's Node runner can open the local file.
     await configure(standalone(), root, "serve", { nitro: { preset: "cloudflare_module", devServer: { runner: "node-worker" } } })
     expect(await plugin()).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
   })

@@ -81,8 +81,6 @@
   "packages/comments/test/overlay-styles.test.ts": 3,
   "packages/comments/test/overlay-window.test.ts": 3,
   "packages/comments/test/page-tool.test.ts": 5,
-  "packages/comments/test/page-tools-mounted.test.ts": 3,
-  "packages/comments/test/plugin.test.ts": 5,
   "packages/comments/test/rest-transport.test.ts": 7,
   "packages/comments/test/runtime-auth-lazy.test.ts": 1,
   "packages/comments/test/schema-gate.test.ts": 4,
@@ -90,7 +88,6 @@
   "packages/comments/test/storage.test.ts": 2,
   "packages/comments/test/store.test.ts": 4,
   "packages/comments/test/vite-nitro.test.ts": 2,
-  "packages/comments/test/vite.test.ts": 12,
   "packages/comments/vite.config.ts": 2,
   "packages/comments/vitest.config.ts": 1
 }

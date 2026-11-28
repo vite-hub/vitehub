@@ -438,7 +438,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
   const deliveredOpenThreads = computed(() => state.openThreads.value.filter(thread => !thread.delivery))
-  const canCopyPagePrompt = computed(() => !resolving.value && !commentOn.value && deliveredOpenThreads.value.length > 0)
+  const canCopyPagePrompt = computed(() => !resolving.value && deliveredOpenThreads.value.length > 0)
   const pageCopied = ref(false)
   const moreOpen = ref(false)
   let pageCopiedTimer: ReturnType<typeof setTimeout> | undefined
@@ -452,28 +452,47 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     clearTimeout(pageCopiedTimer)
     pageCopiedTimer = setTimeout(() => (pageCopied.value = false), 1500)
   }
-  const promptActions = (threads: readonly CommentThread[], copy: { label: string, action: string }): VNode[] => {
+  const t3CodeAction = (threads: readonly CommentThread[]): VNode => {
     const link = commentsT3CodeLink(promptInput(threads), pageRepository.value)
-    return [
-      link ? h(UButton, {
-        color: "neutral",
-        "data-action": "open-in-t3-code",
-        label: "Open in T3 Code",
-        rel: "noopener noreferrer",
-        size: "xs",
-        target: "_blank",
-        to: link,
-        variant: "ghost",
-      }, () => h(UIcon, { name: "i-lucide-arrow-up-right" })) : h("small", "Too long for T3 Code. Copy the prompt instead."),
-      h(UButton, { color: "neutral", "data-action": copy.action, icon: "i-lucide-copy", label: copy.label, onClick: () => void copyPrompt(threads), size: "xs", variant: "ghost" }),
-    ]
+    return link
+      ? h(UButton, {
+          "aria-label": "Open in T3 Code",
+          color: "neutral",
+          "data-action": "open-in-t3-code",
+          label: "Open in T3 Code",
+          rel: "noopener noreferrer",
+          size: "xs",
+          target: "_blank",
+          title: "Open in T3 Code",
+          to: link,
+          variant: "ghost",
+        }, () => h(UIcon, { name: "i-lucide-arrow-up-right" }))
+      : h("small", "Too long for T3 Code. Copy the prompt instead.")
   }
   const threadActions = ({ thread }: { thread: CommentThread }): VNode[] =>
-    thread.status === "open" && !thread.delivery ? promptActions([thread], { label: "Copy", action: "copy-prompt" }) : []
+    thread.status === "open" && !thread.delivery
+      ? [t3CodeAction([thread]), h(UButton, { color: "neutral", "data-action": "copy-prompt", icon: "i-lucide-copy", label: "Copy", onClick: () => void copyPrompt([thread]), size: "xs", variant: "ghost" })]
+      : []
   const listActions = (): VNode[] => {
     const threads = deliveredOpenThreads.value
-    return panelStatus.value === "open" && threads.length ? promptActions(threads, { label: "Copy open", action: "copy-open-prompt" }) : []
+    return panelStatus.value === "open" && canCopyPagePrompt.value
+      ? [
+          h(UButton, {
+            "aria-label": pageCopied.value ? "Copied" : "Copy prompt",
+            color: "neutral",
+            "data-action": "copy-page-prompt",
+            icon: pageCopied.value ? "i-lucide-check" : "i-lucide-copy",
+            label: pageCopied.value ? "Copied" : "Copy prompt",
+            onClick: () => void copyPagePrompt(),
+            size: "xs",
+            title: copyPromptTitle(),
+            variant: "ghost",
+          }),
+          t3CodeAction(threads),
+        ]
+      : []
   }
+  const copyPromptTitle = () => pageAgent.value ? "Copy a prompt that sends your agent to these comments in the ViteHub Console" : "Copy a prompt with the open comments for your agent"
   const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => {
     const failed = status === "failed"
     const held = error?.status === 401 || error?.status === 402
@@ -640,18 +659,29 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function showPanel() {
     if (!context) return
     if (!pageWindow) {
-      pageWindow = context.createWindow({
-        id: "comments", title: "Comments", trigger: context.bar, colorScheme: () => "dark",
+      const dark = () => host.classList.contains("dark")
+      const opened = context.createWindow({
+        id: "comments", title: "Comments", trigger: context.bar, colorScheme: () => (dark() ? "dark" : "light"), expand: false,
         onHide: () => (panelOpen.value = false),
       })
+      pageWindow = opened
       const panelHost = document.createElement("div")
       panelHost.setAttribute("data-comments-ui", "")
       const panelShadow = panelHost.attachShadow({ mode: "open" })
       stopMotion.push(installMotion(panelShadow))
       const target = document.createElement("div")
-      target.className = "panel-root dark"
+      target.className = "panel-root"
+      const theme = () => {
+        panelHost.classList.toggle("dark", dark())
+        target.classList.toggle("dark", dark())
+        opened.syncColorScheme?.()
+      }
+      theme()
+      const themes = new MutationObserver(theme)
+      themes.observe(host, { attributes: true, attributeFilter: ["class"] })
+      stopMotion.push(() => themes.disconnect())
       panelShadow.append(style(shadowCss(panelStyles)), target)
-      pageWindow.body.append(panelHost)
+      opened.body.append(panelHost)
       panelTarget.value = target
     }
     panelOpen.value = true
@@ -888,6 +918,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
+              heading: false,
+              composer: false,
               queueFiles: canAttach.value,
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
@@ -951,6 +983,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function commentOnPage() {
     if (!canComment.value || resolving.value) return
+    if (panelOpen.value) pageWindow?.hide()
     if (needsName.value) {
       namedMode.value = "page"
       namedQuote = undefined
@@ -978,7 +1011,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     const more = [
       commenting ? h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]) : null,
-      commenting ? h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]) : null,
       canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
     ].filter(node => node !== null)
@@ -1002,29 +1034,32 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             }, [commentIcon(), "Comments", badge(true)]),
         canComment.value
           ? h("button", {
+              "aria-keyshortcuts": "Shift+C",
               "aria-label": visibilityLabel,
               class: "eye",
               "data-comments-hidden": String(commentsHidden),
               onClick: () => (visibility.value = commentsHidden ? "all" : "hidden"),
-              title: visibilityLabel,
+              title: `${visibilityLabel} (Shift+C)`,
               type: "button",
             }, commentsHidden ? eyeOffIcon() : eyeIcon())
           : null,
       ]),
+      commenting ? h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]) : null,
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       canCopyPagePrompt.value
         ? h("button", {
             "data-action": "copy-page-prompt",
             onClick: () => void copyPagePrompt(),
-            title: pageAgent.value ? "Copy a prompt that sends your agent to these comments in the ViteHub Console" : "Copy a prompt with the open comments for your agent",
+            title: copyPromptTitle(),
             type: "button",
           }, h("span", { class: "swap" }, [
             h("span", { "data-shown": String(!pageCopied.value) }, [copyIcon(), "Copy prompt"]),
             h("span", { "data-shown": String(pageCopied.value) }, [checkIcon(), "Copied"]),
           ]))
         : null,
-      more.length > 0 ? h("div", { class: "more", hidden: !moreOpen.value, id: "vitehub-comments-more", role: "group", "aria-label": "More comment tools" }, more) : null,
-      more.length > 0
+      more.length === 1 ? more[0] : null,
+      more.length > 1 ? h("div", { class: "more", hidden: !moreOpen.value, id: "vitehub-comments-more", role: "group", "aria-label": "More comment tools" }, more) : null,
+      more.length > 1
         ? h("button", {
             "aria-controls": "vitehub-comments-more",
             "aria-expanded": String(moreOpen.value),
@@ -1149,6 +1184,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     })
   }
 
+  const hiddenToast: Toast = { text: "Comments hidden. Press Shift+C to show them.", kind: "info" }
+  function toggleVisibility() {
+    const hide = visibility.value !== "hidden"
+    visibility.value = hide ? "hidden" : "all"
+    if (hide) showToast(hiddenToast)
+    else if (toast.value === hiddenToast) toast.value = undefined
+  }
+
   function pressComments() {
     if (canComment.value) setMode("comment")
     else showPanel()
@@ -1256,7 +1299,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         return
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key === "c" && canComment.value) {
+      if (event.shiftKey && event.key.toLowerCase() === "c" && canComment.value) {
+        event.preventDefault()
+        if (!event.repeat) toggleVisibility()
+        return
+      }
+      if (event.key === "c" && !event.shiftKey && canComment.value) {
         event.preventDefault()
         if (!commentOnSelection()) setMode(commentOn.value ? "view" : "comment")
       }

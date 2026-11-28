@@ -110,6 +110,15 @@ describe("page tool window", () => {
     scheme = undefined
     dispatchEvent(new StorageEvent("storage", { key: "vitehub-console:appearance" }))
     expect(host.style.colorScheme).toBe("")
+    scheme = "light"
+    window.syncColorScheme()
+    expect(host.style.colorScheme).toBe("light")
+  })
+
+  it("leaves out the Expand window button when the tool sets expand: false", () => {
+    createViteHubPageWindow({ id: "comments", title: "Comments", trigger: document.createElement("button"), signal: new AbortController().signal, expand: false })
+    const header = document.querySelector<HTMLElement>("vitehub-window")!.shadowRoot!.querySelector("header")!
+    expect([...header.children].map(child => child.getAttribute("aria-label") ?? child.localName)).toEqual(["h2", "Minimize window"])
   })
 
   it("has an Open in new tab link only when the tool gives the window a URL", () => {

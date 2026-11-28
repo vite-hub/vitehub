@@ -3,7 +3,7 @@ const deliveryStyles = `
 .delivery[data-failed] { color: var(--vh-error); }
 `
 
-export const overlayStyles = `
+const themeTokens = `
 :host {
   all: initial;
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
@@ -13,6 +13,10 @@ export const overlayStyles = `
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
   --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #fafafa;
 }
+`
+
+export const overlayStyles = `
+${themeTokens}
 .root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
@@ -131,17 +135,28 @@ ${deliveryStyles}
 `
 
 /**
- * The list in the pill's window. The window opens from the dark pill, so the list is dark on light and dark pages,
- * like the comments panel of Drop: it sets the Nuxt UI tokens that the parts read.
+ * The list in the pill's window. It follows the page's theme, as the comment cards do: the overlay sets `.dark` on its
+ * host, which picks the Nuxt UI tokens that the parts read. The list has no background, so it shows the window's surface.
  */
 export const panelStyles = `
-:host {
-  all: initial; display: block; height: 100%; color-scheme: dark;
-  --ui-bg: #0a0a0a; --ui-bg-elevated: #171717; --ui-bg-accented: #262626; --ui-bg-muted: #171717; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #fafafa;
-}
+${themeTokens}
+:host { display: block; height: 100%; color-scheme: light; }
+:host(.dark) { color-scheme: dark; }
 .panel-root { height: 100%; }
-[data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
+[data-slot="comment-panel"] { height: 100%; background: none; border: 0; container-type: inline-size; }
+/* One row under the window's title: the filters on the left, the page's actions on the right. It never wraps. */
+[data-slot="comment-panel-header"] { flex-wrap: nowrap; gap: 8px; padding: 6px 8px; }
+/* In a window too narrow for the row, the filters scroll sideways and the actions keep their size. */
+[data-slot="comment-panel-filters"] { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+[data-slot="comment-panel-filters"] > * { flex: none; }
+[data-slot="comment-panel-actions"] { flex: none; flex-wrap: nowrap; }
+[data-slot="comment-panel-header"] button, [data-slot="comment-panel-header"] a { white-space: nowrap; }
+@container (max-width: 479px) {
+  [data-slot="comment-panel-actions"] [data-action="open-in-t3-code"] > span { display: none; }
+}
+@container (max-width: 299px) {
+  [data-slot="comment-panel-actions"] [data-action="copy-page-prompt"] > span:not([data-slot]) { display: none; }
+}
 ${deliveryStyles}
 `
 
