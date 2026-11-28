@@ -66,6 +66,36 @@ describe("Browser Run actions", () => {
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
+  it("returns the HTML of a Browser Run JSON result", async () => {
+    runtime.__env__ = { BROWSER: { quickAction: async () => Response.json({ success: true, result: "<html><title>ok</title></html>", meta: { status: 200 } }) } }
+
+    await expect(runBrowserContent("https://example.com")).resolves.toEqual([undefined, "<html><title>ok</title></html>"])
+  })
+
+  it("puts the Browser Run error in the message of a failed request", async () => {
+    runtime.__env__ = { BROWSER: { quickAction: async () => Response.json({ success: false, errors: [{ code: 5005, message: "DNS resolution failed", detail: "net::ERR_NAME_NOT_RESOLVED at https://example.invalid" }] }, { status: 422 }) } }
+
+    const [error] = await runBrowserContent("https://example.invalid")
+    expect(error).toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      message: "The Browser content request failed with status 422: DNS resolution failed (net::ERR_NAME_NOT_RESOLVED at https://example.invalid)",
+      status: 502,
+    })
+  })
+
+  it("keeps the error of a request that did not reach Browser Run", async () => {
+    const [missing] = await runBrowserContent("https://example.com")
+    expect(missing).toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      message: "The Browser content request failed: [vitehub:browser] cloudflare could not resolve Browser Run binding \"BROWSER\".",
+      cause: { code: "BROWSER_PROVIDER_ERROR" },
+    })
+
+    availability.current = { available: false, host: "node", reason: "Node has no Browser Provider.", fix: "Use the Cloudflare host." }
+    const [unavailable] = await runBrowserContent("https://example.com")
+    expect(unavailable).toMatchObject({ code: "BROWSER_CONTENT_FAILED", cause: { code: "BROWSER_UNAVAILABLE", details: { host: "node" } } })
+  })
+
   it("does not resolve an inherited Browser binding", async () => {
     const quickAction = vi.fn(async () => new Response("unexpected"))
     runtime.__env__ = Object.create({ BROWSER: { quickAction } })
@@ -116,8 +146,8 @@ describe("Browser Run actions", () => {
     const [error] = await runBrowserContent("https://example.com")
     expect(error).toMatchObject({
       code: "BROWSER_CONTENT_FAILED",
-      fix: expect.stringContaining("runBrowserAction(\"content\", input)"),
-      message: "Browser content request failed with status 500",
+      fix: expect.stringContaining("`error.cause`"),
+      message: "The Browser content request failed with status 500.",
     })
     expect(cancel).toHaveBeenCalledOnce()
   })
@@ -230,7 +260,7 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-    expect((await runBrowserContent("https://example.com"))[0]?.message).toBe("Browser content request failed with status 500")
+    expect((await runBrowserContent("https://example.com"))[0]?.message).toBe("The Browser content request failed with status 500.")
     expect(cancel).toHaveBeenCalledOnce()
   })
 

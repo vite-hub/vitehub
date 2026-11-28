@@ -160,7 +160,7 @@ describe("Browser Definitions", () => {
       })
 
       const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
-      const result = expect(invocation).rejects.toThrow("Browser content request failed with status 500")
+      const result = expect(invocation).rejects.toThrow("cloudflare could not run content quick action")
       await vi.advanceTimersByTimeAsync(30_000)
 
       await result

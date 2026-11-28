@@ -3,7 +3,7 @@ import { defineErrors } from "@vite-hub/runtime"
 import type { ErrorCatalog } from "@vite-hub/runtime"
 
 type BrowserRunErrorCodes = {
-  BROWSER_CONTENT_FAILED: { fix: string, status: number, why: (data: { status?: number }) => string }
+  BROWSER_CONTENT_FAILED: { fix: string, status: number, why: (data: { reason?: string, status?: number }) => string }
   BROWSER_DEFINITION_NOT_FOUND: { fix: string, status: number, why: (data: { name: string }) => string }
   BROWSER_RUN_FAILED: { fix: string, why: (data: { name: string }) => string }
 }
@@ -13,8 +13,11 @@ export const browserRunErrors: ErrorCatalog<BrowserRunErrorCodes> = /*#__PURE__*
   codes: {
     // Runtime errors.
     BROWSER_CONTENT_FAILED: {
-      why: ({ status }: { status?: number }) => status === undefined ? "The Browser content request failed." : `Browser content request failed with status ${status}`,
-      fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name. `error.cause` has the provider error when the read failed.",
+      why: ({ reason, status }: { reason?: string, status?: number }) => {
+        const request = status === undefined ? "The Browser content request failed" : `The Browser content request failed with status ${status}`
+        return reason ? `${request}: ${reason}` : `${request}.`
+      },
+      fix: "Fix the Browser binding or the input that the message names. `error.cause` has the error when the request did not reach Browser Run, such as `BROWSER_UNAVAILABLE` or a missing binding.",
       status: 502,
     },
     BROWSER_DEFINITION_NOT_FOUND: {
