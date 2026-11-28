@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { rm, writeFile } from "node:fs/promises"
+import { readFile, rm, stat, writeFile } from "node:fs/promises"
 import { constants } from "node:os"
 import { dirname, join } from "node:path"
 import process from "node:process"
+import { parseEnv } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
@@ -284,8 +285,9 @@ VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jg
     expect(result.stderr).toContain("Setting API_KEY on cloudflare with the new version from config/.env.production.")
   })
 
-  it("generates a missing VITEHUB_SECRET with --yes, uploads it, and prints only that it was set", async () => {
+  it("generates a missing VITEHUB_SECRET with --yes, keeps it in .env.production.local, and the next deploy reuses it", async () => {
     const root = await project("cloudflare", [appSecret])
+    execFileSync("git", ["init", "-q"], { cwd: root })
     const hosts = await fakeHosts(hostEnv.cloudflare)
     const result = await deploy([], root, hosts.env)
 
@@ -294,24 +296,33 @@ VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jg
     const value = call.secretsFile?.values?.VITEHUB_SECRET ?? ""
     expect(Buffer.from(value, "base64")).toHaveLength(32)
     expect(result.json.env).toMatchObject({ generated: ["VITEHUB_SECRET"], pushed: ["VITEHUB_SECRET"] })
-    expect(result.stderr).toContain("Generated VITEHUB_SECRET and set it on cloudflare.")
+    expect(result.stderr).toContain("Generated VITEHUB_SECRET, saved it in .env.production.local, and set it on cloudflare.")
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [value])
     expect(JSON.stringify(result.json)).not.toContain(value)
     expect((await hosts.state()).secrets.VITEHUB_SECRET).toBe(value)
+    const kept = join(root, ".env.production.local")
+    expect(parseEnv(await readFile(kept, "utf8"))).toEqual({ VITEHUB_SECRET: value })
+    expect((await stat(kept)).mode & 0o777).toBe(0o600)
 
-    const kept = await fakeHosts(hostEnv.cloudflare)
-    await seed(kept.env, { secrets: { VITEHUB_SECRET: "x" } })
-    const second = await deploy([], root, kept.env)
-    expect(second.exitCode).toBe(2)
-    expect(second.json.error?.code).toBe("SETUP_DEPLOY_ENV_STAGE_UNSAFE")
-    expect((await kept.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+    const second = await deploy([], root, hosts.env)
+    expect(second.exitCode, second.stderr).toBe(0)
+    expect(second.json.env).toMatchObject({ pushed: ["VITEHUB_SECRET"] })
+    expect(second.json.env.generated).toBeUndefined()
+    expect(second.stderr).toContain("Setting VITEHUB_SECRET on cloudflare with the new version from .env.production.local, replaced.")
+    expect((await hosts.calls()).at(-1)?.secretsFile?.values).toEqual({ VITEHUB_SECRET: value })
+    expectNoLeak(await hosts.calls(), second.stdout + second.stderr, [value])
+  })
 
-    const supplied = await deploy([], root, { ...kept.env, VITEHUB_SECRET: value })
-    expect(supplied.exitCode, supplied.stderr).toBe(0)
-    expect(supplied.json.env).toMatchObject({ pushed: ["VITEHUB_SECRET"] })
-    expect(supplied.json.env.generated).toBeUndefined()
-    expect((await kept.state()).secrets.VITEHUB_SECRET).toBe(value)
-    expectNoLeak(await kept.calls(), supplied.stdout + supplied.stderr, [value])
+  it("does not generate VITEHUB_SECRET into a local env file that git does not ignore", async () => {
+    const root = await project("cloudflare", [appSecret], { files: { ".gitignore": ".output\n.vitehub\n" } })
+    execFileSync("git", ["init", "-q"], { cwd: root })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await deploy([], root, hosts.env)
+
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_ENV_FILE_NOT_IGNORED", fix: expect.stringContaining(".env.production.local") })
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+    expect(existsSync(join(root, ".env.production.local"))).toBe(false)
   })
 
   it("sets each missing prefix member that the host lacks, even when the host has another member", async () => {
