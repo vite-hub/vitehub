@@ -160,7 +160,13 @@ describe("Browser Definitions", () => {
       })
 
       const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
-      const result = expect(invocation).rejects.toThrow("cloudflare could not run content quick action")
+      const result = expect(invocation).rejects.toMatchObject({
+        code: "BROWSER_CONTENT_FAILED",
+        cause: {
+          code: "BROWSER_PROVIDER_ERROR",
+          message: expect.stringContaining("cloudflare could not run content quick action"),
+        },
+      })
       await vi.advanceTimersByTimeAsync(30_000)
 
       await result

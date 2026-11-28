@@ -90,7 +90,7 @@ if (error) throw error
 console.log(html.includes("<h1>Example Domain</h1>")) // true
 ```
 
-The generated Browser registry infers the Definition's input and result types. `runBrowser()` returns `[error, data]`, where `data` is the value that the handler returned. An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`, and a failed handler or provider returns `BROWSER_RUN_FAILED` with the error in `error.cause`. A build without Browser throws `BROWSER_UNAVAILABLE`. `runBrowserContent()` returns `[error, html]`, with `BROWSER_CONTENT_FAILED` for a failed request. Its message has the Browser Run error, and `error.cause` has the error when the request did not reach Browser Run. In a route, `return toResponse(error)` from `vite-hub/runtime` answers with the status of the error.
+The generated Browser registry infers the Definition's input and result types. `runBrowser()` returns `[error, data]`, where `data` is the value that the handler returned. An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`, and a failed handler or provider returns `BROWSER_RUN_FAILED` with the error in `error.cause`. A build without Browser throws `BROWSER_UNAVAILABLE`. `runBrowserContent()` returns `[error, html]`, with `BROWSER_CONTENT_FAILED` for a failed request. Inspect `error.cause` on the server for the provider's JSON error body or the underlying Browser error. In a route, `return toResponse(error)` from `vite-hub/runtime` answers with the status of the error and omits the cause.
 
 Keep target validation beside the route or job that accepts the URL. A reusable Definition does not make an untrusted destination safe.
 

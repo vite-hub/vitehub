@@ -49,7 +49,7 @@ const [error, html] = await runBrowserContent('https://example.com')
 if (error) throw error
 ```
 
-`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns `[error, html]`. `html` is the page HTML, also when Browser Run answers with a JSON `{ success, result }` body. A failed request returns [`BROWSER_CONTENT_FAILED`](/docs/browser/diagnostics/browser_content_failed). Its message has the Browser Run error, and `error.cause` has the error when the request did not reach Browser Run, such as a missing binding. The input is a URL string or an object with `url` and provider options.
+`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns `[error, html]`. `html` is the page HTML, also when Browser Run answers with a JSON `{ success, result }` body. A failed request returns [`BROWSER_CONTENT_FAILED`](/docs/browser/diagnostics/browser_content_failed). Inspect `error.cause` on the server for the provider's JSON error body or an underlying error, such as a missing binding. Public error responses omit the cause. The input is a URL string or an object with `url` and provider options.
 
 Supported actions: `accessibilityTree`, `content`, `json`, `links`, `markdown`, `pdf`, `scrape`, `screenshot`, and `snapshot`.
 

@@ -1,3 +1,4 @@
+import { toResponse } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -72,23 +73,47 @@ describe("Browser Run actions", () => {
     await expect(runBrowserContent("https://example.com")).resolves.toEqual([undefined, "<html><title>ok</title></html>"])
   })
 
-  it("puts the Browser Run error in the message of a failed request", async () => {
-    runtime.__env__ = { BROWSER: { quickAction: async () => Response.json({ success: false, errors: [{ code: 5005, message: "DNS resolution failed", detail: "net::ERR_NAME_NOT_RESOLVED at https://example.invalid" }] }, { status: 422 }) } }
+  it("keeps Browser Run diagnostics out of public errors", async () => {
+    const url = "https://example.invalid?token=synthetic-secret"
+    const diagnostics = { success: false, errors: [{ code: 5005, message: "DNS resolution failed", detail: `net::ERR_NAME_NOT_RESOLVED at ${url}` }] }
+    const quickAction = vi.fn(async () => Response.json(diagnostics, { status: 422 }))
+    runtime.__env__ = { BROWSER: { quickAction } }
 
-    const [error] = await runBrowserContent("https://example.invalid")
+    const [error] = await runBrowserContent(url)
+    const response = toResponse(error)
+    expect(response.status).toBe(502)
+    expect(await response.text()).not.toContain("synthetic-secret")
+    expect(JSON.stringify(error)).not.toContain("synthetic-secret")
     expect(error).toMatchObject({
       code: "BROWSER_CONTENT_FAILED",
-      message: "The Browser content request failed with status 422: DNS resolution failed (net::ERR_NAME_NOT_RESOLVED at https://example.invalid)",
-      status: 502,
+      message: "The Browser content request failed with status 422.",
+      cause: diagnostics,
     })
+    expect(quickAction).toHaveBeenCalledOnce()
+  })
+
+  it.each(["binding", "body"])("keeps %s exceptions out of public errors", async (stage) => {
+    const original = new Error("Failed to load https://example.invalid?token=synthetic-secret")
+    runtime.__env__ = { BROWSER: { quickAction: async () => {
+      if (stage === "binding") throw original
+      return new Response(new ReadableStream({ start: controller => controller.error(original) }), { status: 422, headers: { "content-type": "application/json" } })
+    } } }
+
+    const [error] = await runBrowserContent("https://example.invalid")
+    expect(await toResponse(error).text()).not.toContain("synthetic-secret")
+    expect(JSON.stringify(error)).not.toContain("synthetic-secret")
+    expect(error).toMatchObject({ code: "BROWSER_CONTENT_FAILED", cause: { message: original.message, cause: original } })
   })
 
   it("keeps the error of a request that did not reach Browser Run", async () => {
     const [missing] = await runBrowserContent("https://example.com")
     expect(missing).toMatchObject({
       code: "BROWSER_CONTENT_FAILED",
-      message: "The Browser content request failed: [vitehub:browser] cloudflare could not resolve Browser Run binding \"BROWSER\".",
-      cause: { code: "BROWSER_PROVIDER_ERROR" },
+      message: "The Browser content request failed.",
+      cause: {
+        code: "BROWSER_PROVIDER_ERROR",
+        message: "[vitehub:browser] cloudflare could not resolve Browser Run binding \"BROWSER\".",
+      },
     })
 
     availability.current = { available: false, host: "node", reason: "Node has no Browser Provider.", fix: "Use the Cloudflare host." }

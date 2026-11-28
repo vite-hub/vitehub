@@ -144,7 +144,7 @@ function isJsonResponse(response: Response): boolean {
   return response.headers.get("content-type")?.toLowerCase().includes("json") === true
 }
 
-function parseQuickActionJson(text: string): { errors?: unknown, result?: unknown, success?: unknown } | undefined {
+function parseQuickActionJson(text: string): { result?: unknown, success?: unknown } | undefined {
   try {
     const value: unknown = JSON.parse(text)
     return value && typeof value === "object" && !Array.isArray(value) ? value : undefined
@@ -154,17 +154,9 @@ function parseQuickActionJson(text: string): { errors?: unknown, result?: unknow
   }
 }
 
-function quickActionErrorMessage(body: { errors?: unknown } | undefined): string | undefined {
-  const first: unknown = Array.isArray(body?.errors) ? body.errors[0] : undefined
-  if (!first || typeof first !== "object") return
-  const { message, detail } = first as { detail?: unknown, message?: unknown }
-  if (typeof message !== "string" || !message) return
-  return typeof detail === "string" && detail ? `${message} (${detail})` : message
-}
-
 /**
  * Read a page as HTML text with the Browser Run `content` action. A failed request returns `BROWSER_CONTENT_FAILED`:
- * its message has the Browser Run error, and `error.cause` has the error when the request did not reach Browser Run.
+ * inspect `error.cause` on the server for the provider diagnostics or underlying error.
  */
 export async function runBrowserContent(
   input: BrowserActionInput,
@@ -175,8 +167,7 @@ export async function runBrowserContent(
     response = await runQuickAction(await resolveBinding(), "content", normalized)
   }
   catch (error) {
-    const cause = toBrowserError(error)
-    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause, reason: cause.message }), undefined]
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause: toBrowserError(error) }), undefined]
   }
   if (!response.ok && !isJsonResponse(response)) {
     void response.body?.cancel().catch(() => {})
@@ -187,12 +178,11 @@ export async function runBrowserContent(
     text = await readQuickActionText(response, "content", normalized)
   }
   catch (error) {
-    const cause = toBrowserError(error)
-    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause, reason: cause.message }), undefined]
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause: toBrowserError(error), status: response.ok ? undefined : response.status }), undefined]
   }
   if (!isJsonResponse(response)) return [undefined, text]
   const body = parseQuickActionJson(text)
   if (response.ok && body?.success === true && typeof body.result === "string") return [undefined, body.result]
   if (response.ok && body?.success !== false) return [undefined, text]
-  return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status, reason: quickActionErrorMessage(body) }), undefined]
+  return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status, cause: body }), undefined]
 }
