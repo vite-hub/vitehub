@@ -22,7 +22,7 @@ describe("Workspace public errors", () => {
     expect(error.toJSON()).toEqual({
       code: "WORKSPACE_PATH_INVALID",
       details: { path: "../secrets" },
-      message: '[vitehub] The Workspace path "../secrets" is not a relative path inside the Workspace root. It is empty or absolute, it has a NUL byte, or it has a `.` or `..` part.',
+      message: '[vitehub] The Workspace path "../secrets" is not a relative path inside the Workspace root. It is empty or absolute, starts with a drive letter, has a NUL byte, or has a `.` or `..` part.',
       name: "ViteHubError",
     })
     expect(error).toMatchObject({ docs: "https://vitehub.dev/docs/workspace/diagnostics/workspace_path_invalid", fix: expect.stringContaining("`docs/guide.md`") })

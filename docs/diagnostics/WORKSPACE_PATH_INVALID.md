@@ -1,3 +1,7 @@
+---
+description: Learn why the Workspace rejected a reserved name or a path that is not relative to its root, and how to correct it.
+---
+
 A Workspace method rejects the path before it reads or writes the Store. `error.details.path` has the path. The `why` tells which of two problems the path has.
 
 ## Reserved name

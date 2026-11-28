@@ -18,8 +18,8 @@ Each Workspace name has one definition.
 
 File methods, Sessions, and history commits throw these codes as a `ViteHubError`. The error also has `why` and `fix`, and `details.path` names the path.
 
-- `WORKSPACE_PATH_INVALID`: the path uses a reserved name, or it is not a relative path inside the Workspace root. Reserved names are `.git` at any depth, `.vitehub` at the root, and their NTFS short names `git~N` and `vitehu~N`. A path that is empty or absolute, has a NUL byte, or has a `.` or `..` part is not relative.
-- `WORKSPACE_SOURCE_READ_ONLY`: a write, removal, or move targets a path that a Source owns. `details.source` names the Source when the Workspace knows it. Write outside the Source mount, or change the file where the Source reads it. For a Source with `sync: true`, `workspace.sync()` copies the change in. The Workspace operations answer with status 403.
+- [`WORKSPACE_PATH_INVALID`](/docs/workspace/diagnostics/workspace_path_invalid): the path uses a reserved name, or it is not a relative path inside the Workspace root.
+- [`WORKSPACE_SOURCE_READ_ONLY`](/docs/workspace/diagnostics/workspace_source_read_only): a write, removal, or move targets a path that a Source owns. `details.source` names the Source when the Workspace knows it. Write outside the Source mount, or change the file where the Source reads it. For a Source with `sync: true`, run `workspace.sync({ sources: ['handbook'] })` with its Source key in place of `handbook`. The Workspace operations answer with status 403.
 - `WORKSPACE_CONFLICT`: a conditional write found another digest or head. Read the file or ref again and retry.
 
 ## Retained history

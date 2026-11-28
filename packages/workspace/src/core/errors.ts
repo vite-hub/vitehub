@@ -30,8 +30,12 @@ export function workspaceError(message: string, options?: ErrorOptions): ViteHub
   return new ViteHubError(code, message, options)
 }
 
-export function workspaceConflict(message: string, options?: ViteHubErrorOptions): WorkspaceDiagnosticError {
-  return diagnosticError(workspaceErrorDiagnostics.WORKSPACE_CONFLICT({ message: message.replace(/^\[vitehub\] /, "") }), options, message)
+export function workspaceConflict(message: string, options?: ViteHubErrorOptions & { conditionalRemovalUnsupported?: boolean }): WorkspaceDiagnosticError {
+  const diagnostic = workspaceErrorDiagnostics.WORKSPACE_CONFLICT({
+    conditionalRemovalUnsupported: options?.conditionalRemovalUnsupported,
+    message: message.replace(/^\[vitehub\] /, ""),
+  })
+  return diagnosticError(diagnostic, options, message)
 }
 
 export function workspaceConflictError(path: string, expected: string | null, actual: string | undefined): WorkspaceDiagnosticError {

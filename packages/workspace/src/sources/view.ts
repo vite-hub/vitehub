@@ -21,7 +21,7 @@ import {
   statVirtualSourcePath,
   type SourceSnapshotScope,
 } from "./materialization.ts"
-import { resolveWorkspacePath, type ResolvedWorkspacePath } from "./resolver.ts"
+import { resolveWorkspacePath } from "./resolver.ts"
 import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 
@@ -152,7 +152,8 @@ async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSign
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore, options: { reuseStartupSnapshots?: boolean } = {}): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
-  const sources = allSources.filter(source => !source.requestOnly && (source.materialize === "lazy" || source.materialize === "startup"))
+  const mountSources = allSources.filter(source => source.materialize === "lazy" || source.materialize === "startup")
+  const sources = mountSources.filter(source => !source.requestOnly)
   const syncSources = allSources.filter(source => source.sync)
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
@@ -183,14 +184,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourceContexts.set(source.key, context)
     }
     return context
-  }
-
-  function lazySourceKey(path: string) {
-    return sources.find(source => sourceMountContainsPath(source, path))?.key
-  }
-
-  function syncSourceMountKey(path: string) {
-    return syncSources.find(source => source.mountPath && sourceMountContainsPath(source, path))?.key
   }
 
   function descriptorSourceForPath(path: string) {
@@ -572,11 +565,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return dedupeHits(results).slice(0, limit)
   }
 
-  function assertWritableStorePath(path: string, resolution: ResolvedWorkspacePath) {
-    const source = resolution.type === "source" ? resolution.sourceKey : lazySourceKey(resolution.workspacePath)
-    if (source) throw workspaceSourceReadOnlyError(path, source)
-  }
-
   async function previousStat(path: string) {
     return await store.stat(path)
   }
@@ -593,13 +581,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!sources.some(source => !source.mountPath && source.materialize === "startup")) return
     const owner = await readWorkspaceFileOwner(store, path)
     if (owner?.workspace !== definition.name || !owner.digest) return
-    if (sourceKey && owner.source !== sourceKey) return
+    if (sourceKey !== undefined && owner.source !== sourceKey) return
     const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === owner.source)
     if (!source) return
     if ((await store.stat(path))?.type !== "file") return
     const file = await store.readFile(path)
     if (!file) return
-    if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
+    if (typeof file.metadata?.source === "string" && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
     const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
     if (snapshot?.status !== "ready" || !Object.hasOwn(snapshot.items || {}, path)) return
     if (await sha256(file.content) === owner.digest) return file
@@ -619,69 +607,63 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
-  async function sourceBackedStoreKey(path: string) {
+  async function assertNoSourceClaims(path: string, workspacePath: string, claims: Set<string>) {
     if (!allSources.length) return
-    // A missing sidecar must not release ownership recorded by the current Source.
+    const fileOwner = (file: WorkspaceFile | null | undefined) => allSources.find(source => source.key === file?.metadata?.source)
+    const owner = workspacePath ? fileOwner(await store.readFile(workspacePath)) : undefined
+    if (owner) throw workspaceSourceReadOnlyError(path, owner.key)
+    if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
+
+    const matches = (item: string) => !workspacePath || item === workspacePath || item.startsWith(`${workspacePath}/`)
     for (const source of allSources) {
+      if (claims.has(source.key)) continue
       const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
-      if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return source.key
+      if (Object.keys(snapshot?.items ?? {}).some(matches)) claims.add(source.key)
+      else if (source.sync && store.getMeta) {
+        const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key, definition.name)))
+        if (Object.keys(state?.paths ?? {}).some(matches)) claims.add(source.key)
+      }
+      if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
     }
-    const owner = (file: WorkspaceFile | null | undefined) => allSources.find(source => source.key === file?.metadata?.source)?.key
-    const fileOwner = owner(await store.readFile(path))
-    if (fileOwner) return fileOwner
-    const stat = await store.stat(path)
-    if (stat?.type !== "directory") return
-    const entries = await store.list(path, { recursive: true })
-    for (const entry of entries) {
-      if (entry.type !== "file") continue
-      const childOwner = owner(await store.readFile(entry.path))
-      if (childOwner) return childOwner
+
+    if ((await store.stat(workspacePath))?.type === "directory") {
+      for (const entry of await store.list(workspacePath, { recursive: true })) {
+        if (entry.type !== "file") continue
+        const childOwner = fileOwner(await store.readFile(entry.path))
+        if (childOwner) claims.add(childOwner.key)
+        if (claims.size > 1) break
+      }
     }
+    if (claims.size) throw workspaceSourceReadOnlyError(path, claims.size === 1 ? [...claims][0] : undefined)
   }
 
-  async function syncedStateKey(path: string) {
-    if (!store.getMeta) return
-    for (const source of syncSources) {
-      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key, definition.name)))
-      if (!state) continue
-      if (state.paths[path]) return source.key
-      if (Object.keys(state.paths).some(item => item.startsWith(`${path}/`))) return source.key
-    }
-  }
-
-  // This check runs inside the Store mutation queue. It must not materialize
-  // Sources because materialization uses the same queue.
   function assertWritableDescriptorPath(path: string, workspacePath: string) {
     if (isDescriptorPath(workspacePath)) throw workspaceSourceReadOnlyError(path, descriptorSourceForPath(workspacePath)?.key)
   }
 
-  async function storeSourceKey(workspacePath: string) {
-    return syncSourceMountKey(workspacePath) ?? await syncedStateKey(workspacePath) ?? await sourceBackedStoreKey(workspacePath)
+  function sourceMountClaims(workspacePath: string, includeRequestOnly: boolean) {
+    const claims = new Set((includeRequestOnly ? mountSources : sources)
+      .filter(source => sourceMountContainsPath(source, workspacePath) || !source.requestOnly && typeof source.livePaths?.[workspacePath] === "string")
+      .map(source => source.key))
+    for (const source of syncSources) {
+      if (source.mountPath && sourceMountContainsPath(source, workspacePath)) claims.add(source.key)
+    }
+    return claims
   }
 
   async function assertWritableCurrentPath(path: string) {
     assertWritableDescriptorPath(path, path)
-    const resolution = resolveWorkspacePath(definition, path)
-    assertWritableStorePath(path, resolution)
-    const source = await storeSourceKey(resolution.workspacePath)
-    if (source) throw workspaceSourceReadOnlyError(path, source)
-  }
-
-  async function assertWritableResolvedStorePath(path: string, resolution: ResolvedWorkspacePath) {
-    assertWritableStorePath(path, resolution)
-    await materializeRootSourceForPath(resolution.workspacePath)
-    const source = await storeSourceKey(resolution.workspacePath)
-    if (source) throw workspaceSourceReadOnlyError(path, source)
+    const { workspacePath } = resolveWorkspacePath(definition, path)
+    await assertNoSourceClaims(path, workspacePath, sourceMountClaims(workspacePath, false))
   }
 
   async function assertWritablePath(path: string) {
     assertWritableDescriptorPath(path, normalizeWorkspacePath(path))
     const resolution = resolveWorkspacePath(definition, path)
     assertWritableDescriptorPath(path, resolution.workspacePath)
-    const materialized = allSources.find(source => (source.materialize === "lazy" || source.materialize === "startup")
-      && sourceMountContainsPath(source, resolution.workspacePath))
-    if (materialized) throw workspaceSourceReadOnlyError(path, materialized.key)
-    await assertWritableResolvedStorePath(path, resolution)
+    const claims = sourceMountClaims(resolution.workspacePath, true)
+    if (!claims.size) await materializeRootSourceForPath(resolution.workspacePath)
+    await assertNoSourceClaims(path, resolution.workspacePath, claims)
     return resolution
   }
 
@@ -726,9 +708,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!grant || writeGrants.get(grant) !== normalizedPath) {
           throw workspaceError(`[vitehub] Workspace rebase to take remote ${path} requires a Source write grant for that path.`)
         }
-        const materialized = allSources.find(source => (source.materialize === "lazy" || source.materialize === "startup")
-          && sourceMountIntersectsPath(source, normalizedPath))
-        if (materialized) throw workspaceSourceReadOnlyError(path, materialized.key)
+        const claims = new Set(mountSources.filter(source => sourceMountIntersectsPath(source, normalizedPath)).map(source => source.key))
+        if (claims.size) await assertNoSourceClaims(path, normalizedPath, claims)
       }
       await withWorkspaceStoreMutation(store, async () => {
         for (const grant of grants) await assertWritableCurrentPath(grant.path)
