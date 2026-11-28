@@ -674,7 +674,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       const theme = () => {
         panelHost.classList.toggle("dark", dark())
         target.classList.toggle("dark", dark())
-        opened.syncColorScheme()
+        opened.syncColorScheme?.()
       }
       theme()
       const themes = new MutationObserver(theme)
@@ -983,6 +983,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function commentOnPage() {
     if (!canComment.value || resolving.value) return
+    if (panelOpen.value) pageWindow?.hide()
     if (needsName.value) {
       namedMode.value = "page"
       namedQuote = undefined
@@ -1300,7 +1301,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
       if (event.shiftKey && event.key.toLowerCase() === "c" && canComment.value) {
         event.preventDefault()
-        toggleVisibility()
+        if (!event.repeat) toggleVisibility()
         return
       }
       if (event.key === "c" && !event.shiftKey && canComment.value) {

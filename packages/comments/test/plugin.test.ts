@@ -10,14 +10,12 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=23" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=24" data-vitehub-page-tools></script>`
 
-/** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
   const warn = console.warn
   console.warn = () => {}
   const session = async (event: unknown): Promise<CommentsUser | null> => {
-    // The page tools session passes its Request.
     const person = event instanceof Request ? /person=(\w+)/.exec(event.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
@@ -42,7 +40,6 @@ describe("Comments page tool", () => {
     install(app, { authorize: ({ subject }) => subject?.id === "/pricing" })
     const { tools } = (await pageSession(app, "", "/pricing/")).body
     expect(tools).toHaveLength(1)
-    // A reader gets the overlay at once, for the selection bar and the highlights.
     expect(tools[0].lazy).toBeUndefined()
     expect((await pageSession(app, "", "/private")).body.tools).toEqual([])
   })
@@ -66,7 +63,6 @@ describe("Comments page tool", () => {
     defineCommentsPlugin(options)(app)
     const session = await pageSession(app, "")
     expect(session.body.tools).toHaveLength(1)
-    // Only the button loads at first: the overlay script waits until the person presses it.
     expect(session.body.tools[0]).toMatchObject({ id: "comments", lazy: true })
     expect(session.cookie).toContain("vitehub-tools=1;")
     defineCommentsPlugin({ ...options, comments: defineComments({ identify: () => null }) })(app)
@@ -95,7 +91,6 @@ describe("Comments page tool", () => {
       body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", param: "comment" }] },
     })
     expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=0; Path=/; Max-Age=2592000; SameSite=Lax", body: { tools: [] } })
-    // Without authorize, anonymous people may not read.
     install(app)
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })

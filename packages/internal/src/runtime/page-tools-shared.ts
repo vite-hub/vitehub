@@ -1,8 +1,3 @@
-/**
- * The names and the session answer that the page tools server and the browser loader share. It has no DOM and no Node
- * code, so both sides import it.
- */
-
 /** The query that turns the page tools on for a page. `?vitehub=<tool id>` also opens that tool. */
 export const viteHubPageToolsQuery = "vitehub"
 
@@ -71,7 +66,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/tools"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=23"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=24"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads

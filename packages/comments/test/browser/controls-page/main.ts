@@ -24,5 +24,9 @@ start({
   onOpen() {},
   beforeExit() {},
   openTool: async () => false,
-  createWindow: (options: Parameters<typeof createViteHubPageWindow>[0]) => createViteHubPageWindow({ ...options, signal: controller.signal }),
+  createWindow: (options: Parameters<typeof createViteHubPageWindow>[0]) => {
+    const window = createViteHubPageWindow({ ...options, signal: controller.signal })
+    if (!new URLSearchParams(location.search).has("legacy-loader")) return window
+    return { body: window.body, show: window.show, hide: window.hide, destroy: window.destroy }
+  },
 } as unknown as Parameters<typeof start>[0])

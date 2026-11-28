@@ -35,7 +35,6 @@ describe("mounted page tools", () => {
       const asset = config.nitro!.publicAssets.find(asset => asset.baseURL?.endsWith("/_vitehub/page/assets"))!
       expect(sessionRoute).toBe(`${mount}/_vitehub/page/tools`)
       expect(asset.baseURL).toBe(`${mount}/_vitehub/page/assets`)
-      // Deny access so the real browser loader stops after the visitor check, without needing an overlay DOM.
       const authorize = vi.fn(() => false)
       const app = new H3()
         .get(sessionRoute, viteHubPageSessionHandler)
@@ -45,13 +44,12 @@ describe("mounted page tools", () => {
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()
       const src = /src="([^"]+)"/.exec(html)?.[1]
-      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=23`)
+      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=24`)
       const fetch = vi.fn(async (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, pageURL), init)))
       const executeLoader = async (url: string) => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))
         expect(response.status).toBe(200)
         const script = await response.text()
-        // Give the built module its browser URL and page hint while executing it in Node.
         compileFunction(script.replaceAll("import.meta.url", JSON.stringify(new URL(url, pageURL).href)), ["fetch", "location", "document"])(fetch, new URL(pageURL), { cookie: "" })
       }
       await executeLoader(src!)
@@ -65,7 +63,6 @@ describe("mounted page tools", () => {
       if (typeof page !== "string") throw new Error("Expected transformed SPA HTML")
       const inline = /<script type="module" data-vitehub-page-tools>(.*?)<\/script>/.exec(page)?.[1]
       if (!inline) throw new Error("Expected the SPA loader check")
-      // Substitute only the dynamic import boundary; execute the SPA's actual hint and URL selection.
       const load = vi.fn(executeLoader)
       compileFunction(inline.replace("import(", "load("), ["location", "document", "load"])(new URL(pageURL), { cookie: "" }, load)
       expect(load).toHaveBeenCalledWith(src)

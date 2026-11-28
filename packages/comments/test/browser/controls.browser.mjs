@@ -109,7 +109,11 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
   await t.test("Shift+C hides and shows comments with a toast, and plain c still toggles comment mode", async () => {
     const eye = tool.locator("button.eye")
     assert.deepEqual([await eye.getAttribute("title"), await eye.getAttribute("aria-keyshortcuts")], ["Hide comments (Shift+C)", "Shift+C"])
-    await page.keyboard.press("Shift+C")
+    await page.keyboard.down("Shift")
+    await page.keyboard.down("C")
+    await page.keyboard.down("C")
+    await page.keyboard.up("C")
+    await page.keyboard.up("Shift")
     assert.equal(await commentMode(), true)
     assert.deepEqual([await eye.getAttribute("aria-label"), await eye.getAttribute("title")], ["Show comments", "Show comments (Shift+C)"])
     const toast = page.locator("vitehub-comments .toast")
@@ -196,6 +200,25 @@ test("the pill controls, Shift+C, Copy prompt, and the All comments panel", { ti
     await page.evaluate(() => document.documentElement.classList.remove("dark"))
     await page.waitForFunction(() => document.querySelector("vitehub-window").style.colorScheme === "light")
     assert.ok(luminance((await layout()).color) < 100)
+  })
+
+  await t.test("the bottom-docked panel and the replacement composer are clickable at 320px", async () => {
+    await page.setViewportSize({ width: 320, height: 720 })
+    await panel.getByRole("radio", { name: /Open/ }).click({ trial: true, timeout: 5000 })
+    await panel.getByRole("radio", { name: /Resolved/ }).click({ trial: true, timeout: 5000 })
+    await panel.getByRole("button", { name: /Copy prompt|Copied/ }).click({ trial: true, timeout: 5000 })
+    await panel.getByRole("link", { name: "Open in T3 Code" }).click({ trial: true, timeout: 5000 })
+    await tool.locator("[data-action='more-tools']").click({ timeout: 5000 })
+    await tool.getByRole("button", { name: "Whole page" }).click({ timeout: 5000 })
+    await page.locator("vitehub-comments textarea[aria-label='Comment']").click({ timeout: 5000 })
+    assert.equal(await windowHost.isHidden(), true)
+  })
+
+  await t.test("All comments opens with a cached loader that lacks theme sync", async () => {
+    await page.goto(`http://127.0.0.1:${port}/?legacy-loader`)
+    await tool.getByTitle("Comment on the page (C)").click({ timeout: 5000 })
+    await tool.getByTitle("All comments on this page").click({ timeout: 5000 })
+    await panel.getByRole("radio", { name: /Open/ }).waitFor({ timeout: 5000 })
   })
 
   assert.deepEqual(errors, [])
