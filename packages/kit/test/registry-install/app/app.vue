@@ -28,6 +28,7 @@ import { Table, TableBody, TableCaption, TableCell, TableEmpty, TableHead, Table
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster, toast } from "@/components/ui/toast";
+import ChatDemo from "@/components/ChatDemo.vue";
 
 const route = useRoute();
 useHead({ htmlAttrs: { class: route.query.theme === "dark" ? "dark" : "" } });
@@ -303,6 +304,7 @@ function save() {
           </DropdownMenu>
         </CardContent>
       </Card>
+      <ChatDemo data-demo-section="chat" class="lg:col-span-2" />
     </div>
     <Toaster />
   </AppShell>

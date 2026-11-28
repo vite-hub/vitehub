@@ -37,7 +37,7 @@ The `@vitehub` registry speaks the shadcn-vue format. Add it to `components.json
 Then run `npx shadcn-vue@latest add @vitehub/<item>`, or pass the item URL. Install `@vitehub` items only: a stock shadcn-vue item brings Reka UI back into the app.
 
 - `@vitehub/vitehub`: the style. It writes the tokens into the app's CSS and copies the family CSS to `styles/vitehub.css`, which the app's main stylesheet imports after `@layer ui-sdk;`.
-- `@vitehub/<component>`: Tailwind components on ui-sdk, in the shadcn shape: `button`, `input`, `textarea`, `label`, `card`, `badge`, `avatar`, `dialog`, `sheet`, `dropdown-menu`, `tabs`, `table`, `sidebar`, `command`, `toast`, `skeleton`, `empty`, and the `app-shell` block. They bring `@vitehub/utils` (`cn()`) and `@vitehub/theme` (the tokens as Tailwind variables). Import them from `@/components/ui/<item>`.
+- `@vitehub/<component>`: Tailwind components on ui-sdk, in the shadcn shape: `button`, `input`, `textarea`, `label`, `card`, `badge`, `avatar`, `dialog`, `sheet`, `dropdown-menu`, `tabs`, `table`, `sidebar`, `command`, `toast`, `skeleton`, `empty`, and the `app-shell` block. For an Agent chat page: `message-list`, `message` (streamed Markdown through `@comark/vue`), `prompt-input` (text and files, `v-model`, `@submit`, `@stop`), and `tool-call` (`name`, `state`, `input`, `output`, `errorText`). They bring `@vitehub/utils` (`cn()`) and `@vitehub/theme` (the tokens as Tailwind variables). Import them from `@/components/ui/<item>`.
 
 Before you add the Tailwind components:
 
