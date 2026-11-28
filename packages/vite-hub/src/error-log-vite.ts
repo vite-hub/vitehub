@@ -1,4 +1,4 @@
-import { generatedNitroPlugin } from "./generated-nitro-plugin.ts"
+import { generatedNitroErrorHandler, generatedNitroPlugin } from "./generated-nitro-plugin.ts"
 
 import type { Plugin } from "vite"
 
@@ -43,7 +43,35 @@ export function renderErrorLogNitroHandler(): string {
   ].join("\n")
 }
 
+/**
+ * Render the Nitro error handler that answers a thrown ViteHub error, such as the `ResultError` of `[error] = await kv.get()`.
+ * It answers the status and body of `toResponse(error)`: `{ code, why, fix }` in development and `{ code }` in production.
+ * h3 keeps a status and a message only for an `HTTPError`, so without it the client gets a bare 500.
+ * A request that accepts HTML goes on to the framework's error page.
+ */
+export function renderResultErrorNitroHandler(): string {
+  return [
+    `import { isRuntimeDiagnostic, isViteHubError, toResponse } from "vite-hub/runtime"`,
+    "",
+    "export default async function viteHubResultErrorHandler(error, event) {",
+    "  const thrown = error?.unhandled === true && error.cause !== undefined ? error.cause : error",
+    "  if (!isRuntimeDiagnostic(thrown) && !isViteHubError(thrown)) return",
+    "  if (event.req.headers.get(\"accept\")?.includes(\"text/html\")) return",
+    "  const response = toResponse(thrown)",
+    "  if (import.meta.dev) return response",
+    "  const { code } = await response.json()",
+    "  return new Response(JSON.stringify({ code }), { headers: response.headers, status: response.status })",
+    "}",
+    "",
+  ].join("\n")
+}
+
 /** Register the generated Nitro plugin that logs unhandled request errors once, with their cause chain. */
 export function errorLogVitePlugin(): Plugin {
   return generatedNitroPlugin("vite-hub/error-log", "error-log.mjs", renderErrorLogNitroPlugin, { errorHandler: renderErrorLogNitroHandler })
+}
+
+/** Register the generated Nitro error handler that answers a thrown ViteHub error with its status and code. */
+export function resultErrorVitePlugin(): Plugin {
+  return generatedNitroErrorHandler("vite-hub/result-error", "result-error-handler.mjs", renderResultErrorNitroHandler)
 }

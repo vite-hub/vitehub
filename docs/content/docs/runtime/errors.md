@@ -75,6 +75,8 @@ A catalog code can give static or computed `data`. `defineErrors()` infers its t
 
 `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`. Cause, stack, sources, and `data` stay in memory and are never in the JSON. The `toJSON()` return type keeps the Nostics serializer fields, so `formatDiagnostic()` from Nostics accepts the error. Read `data` from the error itself.
 
+A route that throws a `ResultError` answers its catalog status with `{ code, why, fix }` in development and `{ code }` in production. See [Throw an error from a route](/docs/reference/errors-diagnostics#throw-an-error-from-a-route).
+
 `toResultError(diagnostic)` gives a Nostics diagnostic of another catalog the same public serializer. It keeps the same object when it can replace `name` and `toJSON`. Otherwise it makes a copy with the same code, text, cause, data, sources, and stack. You choose which codes you allow and which text is public.
 
 ## `ViteHubError`

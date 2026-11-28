@@ -2,10 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { defineErrors, isRuntimeDiagnostic, isViteHubError, normalizeRuntimeDiagnosticError, toResponse, ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { errorLogVitePlugin, renderErrorLogNitroHandler, renderErrorLogNitroPlugin } from "../src/error-log-vite.ts"
+import { errorLogVitePlugin, renderErrorLogNitroHandler, renderErrorLogNitroPlugin, renderResultErrorNitroHandler, resultErrorVitePlugin } from "../src/error-log-vite.ts"
 
 type ErrorHook = (error: unknown, context?: { event?: { req: { url: string, method: string } }, tags?: string[] }) => void
 
@@ -106,5 +106,74 @@ describe("generated error log Nitro plugin", () => {
     errorHook()(new Error("plugin failed"), { tags: ["plugin"] })
     expect(log.mock.calls[0]?.[0]).toBe("[vitehub] Unhandled error in plugin")
     expect(log.mock.calls[0]?.[1]).toMatchObject({ message: "plugin failed" })
+  })
+})
+
+type ResultErrorHandler = (error: unknown, event: { req: Request }) => Promise<Response | undefined>
+
+function resultErrorHandler(dev: boolean): ResultErrorHandler {
+  const source = renderResultErrorNitroHandler()
+    .replace(`import { isRuntimeDiagnostic, isViteHubError, toResponse } from "vite-hub/runtime"`, "")
+    .replace("import.meta.dev", "dev")
+    .replace("export default async function", "return async function")
+  // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
+  return new Function("isRuntimeDiagnostic", "isViteHubError", "toResponse", "dev", source)(isRuntimeDiagnostic, isViteHubError, toResponse, dev) as ResultErrorHandler
+}
+
+const errors = defineErrors({
+  docs: "https://vitehub.dev/docs/example",
+  codes: {
+    EXAMPLE_CONFLICT: { why: "Someone else saved first.", fix: "Read the record again, then save.", status: 409 },
+    EXAMPLE_FAILED: { why: "The provider failed.", fix: "Try again." },
+  },
+})
+
+const json = (url = "https://app.test/api/save") => ({ req: new Request(url, { headers: { accept: "application/json" } }) })
+
+describe("generated result error Nitro handler", () => {
+  it("answers a thrown ResultError with its status, code, why, and fix in development", async () => {
+    const response = await resultErrorHandler(true)(unhandled(errors.EXAMPLE_CONFLICT({ cause: new Error("secret provider detail") })), json())
+    expect(response?.status).toBe(409)
+    expect(response?.headers.get("content-type")).toBe("application/json; charset=utf-8")
+    expect(await response?.json()).toEqual({ code: "EXAMPLE_CONFLICT", why: "Someone else saved first.", fix: "Read the record again, then save." })
+  })
+
+  it("answers only the code in production", async () => {
+    const response = await resultErrorHandler(false)(unhandled(errors.EXAMPLE_CONFLICT()), json())
+    expect(response?.status).toBe(409)
+    expect(await response?.json()).toEqual({ code: "EXAMPLE_CONFLICT" })
+  })
+
+  it("answers 500 when the code has no status", async () => {
+    const response = await resultErrorHandler(false)(unhandled(errors.EXAMPLE_FAILED()), json())
+    expect(response?.status).toBe(500)
+    expect(await response?.json()).toEqual({ code: "EXAMPLE_FAILED" })
+  })
+
+  it("answers a ViteHubError with its code", async () => {
+    const response = await resultErrorHandler(false)(unhandled(new ViteHubError("EXAMPLE_BROKEN", "Broken.")), json())
+    expect(response?.status).toBe(500)
+    expect(await response?.json()).toEqual({ code: "EXAMPLE_BROKEN" })
+  })
+
+  it("leaves other errors and HTML requests to the next handler", async () => {
+    const handler = resultErrorHandler(true)
+    expect(await handler(unhandled(new Error("secret db password")), json())).toBeUndefined()
+    expect(await handler(Object.assign(new Error("Unauthorized"), { status: 401 }), json())).toBeUndefined()
+    const page = { req: new Request("https://app.test/save", { headers: { accept: "text/html,application/xhtml+xml" } }) }
+    expect(await handler(unhandled(errors.EXAMPLE_CONFLICT()), page)).toBeUndefined()
+  })
+
+  it("puts its error handler before the error handlers of the app and of the error log", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-result-error-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const config: { root: string, nitro: Record<string, unknown> } = { root, nitro: { errorHandler: "./server/error.ts" } }
+    for (const plugin of [errorLogVitePlugin(), resultErrorVitePlugin()]) {
+      if (typeof plugin.config !== "function") throw new TypeError("Expected a config hook.")
+      await plugin.config.call({} as never, config, { command: "serve", mode: "development" })
+    }
+    const handler = join(root, ".vitehub/nitro/result-error-handler.mjs")
+    expect(config.nitro.errorHandler).toEqual([handler, "./server/error.ts", join(root, ".vitehub/nitro/error-log-handler.mjs")])
+    expect(await readFile(handler, "utf8")).toBe(renderResultErrorNitroHandler())
   })
 })
