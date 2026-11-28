@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, viteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
@@ -15,7 +17,7 @@ import { siteAccessOperations } from "../src/console/runtime/server/site-access-
 import siteAccessRoute, { siteActionRoute } from "../src/console/runtime/server/site.ts"
 import { consoleEntryRoute, hostedCommentsEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
 import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
-import { readConsoleSiteVisitor, siteCookieNames } from "../src/console/runtime/server/site-visitor.ts"
+import { readConsoleSiteVisitor, siteCookieNames, siteSessionLifetime } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { siteActionBrowser } from "./support/site-token.ts"
@@ -299,6 +301,13 @@ describe("the site cookie", () => {
     vi.unstubAllEnvs()
     for (const [name, value] of Object.entries(other.env)) vi.stubEnv(name, value)
     expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie } }))).toBeUndefined()
+  })
+
+  it("tells the Console user that a revoked browser keeps access until its cookie ends", () => {
+    const site = readFileSync(new URL("../src/console/runtime/components/console-site.vue", import.meta.url), "utf8")
+    const consoleRevokes = site.match(/usesConsoleSiteAccess\(\)\s*\? \(revoking\.value\.session\.kind === "guest" \? "([^"]+)" : "([^"]+)"\)/)?.slice(1) ?? []
+    expect(consoleRevokes).toHaveLength(2)
+    for (const copy of consoleRevokes) expect(copy).toContain(`keeps access until its cookie ends, at most ${siteSessionLifetime / 3_600} hours`)
   })
 
   it("signs the browser out with a POST from a page of the app", async () => {
