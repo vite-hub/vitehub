@@ -1,5 +1,5 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
-import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_STORE, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
+import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, cloudflareAgentJournalHint, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_STORE, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { invariant } from "@vite-hub/internal/invariant"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
@@ -1005,6 +1005,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_STORE] = { d1: d1Binding }
     const libsql = defaultJournalNeedsLibsql({ build: true, databaseUrl: agentJournal?.databaseUrl, host: plan.host })
     await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot, stateUrl: agentJournalStateUrl(options) })
+    return cloudflareAgentJournalHint(plan.host, d1Binding, agentJournal?.databaseUrl)
   }
   await writeNuxtAgentJournal(options.database, journalDatabaseRoot)
   const nitro = (nuxt.options.nitro ??= {})
@@ -1478,7 +1479,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       hasReplayedDatabaseDiscoveryRoot,
       replayedDatabaseDiscoveryRoot,
     } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot, hint => nextHints.push(hint))
-    replayHints = nextHints
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(envPlugin.api.resolveDeclarations?.(replayConfig), viteRoot)
     // The replayed hooks can write declarations, such as the Blob store names. `nuxt prepare` builds nothing after this
     // hook, so reference them in `.vitehub/types.d.ts` now.
@@ -1488,12 +1488,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const replayedDatabase = hasReplayedDatabaseDiscoveryRoot
       ? getResolvedFeatureOptions<typeof options.database>(replayConfig, "database") ?? options.database
       : options.database
-    if (plan.host === "cloudflare") await writeNuxtAgentJournal(
-      replayedDatabase && replayedDatabase !== true && hasReplayedDatabaseDiscoveryRoot
-        ? { ...replayedDatabase, projectRoot: replayedDatabaseDiscoveryRoot }
-        : replayedDatabase,
-      hasReplayedDatabaseDiscoveryRoot ? projectRoot : journalDatabaseRoot,
-    )
+    if (plan.host === "cloudflare") {
+      const journalHint = await writeNuxtAgentJournal(
+        replayedDatabase && replayedDatabase !== true && hasReplayedDatabaseDiscoveryRoot
+          ? { ...replayedDatabase, projectRoot: replayedDatabaseDiscoveryRoot }
+          : replayedDatabase,
+        hasReplayedDatabaseDiscoveryRoot ? projectRoot : journalDatabaseRoot,
+      )
+      if (journalHint) nextHints.push(journalHint)
+    }
+    replayHints = nextHints
     if (consoleOptions) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, effectiveKV)
       const replayedBlob = getResolvedFeatureOptions<ViteHubOptions["blob"]>(replayConfig, "blob") ?? effectiveBlob
