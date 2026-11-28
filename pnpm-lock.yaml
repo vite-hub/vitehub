@@ -1127,6 +1127,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.2)
+      magic-string:
+        specifier: ^1.4.5
+        version: 1.4.5
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
