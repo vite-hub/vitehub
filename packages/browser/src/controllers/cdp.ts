@@ -14,6 +14,8 @@ interface CDPSocket extends EventTarget {
 }
 
 export interface CDPClient {
+  /** The page target that the connection names, such as the page that `cdpBrowser()` opened for this session. */
+  readonly preferredTargetId?: string
   on(method: string, listener: (params: unknown, sessionId?: string) => void): () => void
   send<TResult = unknown>(method: string, params?: object, sessionId?: string): Promise<TResult>
 }
@@ -217,6 +219,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
 
       return {
         client: {
+          ...(connection.preferredTargetId ? { preferredTargetId: connection.preferredTargetId } : {}),
           on(method, listener) {
             const methodListeners = listeners.get(method) ?? new Set()
             methodListeners.add(listener)

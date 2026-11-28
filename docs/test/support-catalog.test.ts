@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { featureIds, featureSupport, impliedFeatures } from "@vite-hub/internal/features";
@@ -89,9 +89,17 @@ describe("support matrix and feature catalog", () => {
   });
 
   it("keeps the Markdown tables of the support page generated from the matrix", () => {
-    const page = readFileSync(supportPage, "utf8");
+    let page = readFileSync(supportPage, "utf8");
+    if (process.env.VITEHUB_UPDATE_SUPPORT_MATRIX === "1") {
+      for (const anchor of catalogGroups) {
+        const table = generatedTable(page, anchor);
+        if (table !== undefined) page = page.replace(table, renderSupportMatrixMarkdownTable(anchor));
+      }
+      writeFileSync(supportPage, page);
+    }
     for (const anchor of catalogGroups) {
-      expect(generatedTable(page, anchor), anchor).toBe(renderSupportMatrixMarkdownTable(anchor));
+      expect(generatedTable(page, anchor), `${anchor}: run this test with VITEHUB_UPDATE_SUPPORT_MATRIX=1 to write the table.`)
+        .toBe(renderSupportMatrixMarkdownTable(anchor));
     }
   });
 });

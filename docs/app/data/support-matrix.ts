@@ -155,9 +155,9 @@ const serverPrimitives: SupportMatrixGroup = {
   label: "Server primitives",
   rows: [
     featureRow("browser", "Provider-backed browser operations", cell(
-      "none",
-      "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
-      "—",
+      "package",
+      "Browser Definitions start a local Chromium on a Node.js server preset, or connect to the Chromium at `BROWSER_CDP_URL`.",
+      "Local Chromium",
     )),
     featureRow("blob", "Object storage", cell(
       "package",

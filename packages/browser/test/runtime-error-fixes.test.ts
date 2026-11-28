@@ -33,8 +33,8 @@ describe("Browser runtime error fixes", () => {
     }))
   })
 
-  it("asks for the Chromium path in localBrowser()", () => {
-    expect(() => localBrowser({} as never)).toThrow(expect.objectContaining({
+  it("asks for a Chromium path string in localBrowser()", () => {
+    expect(() => localBrowser({ executablePath: "" })).toThrow(expect.objectContaining({
       code: "BROWSER_R0007",
       fix: expect.stringContaining("`localBrowser({ executablePath })`"),
     }))

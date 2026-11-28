@@ -13,11 +13,12 @@ Start with Browser Definitions, one file per browser task. Use Browser actions f
 | Import | Use |
 | --- | --- |
 | `defineBrowser`, `runBrowser` from `vite-hub/browser` | Declare and run Browser Definitions. |
-| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser` | Run one stateless Browser Run action. |
+| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser` | Run one stateless action. Off Cloudflare, only `content` works. |
 | `isBrowserAvailable` from `vite-hub/browser` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
 | `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run driver. |
 | `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium driver for trusted Node hosts. |
+| `cdpBrowser` from `vite-hub/browser/providers/cdp` | Low-level driver for a remote Chromium over CDP, such as Browserless. |
 | `playwright`, `cdp` from `vite-hub/browser/controllers/playwright` and `vite-hub/browser/controllers/cdp` | Attach Playwright or CDP to a low-level session. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Add the Vite plugin without the `vite-hub` package. |
 
@@ -110,7 +111,7 @@ If reading the controller client or attach tracing fails, ViteHub releases the c
 
 For the Playwright controller on Cloudflare, install `@cloudflare/playwright` and `playwright-core`. Cloudflare builds use the `workerd` export condition and leave out the Node Playwright loader. Standalone Worker bundlers must also use `workerd`. The built-in Playwright CDP adapter needs Node.js.
 
-`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process. It rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Call `session.close()` when you are done.
+`localBrowser()` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. Without `executablePath`, it finds one the same way as Browser Definitions on Node. `sandbox: false` runs Chromium without its sandbox. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process. It rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Call `session.close()` when you are done.
 
 ## Live handoff
 

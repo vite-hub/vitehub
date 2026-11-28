@@ -9,10 +9,14 @@ import {
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { resolveHost } from "@vite-hub/internal/hosting"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { cloneRecord } from "@vite-hub/internal/object"
 import {
   createNoExternalAddition,
+  getDeploymentHost,
+  isProductionBuild,
   isServerEnvironment,
   resolveViteHubProjectRoot,
   shouldSkipViteProviderBuild,
@@ -25,18 +29,23 @@ export { discoverBrowserDefinitions } from "./discovery.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { BrowserEngine } from "./types.ts"
+import type { BrowserEngine, BrowserHostDriver } from "./types.ts"
 import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BrowserOptions {
+  /** The Cloudflare Browser Run binding. */
   binding?: string
+  /** The Browser Run engine. */
   engine?: BrowserEngine
+  /** Use the Cloudflare Browser Run binding in dev, not a local Chromium. */
   remote?: boolean
 }
 
 export type BrowserVitePlugin = Plugin & {
   api: {
     getConfig(): Required<BrowserOptions>
+    /** The driver that this build gives Browser Definitions. */
+    getDriver(): BrowserHostDriver
   }
   vitehub: ViteHubInspectionPluginMetadata
 }
@@ -84,6 +93,18 @@ function resolveOptions(options: BrowserOptions | false | undefined): Required<B
   }
   return { binding, engine, remote: Boolean(options && options.remote) }
 }
+
+/**
+ * Browser Run on a Cloudflare build, and in Cloudflare dev with `remote: true`. A remote Chromium at `BROWSER_CDP_URL`
+ * on a Vercel, Deno, or Netlify build, where a function cannot start Chromium. A local Chromium in every other case.
+ */
+export function selectBrowserDriver(host: string | undefined, build: boolean, remote: boolean): BrowserHostDriver {
+  if (host === "cloudflare") return build || remote ? "cloudflare" : "local"
+  if (build && (host === "vercel" || host === "deno" || host === "netlify")) return "cdp"
+  return "local"
+}
+
+const hostDriverModule = ownModule(import.meta.url, "internal/host-driver")
 
 function browserBinding(options: Required<BrowserOptions>) {
   return {
@@ -147,6 +168,8 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let projectRoot = process.cwd()
   let serverDirs: string[] | undefined
+  let host: string | undefined
+  let driver: BrowserHostDriver = "local"
 
   function discoverDefinitions(root: string) {
     return discoverBrowserDefinitions({
@@ -173,13 +196,18 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
   function runtimeContents() {
     const config = enabled ? {
       binding: resolvedOptions.binding,
-      driver: "cloudflare",
+      driver,
       engine: resolvedOptions.engine,
+      ...(host ? { host } : {}),
     } : {}
+    const cloudflare = enabled && driver === "cloudflare"
     return [
-      ...(enabled && resolvedOptions.engine === "chromium"
-        ? ["export const loadCloudflarePlaywright = () => import(\"@cloudflare/playwright\")"]
-        : ["export const loadCloudflarePlaywright = undefined"]),
+      cloudflare && resolvedOptions.engine === "chromium"
+        ? "export const loadCloudflarePlaywright = () => import(\"@cloudflare/playwright\")"
+        : "export const loadCloudflarePlaywright = undefined",
+      enabled && !cloudflare
+        ? `export const loadHostDriver = async () => (await import(${JSON.stringify(hostDriverModule)})).hostBrowserDriver`
+        : "export const loadHostDriver = undefined",
       `export default ${JSON.stringify(config, null, 2)}`,
       "",
     ].join("\n")
@@ -200,19 +228,21 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
     )
   }
 
-  const applyConfig = (config: { nitro?: unknown, root?: string }) => {
+  const applyConfig = (config: { nitro?: unknown, root?: string }, command: string | undefined) => {
     enabled = options !== false
     resolvedOptions = resolveOptions(options)
+    host = resolveHost({ hosting: getDeploymentHost(config), nitro: config.nitro })
+    driver = selectBrowserDriver(host, isProductionBuild(config, command ? { command } : undefined), resolvedOptions.remote)
     projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
     // SAFETY: ViteHub decorates resolved config with this symbol and only stores server-directory strings.
     serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-    config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled)
+    config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled && host === "cloudflare")
   }
 
   return {
     name: "@vite-hub/browser/vite",
     enforce: "pre",
-    api: { getConfig: () => resolvedOptions },
+    api: { getConfig: () => resolvedOptions, getDriver: () => driver },
     vitehub: {
       inspect: () => {
         if (!enabled) return
@@ -222,21 +252,23 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
             label: "Browsers",
             list: () => inspectBrowserDefinitions({ projectRoot, rootDir: resolved?.root ?? projectRoot, serverDirs }),
           }],
-          providerOutput: [{
-            description: "Generated Cloudflare Browser worker config",
-            owner: "browser",
-            path: resolve(createDefaultCloudflareOutputRoot(resolved?.root ?? projectRoot), "wrangler.json"),
-          }],
+          providerOutput: driver === "cloudflare"
+            ? [{
+                description: "Generated Cloudflare Browser worker config",
+                owner: "browser",
+                path: resolve(createDefaultCloudflareOutputRoot(resolved?.root ?? projectRoot), "wrangler.json"),
+              }]
+            : [],
         }
       },
     },
-    config(config) {
-      applyConfig(config)
+    config(config, environment) {
+      applyConfig(config, environment?.command)
     },
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      applyConfig(config)
+      applyConfig(config, config.command)
       await refreshRegistryTypes(config.root)
     },
     configEnvironment(name, config) {
@@ -278,7 +310,7 @@ export function hubBrowser(options?: BrowserOptions | false): BrowserVitePlugin 
       if (!resolved || shouldSkipViteProviderBuild(resolved.command)) return
       const rootDir = resolved.root
       const clientOutDir = resolved.build.outDir
-      const cloudflare = enabled
+      const cloudflare = enabled && driver === "cloudflare"
         ? {
             wranglerConfig: {
               browser: browserBinding(resolvedOptions),

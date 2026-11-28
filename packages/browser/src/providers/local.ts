@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process"
+import { existsSync, readdirSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { isPlainObject } from "@vite-hub/internal/object"
@@ -16,8 +17,106 @@ import { browserErrorDiagnostics } from "../error-diagnostics.ts"
 export interface LocalBrowserOptions {
   args?: string[]
   env?: Record<string, string | undefined>
-  executablePath: string
+  /** The Chromium binary. Without it, the session finds one with `findChromiumExecutable()` when it opens. */
+  executablePath?: string
+  /**
+   * Runs Chromium in its own sandbox. Defaults to `true`. Set `false` on a trusted host that blocks the sandbox, such as
+   * Ubuntu 23.10+ without unprivileged user namespaces. A root process always runs without it, because Chromium refuses it.
+   */
+  sandbox?: boolean
   startupTimeout?: number
+}
+
+type Platform = "darwin" | "linux" | "win32"
+
+const playwrightBinaries: Record<Platform, string[]> = {
+  darwin: [
+    "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    "chrome-headless-shell-mac-x64/chrome-headless-shell",
+    "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+  ],
+  linux: [
+    "chrome-headless-shell-linux64/chrome-headless-shell",
+    "chrome-linux/headless_shell",
+    "chrome-linux64/chrome",
+    "chrome-linux/chrome",
+  ],
+  win32: [
+    "chrome-headless-shell-win64/chrome-headless-shell.exe",
+    "chrome-win64/chrome.exe",
+    "chrome-win/chrome.exe",
+  ],
+}
+
+const systemBinaries: Record<Platform, string[]> = {
+  darwin: [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  ],
+  linux: [
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/snap/bin/chromium",
+  ],
+  win32: [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  ],
+}
+
+function playwrightCache(env: Record<string, string | undefined>, platform: Platform): string {
+  if (env.PLAYWRIGHT_BROWSERS_PATH && env.PLAYWRIGHT_BROWSERS_PATH !== "0") return env.PLAYWRIGHT_BROWSERS_PATH
+  if (platform === "darwin") return join(homedir(), "Library", "Caches", "ms-playwright")
+  if (platform === "win32") return join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ms-playwright")
+  return join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "ms-playwright")
+}
+
+function playwrightExecutable(env: Record<string, string | undefined>, platform: Platform): string | undefined {
+  const cache = playwrightCache(env, platform)
+  let entries: string[]
+  try {
+    entries = readdirSync(cache)
+  }
+  catch {
+    return undefined
+  }
+  const revision = (name: string) => Number(name.slice(name.lastIndexOf("-") + 1)) || 0
+  const installs = entries
+    .filter(name => /^chromium(?:_headless_shell)?-\d+$/.test(name))
+    .sort((left, right) => revision(right) - revision(left) || (left.includes("headless") ? -1 : 1))
+  for (const install of installs) {
+    if (!existsSync(join(cache, install, "INSTALLATION_COMPLETE"))) continue
+    for (const binary of playwrightBinaries[platform]) {
+      const path = join(cache, install, binary)
+      if (existsSync(path)) return path
+    }
+  }
+  return undefined
+}
+
+/**
+ * Finds a Chromium for `localBrowser()`: `BROWSER_EXECUTABLE_PATH`, then the newest Chromium that Playwright installed,
+ * then Chrome or Chromium in the usual system paths. Returns `undefined` when there is none.
+ */
+export function findChromiumExecutable(env: Record<string, string | undefined> = process.env): string | undefined {
+  const configured = env.BROWSER_EXECUTABLE_PATH?.trim()
+  if (configured) return configured
+  const platform: Platform = process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux"
+  return playwrightExecutable(env, platform) ?? systemBinaries[platform].find(path => existsSync(path))
+}
+
+function resolveExecutable(options: LocalBrowserOptions): string {
+  const executablePath = options.executablePath ?? findChromiumExecutable({ ...process.env, ...options.env })
+  if (!executablePath) {
+    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: "[vitehub:browser] Browser found no Chromium on this host. BROWSER_EXECUTABLE_PATH is not set, and no Playwright or system Chromium is installed." })
+  }
+  if (!existsSync(executablePath)) {
+    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: `[vitehub:browser] BROWSER_EXECUTABLE_PATH points to ${JSON.stringify(executablePath)}, but no Chromium binary exists at that path on this host.` })
+  }
+  return executablePath
 }
 
 function isString(value: unknown): value is string {
@@ -55,7 +154,32 @@ async function openPort(): Promise<number> {
   })
 }
 
+function chromiumRefusesSandboxAsRoot(): boolean {
+  return process.getuid?.() === 0
+}
+
+function readStartupStderr(child: ChildProcess): { stop: () => void, text: () => string } {
+  let output = ""
+  const onData = (chunk: Buffer) => { output = `${output}${chunk.toString("utf8")}`.slice(-8_192) }
+  child.stderr?.on("data", onData)
+  return {
+    stop() {
+      child.stderr?.off("data", onData)
+      child.stderr?.resume()
+    },
+    text: () => output,
+  }
+}
+
+function exitError(child: ChildProcess, output: string) {
+  if (output.includes("No usable sandbox")) {
+    return browserErrorDiagnostics.BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE()
+  }
+  return browserErrorDiagnostics.BROWSER_R0006({ message: `Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).` })
+}
+
 async function waitForEndpoint(port: number, child: ChildProcess, timeout: number): Promise<string> {
+  const startupOutput = readStartupStderr(child)
   let rejectSpawn!: (error: unknown) => void
   let timer: ReturnType<typeof setTimeout> | undefined
   const spawnError = new Promise<never>((_resolve, reject) => { rejectSpawn = reject })
@@ -74,9 +198,7 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
       let lastError: unknown
       while (Date.now() - startedAt < timeout) {
         if (child.exitCode !== null || child.signalCode !== null) {
-          throw browserProviderError("local", "start Chromium", {
-            cause: browserErrorDiagnostics.BROWSER_R0006({ message: `Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).` }),
-          })
+          throw browserProviderError("local", "start Chromium", { cause: exitError(child, startupOutput.text()) })
         }
         try {
           const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
@@ -99,6 +221,7 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
     controller.abort()
     if (timer) clearTimeout(timer)
     child.off("error", onError)
+    startupOutput.stop()
   }
 }
 
@@ -116,9 +239,9 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   }
 }
 
-export function localBrowser(options: LocalBrowserOptions): BrowserDriver<CDPBrowserConnection> {
-  if (!options?.executablePath || !isString(options.executablePath)) {
-    throw browserErrorDiagnostics.BROWSER_R0007({ message: "[vitehub:browser] localBrowser() requires an executablePath." })
+export function localBrowser(options: LocalBrowserOptions = {}): BrowserDriver<CDPBrowserConnection> {
+  if (options?.executablePath !== undefined && (!options.executablePath || !isString(options.executablePath))) {
+    throw browserErrorDiagnostics.BROWSER_R0007({ message: "[vitehub:browser] localBrowser() executablePath must be a non-empty string." })
   }
   const startupTimeout = options.startupTimeout ?? 15_000
   if (!Number.isFinite(startupTimeout) || startupTimeout <= 0 || startupTimeout > 2_147_483_647) {
@@ -134,12 +257,13 @@ export function localBrowser(options: LocalBrowserOptions): BrowserDriver<CDPBro
       if (openOptions.idleTimeoutMs !== undefined) {
         throw browserProviderError("local", "configure an idle timeout for a local Chromium")
       }
+      const executablePath = resolveExecutable(options)
       let profile: string | undefined
       let child: ChildProcess | undefined
       try {
         const port = await openPort()
         profile = await mkdtemp(join(tmpdir(), "vitehub-browser-"))
-        child = spawn(options.executablePath, [
+        child = spawn(executablePath, [
           "--headless=new",
           "--disable-background-networking",
           "--disable-default-apps",
@@ -148,11 +272,12 @@ export function localBrowser(options: LocalBrowserOptions): BrowserDriver<CDPBro
           "--no-first-run",
           `--remote-debugging-port=${port}`,
           `--user-data-dir=${profile}`,
+          ...(options.sandbox === false || chromiumRefusesSandboxAsRoot() ? ["--no-sandbox"] : []),
           "about:blank",
           ...(options.args || []),
         ], {
           env: { ...process.env, ...options.env },
-          stdio: "ignore",
+          stdio: ["ignore", "ignore", "pipe"],
         })
         const endpoint = await waitForEndpoint(port, child, startupTimeout)
         let closed = false

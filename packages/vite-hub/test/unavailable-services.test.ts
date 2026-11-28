@@ -62,7 +62,7 @@ describe("services that a build does not enable", () => {
     { host: "cloudflare", output: ".output/server", reason: "vitehub() does not enable Browser." },
     { host: "deno", output: ".output/server", reason: "Deno Deploy has no built-in Browser Provider." },
     { host: "netlify", output: ".netlify", reason: "Netlify has no built-in Browser Provider." },
-    { host: "vercel", output: ".vercel/output/functions", reason: "Vercel has no built-in Browser Provider." },
+    { host: "vercel", output: ".vercel/output/functions", reason: "vitehub() does not enable Browser." },
   ] as const)("builds for $host and bundles why Browser is off", async ({ output, host, reason }) => {
     const root = await buildApp({ host })
     expect(await readServerOutput(join(root, output))).toContain(reason)
@@ -77,11 +77,11 @@ describe("services that a build does not enable", () => {
         error: {
           code: "BROWSER_UNAVAILABLE",
           details: {
-            fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+            fix: "Set `browser: true` in vitehub().",
             host: "node",
-            reason: "The Node host has no built-in Browser Provider.",
+            reason: "vitehub() does not enable Browser.",
           },
-          message: "[vitehub:browser] Browser is not available on the node host. The Node host has no built-in Browser Provider. Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+          message: "[vitehub:browser] Browser is not available on the node host. vitehub() does not enable Browser. Set `browser: true` in vitehub().",
         },
         status: 500,
       },

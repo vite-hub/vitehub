@@ -465,7 +465,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0088: {
       ...dynamicError,
-      fix: "Set `host: \"cloudflare\"` in `vitehub()`, or remove `browser`.",
+      fix: "Set `host` in `vitehub()` to `\"cloudflare\"`, `\"node\"`, or `\"vercel\"`, or remove `browser`.",
     },
     VITE_HUB_R0089: {
       ...dynamicError,

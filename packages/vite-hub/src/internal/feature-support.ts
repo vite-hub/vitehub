@@ -7,7 +7,7 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 /** The features that `vitehub()` checks when the app turns them on, with the error for a host that cannot provide them. */
 const featureErrors = {
-  browser: () => viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare host." }),
+  browser: () => viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser runs on the Cloudflare, Node, and Vercel hosts." }),
 } satisfies Partial<Record<FeatureId, () => Error>>
 
 export type CheckedFeature = keyof typeof featureErrors

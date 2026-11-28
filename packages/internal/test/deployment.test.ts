@@ -61,7 +61,7 @@ describe("built-in deployment plans", () => {
   it("says which presets provide Browser and Realtime", () => {
     const presets = ["cloudflare", "deno", "netlify", "node", "vercel"] as const
     expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.browser.supported]))).toEqual({
-      cloudflare: true, deno: false, netlify: false, node: false, vercel: false,
+      cloudflare: true, deno: false, netlify: false, node: true, vercel: true,
     })
     expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.realtime.supported]))).toEqual({
       cloudflare: true, deno: false, netlify: false, node: true, vercel: false,

@@ -29,7 +29,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 <!-- support-matrix:server-primitives:start -->
 | Primitive | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Browser | — | Browser Run | — | — | — | — | — |
+| Browser | Local Chromium | Browser Run | Remote CDP | — | — | Local Chromium | Local Chromium |
 | Blob | fs | R2 | Vercel Blob | Netlify Blobs | S3 | Host driver | fs / S3 |
 | Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
 | Database | SQLite | D1 | libSQL / D1 / Postgres | libSQL / D1 / Postgres | libSQL / D1 / Postgres | Nuxt D1 | SQLite / libSQL / Postgres |
@@ -74,7 +74,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 
 The table names built-in providers or adapters.
 
-- **Browser:** Browser Definitions require the Cloudflare host. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ driver: localBrowser({ executablePath }) })`, but Browser Definitions do not select that driver.
+- **Browser:** Browser Definitions use Browser Run on Cloudflare, a local Chromium on Node and in dev, and the Chromium at `BROWSER_CDP_URL` on Vercel. `BROWSER_EXECUTABLE_PATH` picks the local binary, and `BROWSER_CDP_URL` also works on Node. Cloudflare dev uses Browser Run with `remote: true`.
 - **Email:** `email: true` selects Cloudflare Email on the Cloudflare host. On other hosts, `vite dev` keeps each message in the development outbox and sends nothing, and a production build fails with `VITE_HUB_R0089` until you set `email.driver`, such as `resend`.
 - **Realtime:** Production uses Cloudflare Durable Objects on Cloudflare. On Node, `auto` picks Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else memory in one process. Vercel, Netlify, and Deno builds with Realtime Definitions fail.
 
@@ -172,15 +172,12 @@ The Nuxt module has its own check. CI packs the ViteHub packages, installs them 
 | `device` | Tested | Tested | Tested | Tested |
 | `forge` | Tested | Tested | Tested | Tested |
 | `shell` | Tested | Tested | Tested | Tested |
-| `browser` | Not tested | Not tested | Tested | Not tested |
+| `browser` | Tested | Tested | Tested | Tested |
 
 Not tested:
 
 - `sandbox`, Node build: The Vercel Sandbox driver needs credentials in a Node production build, which this local check does not have.
 - `sandbox`, Cloudflare build: `wrangler dev` does not start the Sandbox Container on a local machine: workerd logs `kj/timer.c++:30: overloaded: operation timed out` and then `exec() cannot be called on a container that is not running`, with rootless Docker and with rootful Docker 29. The repository's local e2e also treats Sandbox as live-only, and the `Sandbox Task Live E2E` job in live-smoke.yml runs it on Cloudflare.
-- `browser`, Node build: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.
-- `browser`, Node dev: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.
-- `browser`, Cloudflare dev: vite-hub reports Browser as unsupported in dev, and in `nuxt dev` with the Cloudflare preset the content action answers 500. `wrangler dev` on the build output runs the Browser Run binding.
 
 Packages without a row:
 

@@ -227,6 +227,11 @@
       "import": "./dist/browser/controllers/playwright.js",
       "default": "./dist/browser/controllers/playwright.js"
     },
+    "./browser/providers/cdp": {
+      "types": "./dist/browser/providers/cdp.d.ts",
+      "import": "./dist/browser/providers/cdp.js",
+      "default": "./dist/browser/providers/cdp.js"
+    },
     "./browser/providers/cloudflare": {
       "types": "./dist/browser/providers/cloudflare.d.ts",
       "import": "./dist/browser/providers/cloudflare.js",

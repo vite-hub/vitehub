@@ -16,7 +16,7 @@ const services: Record<OptionalService, { label: string, ownerPlugin: string, fi
     ownerPlugin: "@vite-hub/browser/vite",
     fix: plan => plan.services.browser.supported
       ? "Set `browser: true` in vitehub()."
-      : "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+      : "Deploy with the Cloudflare, Node, or Vercel host and set `browser: true` in vitehub().",
   },
   realtime: {
     label: "Realtime",

@@ -131,6 +131,7 @@ class CDPBrowserLocator implements BrowserLocator {
   }
 }
 
+/** Controls the page target that the connection names, else the first page target of the browser, or a new one. */
 export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const setupDeadline = Date.now() + DEFAULT_TIMEOUT_MS
   const setup = <TResult>(promise: Promise<TResult>, operation: string) => withBrowserTimeout(
@@ -141,7 +142,11 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   const targets = await setup(client.send<{
     targetInfos?: Array<{ targetId?: string, type?: string }>
   }>("Target.getTargets"), "find the browser page target")
-  let targetId = targets.targetInfos?.find(target => target.type === "page")?.targetId
+  const pages = targets.targetInfos?.filter(target => target.type === "page") ?? []
+  let targetId = client.preferredTargetId
+    ? pages.find(target => target.targetId === client.preferredTargetId)?.targetId
+    : pages[0]?.targetId
+  if (client.preferredTargetId && !targetId) throw browserProviderError("cdp", "find the browser page target")
   if (!targetId) {
     const created = await setup(client.send<{ targetId?: string }>("Target.createTarget", {
       url: "about:blank",
@@ -309,7 +314,40 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     )
   }
 
+  const evaluatePageText = async (expression: string, operation: string) => {
+    assertPageUsable()
+    let expired = false
+    let started = false
+    const evaluation = queuePageOperation(async () => {
+      if (expired) throw browserProviderError("cdp", operation)
+      assertPageUsable()
+      started = true
+      return await send<{ exceptionDetails?: unknown, result?: { value?: unknown } }>("Runtime.evaluate", {
+        expression,
+        returnByValue: true,
+      })
+    })
+    const result = await withBrowserTimeout(evaluation.promise, () => browserProviderError("cdp", operation), {
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      onTimeout: (error) => {
+        expired = true
+        evaluation.release()
+        if (started) invalidatePage(error)
+      },
+    })
+    const value = evaluateResult(result, operation)
+    if (typeof value !== "string") throw browserProviderError("cdp", operation)
+    return value
+  }
+
   const page: BrowserPage = {
+    async content() {
+      const doctype = "document.doctype ? new XMLSerializer().serializeToString(document.doctype) : \"\""
+      return await evaluatePageText(`(${doctype}) + (document.documentElement?.outerHTML ?? "")`, "read the page HTML")
+    },
+    async title() {
+      return await evaluatePageText("document.title", "read the page title")
+    },
     async goto(url, options = {}) {
       assertPageUsable()
       const operation = `navigate to ${JSON.stringify(url)}`

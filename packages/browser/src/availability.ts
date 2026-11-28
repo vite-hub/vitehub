@@ -8,7 +8,7 @@ export function isBrowserAvailable(): boolean {
 
 export function browserUnavailableError(): ViteHubError<"BROWSER_UNAVAILABLE"> {
   const { host, reason, fix } = availability.available
-    ? { host: undefined, reason: "The Browser runtime has no provider.", fix: "Set `browser: true` in vitehub() with the Cloudflare host." }
+    ? { host: undefined, reason: "The Browser runtime has no provider.", fix: "Set `browser: true` in vitehub()." }
     : availability
   return new ViteHubError(
     "BROWSER_UNAVAILABLE",

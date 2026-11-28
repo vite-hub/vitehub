@@ -5,10 +5,14 @@ import runtimeConfig from "#vitehub/browser/runtime"
 
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
 export { isBrowserAvailable } from "./availability.ts"
+import { cdp } from "./controllers/cdp.ts"
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 import {
   browserProviderError,
   toBrowserError,
 } from "./errors.ts"
+import { attachCDPPage } from "./internal/cdp-page.ts"
+import { resolveHostClient, usesBrowserRun } from "./internal/host-client.ts"
 
 import type { Result } from "@vite-hub/runtime"
 import type {
@@ -130,13 +134,45 @@ async function runQuickAction(
   )
 }
 
+async function readPageContent(input: Record<string, unknown>): Promise<string> {
+  const url = input.url
+  if (typeof url !== "string" || !url) {
+    throw browserErrorDiagnostics.BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN({ message: "[vitehub:browser] The content action on this host opens `url` in Chromium and reads the page, so it needs a URL. Pass a URL." })
+  }
+  const timeoutMs = actionTimeoutMs(input)
+  const session = await (await resolveHostClient()).open()
+  try {
+    const control = await withBrowserTimeout(session.attach(cdp()), () => browserProviderError("cdp", "attach the browser controller"))
+    try {
+      const { page } = await attachCDPPage(control.client)
+      await page.goto(url, { timeoutMs })
+      return await page.content()
+    }
+    finally {
+      await control.release()
+    }
+  }
+  finally {
+    await session.close()
+  }
+}
+
+async function runPageAction(action: BrowserAction, input: Record<string, unknown>): Promise<Response> {
+  if (action !== "content") {
+    throw browserErrorDiagnostics.BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN({ message: `[vitehub:browser] The ${action} quick action needs Cloudflare Browser Run, and this host runs Chromium over the Chrome DevTools Protocol.` })
+  }
+  return new Response(await readPageContent(input), { headers: { "content-type": "text/html; charset=utf-8" } })
+}
+
 export async function runBrowserAction(
   action: BrowserAction,
   input: BrowserActionInput,
 ): Promise<BrowserRunResult> {
   try {
-    const binding = await resolveBinding()
+    if (!isBrowserAvailable()) throw browserUnavailableError()
     const normalized = normalizeInput(input)
+    if (!usesBrowserRun()) return await runPageAction(action, normalized)
+    const binding = await resolveBinding()
     return await runQuickAction(binding, action, normalized)
   }
   catch (error) {
@@ -145,7 +181,10 @@ export async function runBrowserAction(
   }
 }
 
-/** Read a page as HTML text with the Browser Run `content` action. A failed request returns `BROWSER_CONTENT_FAILED`. */
+/**
+ * Read a page as HTML text: the Browser Run `content` action on Cloudflare, else the page HTML from a CDP session.
+ * A failed request returns `BROWSER_CONTENT_FAILED`.
+ */
 export async function runBrowserContent(
   input: BrowserActionInput,
 ): Promise<Result<string, "BROWSER_CONTENT_FAILED">> {

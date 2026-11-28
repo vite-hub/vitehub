@@ -103,7 +103,7 @@ the same behavior.
 | `vite-hub/web-container/snapshot` | Install `node_modules` at build time and pack it as a snapshot. Node only. Re-exports `@vite-hub/web-container/snapshot`. |
 | `vite-hub/web-container/connect` | Static connection-provider metadata and credential-to-process environment mapping with [`defineConnect()` and `connectEnv()`](/docs/web-container/configure#describe-connectable-accounts). Re-exports `@vite-hub/web-container/connect`. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
-| `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
+| `vite-hub/browser/providers/cdp`, `vite-hub/browser/providers/cloudflare`, and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` and `experimental.nitroAutoImports` are on. |
 | `vite-hub/channels` | `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, `rejected()`, `useChannel()`, and `sendChannelTrigger()`. Needs no `@vite-hub/agent`. |

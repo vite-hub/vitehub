@@ -1,24 +1,54 @@
 ---
 title: Browser hosts
-description: "Choose a Browser provider per host: Cloudflare Browser Run on Workers, or local Chromium on trusted Node hosts."
+description: "Browser Definitions pick a driver per host: Browser Run on Cloudflare, local Chromium on Node and in dev, and a remote Chromium on Vercel."
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-| Path | Provider | Host support |
+`browser: true` picks the driver from the host. Browser Definitions and `runBrowserContent()` work the same with each driver.
+
+| Host | Driver | What to set |
 | --- | --- | --- |
-| Browser Definitions and actions | Cloudflare Browser Run | Cloudflare host only. `browser: true` with another host fails the build. |
-| `createBrowser()` with `cloudflareBrowser()` | Cloudflare Browser Run | Cloudflare Workers with a Browser binding. |
-| `createBrowser()` with `localBrowser()` | Local Chromium | Trusted Node hosts. `browser: true` never picks it. |
+| Cloudflare | Browser Run | Nothing. ViteHub writes the Browser binding to `wrangler.json`. |
+| Node and Docker | Local Chromium | Install Chromium on the server. ViteHub finds it, or reads `BROWSER_EXECUTABLE_PATH`. |
+| Vercel | Remote Chromium over CDP | `BROWSER_CDP_URL`, such as a Browserless or Browserbase WebSocket URL. |
+| Dev (`vite dev`, `nuxt dev`) | Local Chromium | The same as Node. Set `remote: true` to call Browser Run from Cloudflare dev. |
+| Netlify and Deno | None | `browser: true` fails the build. |
+
+On every Node host, `BROWSER_CDP_URL` wins over the local Chromium. Use it to share one Chromium between servers.
+
+Local Chromium checks these paths in order:
+
+1. `BROWSER_EXECUTABLE_PATH`.
+2. The newest Chromium that `npx playwright install chromium` downloaded.
+3. A system Chromium or Google Chrome, such as `/usr/bin/chromium`.
+
+When it finds none, the call fails with `BROWSER_CHROMIUM_NOT_FOUND` and the fix. For a Docker image, install Chromium in the image:
+
+```dockerfile [Dockerfile]
+RUN apt-get update && apt-get install -y chromium
+```
+
+Chromium runs in its own sandbox. A root process, the default in Docker, runs without it, because Chromium refuses it. Ubuntu 23.10 and newer can block the sandbox for a downloaded Chromium, and the call fails with `BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE`. On a trusted host, set `BROWSER_SANDBOX=false`.
+
+`BROWSER_CDP_URL` takes two forms. A `ws://` or `wss://` URL is the browser WebSocket, with its token if the service needs one. An `http://` or `https://` URL is a Chromium that runs with `--remote-debugging-port`. ViteHub opens one page per session there and closes it at the end. The URL can hold a token, so keep it in a secret.
+
+Off Cloudflare, `runBrowserContent()` opens the URL in a page and returns its HTML. The other Browser Run quick actions, such as `runBrowserAction("screenshot")`, fail with `BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN`. Open a session with `browser.open()` for that work.
+
+## Cloudflare
 
 The Cloudflare host writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. `vitehub()` and `hubBrowser()` keep your other Wrangler fields.
 
-The Cloudflare Worker `quickAction()` needs remote mode in local development. Set `remote: true` so local Wrangler can call Browser Run. This needs a Cloudflare account and network access.
+In `vite dev` with the Cloudflare host, Browser Definitions use local Chromium. Set `remote: true` so local Wrangler calls Browser Run instead. This needs a Cloudflare account and network access.
 
 With `engine: 'chromium'`, install `@cloudflare/playwright` and `playwright-core`. Stateless actions and the default Kitesurf engine do not need them.
+
+## Low-level clients
+
+`createBrowser()` takes a driver that you choose: `cloudflareBrowser()`, `localBrowser()`, or `cdpBrowser({ url })` from `vite-hub/browser/providers/cdp`. Use it when your code owns the session and its cleanup.
 
 ## Builds without Browser
 

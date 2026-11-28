@@ -6,5 +6,6 @@ const config: BrowserRuntimeConfig = {
 }
 
 export const loadCloudflarePlaywright: undefined = undefined
+export const loadHostDriver: undefined = undefined
 
 export default config

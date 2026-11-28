@@ -127,7 +127,7 @@ describe("built-in host integration", () => {
       workingDirectory.mockRestore()
       await Promise.all([cwd, root].map(path => rm(path, { force: true, recursive: true })))
     })
-    const plugins = vitehub({ host: "node" })
+    const plugins = vitehub({ host: "netlify" })
     await expect(resolveConfig({ configFile: false, root, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
     await expect(resolveConfig({ configFile: false, root: cwd, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_R0088" })
   })
