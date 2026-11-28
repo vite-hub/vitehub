@@ -52,6 +52,20 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(await readLink(root)).toMatchObject({ default: "cloudflare", schemaVersion: 2, targets: { cloudflare: { account: { id: "acc-1" }, project: { name: "my-app" }, verified: false } } })
   })
 
+  it("says that the link wins when the build names the app differently", async () => {
+    const root = await builtProject("cloudflare")
+    const hosts = await fakeHosts(cloudflareEnv)
+    const first = await deploy(["--no-build", "--yes"], root, hosts.env)
+    expect(first.exitCode, first.stdout + first.stderr).toBe(0)
+    expect(first.stderr).not.toContain("the link wins")
+
+    await writeFile(join(root, ".output/deployment.json"), JSON.stringify({ host: "cloudflare", identity: { name: "my-shop", source: "vitehub.name" } }))
+    const renamed = await deploy(["--no-build", "--yes"], root, hosts.env)
+    expect(renamed.exitCode, renamed.stdout + renamed.stderr).toBe(0)
+    expect((await hosts.calls()).at(-1)!.argv).toContain("my-app")
+    expect(renamed.stderr).toContain("[vitehub] Deploying to the cloudflare project \"my-app\" of .vitehub/link.json. The build names the app \"my-shop\", but the link wins. To deploy to \"my-shop\", run `vitehub link --host cloudflare --project my-shop --create` and deploy again. To keep \"my-app\", set `vitehub({ name: \"my-app\" })`.")
+  })
+
   it("passes the flags of the build command through and rejects any other command", async () => {
     const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config './server/my wrangler.json' --containers-rollout=gradual"))
     await writeFile(join(root, ".output/server/my wrangler.json"), JSON.stringify({ main: "index.mjs", name: "my-app" }))

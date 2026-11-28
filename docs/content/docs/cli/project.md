@@ -329,6 +329,8 @@ A temporary deploy has no account. The command prints the claim link: claim a Cl
 
 After a first deploy to a host, `.vitehub/link.json` gets the target of that host with `verified: false`, so `vitehub status` finds it, and keeps the other targets. Run `vitehub link --host <host>` to verify it.
 
+The link wins over the name of the build. When you change `vitehub({ name })` after a deploy, the next deploy still goes to the linked project, and prints a note that names both. To deploy to the new name, run `vitehub link --host <host> --project <name> --create`.
+
 ### Create the host resources
 
 On Cloudflare and Vercel, the deploy runs the [provision](/docs/development/provisioning) plan of the host before the build. It creates the missing D1 databases, KV namespaces, R2 buckets, Queues, and Vercel Blob stores of the app, and records their ids in `.vitehub/provision.json`. The build binds those ids. A second deploy finds the resources and creates nothing. The order is provision, build, D1 migrations, deploy.
