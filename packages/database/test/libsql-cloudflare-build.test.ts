@@ -6,7 +6,7 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { usesRemoteLibsql } from "../src/internal/vite-build.ts"
-import { hubDatabase } from "../src/vite.ts"
+import { DB_VIRTUAL_SCHEMA_ID, hubDatabase } from "../src/vite.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const tempDirs: string[] = []
@@ -31,16 +31,18 @@ async function createProject(definition: string) {
   return root
 }
 
-/** Runs the Vite plugin as a Vite build or dev server for `preset`, and returns how it resolves `#vitehub/database/libsql`. */
 async function resolveLibsql(root: string, preset: string, command: "build" | "serve" = "build") {
   const plugin = hubDatabase()
-  // SAFETY: hubDatabase exposes configResolved and resolveId.handler as callable Vite hooks.
+  // SAFETY: hubDatabase exposes configResolved, resolveId.handler, and load.handler as callable Vite hooks.
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command, nitro: { preset }, plugins: [{ name: "nitro:main" }], root })
   const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
+  if (command === "serve") {
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
+    await load(`\0${DB_VIRTUAL_SCHEMA_ID}`)
+  }
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
 }
 
-/** Every package that the Worker bundle of `@vite-hub/database` contains, through static and dynamic imports. */
 async function bundledPackages(libsqlModule: string | undefined) {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-bundle-"))
   tempDirs.push(dir)

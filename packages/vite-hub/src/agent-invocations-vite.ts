@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
+import { reportViteHubHint, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
 import { sqliteUrlInput } from "@vite-hub/runtime/durability"
@@ -69,6 +70,18 @@ export interface AgentInvocationsPluginOptions {
 }
 
 const hostsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
+
+export function cloudflareAgentJournalHint(host: string | undefined, d1Binding: string | undefined, databaseUrl: string | undefined) {
+  if (host === "cloudflare" && !d1Binding && !databaseUrl) return viteHubErrorDiagnostics.VITE_HUB_AGENT_JOURNAL_IN_WORKER_MEMORY()
+}
+
+function journalStorageWarning(options: { build: boolean, d1Binding?: string, databaseUrl?: string, host?: string }) {
+  if (!options.build || options.databaseUrl) return
+  if (hostsWithoutPersistentFiles.has(options.host ?? "")) {
+    return `[vitehub] Agent Invocation journal: the ${options.host} host has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
+  }
+  return cloudflareAgentJournalHint(options.host, options.d1Binding, options.databaseUrl)
+}
 
 /**
  * Validates `agent.invocations.retention` before code generation. Only a local SQLite journal supports maxSize.
@@ -208,7 +221,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
   let journalDatabase: string | undefined
   let postgresJournalRoot: string | undefined
   let libsql = true
-  let localFileWarning: string | undefined
+  let storageWarning: ReturnType<typeof journalStorageWarning>
   return {
     name: agentInvocationsPluginName,
     vitehub: {
@@ -242,14 +255,12 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
         if (!postgresJournalRoot) assertAgentInvocationsRetention(setting?.retention, { d1: d1Binding }, setting?.databaseUrl)
         libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, host: options.host })
         if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.host, setting?.databaseUrl)
-        localFileWarning = environment?.command === "build" && !setting?.databaseUrl && hostsWithoutPersistentFiles.has(options.host ?? "")
-          ? `[vitehub] Agent Invocation journal: the ${options.host} host has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
-          : undefined
+        storageWarning = journalStorageWarning({ build: environment?.command === "build", d1Binding, databaseUrl: setting?.databaseUrl, host: options.host })
       }
       else {
         d1Binding = undefined
         libsql = true
-        localFileWarning = undefined
+        storageWarning = undefined
       }
       const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, journalDatabase, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
@@ -266,7 +277,8 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           await writeAgentInvocationsNitroPlugin({ database: true, default: options.default, journalDatabase, libsql, projectRoot: postgresJournalRoot, stateUrl: options.stateUrl })
         }
       }
-      if (localFileWarning) config.logger?.warn(localFileWarning)
+      if (typeof storageWarning === "string") config.logger?.warn(storageWarning)
+      else if (storageWarning && !Reflect.get(config, VITEHUB_NUXT_HINTS)) reportViteHubHint(config, storageWarning)
       if (d1Binding) config.logger?.info(`[vitehub] Agent Invocation journal: D1 binding ${d1Binding}, table vitehub_agent_invocations. The journal creates the table on first use.`)
       if (journalDatabase) config.logger?.info(`[vitehub] Agent Invocation journal: the Postgres ${journalDatabase} Database. Its migrations create the journal tables.`)
     },

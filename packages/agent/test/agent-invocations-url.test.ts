@@ -95,7 +95,7 @@ describe("vitehub agent invocations --url is the app URL", () => {
     const result = await run(["list", "--url", "http://localhost:5173/api/invocations"], app.fetch)
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain("did not answer as a ViteHub Console")
+    expect(result.stderr).toContain("did not answer as a ViteHub app")
   })
 
   it("fails for the removed --server and names --url", async () => {

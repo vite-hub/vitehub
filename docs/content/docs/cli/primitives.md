@@ -535,15 +535,18 @@ The Console Schedules page runs the same operation. A read-only grant (`"schedul
 Start the dev server, then run `vitehub schedule` in another terminal. `runs list` and `runs get` read that server's Schedule Run store, so they show the runs the app recorded: manual runs and Process Runtime runs.
 
 ```bash [Terminal]
+pnpm vitehub schedule runs list
 pnpm vitehub schedule runs list digest --limit 5
 pnpm vitehub schedule runs list digest --json
 pnpm vitehub schedule runs get srun_static_digest_2026-05-22T07:00:00.000Z
 ```
 
 ```txt [Output]
-RUN                                          STATUS     SCHEDULED AT              ATTEMPTS  ERROR
-srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
+RUN                                          SCHEDULE  STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_static_digest_2026-05-22T07:00:00.000Z  digest    succeeded  2026-05-22T07:00:00.000Z  1         -
 ```
+
+Without a name, `runs list` lists the runs of every Schedule, newest first. Pass a Schedule Definition name or a started Schedule id to list the runs of one Schedule.
 
 `list` shows every Schedule of the server: each Static Schedule Definition with its cron, then the Schedules that code started. An app with only cron Schedules lists them without a KV store:
 
@@ -580,15 +583,15 @@ pnpm vitehub workflow runs list --status failed
 pnpm vitehub workflow runs clear --yes
 ```
 
-The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `runs get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `runs get` and `runs list`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. On OpenWorkflow, `runs get` and `cancel` find the Workflow of a stored run from its id. On other providers, a run that this runtime did not start needs `--workflow <name>`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `runs get` and `runs list`.
 
 Inline runs can be read with `runs get` for five minutes. Inline cancellation is not supported. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. For `resume`, pass the token from `context.createSignal()` on Cloudflare, OpenWorkflow, or an inline run in the same process. On Vercel, pass a Workflow DevKit hook token. Do not pass a run ID or signal name.
 
 ### Inspect runs in development
 
-`vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. In `vite dev`, `vitehub workflow runs get <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs, and `runs get` still reads a run from its provider after it.
+`vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. With OpenWorkflow, the database also stores each run. `vitehub workflow runs list` lists both newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. In `vite dev`, `vitehub workflow runs get <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs, and `runs get` still reads a run from its provider after it.
 
-The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so the history is empty there; read a run with `vitehub workflow runs get`. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list` and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`), and `runs get` reads the run from the provider, without steps. Read one deployed run with `vitehub workflow runs get <runId> --workflow <name>`.
+The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so `runs list` reads the runs from OpenWorkflow storage, and `runs clear` does not remove them. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On an OpenWorkflow deployment, `runs list` lists the stored runs, and `runs clear` fails with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). On other deployments, both fail with `WORKFLOW_RUNS_UNAVAILABLE`, and `runs get` reads the run from the provider, without steps. Read one deployed Cloudflare or Vercel run with `vitehub workflow runs get <runId> --workflow <name>`.
 ## Run Workspace commands during development
 
 Use `vitehub workspace dev` to run a command in a Workspace without an Agent.

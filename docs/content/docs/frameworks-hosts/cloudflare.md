@@ -233,6 +233,20 @@ A required secret Server Env declaration that reads exactly one variable name go
 
 With the default `VITEHUB_` prefix, a declaration reads two names: `env({ secret: true, source: env.source('EXECUTOR_API_KEY') })` reads `VITEHUB_EXECUTOR_API_KEY`, then `EXECUTOR_API_KEY`. Either one works at runtime, so Wrangler cannot require one of them, and the build leaves it out. To get `secrets.required`, set `env: { prefix: false }`, or use a source equal to the canonical name. See [Variable names](/docs/env/configure#variable-names).
 
+### Secrets in a local preview
+
+Run `pnpm wrangler dev` from the app root after the build. Wrangler follows Nitro's generated redirect to `.output/server/wrangler.json` and still looks for `.dev.vars` or `.env` in the app root.
+
+If you pass `--config .output/server/wrangler.json`, Wrangler looks in `.output/server` instead. A required secret from the root `.env` can then fail with `ENV_REQUIRED_MISSING`. From the app root, pass the original `.env` by absolute path so Wrangler expands references like `${APP_ORIGIN}` without copying secrets into the build output:
+
+```bash [Terminal]
+pnpm wrangler dev --config .output/server/wrangler.json --env-file "$PWD/.env"
+```
+
+When the config sets `secrets.required`, Wrangler only loads local file keys that are listed there or already declared in `vars`. This applies with or without `--env-file`. A fallback name such as `GITHUB_TOKEN` can be missing even when it is in `.env`.
+
+If the list filters out a key your app needs, copy `wrangler.json` to `wrangler.preview.json` in `.output/server` so relative paths still work. Remove `secrets.required` (and the `secrets` block if empty) from the copy, including from the selected environment if you use `--env`. Run the command above with `--config .output/server/wrangler.preview.json`. Use this copy only for local preview and leave the deployment config unchanged. See [Cloudflare's local development guidance](https://developers.cloudflare.com/workers/configuration/secrets/#local-development-with-secrets).
+
 ### Worker vars from Server Env
 
 Set `cloudflare: { vars: true }` to write the non-secret Server Env values that are set when you build to `vars` in `.output/server/wrangler.json`:

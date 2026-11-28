@@ -42,7 +42,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`error.code` is typed as the codes that the method can return. `sendQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`. A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
+`error.code` is typed as the codes that the method can return. `sendQueue()` can return `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION`, or [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid). A Cloudflare `send()` never returns `QUEUE_PROVIDER_INVALID_RESPONSE`.
+
+An invalid `delay` or an invalid value for supported `retention` returns `RUNTIME_DURATION_INVALID`. If the provider does not support `retention`, it returns `QUEUE_UNSUPPORTED_OPTION` instead. See [Queue enqueue options](/docs/queue/server-api#queue-enqueue-options) for accepted values.
 
 `JSON.stringify(error)` keeps only `name`, `code`, `why`, `fix`, and `docs`. It drops `cause` and `stack`, because provider errors can hold credentials or private data. Log `cause` only on the server.
 
@@ -165,7 +167,7 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_CONFIG
 
-`queue` is not a plain object or `false`.
+In `vitehub()`, set `queue: true` for the default driver, `queue: { driver: 'cloudflare' }` to choose a driver, or `queue: false` to turn Queue off. In a standalone app, call `hubQueue()` for the default driver, or pass an options object or `false`.
 
 ### QUEUE_INVALID_DEFINITION
 
