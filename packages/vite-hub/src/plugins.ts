@@ -1195,7 +1195,8 @@ function deploymentPlugins(
             plan.host === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
           )
           const name = identity.name
-          if (requestedServices.includes("queue") && plan.services.queue.supported) {
+          const queueShape = options.queue === undefined || options.queue === true || isRecord(options.queue)
+          if (requestedServices.includes("queue") && plan.services.queue.supported && queueShape) {
             const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
             // Queue infers the Node driver from the resolved Default Database.
             const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
@@ -1907,8 +1908,9 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
-    // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/queue" })))
+    const queueOptions = options.queue === true || isRecord(options.queue) ? { ...configuredQueue, ...(driver ? { driver } : {}) } : options.queue
+    // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`. hubQueue() rejects a value of another shape.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue(queueOptions as QueueOptions, { databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.

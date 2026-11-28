@@ -165,7 +165,7 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_CONFIG
 
-`queue` is not a plain object or `false`.
+`queue` is not `true`, `false`, or a plain object. Set `queue: true` for the default driver of the host, or pass an object, such as `queue: { driver: 'cloudflare' }`.
 
 ### QUEUE_INVALID_DEFINITION
 

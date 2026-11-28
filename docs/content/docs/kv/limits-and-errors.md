@@ -133,7 +133,7 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 ### KV_INVALID_CONFIG
 
-`kv` or `kv.stores` is not a plain object.
+`kv` or `kv.stores` is not a plain object. Set `kv: true` for the default store, or pass an object, such as `kv: { driver: 'redis' }`. `kv.stores` is an object of named stores.
 
 ### KV_INVALID_DRIVER
 

@@ -412,15 +412,22 @@ describe("normalizeKVOptions existing behavior", () => {
     })
   })
 
-  it("rejects non-object config", () => {
-    expect(() => normalizeKVOptions(true as never, {
+  it("rejects non-object config and shows `kv: true` and a driver object", () => {
+    expect(() => normalizeKVOptions("redis" as never, {
       env: {},
       hosting: "",
-    })).toThrow("`kv` must be a plain object.")
+    })).toThrow(expect.objectContaining({
+      code: "KV_INVALID_CONFIG",
+      fix: "Set `kv: true` for the default store of the host, or pass an object, such as `kv: { driver: 'redis' }`. Set `kv: false` to turn KV off.",
+      message: "`kv` must be `true`, `false`, or a plain object.",
+    }))
   })
 
   it.each([null, [], "stores"])("rejects a non-record stores option: %j", stores => {
-    expect(() => normalizeKVOptions({ stores } as never)).toThrow("`kv.stores` must be a plain object.")
+    expect(() => normalizeKVOptions({ stores } as never)).toThrow(expect.objectContaining({
+      fix: expect.stringContaining("kv: { stores: { default: { driver: 'redis' } } }"),
+      message: "`kv.stores` must be a plain object.",
+    }))
   })
 })
 

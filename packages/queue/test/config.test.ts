@@ -75,6 +75,13 @@ describe("normalizeQueueOptions", () => {
     })
   })
 
+  it("shows `queue: true` and a driver object for a config that is not an object", () => {
+    expect(() => normalizeQueueOptions("cloudflare" as never)).toThrow(expect.objectContaining({
+      code: "QUEUE_INVALID_CONFIG",
+      fix: "Set `queue: true` for the default driver of the host, or pass an object, such as `queue: { driver: 'cloudflare' }`. Set `queue: false` to turn Queue off.",
+    }))
+  })
+
   it("throws on unknown drivers", () => {
     expect(() => normalizeQueueOptions({ driver: "memory" } as never)).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_DRIVER" }))
   })

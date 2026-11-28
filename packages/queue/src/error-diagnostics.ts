@@ -163,8 +163,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two Queue Definitions that the message lists. Each Queue name must have one file or one plugin contribution.",
     },
     QUEUE_INVALID_CONFIG: {
-      why: "`queue` must be a plain object or `false`.",
-      fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
+      why: "`queue` must be `true`, `false`, or a plain object.",
+      fix: "Set `queue: true` for the default driver of the host, or pass an object, such as `queue: { driver: 'cloudflare' }`. Set `queue: false` to turn Queue off.",
     },
     QUEUE_INVALID_DEFINITION: {
       why: ({ reason }: { reason: string }) => reason,
