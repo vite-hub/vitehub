@@ -961,6 +961,39 @@ export default {
     })
   })
 
+  it("gives a Vercel dry-run the project and team of `vercel link`", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await mkdir(join(rootDir, ".vercel"))
+    await writeFile(join(rootDir, ".vercel/project.json"), JSON.stringify({ orgId: "team_folder", projectId: "prj_folder" }))
+    const seen: Array<[string | undefined, string | undefined]> = []
+    const plugin = {
+      vitehub: {
+        cli: async () => ({
+          namespaces: [],
+          provision: [{
+            id: "test:vercel",
+            provider: "vercel" as const,
+            plan: async (context: ProvisionContext) => {
+              seen.push([context.env.VERCEL_PROJECT_ID, context.env.VERCEL_TEAM_ID])
+              return []
+            },
+          }],
+        }),
+      },
+    }
+
+    await expect(runViteHubCli({
+      runHostCli: noHostCli, args: ["provision", "run", "--host", "vercel", "--dry-run"],
+      cwd: rootDir,
+      env: { VERCEL_TOKEN: "test-token" },
+      loadConfig: async () => ({ plugins: [plugin], root: rootDir }),
+      stderr: stream(),
+      stdout: stream(),
+    })).resolves.toBe(0)
+    expect(seen).toEqual([["prj_folder", "team_folder"]])
+  })
+
   it.each([
     ["run", "--dry-run"],
     ["status"],

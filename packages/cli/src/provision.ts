@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises"
+
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { planProvisionSteps, resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
+import { join } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliProvision } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
@@ -82,6 +85,26 @@ export function provisionEnv(env: NodeJS.ProcessEnv, credentials: HostCredential
     }
   }
   return env
+}
+
+async function vercelFolderEnv(env: NodeJS.ProcessEnv, root: string): Promise<NodeJS.ProcessEnv> {
+  if (env.VERCEL_PROJECT_ID?.trim()) return env
+  const folder: unknown = await readFile(join(root, ".vercel", "project.json"), "utf8").then(text => JSON.parse(text)).catch(() => undefined)
+  if (!folder || typeof folder !== "object" || !("projectId" in folder) || typeof folder.projectId !== "string") return env
+  const orgId = "orgId" in folder && typeof folder.orgId === "string" ? folder.orgId : undefined
+  const team = env.VERCEL_TEAM_ID?.trim() || env.VERCEL_ORG_ID?.trim() || !orgId?.startsWith("team_") ? undefined : orgId
+  return { ...env, VERCEL_PROJECT_ID: folder.projectId, ...(team ? { VERCEL_TEAM_ID: team } : {}) }
+}
+
+/**
+ * The environment of the Provision Steps in `root`: `provisionEnv` with the ids of `link`. On Vercel, a project that
+ * neither the link nor `VERCEL_PROJECT_ID` names comes from `.vercel/project.json`, which `vercel link` writes.
+ */
+export async function provisionHostEnv(root: string, env: NodeJS.ProcessEnv, credentials: HostCredentials, link?: SetupLink): Promise<NodeJS.ProcessEnv> {
+  return provisionEnv(credentials.ok && credentials.host === "vercel" && !link?.project.id ? await vercelFolderEnv(env, root) : env, credentials, {
+    ...(link?.account?.id ? { accountId: link.account.id } : {}),
+    ...(link?.project.id ? { projectId: link.project.id } : {}),
+  })
 }
 
 function parseArgs(command: ProvisionCommand, args: string[]): ParsedProvisionArgs {
@@ -187,10 +210,7 @@ function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContex
 
 async function withHostCredentials(host: ProvisionProvider, context: ProvisionFeatureContext, link?: SetupLink): Promise<ProvisionFeatureContext> {
   const credentials = await resolveHostCredentials(host, { cwd: context.rootDir, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
-  return { ...context, env: provisionEnv(context.env, credentials, {
-    ...(link?.account?.id ? { accountId: link.account.id } : {}),
-    ...(link?.project.id ? { projectId: link.project.id } : {}),
-  }) }
+  return { ...context, env: await provisionHostEnv(resolveViteHubProjectRoot(context.rootDir), context.env, credentials, link) }
 }
 
 async function planProvision(provider: ProvisionProvider, context: ProvisionFeatureContext, steps: readonly ProvisionStep[], json: boolean): Promise<ProvisionPlan> {
