@@ -210,10 +210,6 @@ The identity's user has no `id`, or the `id` is not a string of at most 256 char
 
 `driver: "redis"` needs `REDIS_URL`, or a `KV_URL` that starts with `redis://` or `rediss://`. `driver: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `driver: "auto"`, which keeps rooms in one process without one.
 
-### REALTIME_MISSING_SHARED_BUS
-
-A Vercel Function with `driver: "auto"` found no bus. Each request can run in another instance, so rooms in memory would split the clients. Connect Redis or Upstash Redis to the project, which sets `REDIS_URL` or `KV_URL`. Or define the Default Database with `dialect: "postgresql"`, or set `REALTIME_POSTGRES_URL`.
-
 ### REALTIME_ROOM_LOCK_TIMEOUT
 
 Saves of one room run one at a time across Node instances. An instance waited 30 seconds for the Redis save lock of a room. Make the document adapter `save()` finish faster. Realtime tries the save again.
