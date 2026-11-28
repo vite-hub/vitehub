@@ -80,6 +80,8 @@ export function defaultDatabaseD1Binding(
   definitions?: {
     /** Use the implicit default Database when the app has no Database Definition, as the Vite Database plugin does. */
     implicitDefault?: boolean
+    /** The directory of `.vitehub/provision.json`, when it is not `root`. A Nuxt app keeps it in the Vite root. */
+    provisionRoot?: string
     root: string
     serverDirs?: string[]
   },
@@ -90,7 +92,7 @@ export function defaultDatabaseD1Binding(
   const options = database === true ? undefined : database
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
-  const config = resolveDBViteConfig(options, root, { implicitDefault: definitions.implicitDefault, serverDirs })
+  const config = resolveDBViteConfig(options, root, { implicitDefault: definitions.implicitDefault, provisionRoot: definitions.provisionRoot, serverDirs })
   const target = resolveDefaultDatabase(config?.databaseNames ?? [])
   if (target.status !== "resolved") return
   // The implicit default Database has no Definition binding, so use it only when its D1 database resolves.

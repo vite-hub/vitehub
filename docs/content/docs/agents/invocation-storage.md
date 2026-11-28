@@ -54,8 +54,8 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 | --- | --- |
 | Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
 | Node production build with a Postgres `default` Database | That Database, tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
-| Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
-| Cloudflare without a Database Definition | Memory of the Worker isolate |
+| Cloudflare production build | The D1 binding of the default or only Database, table `vitehub_agent_invocations`. Without a Database Definition, this is the default Database of the `database` option |
+| Cloudflare without a Database | Memory of the Worker isolate |
 
 The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem or a Postgres `default` Database. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
 

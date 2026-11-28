@@ -2142,6 +2142,34 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
     await application.runCloseHook()
   })
 
+  it.each([
+    { binding: undefined, provisioned: false },
+    { binding: "APP_DB", provisioned: false },
+    { binding: undefined, provisioned: true },
+  ])("stores the Cloudflare Agent journal in the D1 binding of the implicit default Database: %j", async ({ binding, provisioned }) => {
+    await rm(agentJournalPlugin, { force: true })
+    await rm(`${tmp}/vitehub-nuxt/custom-server/databases`, { force: true, recursive: true })
+    const srcDir = `${tmp}/vitehub-nuxt/app`
+    await rm(`${srcDir}/.vitehub/provision.json`, { force: true })
+    if (provisioned) {
+      await mkdir(`${srcDir}/.vitehub`, { recursive: true })
+      await writeFile(`${srcDir}/.vitehub/provision.json`, JSON.stringify({ cloudflare: { d1: { default: "app-id" }, d1Nuxt: { "app-db": "app-id" } } }))
+    }
+    const application = createNuxt(false)
+    Object.assign(application.nuxt.options.vite, { root: srcDir })
+    await viteHubNuxtModule({
+      host: "cloudflare",
+      agent: true,
+      console: productionConsole,
+      database: { driver: "cloudflare", databaseName: "app-db", ...(provisioned ? {} : { databaseId: "app-id" }), ...(binding ? { binding } : {}) },
+    }, application.nuxt)
+
+    expect(await generatedAgentJournal(application)).toContain(`d1: { binding: "${binding ?? "DB"}",`)
+    expect(await generatedAgentJournal(application, true)).toContain(`d1: { binding: "${binding ?? "DB"}",`)
+    await rm(`${srcDir}/.vitehub/provision.json`, { force: true })
+    await application.runCloseHook()
+  })
+
   it.each(["definition", "contribution", "sqlite"] as const)("selects the Node Agent journal after Database replay: %s", async (source) => {
     mocks.vitehub.mockReturnValue([agentInvocationsVitePlugin({ database: true, host: "node" })])
     await rm(agentJournalPlugin, { force: true })
