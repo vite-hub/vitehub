@@ -39,6 +39,8 @@ export interface ViteHubCliSpawnResult {
   signal?: NodeJS.Signals | null
   /** The output of the child when `stdout` is `pipe`. */
   stdout?: string
+  /** The error output of the child when `stderr` is `pipe`. */
+  stderr?: string
 }
 
 export interface ViteHubCliSpawnOptions {

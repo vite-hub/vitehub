@@ -29,9 +29,11 @@ async function enabled(root: string, id: string): Promise<string | undefined> {
   return (await runSetup<SetupStatus>(["status", "--json"], root)).json.features.find(item => item.id === id)?.enabled
 }
 
+const buildPolicy = "allowBuilds:\n  esbuild: false\n  workerd: false\n"
+
 describe("vitehub remove", () => {
   it("gives back the original bytes after add with a starter and an install", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "pnpm-workspace.yaml": buildPolicy, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
 
@@ -73,6 +75,7 @@ describe("vitehub remove", () => {
   ])("removes Nuxt starters from the application server directory: %s", async (options, serverDir) => {
     const root = await createProject({
       "package.json": pnpmManifest,
+      "pnpm-workspace.yaml": buildPolicy,
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
     })
     const original = await snapshot(root)
@@ -125,7 +128,7 @@ describe("vitehub remove", () => {
   })
 
   it("turns off features that only the removed feature implied and uninstalls their packages", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "pnpm-workspace.yaml": buildPolicy, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
     expect((await add(["comments"], root, pm.spawn)).exitCode).toBe(0)
@@ -187,6 +190,7 @@ describe("vitehub remove", () => {
   ])("removes the starter from the configured Nuxt server directory: $layout", async ({ layout, directory }) => {
     const root = await createProject({
       "package.json": pnpmManifest,
+      "pnpm-workspace.yaml": buildPolicy,
       "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { host: "cloudflare" }]] })\n`,
     })
     const original = await snapshot(root)

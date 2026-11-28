@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
 import { describe, expect, it } from "vitest"
+import { parse } from "yaml"
 
 import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
@@ -740,7 +741,8 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["queue", "--name", "welcome-email", "--no-install", "--yes"], root)
 
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
-    expect(json.changes.map(change => change.path)).toEqual(["server/queues/welcome-email.ts"])
+    expect(json.changes.map(change => change.path)).toEqual(["pnpm-workspace.yaml", "server/queues/welcome-email.ts"])
+    expect(await readFile(join(root, "pnpm-workspace.yaml"), "utf8")).toBe("allowBuilds:\n  esbuild: false\n  workerd: false\n")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig('{ host: "cloudflare" }'))
     expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.features.find(item => item.id === "queue")).toMatchObject({ enabled: "on", reason: "default" })
   })
@@ -781,9 +783,9 @@ describe("vitehub add", () => {
   })
 
   it("installs the owner packages with the package manager before it writes files", async () => {
-    const calls: Array<{ args: string[], command: string, cwd?: string, stdout?: string }> = []
+    const calls: Array<{ args: string[], command: string, cwd?: string, stderr?: string, stdout?: string }> = []
     const spawn: ViteHubCliSpawn = async (command, args, options) => {
-      calls.push({ args, command, cwd: options?.cwd, stdout: options?.stdout })
+      calls.push({ args, command, cwd: options?.cwd, stderr: options?.stderr, stdout: options?.stdout })
       return { exitCode: 0 }
     }
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
@@ -793,8 +795,8 @@ describe("vitehub add", () => {
     expect(exitCode).toBe(0)
     expect(json.install).toEqual({ command: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"', devPackages: ["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"] })
     expect(calls).toEqual([
-      { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
-      { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
+      { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stderr: "pipe", stdout: "stderr" },
+      { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stderr: "pipe", stdout: "stderr" },
     ])
   })
 
@@ -862,6 +864,51 @@ describe("vitehub add", () => {
     expect(exitCode).toBe(1)
     expect(json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED", message: "`pnpm add @vite-hub/schedule` exited with code 1." })
     expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("declines the Workflow build scripts in the pnpm workspace before the install", async () => {
+    const workspace = "packages:\n  - .\nallowBuilds:\n  esbuild: true\n"
+    const root = await createProject({ "package.json": pnpmManifest, "pnpm-workspace.yaml": workspace, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const atInstall: string[] = []
+    const spawn: ViteHubCliSpawn = async () => {
+      atInstall.push(await readFile(join(root, "pnpm-workspace.yaml"), "utf8"))
+      return { exitCode: 0 }
+    }
+
+    const { exitCode, json, stdout } = await add(["workflow", "--yes"], root, spawn)
+
+    expect(exitCode, stdout).toBe(0)
+    expect(json.changes[0]).toMatchObject({ before: workspace, kind: "patch", path: "pnpm-workspace.yaml" })
+    expect(atInstall.length).toBeGreaterThan(0)
+    for (const text of atInstall) {
+      expect(text.startsWith(workspace)).toBe(true)
+      expect(parse(text)).toEqual({ allowBuilds: { "@swc/core": false, "cbor-extract": false, "esbuild": true, "workerd": false }, packages: ["."] })
+    }
+  })
+
+  it("creates the pnpm build policy for a Workflow install with --no-install", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
+
+    const { exitCode, json, stdout } = await add(["workflow", "--yes", "--no-install"], root)
+
+    expect(exitCode, stdout).toBe(0)
+    expect(json.changes[0]).toMatchObject({ kind: "create", path: "pnpm-workspace.yaml" })
+    expect(parse(await readFile(join(root, "pnpm-workspace.yaml"), "utf8"))).toEqual({ allowBuilds: { "@swc/core": false, "cbor-extract": false, "esbuild": false } })
+  })
+
+  it("shows the pnpm error and the build policy to change when the install fails", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
+    const pnpmError = "Error: ERR_PNPM_IGNORED_BUILDS\n\n  × adding a new package\n  ╰─▶ Ignored build scripts: sharp@0.34.5, @parcel/watcher@2.5.1\n  help: Run \"pnpm approve-builds\" to pick which dependencies should be allowed to run scripts.\n"
+    const spawn: ViteHubCliSpawn = async (_command, _args, options) => ({ exitCode: 1, ...(options?.stderr === "pipe" ? { stderr: pnpmError } : {}) })
+
+    const { exitCode, json, stderr } = await add(["schedule", "--option", "runtime.driver=process", "--name", "cleanup", "--yes"], root, spawn)
+
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(pnpmError)
+    expect(json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(json.error?.why).toContain("Ignored build scripts: sharp@0.34.5, @parcel/watcher@2.5.1")
+    expect(json.error?.fix).toContain("`sharp`, `@parcel/watcher`")
+    expect(json.error?.fix).toContain(join(root, "pnpm-workspace.yaml"))
   })
 
   it("asks for the Workflow provider on deno and keeps its dependency bundled", async () => {

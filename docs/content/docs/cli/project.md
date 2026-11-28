@@ -21,7 +21,7 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 - `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `host`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
-- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter, then adds the `vite-hub/nuxt` module. The new app gets Nuxt 4.7 (`nuxt@^4.7.0`) with `nitro@^3.0.261103-rc`. With pnpm, a standalone app also gets a `pnpm-workspace.yaml` with `allowBuilds: { esbuild: false }`: pnpm 11 and later stop the install while the esbuild build script waits for approval, and esbuild runs without it. A new or existing Nuxt app must declare a Nuxt range from 4.7 to 5, such as `^4.7.0`, `^5.0.0`, or a Nuxt 5 nightly, before any installation or config edit. When the range allows Nuxt 4.7, `init` adds `nitro@^3.0.261103-rc` if Nitro is missing from both `dependencies` and `devDependencies`. It keeps compatible declarations and stops before adoption if a declaration does not guarantee a compatible version. A Nuxt tag other than the `5x` tag of `nuxt-nightly`, or an unsupported Nuxt version, also stops adoption and leaves existing files for manual setup.
+- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter, then adds the `vite-hub/nuxt` module. The new app gets Nuxt 4.7 (`nuxt@^4.7.0`) with `nitro@^3.0.261103-rc`. A new or existing Nuxt app must declare a Nuxt range from 4.7 to 5, such as `^4.7.0`, `^5.0.0`, or a Nuxt 5 nightly, before any installation or config edit. When the range allows Nuxt 4.7, `init` adds `nitro@^3.0.261103-rc` if Nitro is missing from both `dependencies` and `devDependencies`. It keeps compatible declarations and stops before adoption if a declaration does not guarantee a compatible version. A Nuxt tag other than the `5x` tag of `nuxt-nightly`, or an unsupported Nuxt version, also stops adoption and leaves existing files for manual setup.
 - `--nuxt-nightly`: a new Nuxt app gets the latest Nuxt 5 nightly instead of Nuxt 4.7, and no `nitro` package. nuxi writes it as `npm:nuxt-nightly@<version>`. It implies `--framework nuxt`. An existing app keeps its Nuxt version. `stack.command` includes the flag when the app allows only Nuxt 5.
 - `--pm pnpm|npm|yarn|bun`: the package manager. The default is the one that the folder uses, else the one that runs the command, else pnpm.
 - `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
@@ -29,7 +29,7 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 
 Run `vitehub status --json` for the current `stack.command`. Before replaying it, read `stack.omits` for settings the command cannot reproduce, such as credentials or config expressions. Restore those settings separately. If `stack.command` is `null`, the CLI could not plan a fresh setup; use the reported omissions to see what needs attention.
 
-`init` requires `vite-hub` 0.5.1 or newer from the 0.x line when it installs the module for Nuxt 4.7. It writes the pnpm build policy only for a standalone app. If the app is inside a pnpm workspace and pnpm reports an ignored esbuild build script, set `allowBuilds: { esbuild: false }` in the workspace's `pnpm-workspace.yaml` before retrying.
+`init` requires `vite-hub` 0.5.1 or newer from the 0.x line when it installs the module for Nuxt 4.7. With pnpm, `init` and `add` also write the [pnpm build policy](#pnpm-build-policy) before the install.
 
 `status` checks the declared Nuxt range, including pnpm catalog entries. If it cannot choose the Nuxt line for replay, it lists `nuxt (unresolved-nuxt-version)` in `stack.omits` instead of claiming an exact replay.
 
@@ -114,6 +114,18 @@ Console does not enable Comments or Database. `vitehub add observability` regist
 
 When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
+### pnpm build policy
+
+pnpm 11 and later stop an install when a dependency has a build script that is not in `allowBuilds`. With pnpm, `init` and `add` set `false` in `allowBuilds` for each package below that the app installs and that `allowBuilds` does not name yet. Each one runs without its build script. The change is part of the plan, and it is written before the install, also with `--no-install`.
+
+| Packages | When |
+| --- | --- |
+| `esbuild` | Nuxt 4.7, Workflow, or Cloudflare |
+| `@swc/core`, `cbor-extract` | Workflow |
+| `workerd` | Cloudflare, for Wrangler |
+
+The command edits the `pnpm-workspace.yaml` of the app, or of the pnpm workspace that contains the app, and creates one in the app when there is none. A value that you set stays as it is.
+
 ### `SETUP_FEATURE_UNSUPPORTED`
 
 The host of the project cannot provide the feature. Run `vitehub catalog` to see which hosts support it, or set `host` to another host.
@@ -136,7 +148,7 @@ The CLI could not determine Nuxt's application server directory statically. For 
 
 ### `SETUP_INSTALL_FAILED`
 
-The package manager exited with an error. ViteHub did not write starter or config files. The package manager may have changed package manifests or lockfiles, including during an earlier successful install. Run the install command by hand to see the error.
+The package manager exited with an error. `why` ends with the last lines of its error output. ViteHub did not write starter or config files. The package manager may have changed package manifests or lockfiles, including during an earlier successful install. When pnpm stopped at a build script, `fix` names the packages and the `pnpm-workspace.yaml` to change: set each one to `false` in `allowBuilds` to skip its build script, or to `true` to run it.
 
 ### `SETUP_STALE_PLAN`
 
