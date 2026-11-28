@@ -142,6 +142,10 @@ function isRemoteLibsqlConnectionUrl(value: DatabaseConfigValue | undefined) {
     : typeof value !== "undefined"
 }
 
+function readsValueFromEnv(value: DatabaseConfigValue | undefined) {
+  return typeof value === "object" && Boolean(value.source?.name || value.source?.names?.length)
+}
+
 function hasConfigValue(value: DatabaseConfigValue | undefined) {
   const databaseId = resolveConfigValue(value)
   return typeof databaseId === "string"
@@ -183,6 +187,7 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
     const hasD1Http = Boolean(database?.cloudflare?.http)
       && hasConfigValue(database.cloudflare?.databaseId)
     return !hasD1Http
+      && !readsValueFromEnv(database?.connection?.url)
       && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
