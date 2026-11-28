@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleAuthorAvatarUrl, consoleProjectBuildOf, consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
-import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
+import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, normalizeProjectUrl, orderSwitcherProjects } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -65,6 +65,22 @@ describe("project URLs", () => {
 
   it("shows the host and mount", () => {
     expect(consoleProjectHost({ url: "https://app.example.com/portal" })).toBe("app.example.com/portal")
+  })
+})
+
+describe("app switcher order", () => {
+  const apps = ["Strata", "loadsheet.dev", "Brief", "Wiki", "Bot", "Sorted", "Agent", "Docs"].map((name, index) => ({ id: `p-${index}`, name }))
+
+  it("puts the starred apps first, then the others, each by name", () => {
+    const { favorites, others } = orderSwitcherProjects(apps, ["p-3", "gone", "p-0"], app => app.name)
+    expect(favorites.map(app => app.name)).toEqual(["Strata", "Wiki"])
+    expect(others.map(app => app.name)).toEqual(["Agent", "Bot", "Brief", "Docs", "loadsheet.dev", "Sorted"])
+  })
+
+  it("lists every app by name when none is starred", () => {
+    const { favorites, others } = orderSwitcherProjects(apps.slice(0, 3), [], app => app.name)
+    expect(favorites).toEqual([])
+    expect(others.map(app => app.name)).toEqual(["Brief", "loadsheet.dev", "Strata"])
   })
 })
 
@@ -251,6 +267,34 @@ describe("account Console", () => {
     state.account.value = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
     return { module, state }
   }
+
+  it("leaves the team Env page when switching to an app", async () => {
+    const { module, state } = await account(async () => Response.json(projectGet))
+    state.gate.value = { kind: "home", page: "env" }
+    module.switchConsoleProject(linked.id)
+    expect(state.navigate).toHaveBeenCalledWith("/")
+  })
+
+  it("carries the Invite action through app navigation and consumes it on Members", async () => {
+    const { module, state } = await account(async () => Response.json(projectGet))
+    vi.stubGlobal("fetch", withAccount(() => state.account.value, async () => Response.json(projectGet)))
+    state.gate.value = { kind: "ready" }
+    module.showConsoleAccountPage("team", "invite")
+    expect(state.navigate).toHaveBeenCalledWith("/team?invite=1")
+    expect(module.consoleInviteRequested.value).toBe(false)
+
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/team", showPath: vi.fn() }
+    expect(await module.startConsoleAccount({ ...boot, search: "?invite=1" })).toBe("/team")
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "team" })
+    expect(module.consoleInviteRequested.value).toBe(true)
+
+    await module.startConsoleAccount(boot)
+    expect(module.consoleInviteRequested.value).toBe(false)
+    module.showConsoleAccountPage("team", "invite")
+    expect(module.consoleInviteRequested.value).toBe(true)
+    module.showConsoleAccountPage("team")
+    expect(module.consoleInviteRequested.value).toBe(false)
+  })
 
   it("opens the page of a hostedConsoleUrl() link in the app of the team with that URL", async () => {
     const { consoleOpenLink } = await import("../src/console/runtime/client/project-session.ts")
@@ -496,6 +540,18 @@ describe("account Console", () => {
     expect(sent).toEqual(["project.get /p/p-1/_vitehub/rpc", "sections.list /p/p-1/_vitehub/rpc"])
     // The app that opened is the app of the team that the next visit opens.
     expect(stored.get("vitehub-console:account-project:t")).toBe("p-1")
+  })
+
+  it("keeps the starred apps of each team in this browser", async () => {
+    const stored = new Map<string, string>([["vitehub-console:favorite-projects:other", "not json"]])
+    vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => void stored.set(key, value) })
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    expect(module.toggleFavoriteAccountProject("t", "p-1")).toEqual(["p-1"])
+    expect(module.toggleFavoriteAccountProject("t", "p-2")).toEqual(["p-1", "p-2"])
+    expect(module.toggleFavoriteAccountProject("t", "p-1")).toEqual(["p-2"])
+    expect(module.favoriteAccountProjects("t")).toEqual(["p-2"])
+    expect(module.favoriteAccountProjects("other")).toEqual([])
+    expect(module.favoriteAccountProjects(undefined)).toEqual([])
   })
 
   it("sends the project's calls to the Console server, with the page cookies and no token", async () => {

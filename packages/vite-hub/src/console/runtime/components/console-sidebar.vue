@@ -17,7 +17,6 @@ withDefaults(defineProps<{
   /** Where the brand row leads: the apps of the team, or the Overview of the only app. */
   homeHref: string;
   homeLabel: string;
-  team?: string;
   /** Show the Search row. Pages without a search palette, such as the pages of a team, turn it off. */
   search?: boolean;
 }>(), { search: true });
@@ -68,7 +67,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           <template #trailing>
             <span class="vitehub-sidebar__brand-text" aria-hidden="true">
               <span class="vitehub-sidebar__brand-name">ViteHub</span>
-              <span v-if="team" class="vitehub-sidebar__brand-team">{{ team }}</span>
             </span>
           </template>
         </ConsoleSidebarItem>
@@ -251,14 +249,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 600;
-}
-
-.vitehub-sidebar__brand-team {
-  color: var(--ui-text-dimmed);
-  font-size: 0.75rem;
-  font-weight: 400;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Open, Search looks like a field. Collapsed, it is one more icon. */

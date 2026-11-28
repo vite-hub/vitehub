@@ -145,7 +145,7 @@ onBeforeUnmount(() => unsubscribe?.());
                 <ConsoleAppLogo :app="app" class="vitehub-app-settings__logo" />
                 <span class="truncate font-mono text-[0.8125rem] text-muted">{{ origin }}/favicon.ico</span>
               </div>
-              <template #footer>The app serves it at <code>/favicon.ico</code>. Change that file and deploy.</template>
+              <template #footer>The app serves it at <code>/favicon.ico</code>, <code>/favicon.svg</code>, <code>/favicon.png</code>, or <code>/icon.svg</code>. The Console shows the first that loads.</template>
             </ConsoleSettingsCard>
 
             <ConsoleSettingsCard title="URL" description="Where the app runs. The Console sends its calls to this address.">

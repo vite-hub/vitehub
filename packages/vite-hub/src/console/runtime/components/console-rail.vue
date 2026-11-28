@@ -49,7 +49,6 @@ let unsubscribe: (() => void) | undefined;
 
 const projects = useConsoleProjects();
 const app = useConsoleApp();
-const team = computed(() => projects.account.value?.teams.find(item => item.id === projects.account.value?.teamId)?.name);
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
@@ -190,7 +189,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleSidebar :home-href="projects.home" :home-label="projects.mode === 'account' ? 'ViteHub, all apps' : `${app.name} overview`" :team="team" @home="goHome" @search="search">
+  <ConsoleSidebar :home-href="projects.home" :home-label="projects.mode === 'account' ? 'ViteHub, all apps' : `${app.name} overview`" @home="goHome" @search="search">
     <template #app>
       <ConsoleProjectSwitcher :app="app" />
     </template>

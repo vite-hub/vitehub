@@ -179,3 +179,9 @@ export function memoryProjectStorage(): ConsoleProjectStorage {
     setItem: (key, value) => void values.set(key, value),
   }
 }
+
+/** The apps of the app switcher by name: the starred apps that still exist, then the other apps. */
+export function orderSwitcherProjects<T extends { id: string }>(projects: readonly T[], favorites: readonly string[], name: (project: T) => string): { favorites: T[], others: T[] } {
+  const byName = [...projects].sort((a, b) => name(a).localeCompare(name(b), undefined, { sensitivity: "base" }))
+  return { favorites: byName.filter(project => favorites.includes(project.id)), others: byName.filter(project => !favorites.includes(project.id)) }
+}

@@ -24,9 +24,6 @@ import type { ConsoleStoredRead } from "./stored"
  */
 export type ConsoleProjectsMode = "embedded" | "account"
 
-/** What the switcher shows next to a linked project. */
-export type ConsoleProjectStatus = "checking" | "ready" | "sign-in" | "unreachable"
-
 /** The state of the boot gate, before the Console shows the project. */
 export type ConsoleProjectGate =
   | { kind: "opening" }
@@ -75,7 +72,6 @@ interface ConsoleProjectsState {
   info: ShallowRef<ConsoleProjectInfo | undefined>
   gate: ShallowRef<ConsoleProjectGate>
   projects: ShallowRef<ConsoleLinkedProject[]>
-  statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
   /**
    * The name that each project reported, by project id: in `project.get`, or in the check of the team sidebar. The
    * device keeps those answers, so the next visit shows the names at once.
@@ -185,7 +181,6 @@ export function startConsoleProjects(options: {
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     projects: shallowRef(projects),
-    statuses: shallowRef({}),
     store,
   }
   state = started
@@ -200,7 +195,6 @@ function open(info: ConsoleProjectInfo): void {
   projects.info.value = info
   const current = projects.current.value
   if (current?.id) {
-    projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
     rememberConsoleProjectName(current.id, info.name)
     if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, current.id)
   }
@@ -322,6 +316,10 @@ function applyProbe(probe: ConsoleProjectProbe, current: ConsoleLinkedProject): 
  */
 export function switchConsoleProject(id: string): void {
   const projects = useState()
+  if (projects.mode === "account" && projects.gate.value.kind === "home") {
+    openAccountProject(id)
+    return
+  }
   projects.store.select(id)
   if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, id)
   const project = projects.store.get(id)
@@ -345,24 +343,20 @@ export async function forgetConsoleProject(id: string): Promise<void> {
   reloadConsoleAccount()
 }
 
-/** Read `project.get` of every project of the team, for the status dots of the switcher. */
+/** Read `project.get` of every project of the team, so the switcher names the apps that have no label. */
 export async function checkConsoleProjects(): Promise<void> {
   const projects = useState()
   const list = projects.store.list()
   projects.projects.value = list
   // The open project answered at boot, so only the others need a request.
   const opened = projects.gate.value.kind === "ready" ? projects.current.value?.id : undefined
-  const pending = list.filter(project => project.id !== opened)
-  projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
-  await Promise.all(pending.map(async (project) => {
+  await Promise.all(list.filter(project => project.id !== opened).map(async (project) => {
     const stored = projects.mode === "account" ? readProject(project.id) : undefined
     // The stored answer names the project while it answers again.
     if (stored?.stored?.kind === "ready") rememberConsoleProjectName(project.id, stored.stored.info.name)
     const answer = stored ? stored.answer() : probeConsoleProject(targetOf(projects, project))
     const probe = await answer.catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     stored?.stop()
-    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
-    projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
     if (probe.kind === "ready") rememberConsoleProjectName(project.id, probe.info.name)
   }))
 }
@@ -393,6 +387,9 @@ export function consoleOpenProjectName(reported?: string): string | undefined {
   return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
+/** The Invite action of the app switcher sets it: the Members page or tab opens with its invite field focused. */
+export const consoleInviteRequested: Ref<boolean> = ref(false)
+
 /** Only owners and admins of a team link and unlink its apps. */
 export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">): boolean {
   return account.roles.includes("owner") || account.roles.includes("admin")
@@ -419,6 +416,32 @@ function rememberedAccountProject(teamId: string | undefined): string | undefine
   catch {
     return undefined
   }
+}
+
+const favoriteProjectsKey = (teamId: string) => `vitehub-console:favorite-projects:${teamId}`
+
+/** The apps of a team that the person starred in the app switcher, kept in this browser. */
+export function favoriteAccountProjects(teamId: string | undefined): string[] {
+  if (!teamId) return []
+  try {
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(favoriteProjectsKey(teamId)) ?? "[]")
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
+  }
+  catch {
+    return []
+  }
+}
+
+/** Star an app of a team, or remove its star. Returns the starred apps of the team. */
+export function toggleFavoriteAccountProject(teamId: string | undefined, projectId: string): string[] {
+  const favorites = favoriteAccountProjects(teamId)
+  const next = favorites.includes(projectId) ? favorites.filter(id => id !== projectId) : [...favorites, projectId]
+  if (!teamId) return next
+  try {
+    globalThis.localStorage?.setItem(favoriteProjectsKey(teamId), JSON.stringify(next))
+  }
+  catch {}
+  return next
 }
 
 /**
@@ -608,6 +631,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
   if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
+  consoleInviteRequested.value = Boolean(account && page === "team" && new URLSearchParams(search).get("invite") === "1")
   // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
   const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
     ? consoleOpenReturnPath(options.home, search)
@@ -621,7 +645,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
     earlyProbe?.read.stop()
     earlyProbe = undefined
   }
-  return address ?? (missingApp ? options.home : undefined)
+  return consoleInviteRequested.value ? options.pathname : address ?? (missingApp ? options.home : undefined)
 }
 
 /**
@@ -751,15 +775,17 @@ let showAccountPath: ((path: string) => void) | undefined
  * Show a page of an `account` Console outside the projects, such as `/team`. Before a project opens, the page changes in
  * place. In an open project, the Console loads again, because the router owns the path there.
  */
-export function showConsoleAccountPage(page: ConsoleAccountPage): void {
+export function showConsoleAccountPage(page: ConsoleAccountPage, action?: "invite"): void {
   const projects = useState()
   // An earlier app-opening response must not replace the page the person selected.
   ++probeVersion
   const path = `${projects.home.replace(/\/+$/, "")}/${page}`
+  const invite = page === "team" && action === "invite"
   if (projects.gate.value.kind === "ready") {
-    projects.navigate(path)
+    projects.navigate(invite ? `${path}?invite=1` : path)
     return
   }
+  consoleInviteRequested.value = invite
   showAccountPath?.(path)
   projects.gate.value = { kind: "home", page }
 }

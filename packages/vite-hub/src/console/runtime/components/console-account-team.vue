@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watchPostEffect } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
-import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleInviteRequested, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import Icon from "./console-icon.vue";
 
@@ -15,6 +15,7 @@ const team = computed(() => account.value?.teams.find(item => item.id === accoun
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const details = shallowRef<ConsoleTeamDetails>();
 const loadProblem = ref<string>();
+const root = useTemplateRef<HTMLElement>("root");
 
 const email = ref("");
 const role = ref<"member" | "admin">("member");
@@ -42,7 +43,15 @@ async function load(answer = loadConsoleTeam()): Promise<void> {
 }
 
 // The link to this page starts the load when the pointer or the focus reaches it.
-onMounted(() => load(earlyConsoleTeam.take()));
+onMounted(() => {
+  void load(earlyConsoleTeam.take());
+});
+
+watchPostEffect(() => {
+  if (!consoleInviteRequested.value) return;
+  consoleInviteRequested.value = false;
+  root.value?.querySelector<HTMLElement>("#vitehub-team-invite-email")?.focus();
+});
 
 function initials(text: string): string {
   return text.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase();
@@ -112,14 +121,14 @@ async function copy(link: string): Promise<void> {
 </script>
 
 <template>
-  <div class="grid max-w-2xl gap-10">
+  <div ref="root" class="grid max-w-2xl gap-10">
     <p class="text-sm text-pretty text-muted">Everyone in {{ team?.name ?? "the team" }} opens its apps. Owners and admins also link apps and invite people.</p>
 
     <section v-if="manage" class="grid gap-3" aria-labelledby="vitehub-team-invite">
       <h2 id="vitehub-team-invite" class="text-sm font-semibold text-highlighted">Invite people</h2>
       <form class="grid gap-1.5" @submit.prevent="invite">
         <div class="flex flex-wrap gap-2">
-          <UInput v-model="email" type="email" autocomplete="off" placeholder="name@example.com" aria-label="Email" aria-describedby="vitehub-team-invite-help" required class="min-w-0 flex-1 basis-56" />
+          <UInput id="vitehub-team-invite-email" v-model="email" type="email" autocomplete="off" placeholder="name@example.com" aria-label="Email" aria-describedby="vitehub-team-invite-help" required class="min-w-0 flex-1 basis-56" />
           <USelect v-model="role" :items="[{ label: 'Member', value: 'member' }, { label: 'Admin', value: 'admin' }]" aria-label="Role" class="w-28" />
           <UButton type="submit" icon="i-lucide-user-plus" label="Create invite link" class="justify-center max-sm:flex-1" :loading="inviting" />
         </div>
