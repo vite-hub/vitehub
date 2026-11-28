@@ -10,6 +10,6 @@
       "@vite-hub/runtime": ["../../packages/runtime/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
+  "include": ["contract/**/*.ts", "src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
   "exclude": ["dist", "node_modules", "test/browser"]
 }

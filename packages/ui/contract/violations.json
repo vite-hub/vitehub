@@ -1,0 +1,1523 @@
+[
+  {
+    "component": "AgentSession",
+    "rule": "boolean-default-true",
+    "prop": "defaultDetailsOpen"
+  },
+  {
+    "component": "AgentSession",
+    "rule": "emits-type"
+  },
+  {
+    "component": "AgentSession",
+    "rule": "model-without-default",
+    "prop": "maximized"
+  },
+  {
+    "component": "AgentSession",
+    "rule": "props-type"
+  },
+  {
+    "component": "AgentSession",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "AgentSession",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AgentSessionDetailsRow",
+    "rule": "icon-string",
+    "prop": "icon"
+  },
+  {
+    "component": "AgentSessionDetailsRow",
+    "rule": "props-type"
+  },
+  {
+    "component": "AgentSessionDetailsRow",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AgentSessionDetailsRow",
+    "rule": "tone-values",
+    "prop": "tone"
+  },
+  {
+    "component": "AgentSessionDetailsSection",
+    "rule": "props-type"
+  },
+  {
+    "component": "AgentSessionDetailsSection",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AgentSessionTimeline",
+    "rule": "props-type"
+  },
+  {
+    "component": "AgentSessionTimeline",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AgentSessionWorkGroup",
+    "rule": "props-type"
+  },
+  {
+    "component": "AgentSessionWorkGroup",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "AgentSessionWorkGroup",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Attachment",
+    "rule": "data-state"
+  },
+  {
+    "component": "Attachment",
+    "rule": "props-type"
+  },
+  {
+    "component": "Attachment",
+    "rule": "size-values",
+    "prop": "size"
+  },
+  {
+    "component": "Attachment",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentAction",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentAction",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentActions",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentActions",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentDescription",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentDescription",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentGroup",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentGroup",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentMedia",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentMedia",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentMedia",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "AttachmentTitle",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentTitle",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AttachmentTrigger",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "AttachmentTrigger",
+    "rule": "props-type"
+  },
+  {
+    "component": "AttachmentTrigger",
+    "rule": "slots-type"
+  },
+  {
+    "component": "AvatarStack",
+    "rule": "props-type"
+  },
+  {
+    "component": "AvatarStack",
+    "rule": "size-values",
+    "prop": "size"
+  },
+  {
+    "component": "AvatarStack",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "BrowserSupportNotice",
+    "rule": "emits-type"
+  },
+  {
+    "component": "BrowserSupportNotice",
+    "rule": "props-type"
+  },
+  {
+    "component": "BrowserSupportNotice",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Bubble",
+    "rule": "props-type"
+  },
+  {
+    "component": "Bubble",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Bubble",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "BubbleContent",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "BubbleContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "BubbleContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "BubbleGroup",
+    "rule": "props-type"
+  },
+  {
+    "component": "BubbleGroup",
+    "rule": "slots-type"
+  },
+  {
+    "component": "BubbleReactions",
+    "rule": "props-type"
+  },
+  {
+    "component": "BubbleReactions",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Chat",
+    "rule": "props-type"
+  },
+  {
+    "component": "Chat",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Chat",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChatMessage",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChatMessage",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "ChatMessage",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChatSession",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChatSession",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "ChatSession",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChoicesInput",
+    "rule": "data-state"
+  },
+  {
+    "component": "ChoicesInput",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInput",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChoicesInputClear",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "ChoicesInputClear",
+    "rule": "data-state"
+  },
+  {
+    "component": "ChoicesInputClear",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInputClear",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChoicesInputError",
+    "rule": "data-state"
+  },
+  {
+    "component": "ChoicesInputError",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInputError",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChoicesInputField",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "ChoicesInputField",
+    "rule": "data-state"
+  },
+  {
+    "component": "ChoicesInputField",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInputField",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ChoicesInputStatus",
+    "rule": "data-state"
+  },
+  {
+    "component": "ChoicesInputStatus",
+    "rule": "props-type"
+  },
+  {
+    "component": "ChoicesInputStatus",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlock",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlock",
+    "rule": "size-values",
+    "prop": "size"
+  },
+  {
+    "component": "CodeBlock",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlock",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "CodeBlockActions",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockActions",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlockContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlockCopyButton",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockFooter",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockFooter",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlockHeader",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockHeader",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlockLine",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockLine",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeBlockLine",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "CodeBlockTitle",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeBlockTitle",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CodeView",
+    "rule": "props-type"
+  },
+  {
+    "component": "CodeView",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "boolean-default-true",
+    "prop": "attachments"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "boolean-default-true",
+    "prop": "autofocus"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "boolean-default-true",
+    "prop": "guard"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "data-state"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "model-without-default",
+    "prop": "files"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "model-without-default",
+    "prop": "mentions"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "model-without-default",
+    "prop": "modelValue"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentComposer",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "CommentFilters",
+    "rule": "data-state"
+  },
+  {
+    "component": "CommentFilters",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentLayer",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentLayer",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CommentList",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentList",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentList",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "data-state"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "model-without-default",
+    "prop": "status"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "model-without-default",
+    "prop": "thread"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentPanel",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "CommentPin",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentPin",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentReply",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentSelectionBar",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentSelectionBar",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentSend",
+    "rule": "data-state"
+  },
+  {
+    "component": "CommentSend",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentThread",
+    "rule": "boolean-default-true",
+    "prop": "attachments"
+  },
+  {
+    "component": "CommentThread",
+    "rule": "boolean-default-true",
+    "prop": "dismissible"
+  },
+  {
+    "component": "CommentThread",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CommentThread",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentToolbar",
+    "rule": "props-type"
+  },
+  {
+    "component": "CommentToolbar",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ConnectPanel",
+    "rule": "emits-type"
+  },
+  {
+    "component": "ConnectPanel",
+    "rule": "props-type"
+  },
+  {
+    "component": "ConnectPanel",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "ConnectProviderRow",
+    "rule": "emits-type"
+  },
+  {
+    "component": "ConnectProviderRow",
+    "rule": "props-type"
+  },
+  {
+    "component": "ConnectProviderRow",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "ConnectionStatus",
+    "rule": "props-type"
+  },
+  {
+    "component": "ConnectionStatus",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ConnectionStatusIndicator",
+    "rule": "props-type"
+  },
+  {
+    "component": "ConnectionStatusLabel",
+    "rule": "props-type"
+  },
+  {
+    "component": "ConnectionStatusLabel",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "emits-type"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "icon-string",
+    "prop": "icon"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "props-type"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "size-values",
+    "prop": "size"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "slots-type"
+  },
+  {
+    "component": "CopyButton",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "DeviceFrame",
+    "rule": "boolean-default-true",
+    "prop": "toolbar"
+  },
+  {
+    "component": "DeviceFrame",
+    "rule": "emits-type"
+  },
+  {
+    "component": "DeviceFrame",
+    "rule": "props-type"
+  },
+  {
+    "component": "DeviceFrame",
+    "rule": "slots-type"
+  },
+  {
+    "component": "DropField",
+    "rule": "emits-type"
+  },
+  {
+    "component": "DropField",
+    "rule": "props-type"
+  },
+  {
+    "component": "FileDiff",
+    "rule": "props-type"
+  },
+  {
+    "component": "FileDiff",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "FileTree",
+    "rule": "emits-type"
+  },
+  {
+    "component": "FileTree",
+    "rule": "model-without-default",
+    "prop": "selectedPath"
+  },
+  {
+    "component": "FileTree",
+    "rule": "props-type"
+  },
+  {
+    "component": "FileTree",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "FileView",
+    "rule": "props-type"
+  },
+  {
+    "component": "FileView",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "FilterSearch",
+    "rule": "props-type"
+  },
+  {
+    "component": "FilterSearch",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "FilterSearch",
+    "rule": "size-values",
+    "prop": "size"
+  },
+  {
+    "component": "FilterSearch",
+    "rule": "slots-type"
+  },
+  {
+    "component": "HoldToDelete",
+    "rule": "emits-type"
+  },
+  {
+    "component": "HoldToDelete",
+    "rule": "props-type"
+  },
+  {
+    "component": "Markdown",
+    "rule": "any-type",
+    "prop": "components"
+  },
+  {
+    "component": "Markdown",
+    "rule": "any-type",
+    "prop": "options"
+  },
+  {
+    "component": "Markdown",
+    "rule": "any-type",
+    "prop": "plugins"
+  },
+  {
+    "component": "Markdown",
+    "rule": "props-type"
+  },
+  {
+    "component": "Markdown",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "any-type",
+    "prop": "plugins"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "emits-type"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "model-without-default",
+    "prop": "modelValue"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "props-type"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "MarkdownEditor",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Marker",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "Marker",
+    "rule": "props-type"
+  },
+  {
+    "component": "Marker",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Marker",
+    "rule": "variant-values",
+    "prop": "variant"
+  },
+  {
+    "component": "MarkerContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "MarkerContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MarkerIcon",
+    "rule": "props-type"
+  },
+  {
+    "component": "MarkerIcon",
+    "rule": "slots-type"
+  },
+  {
+    "component": "Message",
+    "rule": "props-type"
+  },
+  {
+    "component": "Message",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageAvatar",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageAvatar",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageFooter",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageFooter",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageGroup",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageGroup",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageHeader",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageHeader",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageParts",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageParts",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageScroller",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MessageScroller",
+    "rule": "boolean-default-true",
+    "prop": "autoScroll"
+  },
+  {
+    "component": "MessageScroller",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageScroller",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageScrollerButton",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MessageScrollerButton",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageScrollerButton",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageScrollerContent",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MessageScrollerContent",
+    "rule": "boolean-default-true",
+    "prop": "preserveScrollOnPrepend"
+  },
+  {
+    "component": "MessageScrollerContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageScrollerContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageScrollerItem",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MessageScrollerItem",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageScrollerItem",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MessageScrollerViewport",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MessageScrollerViewport",
+    "rule": "props-type"
+  },
+  {
+    "component": "MessageScrollerViewport",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MorphText",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "MorphText",
+    "rule": "props-type"
+  },
+  {
+    "component": "MotionList",
+    "rule": "props-type"
+  },
+  {
+    "component": "MotionList",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "MotionList",
+    "rule": "slots-type"
+  },
+  {
+    "component": "MultiFileDiff",
+    "rule": "props-type"
+  },
+  {
+    "component": "MultiFileDiff",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "PatchDiff",
+    "rule": "props-type"
+  },
+  {
+    "component": "PatchDiff",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Progress",
+    "rule": "props-type"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "boolean-default-true",
+    "prop": "attachments"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "boolean-default-true",
+    "prop": "multiple"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "emits-type"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "model-without-default",
+    "prop": "files"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "model-without-default",
+    "prop": "modelValue"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "props-type"
+  },
+  {
+    "component": "PromptInput",
+    "rule": "slots-type"
+  },
+  {
+    "component": "RelativeTime",
+    "rule": "boolean-default-true",
+    "prop": "tooltip"
+  },
+  {
+    "component": "RelativeTime",
+    "rule": "props-type"
+  },
+  {
+    "component": "RollNumber",
+    "rule": "as-prop",
+    "prop": "as"
+  },
+  {
+    "component": "RollNumber",
+    "rule": "props-type"
+  },
+  {
+    "component": "Status",
+    "rule": "props-type"
+  },
+  {
+    "component": "Status",
+    "rule": "slots-type"
+  },
+  {
+    "component": "SwapIcon",
+    "rule": "props-type"
+  },
+  {
+    "component": "SwapIcon",
+    "rule": "slots-type"
+  },
+  {
+    "component": "SyncStatus",
+    "rule": "props-type"
+  },
+  {
+    "component": "SyncStatus",
+    "rule": "slots-type"
+  },
+  {
+    "component": "SyncStatusIndicator",
+    "rule": "props-type"
+  },
+  {
+    "component": "SyncStatusLabel",
+    "rule": "props-type"
+  },
+  {
+    "component": "SyncStatusLabel",
+    "rule": "slots-type"
+  },
+  {
+    "component": "ToolList",
+    "rule": "emits-type"
+  },
+  {
+    "component": "ToolList",
+    "rule": "props-type"
+  },
+  {
+    "component": "ToolList",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Trace",
+    "rule": "props-type"
+  },
+  {
+    "component": "Trace",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceCollapsible",
+    "rule": "emits-type"
+  },
+  {
+    "component": "TraceCollapsible",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceCollapsible",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceCollapsibleContent",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceCollapsibleContent",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceCollapsibleTrigger",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceCollapsibleTrigger",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceDescription",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceDescription",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceIcon",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceIcon",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceLine",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceLine",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceRun",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceRun",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "TraceRun",
+    "rule": "slots-type"
+  },
+  {
+    "component": "TraceTitle",
+    "rule": "props-type"
+  },
+  {
+    "component": "TraceTitle",
+    "rule": "slots-type"
+  },
+  {
+    "component": "UnresolvedFile",
+    "rule": "props-type"
+  },
+  {
+    "component": "UnresolvedFile",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Workspace",
+    "rule": "boolean-default-true",
+    "prop": "share"
+  },
+  {
+    "component": "Workspace",
+    "rule": "data-state"
+  },
+  {
+    "component": "Workspace",
+    "rule": "emits-type"
+  },
+  {
+    "component": "Workspace",
+    "rule": "model-without-default",
+    "prop": "example"
+  },
+  {
+    "component": "Workspace",
+    "rule": "model-without-default",
+    "prop": "open"
+  },
+  {
+    "component": "Workspace",
+    "rule": "model-without-default",
+    "prop": "selected"
+  },
+  {
+    "component": "Workspace",
+    "rule": "model-without-default",
+    "prop": "step"
+  },
+  {
+    "component": "Workspace",
+    "rule": "props-type"
+  },
+  {
+    "component": "Workspace",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "Workspace",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceBar",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceBar",
+    "rule": "model-without-default",
+    "prop": "sidebar"
+  },
+  {
+    "component": "WorkspaceBar",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceBar",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceBar",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceBootStatus",
+    "rule": "boolean-default-true",
+    "prop": "online"
+  },
+  {
+    "component": "WorkspaceBootStatus",
+    "rule": "data-state"
+  },
+  {
+    "component": "WorkspaceBootStatus",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceBootStatus",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceBootStatus",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceEditor",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceEditor",
+    "rule": "model-without-default",
+    "prop": "modelValue"
+  },
+  {
+    "component": "WorkspaceEditor",
+    "rule": "model-without-default",
+    "prop": "wrap"
+  },
+  {
+    "component": "WorkspaceEditor",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceEditor",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceEditorHead",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceEditorHead",
+    "rule": "model-without-default",
+    "prop": "wrap"
+  },
+  {
+    "component": "WorkspaceEditorHead",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceEditorHead",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceEditorHead",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceExamples",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceExamples",
+    "rule": "model-without-default",
+    "prop": "modelValue"
+  },
+  {
+    "component": "WorkspaceExamples",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceExamples",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceFileLink",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceFileLink",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceFileLink",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceFileLink",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceFileTree",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceFileTree",
+    "rule": "model-without-default",
+    "prop": "selected"
+  },
+  {
+    "component": "WorkspaceFileTree",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceFileTree",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceGuide",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceGuide",
+    "rule": "model-without-default",
+    "prop": "step"
+  },
+  {
+    "component": "WorkspaceGuide",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceGuide",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceGuide",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceIssues",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceIssues",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceIssues",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "model-without-default",
+    "prop": "device"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "model-without-default",
+    "prop": "path"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspacePreview",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceShell",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceShell",
+    "rule": "model-without-default",
+    "prop": "tab"
+  },
+  {
+    "component": "WorkspaceShell",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceShell",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceShell",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceSidebar",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceSidebar",
+    "rule": "model-without-default",
+    "prop": "open"
+  },
+  {
+    "component": "WorkspaceSidebar",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceSidebar",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceSidebar",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceStart",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceStart",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceStart",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceStart",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceStatus",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceStatus",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceStatus",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceSteps",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceSteps",
+    "rule": "model-without-default",
+    "prop": "step"
+  },
+  {
+    "component": "WorkspaceSteps",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceSteps",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceTask",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceTask",
+    "rule": "root-data-slot"
+  },
+  {
+    "component": "WorkspaceTask",
+    "rule": "slots-type"
+  },
+  {
+    "component": "WorkspaceTerminal",
+    "rule": "emits-type"
+  },
+  {
+    "component": "WorkspaceTerminal",
+    "rule": "props-type"
+  },
+  {
+    "component": "WorkspaceTerminal",
+    "rule": "root-data-slot"
+  }
+]

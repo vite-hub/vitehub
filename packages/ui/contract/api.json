@@ -1,0 +1,5455 @@
+{
+  "package": "@vite-hub/ui",
+  "components": [
+    {
+      "name": "AgentSession",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/agent-session.ts",
+      "props": [
+        {
+          "name": "defaultDetailsOpen",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "defaultPanelOpen",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "defaultSurface",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "defaultWidth",
+          "type": "number | undefined",
+          "required": false,
+          "default": "560"
+        },
+        {
+          "name": "maximized",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "panelOpen",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "provider",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "storageKey",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "subtitle",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "surface",
+          "type": "string | null | undefined",
+          "required": false
+        },
+        {
+          "name": "surfaces",
+          "type": "AgentSessionSurface[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "events": [
+        {
+          "name": "update:maximized",
+          "type": "[_maximized: boolean]"
+        },
+        {
+          "name": "update:panelOpen",
+          "type": "[_open: boolean]"
+        },
+        {
+          "name": "update:surface",
+          "type": "[_id: string | null]"
+        }
+      ],
+      "slots": [
+        "actions",
+        "body",
+        "default",
+        "details",
+        "heading",
+        "surface",
+        "surface-*"
+      ],
+      "dataSlots": [
+        "agent-session-body",
+        "agent-session-details",
+        "agent-session-header",
+        "agent-session-lane",
+        "agent-session-launcher",
+        "agent-session-main",
+        "agent-session-panel",
+        "agent-session-panel-body",
+        "agent-session-panel-header",
+        "agent-session-provider",
+        "agent-session-resizer",
+        "agent-session-scroll"
+      ],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-active",
+        "data-closable",
+        "data-details",
+        "data-maximized",
+        "data-panel-open",
+        "data-provider"
+      ],
+      "types": []
+    },
+    {
+      "name": "AgentSessionDetailsRow",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/agent-session.ts",
+      "props": [
+        {
+          "name": "href",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "icon",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "tone",
+          "type": "\"default\" | \"error\" | \"muted\" | \"success\" | \"info\" | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "error",
+            "info",
+            "muted",
+            "success"
+          ],
+          "default": "\"default\""
+        },
+        {
+          "name": "value",
+          "type": "string | number | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default",
+        "icon",
+        "value"
+      ],
+      "dataSlots": [
+        "agent-session-details-row"
+      ],
+      "rootDataSlots": [
+        "agent-session-details-row"
+      ],
+      "dataAttributes": [
+        "data-interactive",
+        "data-tone"
+      ],
+      "types": []
+    },
+    {
+      "name": "AgentSessionDetailsSection",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/agent-session.ts",
+      "props": [
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "actions",
+        "default"
+      ],
+      "dataSlots": [
+        "agent-session-details-section"
+      ],
+      "rootDataSlots": [
+        "agent-session-details-section"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AgentSessionTimeline",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/agent-session.ts",
+      "props": [
+        {
+          "name": "items",
+          "type": "AgentSessionItem[]",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [
+        "item-*",
+        "item-assistant",
+        "item-divider",
+        "item-user",
+        "item-work",
+        "work-detail"
+      ],
+      "dataSlots": [
+        "agent-session-assistant",
+        "agent-session-timeline"
+      ],
+      "rootDataSlots": [
+        "agent-session-timeline"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AgentSessionWorkGroup",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/agent-session.ts",
+      "props": [
+        {
+          "name": "defaultOpen",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "entries",
+          "type": "AgentSessionWorkEntry[]",
+          "required": true
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "detail"
+      ],
+      "dataSlots": [
+        "agent-session-work",
+        "agent-session-work-detail",
+        "agent-session-work-row"
+      ],
+      "rootDataSlots": [
+        "agent-session-work"
+      ],
+      "dataAttributes": [
+        "data-kind",
+        "data-open",
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "Attachment",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [
+        {
+          "name": "orientation",
+          "type": "AttachmentOrientation | undefined",
+          "required": false,
+          "values": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "\"horizontal\""
+        },
+        {
+          "name": "size",
+          "type": "AttachmentSize | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "sm",
+            "xs"
+          ],
+          "default": "\"default\""
+        },
+        {
+          "name": "state",
+          "type": "AttachmentState | undefined",
+          "required": false,
+          "values": [
+            "done",
+            "error",
+            "idle",
+            "processing",
+            "uploading"
+          ],
+          "default": "\"done\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment"
+      ],
+      "rootDataSlots": [
+        "attachment"
+      ],
+      "dataAttributes": [
+        "data-orientation",
+        "data-size",
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "AttachmentAction",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "*",
+        "default",
+        "leading",
+        "trailing"
+      ],
+      "dataSlots": [
+        "attachment-action"
+      ],
+      "rootDataSlots": [
+        "attachment-action"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentActions",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-actions"
+      ],
+      "rootDataSlots": [
+        "attachment-actions"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-content"
+      ],
+      "rootDataSlots": [
+        "attachment-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentDescription",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-description"
+      ],
+      "rootDataSlots": [
+        "attachment-description"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentGroup",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-group"
+      ],
+      "rootDataSlots": [
+        "attachment-group"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentMedia",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [
+        {
+          "name": "variant",
+          "type": "\"image\" | \"icon\" | undefined",
+          "required": false,
+          "values": [
+            "icon",
+            "image"
+          ],
+          "default": "\"icon\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-media"
+      ],
+      "rootDataSlots": [
+        "attachment-media"
+      ],
+      "dataAttributes": [
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "AttachmentTitle",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-title"
+      ],
+      "rootDataSlots": [
+        "attachment-title"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "AttachmentTrigger",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/attachment.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "attachment-trigger"
+      ],
+      "rootDataSlots": [
+        "attachment-trigger"
+      ],
+      "dataAttributes": [
+        "data-focus-inset"
+      ],
+      "types": []
+    },
+    {
+      "name": "AvatarStack",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/avatar-stack.ts",
+      "props": [
+        {
+          "name": "max",
+          "type": "number | null | undefined",
+          "required": false,
+          "default": "3"
+        },
+        {
+          "name": "people",
+          "type": "AvatarStackPerson[]",
+          "required": true
+        },
+        {
+          "name": "size",
+          "type": "AvatarStackSize | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "lg",
+            "sm"
+          ],
+          "default": "\"default\""
+        },
+        {
+          "name": "variant",
+          "type": "AvatarStackVariant | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "outline"
+          ],
+          "default": "\"default\""
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "avatar-stack",
+        "avatar-stack-count",
+        "avatar-stack-fallback",
+        "avatar-stack-image",
+        "avatar-stack-item"
+      ],
+      "rootDataSlots": [
+        "avatar-stack"
+      ],
+      "dataAttributes": [
+        "data-size",
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "BrowserSupportNotice",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/browser-support-notice.ts",
+      "props": [
+        {
+          "name": "browser",
+          "type": "UnsupportedBrowser | undefined",
+          "required": false,
+          "values": [
+            "safari",
+            "unknown"
+          ]
+        },
+        {
+          "name": "description",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"This tutorial still works as text. To edit and run the code next to each step, open this page in Chrome, Edge, or Firefox on a desktop.\""
+        },
+        {
+          "name": "reason",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "supported",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "url",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "copied",
+          "type": "[url: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "Bubble",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/bubble.ts",
+      "props": [
+        {
+          "name": "align",
+          "type": "BubbleAlign | undefined",
+          "required": false,
+          "values": [
+            "end",
+            "start"
+          ],
+          "default": "\"start\""
+        },
+        {
+          "name": "variant",
+          "type": "BubbleVariant | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "destructive",
+            "ghost",
+            "muted",
+            "outline",
+            "secondary",
+            "tinted"
+          ],
+          "default": "\"default\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "bubble"
+      ],
+      "rootDataSlots": [
+        "bubble"
+      ],
+      "dataAttributes": [
+        "data-align",
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "BubbleContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/bubble.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "bubble-content"
+      ],
+      "rootDataSlots": [
+        "bubble-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "BubbleGroup",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/bubble.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "bubble-group"
+      ],
+      "rootDataSlots": [
+        "bubble-group"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "BubbleReactions",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/bubble.ts",
+      "props": [
+        {
+          "name": "align",
+          "type": "BubbleAlign | undefined",
+          "required": false,
+          "values": [
+            "end",
+            "start"
+          ],
+          "default": "\"end\""
+        },
+        {
+          "name": "side",
+          "type": "\"bottom\" | \"top\" | undefined",
+          "required": false,
+          "values": [
+            "bottom",
+            "top"
+          ],
+          "default": "\"bottom\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "bubble-reactions"
+      ],
+      "rootDataSlots": [
+        "bubble-reactions"
+      ],
+      "dataAttributes": [
+        "data-align",
+        "data-side"
+      ],
+      "types": []
+    },
+    {
+      "name": "Chat",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/chat.ts",
+      "props": [
+        {
+          "name": "edgeThreshold",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "messages",
+          "type": "readonly UIMessage<unknown, UIDataTypes, UITools>[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "previousItemPeek",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollButtonLabel",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Scroll to end\""
+        },
+        {
+          "name": "status",
+          "type": "ChatStatus | undefined",
+          "required": false,
+          "values": [
+            "error",
+            "ready",
+            "streaming",
+            "submitted"
+          ],
+          "default": "\"ready\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "actions",
+        "composer",
+        "default",
+        "fallback",
+        "file",
+        "header",
+        "leading",
+        "markdown",
+        "message",
+        "part",
+        "reasoning",
+        "scroll-button",
+        "source",
+        "status",
+        "step",
+        "text",
+        "tool"
+      ],
+      "dataSlots": [
+        "chat-composer",
+        "chat-status"
+      ],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "ChatMessage",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/chat-message.ts",
+      "props": [
+        {
+          "name": "message",
+          "type": "UIMessage<unknown, UIDataTypes, UITools>",
+          "required": true
+        },
+        {
+          "name": "streaming",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "actions",
+        "default",
+        "fallback",
+        "file",
+        "header",
+        "leading",
+        "markdown",
+        "part",
+        "reasoning",
+        "source",
+        "step",
+        "text",
+        "tool"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-role"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChatSession",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/chat-session.ts",
+      "props": [
+        {
+          "name": "session",
+          "type": "ViteHubUISession<UIMessage<unknown, UIDataTypes, UITools>>",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "ChatStatus | undefined",
+          "required": false,
+          "values": [
+            "error",
+            "ready",
+            "streaming",
+            "submitted"
+          ],
+          "default": "\"ready\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "actions",
+        "composer",
+        "default",
+        "fallback",
+        "file",
+        "footer",
+        "header",
+        "leading",
+        "markdown",
+        "message",
+        "part",
+        "reasoning",
+        "scroll-button",
+        "source",
+        "status",
+        "step",
+        "text",
+        "tool"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-session-id"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChoicesInput",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/choices-input.ts",
+      "props": [
+        {
+          "name": "choices",
+          "type": "ChoicesInputSource",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "choices-input"
+      ],
+      "rootDataSlots": [
+        "choices-input"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChoicesInputClear",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/choices-input.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Clear\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "choices-input-clear"
+      ],
+      "rootDataSlots": [
+        "choices-input-clear"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChoicesInputError",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/choices-input.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "choices-input-error"
+      ],
+      "rootDataSlots": [
+        "choices-input-error"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChoicesInputField",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/choices-input.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Search\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "*"
+      ],
+      "dataSlots": [
+        "choices-input-field"
+      ],
+      "rootDataSlots": [
+        "choices-input-field"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "ChoicesInputStatus",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/choices-input.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "choices-input-status"
+      ],
+      "rootDataSlots": [
+        "choices-input-status"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "CodeBlock",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [
+        {
+          "name": "size",
+          "type": "CodeBlockSize | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "sm"
+          ],
+          "default": "\"default\""
+        },
+        {
+          "name": "variant",
+          "type": "CodeBlockVariant | undefined",
+          "required": false,
+          "values": [
+            "default",
+            "destructive"
+          ],
+          "default": "\"default\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block"
+      ],
+      "rootDataSlots": [
+        "code-block"
+      ],
+      "dataAttributes": [
+        "data-size",
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "CodeBlockActions",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-actions"
+      ],
+      "rootDataSlots": [
+        "code-block-actions"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CodeBlockContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [
+        {
+          "name": "lineNumbers",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "startLine",
+          "type": "number | undefined",
+          "required": false,
+          "default": "1"
+        },
+        {
+          "name": "wrap",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-code",
+        "code-block-content"
+      ],
+      "rootDataSlots": [
+        "code-block-content"
+      ],
+      "dataAttributes": [
+        "data-focus-inset",
+        "data-numbered",
+        "data-wrap"
+      ],
+      "types": []
+    },
+    {
+      "name": "CodeBlockCopyButton",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "code-block-copy-button"
+      ],
+      "rootDataSlots": [
+        "code-block-copy-button"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CodeBlockFooter",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-footer"
+      ],
+      "rootDataSlots": [
+        "code-block-footer"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CodeBlockHeader",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-header"
+      ],
+      "rootDataSlots": [
+        "code-block-header"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CodeBlockLine",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [
+        {
+          "name": "variant",
+          "type": "CodeBlockLineVariant | undefined",
+          "required": false,
+          "values": [
+            "added",
+            "default",
+            "highlighted",
+            "removed"
+          ],
+          "default": "\"default\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-line",
+        "code-block-line-content"
+      ],
+      "rootDataSlots": [
+        "code-block-line"
+      ],
+      "dataAttributes": [
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "CodeBlockTitle",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-block.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "code-block-title"
+      ],
+      "rootDataSlots": [
+        "code-block-title"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CodeView",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "items",
+          "type": "readonly CodeViewItem<unknown>[]",
+          "required": true
+        },
+        {
+          "name": "options",
+          "type": "CodeViewOptions<unknown, unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "CodeViewLineSelection | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "CommentComposer",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-composer.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "allowEmpty",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "attachments",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "autofocus",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "busy",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "error",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "files",
+          "type": "File[] | undefined",
+          "required": false
+        },
+        {
+          "name": "frame",
+          "type": "CommentComposerFrame | undefined",
+          "required": false,
+          "values": [
+            "field",
+            "none"
+          ],
+          "default": "\"field\""
+        },
+        {
+          "name": "guard",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "layout",
+          "type": "\"row\" | \"box\" | undefined",
+          "required": false,
+          "values": [
+            "box",
+            "row"
+          ],
+          "default": "\"box\""
+        },
+        {
+          "name": "mentions",
+          "type": "string[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "modelValue",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"\""
+        },
+        {
+          "name": "participants",
+          "type": "string[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "people",
+          "type": "CommentUser[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "placeholder",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "size",
+          "type": "CommentComposerSize | undefined",
+          "required": false,
+          "values": [
+            "md",
+            "sm"
+          ],
+          "default": "\"md\""
+        },
+        {
+          "name": "user",
+          "type": "CommentUser | undefined",
+          "required": false
+        },
+        {
+          "name": "users",
+          "type": "((query: string) => Promise<CommentUser[]>) | undefined",
+          "required": false
+        },
+        {
+          "name": "variant",
+          "type": "CommentComposerVariant | undefined",
+          "required": false,
+          "values": [
+            "comment",
+            "edit",
+            "reply"
+          ],
+          "default": "\"comment\""
+        }
+      ],
+      "events": [
+        {
+          "name": "cancel",
+          "type": "unknown[]"
+        },
+        {
+          "name": "submit",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:files",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:mentions",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:modelValue",
+          "type": "unknown[]"
+        }
+      ],
+      "slots": [
+        "extra",
+        "mention-empty",
+        "mention-item"
+      ],
+      "dataSlots": [
+        "comment-composer",
+        "comment-composer-box",
+        "comment-composer-error",
+        "comment-composer-extra",
+        "comment-composer-mention",
+        "comment-composer-mention-empty",
+        "comment-composer-mention-name",
+        "comment-composer-mentions",
+        "comment-composer-status",
+        "prompt-input-attachments"
+      ],
+      "rootDataSlots": [
+        "comment-composer"
+      ],
+      "dataAttributes": [
+        "data-busy",
+        "data-dirty",
+        "data-dragging",
+        "data-frame",
+        "data-layout",
+        "data-multiline",
+        "data-shake",
+        "data-size",
+        "data-state",
+        "data-variant"
+      ],
+      "types": [
+        "CommentComposerSlots"
+      ]
+    },
+    {
+      "name": "CommentFilters",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-list.ts",
+      "props": [
+        {
+          "name": "comments",
+          "type": "CommentsState | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "comment-filter",
+        "comment-filters"
+      ],
+      "rootDataSlots": [
+        "comment-filters"
+      ],
+      "dataAttributes": [
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentLayer",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-layer.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "attachmentUrl",
+          "type": "CommentAttachmentUrl | undefined",
+          "required": false
+        },
+        {
+          "name": "can",
+          "type": "CommentCan | undefined",
+          "required": false
+        },
+        {
+          "name": "client",
+          "type": "CommentsClient | undefined",
+          "required": false
+        },
+        {
+          "name": "comments",
+          "type": "CommentsState | undefined",
+          "required": false
+        },
+        {
+          "name": "hotkey",
+          "type": "string | false | undefined",
+          "required": false,
+          "default": "\"c\""
+        },
+        {
+          "name": "navigate",
+          "type": "((href: string) => void) | undefined",
+          "required": false
+        },
+        {
+          "name": "people",
+          "type": "AvatarStackPerson[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "placement",
+          "type": "CommentPlacement | undefined",
+          "required": false,
+          "values": [
+            "margin",
+            "pin"
+          ],
+          "default": "\"pin\""
+        },
+        {
+          "name": "queueFiles",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "readOnly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "size",
+          "type": "CommentComposerSize | undefined",
+          "required": false,
+          "values": [
+            "md",
+            "sm"
+          ],
+          "default": "\"sm\""
+        },
+        {
+          "name": "subject",
+          "type": "CommentSubject | undefined",
+          "required": false
+        },
+        {
+          "name": "subjectUrl",
+          "type": "((subject: CommentSubject) => string | undefined) | undefined",
+          "required": false
+        },
+        {
+          "name": "upload",
+          "type": "CommentUpload | undefined",
+          "required": false
+        },
+        {
+          "name": "user",
+          "type": "CommentUser | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "actions",
+        "default",
+        "status"
+      ],
+      "dataSlots": [
+        "comment-layer",
+        "comment-layer-area",
+        "comment-layer-area-handle",
+        "comment-layer-area-size",
+        "comment-layer-item",
+        "comment-layer-overlay",
+        "comment-layer-popover",
+        "comment-margin",
+        "comment-margin-card"
+      ],
+      "rootDataSlots": [
+        "comment-layer"
+      ],
+      "dataAttributes": [
+        "data-above",
+        "data-active",
+        "data-comments-ui",
+        "data-corner",
+        "data-draft",
+        "data-flip-x",
+        "data-flip-y",
+        "data-floating",
+        "data-kind",
+        "data-leaving",
+        "data-margin",
+        "data-margin-key",
+        "data-motion-appear",
+        "data-preview",
+        "data-shape",
+        "data-status",
+        "data-thread-id"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentList",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-list.ts",
+      "props": [
+        {
+          "name": "comments",
+          "type": "CommentsState | undefined",
+          "required": false
+        },
+        {
+          "name": "navigate",
+          "type": "((href: string) => void) | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "select",
+          "type": "any[]"
+        }
+      ],
+      "slots": [
+        "preview",
+        "row"
+      ],
+      "dataSlots": [
+        "comment-list",
+        "comment-list-empty",
+        "comment-list-header",
+        "comment-list-item",
+        "comment-list-items",
+        "comment-list-scope",
+        "comment-list-scopes"
+      ],
+      "rootDataSlots": [
+        "comment-list"
+      ],
+      "dataAttributes": [
+        "data-comments-ui",
+        "data-detached",
+        "data-focus-inset",
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentPanel",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-panel.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "allowEmpty",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "attachmentUrl",
+          "type": "CommentAttachmentUrl | undefined",
+          "required": false
+        },
+        {
+          "name": "can",
+          "type": "CommentCan | undefined",
+          "required": false
+        },
+        {
+          "name": "client",
+          "type": "CommentsClient | undefined",
+          "required": false
+        },
+        {
+          "name": "comments",
+          "type": "CommentsState | undefined",
+          "required": false
+        },
+        {
+          "name": "group",
+          "type": "CommentGroup | undefined",
+          "required": false
+        },
+        {
+          "name": "people",
+          "type": "CommentUser[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "queueFiles",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "readOnly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "status",
+          "type": "CommentStatus | undefined",
+          "required": false,
+          "values": [
+            "open",
+            "resolved"
+          ]
+        },
+        {
+          "name": "subject",
+          "type": "CommentSubject | undefined",
+          "required": false
+        },
+        {
+          "name": "thread",
+          "type": "string | null | undefined",
+          "required": false
+        },
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Comments\""
+        },
+        {
+          "name": "upload",
+          "type": "CommentUpload | undefined",
+          "required": false
+        },
+        {
+          "name": "user",
+          "type": "CommentUser | undefined",
+          "required": false
+        },
+        {
+          "name": "variant",
+          "type": "CommentPanelVariant | undefined",
+          "required": false,
+          "values": [
+            "docked",
+            "floating"
+          ],
+          "default": "\"docked\""
+        }
+      ],
+      "events": [
+        {
+          "name": "select",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:status",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:thread",
+          "type": "unknown[]"
+        }
+      ],
+      "slots": [
+        "actions",
+        "after",
+        "anchor",
+        "attachments",
+        "body",
+        "extra",
+        "group-header",
+        "list-actions",
+        "mention-empty",
+        "mention-item",
+        "preview",
+        "row",
+        "status"
+      ],
+      "dataSlots": [
+        "comment-panel",
+        "comment-panel-actions",
+        "comment-panel-composer",
+        "comment-panel-empty",
+        "comment-panel-filter",
+        "comment-panel-filters",
+        "comment-panel-group",
+        "comment-panel-group-header",
+        "comment-panel-groups",
+        "comment-panel-header",
+        "comment-panel-item",
+        "comment-panel-items",
+        "comment-panel-title"
+      ],
+      "rootDataSlots": [
+        "comment-panel"
+      ],
+      "dataAttributes": [
+        "data-comments-ui",
+        "data-focus-inset",
+        "data-state",
+        "data-status",
+        "data-thread-id",
+        "data-variant",
+        "data-view"
+      ],
+      "types": [
+        "CommentPanelSlots"
+      ]
+    },
+    {
+      "name": "CommentPin",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-pin.ts",
+      "props": [
+        {
+          "name": "active",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "author",
+          "type": "CommentUser | undefined",
+          "required": false
+        },
+        {
+          "name": "draft",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "excerpt",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "n",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "CommentStatus | undefined",
+          "required": false,
+          "values": [
+            "open",
+            "resolved"
+          ],
+          "default": "\"open\""
+        }
+      ],
+      "events": [
+        {
+          "name": "hover",
+          "type": "unknown[]"
+        },
+        {
+          "name": "leave",
+          "type": "unknown[]"
+        },
+        {
+          "name": "select",
+          "type": "unknown[]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [
+        "comment-pin",
+        "comment-pin-number"
+      ],
+      "rootDataSlots": [
+        "comment-pin"
+      ],
+      "dataAttributes": [
+        "data-active",
+        "data-draft",
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentReply",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-thread.ts",
+      "props": [
+        {
+          "name": "attachmentUrl",
+          "type": "CommentAttachmentUrl | undefined",
+          "required": false
+        },
+        {
+          "name": "compact",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "confirmDelete",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "deletable",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "editable",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "message",
+          "type": "CommentMessage",
+          "required": true
+        },
+        {
+          "name": "onDelete",
+          "type": "((messageId: string) => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "onEdit",
+          "type": "((messageId: string, body: string, mentions: string[]) => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "people",
+          "type": "CommentUser[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "size",
+          "type": "CommentComposerSize | undefined",
+          "required": false,
+          "values": [
+            "md",
+            "sm"
+          ],
+          "default": "\"md\""
+        },
+        {
+          "name": "user",
+          "type": "CommentUser | undefined",
+          "required": false
+        },
+        {
+          "name": "users",
+          "type": "((query: string) => Promise<CommentUser[]>) | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "attachments",
+        "body",
+        "mention-empty",
+        "mention-item",
+        "status"
+      ],
+      "dataSlots": [
+        "comment-mention",
+        "comment-reply",
+        "comment-reply-actions",
+        "comment-reply-attachments",
+        "comment-reply-author",
+        "comment-reply-body",
+        "comment-reply-confirm",
+        "comment-reply-content",
+        "comment-reply-edited",
+        "comment-reply-error",
+        "comment-reply-header",
+        "comment-reply-status",
+        "comment-reply-time"
+      ],
+      "rootDataSlots": [
+        "comment-reply"
+      ],
+      "dataAttributes": [
+        "data-agent",
+        "data-compact",
+        "data-editing",
+        "data-self",
+        "data-size"
+      ],
+      "types": [
+        "CommentReplySlots"
+      ]
+    },
+    {
+      "name": "CommentSelectionBar",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-selection-bar.ts",
+      "props": [
+        {
+          "name": "side",
+          "type": "CommentSelectionBarSide | undefined",
+          "required": false,
+          "values": [
+            "bottom",
+            "top"
+          ],
+          "default": "\"top\""
+        },
+        {
+          "name": "suggest",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [
+        {
+          "name": "comment",
+          "type": "unknown[]"
+        },
+        {
+          "name": "suggest",
+          "type": "unknown[]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [
+        "comment-selection-bar",
+        "comment-selection-bar-action",
+        "comment-selection-bar-kbd"
+      ],
+      "rootDataSlots": [
+        "comment-selection-bar"
+      ],
+      "dataAttributes": [
+        "data-action",
+        "data-motion-appear",
+        "data-side"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentSend",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-send.ts",
+      "props": [
+        {
+          "name": "client",
+          "type": "CommentSendClient",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "comment-send",
+        "comment-send-action",
+        "comment-send-content",
+        "comment-send-count",
+        "comment-send-dot",
+        "comment-send-hold",
+        "comment-send-hold-copy",
+        "comment-send-logo",
+        "comment-send-message",
+        "comment-send-status"
+      ],
+      "rootDataSlots": [
+        "comment-send"
+      ],
+      "dataAttributes": [
+        "data-action",
+        "data-icon",
+        "data-logo",
+        "data-reason",
+        "data-state",
+        "data-tone",
+        "data-variant",
+        "data-wide"
+      ],
+      "types": []
+    },
+    {
+      "name": "CommentThread",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-thread.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "attachmentUrl",
+          "type": "CommentAttachmentUrl | undefined",
+          "required": false
+        },
+        {
+          "name": "attachments",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "busy",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "can",
+          "type": "CommentCan | undefined",
+          "required": false
+        },
+        {
+          "name": "detached",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "dismissible",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "error",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "navigation",
+          "type": "\"close\" | \"back\" | undefined",
+          "required": false,
+          "values": [
+            "back",
+            "close"
+          ],
+          "default": "\"close\""
+        },
+        {
+          "name": "onDelete",
+          "type": "((messageId: string) => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "onEdit",
+          "type": "((messageId: string, body: string, mentions: string[]) => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "onReopen",
+          "type": "(() => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "onReply",
+          "type": "((body: string, mentions: string[], files: File[]) => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "onResolve",
+          "type": "(() => Done) | undefined",
+          "required": false
+        },
+        {
+          "name": "people",
+          "type": "CommentUser[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "preview",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "readOnly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "size",
+          "type": "CommentComposerSize | undefined",
+          "required": false,
+          "values": [
+            "md",
+            "sm"
+          ],
+          "default": "\"md\""
+        },
+        {
+          "name": "thread",
+          "type": "CommentThreadModel",
+          "required": true
+        },
+        {
+          "name": "user",
+          "type": "CommentUser | undefined",
+          "required": false
+        },
+        {
+          "name": "users",
+          "type": "((query: string) => Promise<CommentUser[]>) | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "close",
+          "type": "any[]"
+        }
+      ],
+      "slots": [
+        "actions",
+        "after",
+        "anchor",
+        "attachments",
+        "body",
+        "extra",
+        "mention-empty",
+        "mention-item",
+        "status"
+      ],
+      "dataSlots": [
+        "comment-thread",
+        "comment-thread-actions",
+        "comment-thread-after",
+        "comment-thread-count",
+        "comment-thread-detached",
+        "comment-thread-header",
+        "comment-thread-messages",
+        "comment-thread-quote",
+        "comment-thread-spacer",
+        "comment-thread-title"
+      ],
+      "rootDataSlots": [
+        "comment-thread"
+      ],
+      "dataAttributes": [
+        "data-preview",
+        "data-size",
+        "data-status"
+      ],
+      "types": [
+        "CommentThreadSlots"
+      ]
+    },
+    {
+      "name": "CommentToolbar",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/comment-list.ts",
+      "props": [
+        {
+          "name": "comments",
+          "type": "CommentsState | undefined",
+          "required": false
+        },
+        {
+          "name": "people",
+          "type": "AvatarStackPerson[] | undefined",
+          "required": false,
+          "default": "[]"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "comment-toolbar",
+        "comment-toolbar-list",
+        "comment-toolbar-mode",
+        "comment-toolbar-page"
+      ],
+      "rootDataSlots": [
+        "comment-toolbar"
+      ],
+      "dataAttributes": [
+        "data-comments-ui"
+      ],
+      "types": []
+    },
+    {
+      "name": "ConnectPanel",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/connect-panel.ts",
+      "props": [
+        {
+          "name": "connect",
+          "type": "Connect",
+          "required": true
+        },
+        {
+          "name": "empty",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"No accounts needed.\""
+        },
+        {
+          "name": "relayUrl",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "states",
+          "type": "Partial<Record<ConnectProviderName, ConnectProviderState>> | undefined",
+          "required": false,
+          "default": "{}"
+        }
+      ],
+      "events": [
+        {
+          "name": "connect",
+          "type": "[provider: ConnectProviderName, token: string]"
+        },
+        {
+          "name": "copy-command",
+          "type": "[command: string]"
+        },
+        {
+          "name": "disconnect",
+          "type": "[provider: ConnectProviderName]"
+        },
+        {
+          "name": "oauth",
+          "type": "[provider: ConnectProvider]"
+        },
+        {
+          "name": "remove-all",
+          "type": "[]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "ConnectProviderRow",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/connect-panel.ts",
+      "props": [
+        {
+          "name": "provider",
+          "type": "ConnectProvider",
+          "required": true
+        },
+        {
+          "name": "relayUrl",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "state",
+          "type": "ConnectProviderState | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "connect",
+          "type": "[token: string]"
+        },
+        {
+          "name": "copy-command",
+          "type": "[command: string]"
+        },
+        {
+          "name": "disconnect",
+          "type": "[]"
+        },
+        {
+          "name": "oauth",
+          "type": "[provider: ConnectProvider]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-1p-ignore",
+        "data-provider",
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "ConnectionStatus",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/connection-status.ts",
+      "props": [
+        {
+          "name": "delay",
+          "type": "number | undefined",
+          "required": false,
+          "default": "1500"
+        },
+        {
+          "name": "status",
+          "type": "ConnectionStatusValue",
+          "required": true,
+          "values": [
+            "connected",
+            "connecting",
+            "disconnected"
+          ]
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "connection-status"
+      ],
+      "rootDataSlots": [
+        "connection-status"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "ConnectionStatusIndicator",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/connection-status.ts",
+      "props": [],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "connection-status-indicator"
+      ],
+      "rootDataSlots": [
+        "connection-status-indicator"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "ConnectionStatusLabel",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/connection-status.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "connection-status-label"
+      ],
+      "rootDataSlots": [
+        "connection-status-label"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "CopyButton",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/copy-button.ts",
+      "props": [
+        {
+          "name": "ariaLabel",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "copiedLabel",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Copied\""
+        },
+        {
+          "name": "duration",
+          "type": "number | undefined",
+          "required": false,
+          "default": "2000"
+        },
+        {
+          "name": "icon",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "preload",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "size",
+          "type": "CopyButtonSize | undefined",
+          "required": false,
+          "values": [
+            "lg",
+            "md",
+            "sm",
+            "xl",
+            "xs"
+          ]
+        },
+        {
+          "name": "value",
+          "type": "CopyValue",
+          "required": true
+        },
+        {
+          "name": "variant",
+          "type": "CopyButtonVariant | undefined",
+          "required": false,
+          "values": [
+            "ghost",
+            "link",
+            "outline",
+            "soft",
+            "solid",
+            "subtle"
+          ],
+          "default": "\"ghost\""
+        }
+      ],
+      "events": [
+        {
+          "name": "copy",
+          "type": "[]"
+        },
+        {
+          "name": "error",
+          "type": "[]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "copy-button"
+      ],
+      "rootDataSlots": [
+        "copy-button"
+      ],
+      "dataAttributes": [
+        "data-copied"
+      ],
+      "types": []
+    },
+    {
+      "name": "DeviceFrame",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/device-frame.ts",
+      "props": [
+        {
+          "name": "breakpoints",
+          "type": "readonly DeviceFrameBreakpoint[] | undefined",
+          "required": false
+        },
+        {
+          "name": "defaultValue",
+          "type": "Partial<DeviceFrameSize> | undefined",
+          "required": false
+        },
+        {
+          "name": "disabled",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "insetBottom",
+          "type": "number | undefined",
+          "required": false,
+          "default": "16"
+        },
+        {
+          "name": "modelValue",
+          "type": "DeviceFrameSize | undefined",
+          "required": false
+        },
+        {
+          "name": "presets",
+          "type": "readonly DeviceFramePreset[] | undefined",
+          "required": false
+        },
+        {
+          "name": "storageKey",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "toolbar",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        }
+      ],
+      "events": [
+        {
+          "name": "update:modelValue",
+          "type": "[_size: DeviceFrameSize]"
+        }
+      ],
+      "slots": [
+        "default",
+        "toolbar-end",
+        "toolbar-start"
+      ],
+      "dataSlots": [
+        "device-frame"
+      ],
+      "rootDataSlots": [
+        "device-frame"
+      ],
+      "dataAttributes": [
+        "data-dragging",
+        "data-edge",
+        "data-focus-frame",
+        "data-focus-ring",
+        "data-on",
+        "data-within"
+      ],
+      "types": []
+    },
+    {
+      "name": "DropField",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/drop-field.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"or click to browse\""
+        },
+        {
+          "name": "disabled",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Drop files to upload\""
+        },
+        {
+          "name": "multiple",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [
+        {
+          "name": "files",
+          "type": "[files: File[]]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "drop-field",
+        "drop-field-description",
+        "drop-field-input",
+        "drop-field-label"
+      ],
+      "rootDataSlots": [
+        "drop-field"
+      ],
+      "dataAttributes": [
+        "data-disabled",
+        "data-focus-ring"
+      ],
+      "types": [
+        "DropFieldSlots"
+      ]
+    },
+    {
+      "name": "FileDiff",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "fileDiff",
+          "type": "FileDiffMetadata",
+          "required": true
+        },
+        {
+          "name": "lineAnnotations",
+          "type": "DiffLineAnnotation<unknown>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "FileDiffOptions<unknown, unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "SelectedLineRange | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "FileTree",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/file-tree.ts",
+      "props": [
+        {
+          "name": "model",
+          "type": "PierreFileTree | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "Omit<PierreFileTreeOptions, \"paths\"> | undefined",
+          "required": false
+        },
+        {
+          "name": "paths",
+          "type": "readonly string[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "searchLabel",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Search files\""
+        },
+        {
+          "name": "selectedPath",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:selectedPath",
+          "type": "[_path: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "FileView",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "file",
+          "type": "FileContents",
+          "required": true
+        },
+        {
+          "name": "lineAnnotations",
+          "type": "LineAnnotation<unknown>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "FileOptions<unknown, unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "SelectedLineRange | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "FilterSearch",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/filter-search.ts",
+      "props": [
+        {
+          "name": "choices",
+          "type": "ChoicesInputSource",
+          "required": true
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Search\""
+        },
+        {
+          "name": "placeholder",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "size",
+          "type": "FilterSearchSize | undefined",
+          "required": false,
+          "values": [
+            "lg",
+            "md",
+            "sm",
+            "xl",
+            "xs"
+          ],
+          "default": "\"md\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "error",
+        "leading",
+        "trailing"
+      ],
+      "dataSlots": [
+        "visually-hidden"
+      ],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "HoldToDelete",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/hold-to-delete.ts",
+      "props": [
+        {
+          "name": "commit",
+          "type": "() => void | Promise<void>",
+          "required": true
+        },
+        {
+          "name": "confirm",
+          "type": "(() => boolean | Promise<boolean>) | undefined",
+          "required": false
+        },
+        {
+          "name": "item",
+          "type": "(() => Element | null | undefined) | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Hold to delete\""
+        },
+        {
+          "name": "undoFor",
+          "type": "number | undefined",
+          "required": false,
+          "default": "5000"
+        },
+        {
+          "name": "undoLabel",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Undo\""
+        }
+      ],
+      "events": [
+        {
+          "name": "delete",
+          "type": "[]"
+        },
+        {
+          "name": "error",
+          "type": "[_error: unknown]"
+        },
+        {
+          "name": "state",
+          "type": "[_state: HoldToDeleteState]"
+        },
+        {
+          "name": "undo",
+          "type": "[]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [
+        "hold-to-delete"
+      ],
+      "rootDataSlots": [
+        "hold-to-delete"
+      ],
+      "dataAttributes": [
+        "data-icon-only"
+      ],
+      "types": []
+    },
+    {
+      "name": "Markdown",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/markdown.ts",
+      "props": [
+        {
+          "name": "components",
+          "type": "Record<string, any> | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "Omit<ParserOptions<readonly ComarkPlugin<any, any>[]>, \"plugins\"> | undefined",
+          "required": false
+        },
+        {
+          "name": "plugins",
+          "type": "readonly ComarkPlugin<any, any>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "streaming",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "value",
+          "type": "MarkdownValue | undefined",
+          "required": false,
+          "default": "\"\""
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MarkdownEditor",
+      "entries": [
+        "./markdown-editor"
+      ],
+      "source": "src/components/markdown-editor.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "((file: File) => boolean) | undefined",
+          "required": false
+        },
+        {
+          "name": "editor",
+          "type": "Editor | undefined",
+          "required": false
+        },
+        {
+          "name": "extensions",
+          "type": "AnyExtension[] | undefined",
+          "required": false
+        },
+        {
+          "name": "modelValue",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "plugins",
+          "type": "readonly ComarkPlugin<any, any>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "upload",
+          "type": "string | MarkdownEditorUpload | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:modelValue",
+          "type": "[_value: string]"
+        },
+        {
+          "name": "uploadError",
+          "type": "[_error: unknown, _file: File]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-comark-typeset"
+      ],
+      "types": []
+    },
+    {
+      "name": "Marker",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/marker.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false
+        },
+        {
+          "name": "variant",
+          "type": "MarkerVariant | undefined",
+          "required": false,
+          "values": [
+            "border",
+            "default",
+            "separator"
+          ],
+          "default": "\"default\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "marker"
+      ],
+      "rootDataSlots": [
+        "marker"
+      ],
+      "dataAttributes": [
+        "data-variant"
+      ],
+      "types": []
+    },
+    {
+      "name": "MarkerContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/marker.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "marker-content"
+      ],
+      "rootDataSlots": [
+        "marker-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MarkerIcon",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/marker.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "marker-icon"
+      ],
+      "rootDataSlots": [
+        "marker-icon"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "Message",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [
+        {
+          "name": "align",
+          "type": "MessageAlign | undefined",
+          "required": false,
+          "values": [
+            "end",
+            "start"
+          ],
+          "default": "\"start\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message"
+      ],
+      "rootDataSlots": [
+        "message"
+      ],
+      "dataAttributes": [
+        "data-align"
+      ],
+      "types": []
+    },
+    {
+      "name": "MessageAvatar",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-avatar"
+      ],
+      "rootDataSlots": [
+        "message-avatar"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-content"
+      ],
+      "rootDataSlots": [
+        "message-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageFooter",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-footer"
+      ],
+      "rootDataSlots": [
+        "message-footer"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageGroup",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-group"
+      ],
+      "rootDataSlots": [
+        "message-group"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageHeader",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-header"
+      ],
+      "rootDataSlots": [
+        "message-header"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageParts",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/message-parts.ts",
+      "props": [
+        {
+          "name": "parts",
+          "type": "UIMessagePart<UIDataTypes, UITools>[]",
+          "required": true
+        },
+        {
+          "name": "streaming",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "fallback",
+        "file",
+        "markdown",
+        "part",
+        "reasoning",
+        "source",
+        "step",
+        "text",
+        "tool"
+      ],
+      "dataSlots": [
+        "message-parts"
+      ],
+      "rootDataSlots": [
+        "message-parts"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageScroller",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/message-scroller.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"div\""
+        },
+        {
+          "name": "autoScroll",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "defaultScrollPosition",
+          "type": "MessageScrollPosition | undefined",
+          "required": false,
+          "values": [
+            "end",
+            "start"
+          ],
+          "default": "\"end\""
+        },
+        {
+          "name": "edgeThreshold",
+          "type": "number | undefined",
+          "required": false,
+          "default": "8"
+        },
+        {
+          "name": "previousItemPeek",
+          "type": "number | undefined",
+          "required": false,
+          "default": "64"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-scroller"
+      ],
+      "rootDataSlots": [
+        "message-scroller"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageScrollerButton",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/message-scroller.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | Component | undefined",
+          "required": false,
+          "default": "\"button\""
+        },
+        {
+          "name": "behavior",
+          "type": "MessageScrollBehavior | undefined",
+          "required": false,
+          "values": [
+            "auto",
+            "instant",
+            "smooth"
+          ],
+          "default": "\"smooth\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-scroller-button"
+      ],
+      "rootDataSlots": [
+        "message-scroller-button"
+      ],
+      "dataAttributes": [
+        "data-active"
+      ],
+      "types": []
+    },
+    {
+      "name": "MessageScrollerContent",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/message-scroller.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"div\""
+        },
+        {
+          "name": "items",
+          "type": "readonly string[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "preserveScrollOnPrepend",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-scroller-content"
+      ],
+      "rootDataSlots": [
+        "message-scroller-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MessageScrollerItem",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/message-scroller.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"div\""
+        },
+        {
+          "name": "messageId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "scrollAnchor",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-scroller-item"
+      ],
+      "rootDataSlots": [
+        "message-scroller-item"
+      ],
+      "dataAttributes": [
+        "data-message-id"
+      ],
+      "types": []
+    },
+    {
+      "name": "MessageScrollerViewport",
+      "entries": [
+        ".",
+        "./headless"
+      ],
+      "source": "src/headless/message-scroller.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"div\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "message-scroller-viewport"
+      ],
+      "rootDataSlots": [
+        "message-scroller-viewport"
+      ],
+      "dataAttributes": [
+        "data-at-end"
+      ],
+      "types": []
+    },
+    {
+      "name": "MorphText",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/motion.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"span\""
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "morph-text"
+      ],
+      "rootDataSlots": [
+        "morph-text"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MotionList",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/motion-list.ts",
+      "props": [
+        {
+          "name": "origin",
+          "type": "((item: HTMLElement) => Element | null | undefined) | undefined",
+          "required": false
+        },
+        {
+          "name": "tag",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"div\""
+        },
+        {
+          "name": "target",
+          "type": "(() => Element | null | undefined) | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "MultiFileDiff",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "lineAnnotations",
+          "type": "DiffLineAnnotation<unknown>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "newFile",
+          "type": "FileContents | null",
+          "required": true
+        },
+        {
+          "name": "oldFile",
+          "type": "FileContents | null",
+          "required": true
+        },
+        {
+          "name": "options",
+          "type": "FileDiffOptions<unknown, unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "SelectedLineRange | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "PatchDiff",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "lineAnnotations",
+          "type": "DiffLineAnnotation<unknown>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "FileDiffOptions<unknown, unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "patch",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "SelectedLineRange | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "Progress",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/progress.ts",
+      "props": [
+        {
+          "name": "done",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "value",
+          "type": "number | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "progress"
+      ],
+      "rootDataSlots": [
+        "progress"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "PromptInput",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/prompt-input.ts",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "attachVariant",
+          "type": "\"outline\" | \"ghost\" | undefined",
+          "required": false,
+          "values": [
+            "ghost",
+            "outline"
+          ],
+          "default": "\"outline\""
+        },
+        {
+          "name": "attachments",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "disabled",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "files",
+          "type": "readonly FileUIPart[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "filesDisabled",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "filterFiles",
+          "type": "((files: readonly File[]) => readonly File[]) | undefined",
+          "required": false
+        },
+        {
+          "name": "modelValue",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"\""
+        },
+        {
+          "name": "multiple",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "placeholder",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "readonly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "status",
+          "type": "ChatStatus | undefined",
+          "required": false,
+          "values": [
+            "error",
+            "ready",
+            "streaming",
+            "submitted"
+          ],
+          "default": "\"ready\""
+        },
+        {
+          "name": "submitLabel",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "error",
+          "type": "unknown[]"
+        },
+        {
+          "name": "reload",
+          "type": "unknown[]"
+        },
+        {
+          "name": "stop",
+          "type": "unknown[]"
+        },
+        {
+          "name": "submit",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:files",
+          "type": "unknown[]"
+        },
+        {
+          "name": "update:modelValue",
+          "type": "unknown[]"
+        }
+      ],
+      "slots": [
+        "actions",
+        "files",
+        "footer-leading",
+        "submit"
+      ],
+      "dataSlots": [
+        "prompt-input",
+        "prompt-input-attachments",
+        "prompt-input-group",
+        "prompt-input-spacer",
+        "prompt-input-textarea",
+        "prompt-input-toolbar",
+        "visually-hidden"
+      ],
+      "rootDataSlots": [
+        "prompt-input"
+      ],
+      "dataAttributes": [
+        "data-focus-frame"
+      ],
+      "types": []
+    },
+    {
+      "name": "RelativeTime",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/relative-time.ts",
+      "props": [
+        {
+          "name": "at",
+          "type": "RelativeTimeValue",
+          "required": true
+        },
+        {
+          "name": "format",
+          "type": "RelativeTimeFormat | undefined",
+          "required": false,
+          "values": [
+            "long",
+            "narrow",
+            "short"
+          ],
+          "default": "\"long\""
+        },
+        {
+          "name": "locale",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"en\""
+        },
+        {
+          "name": "threshold",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"3w\""
+        },
+        {
+          "name": "tooltip",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "relative-time"
+      ],
+      "rootDataSlots": [
+        "relative-time"
+      ],
+      "dataAttributes": [
+        "data-mode"
+      ],
+      "types": []
+    },
+    {
+      "name": "RollNumber",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/motion.ts",
+      "props": [
+        {
+          "name": "as",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"span\""
+        },
+        {
+          "name": "format",
+          "type": "((value: number) => string) | undefined",
+          "required": false
+        },
+        {
+          "name": "text",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "value",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "roll-number"
+      ],
+      "rootDataSlots": [
+        "roll-number"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "Status",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/status.ts",
+      "props": [
+        {
+          "name": "colored",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "pulse",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "size",
+          "type": "StatusSize | undefined",
+          "required": false,
+          "values": [
+            "md",
+            "sm"
+          ],
+          "default": "\"sm\""
+        },
+        {
+          "name": "tone",
+          "type": "StatusTone | undefined",
+          "required": false,
+          "values": [
+            "error",
+            "info",
+            "neutral",
+            "success",
+            "warning"
+          ],
+          "default": "\"neutral\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "status",
+        "status-indicator",
+        "status-label"
+      ],
+      "rootDataSlots": [
+        "status"
+      ],
+      "dataAttributes": [
+        "data-colored",
+        "data-pulse",
+        "data-size",
+        "data-tone"
+      ],
+      "types": []
+    },
+    {
+      "name": "SwapIcon",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/motion.ts",
+      "props": [
+        {
+          "name": "enter",
+          "type": "IconEnter | undefined",
+          "required": false,
+          "values": [
+            "blur",
+            "down",
+            "draw",
+            "left",
+            "right",
+            "up"
+          ]
+        },
+        {
+          "name": "exit",
+          "type": "IconExit | undefined",
+          "required": false,
+          "values": [
+            "blur",
+            "down",
+            "left",
+            "right",
+            "up"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "spin",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "swap-icon"
+      ],
+      "rootDataSlots": [
+        "swap-icon"
+      ],
+      "dataAttributes": [
+        "data-icon-key"
+      ],
+      "types": []
+    },
+    {
+      "name": "SyncStatus",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/sync-status.ts",
+      "props": [
+        {
+          "name": "status",
+          "type": "SyncStatusValue",
+          "required": true,
+          "values": [
+            "error",
+            "loading",
+            "synchronized",
+            "synchronizing"
+          ]
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "sync-status"
+      ],
+      "rootDataSlots": [
+        "sync-status"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "SyncStatusIndicator",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/sync-status.ts",
+      "props": [],
+      "events": [],
+      "slots": [],
+      "dataSlots": [
+        "sync-status-indicator"
+      ],
+      "rootDataSlots": [
+        "sync-status-indicator"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "SyncStatusLabel",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/sync-status.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "sync-status-label"
+      ],
+      "rootDataSlots": [
+        "sync-status-label"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "ToolList",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/tool-list.ts",
+      "props": [
+        {
+          "name": "calls",
+          "type": "Readonly<Record<string, number>> | undefined",
+          "required": false
+        },
+        {
+          "name": "tools",
+          "type": "readonly AgentToolInspection[]",
+          "required": true
+        }
+      ],
+      "events": [
+        {
+          "name": "select",
+          "type": "[name: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-used"
+      ],
+      "types": []
+    },
+    {
+      "name": "Trace",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace"
+      ],
+      "rootDataSlots": [
+        "trace"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "TraceCollapsible",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [
+        {
+          "name": "defaultOpen",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "open",
+          "type": "boolean | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:open",
+          "type": "[_open: boolean]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-collapsible"
+      ],
+      "rootDataSlots": [
+        "trace-collapsible"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "TraceCollapsibleContent",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-collapsible-content",
+        "trace-collapsible-content-inner"
+      ],
+      "rootDataSlots": [
+        "trace-collapsible-content"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "TraceCollapsibleTrigger",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-collapsible-trigger",
+        "trace-icon"
+      ],
+      "rootDataSlots": [
+        "trace-collapsible-trigger"
+      ],
+      "dataAttributes": [
+        "data-trace-chevron"
+      ],
+      "types": []
+    },
+    {
+      "name": "TraceDescription",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-description"
+      ],
+      "rootDataSlots": [
+        "trace-description"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "TraceIcon",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-icon"
+      ],
+      "rootDataSlots": [
+        "trace-icon"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "TraceLine",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [
+        {
+          "name": "status",
+          "type": "TraceLineStatus | undefined",
+          "required": false,
+          "values": [
+            "error",
+            "pending",
+            "running"
+          ]
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-line"
+      ],
+      "rootDataSlots": [
+        "trace-line"
+      ],
+      "dataAttributes": [
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "TraceRun",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace-run.ts",
+      "props": [
+        {
+          "name": "defaultOpen",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "run",
+          "type": "TraceRunView",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [
+        "step",
+        "title"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-run-status",
+        "data-trace-step"
+      ],
+      "types": []
+    },
+    {
+      "name": "TraceTitle",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/trace.ts",
+      "props": [],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [
+        "trace-title"
+      ],
+      "rootDataSlots": [
+        "trace-title"
+      ],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "UnresolvedFile",
+      "entries": [
+        "."
+      ],
+      "source": "src/components/code-view.ts",
+      "props": [
+        {
+          "name": "file",
+          "type": "FileContents",
+          "required": true
+        },
+        {
+          "name": "lineAnnotations",
+          "type": "DiffLineAnnotation<unknown>[] | undefined",
+          "required": false
+        },
+        {
+          "name": "options",
+          "type": "UnresolvedFileOptions<unknown> | undefined",
+          "required": false
+        },
+        {
+          "name": "scrollToSelectedLines",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "selectedLines",
+          "type": "SelectedLineRange | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "Workspace",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace.ts",
+      "props": [
+        {
+          "name": "example",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "examples",
+          "type": "readonly WorkspaceExample[]",
+          "required": true
+        },
+        {
+          "name": "guide",
+          "type": "\"top\" | \"side\" | undefined",
+          "required": false,
+          "values": [
+            "side",
+            "top"
+          ]
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"workspace\""
+        },
+        {
+          "name": "name",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"\""
+        },
+        {
+          "name": "open",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "reset",
+          "type": "((files: WorkspaceFiles, example: WorkspaceExample) => WorkspaceFiles) | undefined",
+          "required": false
+        },
+        {
+          "name": "runner",
+          "type": "WorkspaceRunner",
+          "required": true
+        },
+        {
+          "name": "selected",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "share",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "start",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "step",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "steps",
+          "type": "readonly WorkspaceStep[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "tabs",
+          "type": "readonly WorkspaceTabItem[] | undefined",
+          "required": false,
+          "default": "[]"
+        }
+      ],
+      "events": [
+        {
+          "name": "update:example",
+          "type": "[id: string]"
+        },
+        {
+          "name": "update:open",
+          "type": "[open: boolean]"
+        },
+        {
+          "name": "update:selected",
+          "type": "[path: string]"
+        },
+        {
+          "name": "update:step",
+          "type": "[step: number]"
+        }
+      ],
+      "slots": [
+        "*",
+        "banner",
+        "bar-actions",
+        "bar-lead",
+        "connect",
+        "fallback",
+        "guide",
+        "intro",
+        "preview",
+        "sidebar",
+        "terminal"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-runner",
+        "data-state"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceBar",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-bar.ts",
+      "props": [
+        {
+          "name": "sidebar",
+          "type": "boolean | undefined",
+          "required": false
+        },
+        {
+          "name": "sidebarId",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "step",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:sidebar",
+          "type": "[open: boolean]"
+        }
+      ],
+      "slots": [
+        "actions",
+        "default",
+        "examples",
+        "lead"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceBootStatus",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-boot-status.ts",
+      "props": [
+        {
+          "name": "failure",
+          "type": "WebContainerFailure | undefined",
+          "required": false
+        },
+        {
+          "name": "online",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "true"
+        },
+        {
+          "name": "status",
+          "type": "UseWebContainerStatus",
+          "required": true,
+          "values": [
+            "booting",
+            "checking",
+            "error",
+            "idle",
+            "installing",
+            "mounting",
+            "ready",
+            "starting",
+            "unsupported"
+          ]
+        },
+        {
+          "name": "steps",
+          "type": "readonly WebContainerStep[] | undefined",
+          "required": false,
+          "default": "[]"
+        }
+      ],
+      "events": [
+        {
+          "name": "restart",
+          "type": "[]"
+        },
+        {
+          "name": "retry",
+          "type": "[]"
+        },
+        {
+          "name": "retry-install",
+          "type": "[]"
+        },
+        {
+          "name": "show-output",
+          "type": "[]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-stage",
+        "data-state",
+        "data-status"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceEditor",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-editor.ts",
+      "props": [
+        {
+          "name": "modelValue",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"\""
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "readonly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "wrap",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [
+        {
+          "name": "cursor",
+          "type": "[cursor: WorkspaceCursor]"
+        },
+        {
+          "name": "update:modelValue",
+          "type": "[value: string]"
+        },
+        {
+          "name": "update:wrap",
+          "type": "[wrap: boolean]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-path",
+        "data-wrap"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceEditorHead",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-editor-head.ts",
+      "props": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "readonly",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "wrap",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [
+        {
+          "name": "update:wrap",
+          "type": "[wrap: boolean]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceExamples",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-examples.ts",
+      "props": [
+        {
+          "name": "examples",
+          "type": "readonly WorkspaceExample[]",
+          "required": true
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Example\""
+        },
+        {
+          "name": "modelValue",
+          "type": "string | null | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:modelValue",
+          "type": "[id: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceFileLink",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-file-link.ts",
+      "props": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "events": [
+        {
+          "name": "open",
+          "type": "[path: string]"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-path"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceFileTree",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-file-tree.ts",
+      "props": [
+        {
+          "name": "edited",
+          "type": "readonly string[] | ReadonlySet<string> | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Project files\""
+        },
+        {
+          "name": "paths",
+          "type": "readonly string[]",
+          "required": true
+        },
+        {
+          "name": "selected",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:selected",
+          "type": "[path: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceGuide",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-guide.ts",
+      "props": [
+        {
+          "name": "step",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "steps",
+          "type": "readonly WorkspaceStep[] | undefined",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:step",
+          "type": "[step: number]"
+        }
+      ],
+      "slots": [
+        "default",
+        "finish",
+        "footer"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-step"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceIssues",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-issues.ts",
+      "props": [
+        {
+          "name": "empty",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "issues",
+          "type": "readonly WorkspaceIssue[]",
+          "required": true
+        }
+      ],
+      "events": [
+        {
+          "name": "show",
+          "type": "[path: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-empty"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspacePreview",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-preview.ts",
+      "props": [
+        {
+          "name": "device",
+          "type": "WorkspacePreviewDevice | undefined",
+          "required": false,
+          "values": [
+            "desktop",
+            "phone",
+            "tablet"
+          ]
+        },
+        {
+          "name": "path",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"/\""
+        },
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"App preview\""
+        },
+        {
+          "name": "url",
+          "type": "string | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:device",
+          "type": "[device: WorkspacePreviewDevice]"
+        },
+        {
+          "name": "update:path",
+          "type": "[path: string]"
+        }
+      ],
+      "slots": [
+        "empty"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-device"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceShell",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-shell.ts",
+      "props": [
+        {
+          "name": "covered",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Workspace\""
+        },
+        {
+          "name": "layout",
+          "type": "WorkspaceLayout | undefined",
+          "required": false,
+          "values": [
+            "guide-side",
+            "guide-top",
+            "side"
+          ],
+          "default": "\"side\""
+        },
+        {
+          "name": "storageKey",
+          "type": "string | false | undefined",
+          "required": false
+        },
+        {
+          "name": "tab",
+          "type": "WorkspaceTab | undefined",
+          "required": false
+        },
+        {
+          "name": "tabs",
+          "type": "readonly WorkspaceTabItem[] | undefined",
+          "required": false
+        }
+      ],
+      "events": [
+        {
+          "name": "update:tab",
+          "type": "[tab: WorkspaceTab]"
+        }
+      ],
+      "slots": [
+        "*",
+        "banner",
+        "bar",
+        "connect",
+        "editor",
+        "editor-head",
+        "files",
+        "guide",
+        "overlay",
+        "preview",
+        "status",
+        "tab-*",
+        "terminal"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-layout",
+        "data-split",
+        "data-tab"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceSidebar",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-sidebar.ts",
+      "props": [
+        {
+          "name": "actions",
+          "type": "readonly WorkspaceSidebarAction[] | undefined",
+          "required": false,
+          "default": "[\"reset\", \"download\", \"copy-link\"]"
+        },
+        {
+          "name": "copied",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        },
+        {
+          "name": "id",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Sidebar\""
+        },
+        {
+          "name": "open",
+          "type": "boolean | undefined",
+          "required": false,
+          "default": "false"
+        }
+      ],
+      "events": [
+        {
+          "name": "copy-link",
+          "type": "[]"
+        },
+        {
+          "name": "download",
+          "type": "[]"
+        },
+        {
+          "name": "reset",
+          "type": "[]"
+        },
+        {
+          "name": "update:open",
+          "type": "[open: boolean]"
+        }
+      ],
+      "slots": [
+        "default",
+        "footer"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [
+        "data-open"
+      ],
+      "types": []
+    },
+    {
+      "name": "WorkspaceStart",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-start.ts",
+      "props": [
+        {
+          "name": "description",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Each one runs in this tab. Edit it, then copy a link or download the files.\""
+        },
+        {
+          "name": "examples",
+          "type": "readonly WorkspaceExample[]",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Start from an example\""
+        }
+      ],
+      "events": [
+        {
+          "name": "pick",
+          "type": "[id: string]"
+        }
+      ],
+      "slots": [
+        "footer"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceStatus",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-status.ts",
+      "props": [
+        {
+          "name": "cursor",
+          "type": "WorkspaceCursor | undefined",
+          "required": false,
+          "default": "{ column: 1, line: 1 }"
+        },
+        {
+          "name": "indent",
+          "type": "number | \"tab\" | undefined",
+          "required": false,
+          "default": "2"
+        },
+        {
+          "name": "language",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceSteps",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-steps.ts",
+      "props": [
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false
+        },
+        {
+          "name": "step",
+          "type": "number | undefined",
+          "required": false
+        },
+        {
+          "name": "steps",
+          "type": "readonly WorkspaceStep[]",
+          "required": true
+        }
+      ],
+      "events": [
+        {
+          "name": "update:step",
+          "type": "[step: number]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceTask",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-task.ts",
+      "props": [
+        {
+          "name": "title",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Try it\""
+        }
+      ],
+      "events": [],
+      "slots": [
+        "default",
+        "title"
+      ],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    },
+    {
+      "name": "WorkspaceTerminal",
+      "entries": [
+        "./workspace"
+      ],
+      "source": "src/workspace/workspace-terminal.ts",
+      "props": [
+        {
+          "name": "label",
+          "type": "string | undefined",
+          "required": false,
+          "default": "\"Terminal output\""
+        },
+        {
+          "name": "output",
+          "type": "WorkspaceTerminalOutput | undefined",
+          "required": false,
+          "default": "[]"
+        }
+      ],
+      "events": [
+        {
+          "name": "input",
+          "type": "[data: string]"
+        }
+      ],
+      "slots": [],
+      "dataSlots": [],
+      "rootDataSlots": [],
+      "dataAttributes": [],
+      "types": []
+    }
+  ]
+}

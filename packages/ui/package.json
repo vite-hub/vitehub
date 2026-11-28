@@ -90,6 +90,7 @@
   },
   "scripts": {
     "bench:headless": "node scripts/headless-weight.ts",
+    "contract:api": "node contract/generate.ts",
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
@@ -166,6 +167,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
+    "vue-component-meta": "3.3.14",
     "@types/markdown-it": "^14.2.0",
     "comark-ui": "catalog:markdown-ui",
     "@vite-hub/content": "workspace:*",

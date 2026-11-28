@@ -4165,6 +4165,9 @@ importers:
       vue:
         specifier: 3.5.46
         version: 3.5.46(typescript@6.0.3)
+      vue-component-meta:
+        specifier: 3.3.14
+        version: 3.3.14(typescript@6.0.3)
 
   packages/vite-hub:
     dependencies:
@@ -18938,6 +18941,14 @@ packages:
 
   vue-component-meta@3.3.12:
     resolution: {integrity: sha512-UT2ax02yye/xT/eiVBaXjuLDS92spt2V6Aj9C3gJpKKBZg/etrDIGCTLG34M4zGN5qWJEkcpnRjDt3wXBoxOjw==}
+    peerDependencies:
+      typescript: '*'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  vue-component-meta@3.3.14:
+    resolution: {integrity: sha512-OQT0AVGbFjmo/aIsyrNN8M3zR3D7U3SNyQPzVlotl89dxIdhhy95wYALiiFrHkBWyvTLRxMRQ3cqkbOMHEh8DQ==}
     peerDependencies:
       typescript: '*'
     peerDependenciesMeta:
@@ -41803,6 +41814,14 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
     optional: true
+
+  vue-component-meta@3.3.14(typescript@6.0.3):
+    dependencies:
+      '@volar/typescript': 2.4.30(typescript@6.0.3)
+      '@vue/language-core': 3.3.14
+      path-browserify: 1.0.1
+    optionalDependencies:
+      typescript: 6.0.3
 
   vue-component-type-helpers@3.3.14: {}
 
