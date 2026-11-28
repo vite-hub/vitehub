@@ -97,6 +97,18 @@ describe("ask Driver", () => {
     expect(askState({}, undefined, [])).toBeNull()
   })
 
+  it("classifies the latest user message even when the run identifies an earlier turn", async () => {
+    const agent = defineAgent({ driver: { ask: { urgent: ask.chance("Is it urgent?") } }, runtime: false })
+    await runAgentWithContext(agent, { ...runtime(), run: { messageId: "first", runId: "run-1" } }, {
+      messages: [
+        createMessage({ id: "first", role: "user", text: "Routine update" }),
+        createMessage({ role: "user", text: "Urgent deadline today" }),
+      ],
+    })
+
+    expect(askJev).toHaveBeenCalledWith("Urgent deadline today", expect.any(Object), expect.any(Object))
+  })
+
   it.each([42, true, false])("converts scalar Invocation data (%j) to SDK text", async (data) => {
     await askRuntime.askJev({}, data, { value: ask.if("Is it true?", { threshold: 0.5 }) })
 

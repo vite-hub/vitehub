@@ -828,14 +828,14 @@ import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    run({ input, invoker }) {
-      return { text: `Accepted ${invoker.id}: ${String(input.prompt ?? '')}` }
+    run({ prompt, invoker }) {
+      return { text: `Accepted ${invoker.id}: ${prompt ?? ''}` }
     },
   },
 })
 ```
 
-The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
+An explicit string `prompt` wins. Otherwise, the callback gets the text of the prepared user message identified by `run.messageId`, or the latest prepared user message if that ID does not match a user message. If the selected message has no text, `prompt` is `undefined`. The callback also receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 ViteHub cannot stop this callback. On cancel, `input.abortSignal` aborts and the result shows `notEnforcedBy: 'run'`. Pass the signal to your I/O or throw `input.abortSignal.reason` to stop. Model and provider Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 

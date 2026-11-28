@@ -1,6 +1,8 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
+import { createScheduleError } from "../errors.ts"
+import { loadScheduleRegistry } from "../run.ts"
 import { loadStaticScheduleDefinition, runScheduleFrom } from "./execute.ts"
 import { startedSchedulesTickName } from "./started-name.ts"
 import { getHostScheduleInventory, getProcessScheduleDefinitions, getScheduleRunStore, getStartedScheduleRuntime } from "./state.ts"
@@ -120,10 +122,10 @@ function newestFirst(left: ScheduleRunRecord, right: ScheduleRunRecord): number 
   return new Date(right.scheduledAt).getTime() - new Date(left.scheduledAt).getTime()
 }
 
-/** Lists the recorded runs of one Schedule Definition, newest first. */
-export async function listScheduleRuns(scheduleId: string, options: { limit?: number } = {}): Promise<ScheduleRunSummary[]> {
-  const runs = (await getScheduleRunStore().listRuns({ scheduleId, limit: options.limit }))
-    .filter(run => run.scheduleId === scheduleId)
+/** Lists the recorded Schedule Runs, newest first, or only the runs of `scheduleId`. */
+export async function listScheduleRuns(scheduleId: string | undefined, options: { limit?: number } = {}): Promise<ScheduleRunSummary[]> {
+  const runs = (await getScheduleRunStore().listRuns({ ...(scheduleId === undefined ? {} : { scheduleId }), limit: options.limit }))
+    .filter(run => scheduleId === undefined || run.scheduleId === scheduleId)
     .sort(newestFirst)
   return (options.limit === undefined ? runs : runs.slice(0, options.limit)).map(summarizeScheduleRun)
 }
@@ -147,6 +149,7 @@ function withStatus<TError extends Error>(error: TError, status: number, fix?: s
 
 const errorFix: Readonly<Record<string, string>> = {
   SCHEDULE_INVALID_SCHEDULED_AT: "Pass `at` as an ISO 8601 date-time with a time zone, such as 2026-01-31T23:59:00Z or 2026-01-31T23:59:00+01:00.",
+  SCHEDULE_MANUAL_RUN_DISABLED: "Set `manual: true` in defineSchedule() to let `vitehub schedule run`, the Console, and `runSchedule()` start the Schedule.",
 }
 
 const errorStatus: Readonly<Record<string, number>> = {
@@ -185,7 +188,7 @@ export interface ScheduleRunResult {
   run: ManualScheduleRunSummary
 }
 
-export async function runScheduleRuns(input: { id: string, limit?: number }): Promise<ScheduleRunsResult> {
+export async function runScheduleRuns(input: { id?: string, limit?: number }): Promise<ScheduleRunsResult> {
   return await attempt(async () => ({ runs: await listScheduleRuns(input.id, { limit: input.limit ?? 100 }) }))
 }
 
@@ -200,14 +203,21 @@ export async function runScheduleAttempts(input: { id: string }): Promise<Schedu
 const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
 
 /**
- * Runs a Static Schedule Definition that sets `manual: true`, as if its cron fired at `at` (default: now). The registry holds only those definitions, and it is empty
- * unless Console invocation is enabled, so anything else is "not available".
+ * Runs a Static Schedule as if its cron fired at `at` (default: now) when its Definition is in the Console registry.
+ * A known Definition without `manual: true` fails with `SCHEDULE_MANUAL_RUN_DISABLED`. Other unavailable names fail with `SCHEDULE_DEFINITION_NOT_FOUND`.
  */
 export async function runScheduleNow(input: { at?: string, name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
-  if (!Object.hasOwn(registry, input.name)) {
-    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(), 404)
-  }
-  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }))
+  return await attempt(async () => {
+    if (!Object.hasOwn(registry, input.name)) {
+      const definitions = await loadScheduleRegistry().catch((cause: unknown) => {
+        throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND({ cause })
+      })
+      const definition = await loadStaticScheduleDefinition(input.name, definitions)
+      if (definition && definition.options?.manual !== true) throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
+      throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND()
+    }
+    return { run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }
+  })
 }
 
 /** Serializable view of one started Schedule, as `vitehub schedule list` prints it. */

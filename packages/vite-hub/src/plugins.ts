@@ -33,7 +33,7 @@ import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPack
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { featureOptionsResolved, withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { definitionFeaturesRootPlugin, resolveDefinitionFeatures } from "./internal/definition-features.ts"
-import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { assertViteHubOptionKeys } from "./removed-options.ts"
 import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
@@ -345,6 +345,7 @@ const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLT
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
 const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
 const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
+const devRpcRuntimeSections: ReadonlySet<string> = new Set(["agents", "schedules"])
 
 function workspaceStoreEntry() {
   return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
@@ -1819,9 +1820,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
       operationSections: devOperationsOnly ? consoleSections : undefined,
-      // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
-      // Schedules is the exception: `vitehub schedule run` runs only the manual Schedules that its section installs.
-      sections: devOperationsOnly ? consoleSections.filter(section => section === "schedules") : consoleSections,
+      sections: devOperationsOnly ? consoleSections.filter(section => devRpcRuntimeSections.has(section)) : consoleSections,
     })
     if (devOperationsOnly) consolePlugin.apply = "serve"
     plugins.push(consolePlugin)
@@ -2136,7 +2135,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
 export function viteHubPlugins(options: ViteHubOptions, reportVersionError = true): PluginOption[] {
-  assertNoRemovedViteHubOptions(options, "`vitehub()`")
+  assertViteHubOptionKeys(options, "`vitehub()`")
   // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
   const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant, reportVersionError)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.

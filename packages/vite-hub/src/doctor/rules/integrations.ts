@@ -5,7 +5,7 @@ import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleS
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
-import { removedViteHubOptions } from "../../removed-options.ts"
+import { closestViteHubOptionKey, isViteHubOptionKey, removedViteHubOptions } from "../../removed-options.ts"
 
 // Local helpers.
 
@@ -66,15 +66,19 @@ function configObject(ctx: RuleContext): AstNode | undefined {
 }
 
 /** The entries of `modules` in a Nuxt config, with the name and inline options of each. */
-function nuxtModules(config: AstNode): { name: string, options?: unknown, node: unknown }[] {
+function nuxtModules(config: AstNode, importedViteHub = new Set<string>()): { name: string, options?: unknown, node: unknown }[] {
   const modules = unwrap(objectValue(config, "modules"))
   if (!isNodeType(modules, "ArrayExpression") || !Array.isArray(modules.elements)) return []
+  const moduleName = (value: unknown) => {
+    const target = unwrap(value)
+    return isIdentifier(target) && importedViteHub.has(target.name) ? "vite-hub/nuxt" : stringValue(target)
+  }
   return modules.elements.flatMap((element) => {
-    const name = stringValue(element)
+    const name = moduleName(element)
     if (name) return [{ name, node: element }]
     const entry = unwrap(element)
     if (!isNodeType(entry, "ArrayExpression") || !Array.isArray(entry.elements)) return []
-    const tupleName = stringValue(entry.elements[0])
+    const tupleName = moduleName(entry.elements[0])
     return tupleName ? [{ name: tupleName, options: entry.elements[1], node: element }] : []
   })
 }
@@ -315,20 +319,38 @@ const topLevelFeatureKeys = ["agent", "auth", "blob", "browser", "database", "kv
 /** Option objects, such as `cloudflare`, that hold a removed nested key. */
 const nestedRemovedParents = new Set(Object.keys(removedViteHubOptions).flatMap(key => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []))
 
-function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, parent?: string) {
-  const target = unwrap(options)
-  if (!isNodeType(target, "ObjectExpression")) return
-  for (const property of objectProperties(target)) {
+function literalOptionProperties(options: unknown, properties = new Map<string, AstNode>()): Map<string, AstNode> {
+  for (const property of objectProperties(options)) {
+    if (property.type === "SpreadElement") {
+      literalOptionProperties(property.argument, properties)
+      continue
+    }
     const name = propertyName(property)
-    if (parent === undefined && name !== undefined && nestedRemovedParents.has(name)) {
+    if (name !== undefined) properties.set(name, property)
+  }
+  return properties
+}
+
+function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, parent?: string) {
+  for (const [name, property] of literalOptionProperties(options)) {
+    const value = unwrap(property.value)
+    if ((isIdentifier(value, "undefined") && !resolver(ctx).binding(value)) || (isNodeType(value, "UnaryExpression") && value.operator === "void")) continue
+    if (parent === undefined && nestedRemovedParents.has(name)) {
       checkViteHubOptions(ctx, property.value, `${where}.${name}`, name)
       continue
     }
     let report: { why: string, fix: string } | undefined
-    const key = name !== undefined && parent !== undefined ? `${parent}.${name}` : name
-    const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
+    const key = parent === undefined ? name : `${parent}.${name}`
+    const removed = Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
     if (removed) {
-      report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
+      report = { why: `${removed.why} The build fails if its final value is not \`undefined\`.`, fix: removed.fix }
+    }
+    else if (parent === undefined && !isViteHubOptionKey(name)) {
+      const suggestion = closestViteHubOptionKey(name)
+      report = {
+        why: `\`${name}\` is not a ViteHub option. The build fails if its final value is not \`undefined\`.`,
+        fix: suggestion ? `Rename \`${name}\` to \`${suggestion}\`.` : `Remove \`${name}\`, or use an option from https://vitehub.dev/docs/reference/config-options.`,
+      }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }
@@ -357,9 +379,12 @@ export const validViteHubOptions: DoctorRule = createRule({
           return environment && isNodeType(override, "ObjectExpression") ? [{ name: `${name}.${environment}`, config: override }] : []
         })
       })]
-      const hasBaseModule = nuxtModules(config).some(entry => entry.name === "vite-hub/nuxt")
+      const importedViteHub = new Set(importsOf(ctx)
+        .filter(entry => entry.source === "vite-hub/nuxt" && !entry.typeOnly)
+        .flatMap(entry => entry.specifiers.filter(specifier => specifier.imported === "default" && !specifier.typeOnly).map(specifier => specifier.local)))
+      const hasBaseModule = nuxtModules(config, importedViteHub).some(entry => entry.name === "vite-hub/nuxt")
       for (const scope of scopes) {
-        const module = nuxtModules(scope.config).find(entry => entry.name === "vite-hub/nuxt")
+        const module = nuxtModules(scope.config, importedViteHub).find(entry => entry.name === "vite-hub/nuxt")
         if (!hasBaseModule && !module) continue
         checkViteHubOptions(ctx, objectValue(scope.config, "vitehub"), scope.name ? `the \`${scope.name}.vitehub\` key` : "the `vitehub` key")
         checkViteHubOptions(ctx, module?.options, "the inline `vite-hub/nuxt` options")

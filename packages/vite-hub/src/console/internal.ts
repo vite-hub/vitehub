@@ -24,7 +24,6 @@ export const consoleSchedulesKey: unique symbol = Symbol.for("vitehub.console.sc
 export type ConsoleDatabaseEntry =
   | Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
   | {
-    // Inspection uses the primary query API, including for standalone Drizzle databases without replicas.
     db: Omit<RuntimeDatabaseEntry<Record<string, unknown>, "postgresql">["db"], "$replica">
     schema: Record<string, unknown>
   }
@@ -70,6 +69,7 @@ export interface ConsoleState {
   projectRoot?: string
   /** The Agent Invocation journal that the Console reads (`installConsoleInvocations()`). */
   invocations?: AgentInvocations
+  invocationJournalError?: Error
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
   documents?: ConsoleDocumentEditors

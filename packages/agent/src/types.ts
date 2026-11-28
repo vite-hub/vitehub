@@ -3248,7 +3248,7 @@ export type AgentInspectionValue = boolean | null | number | string | AgentInspe
 
 export interface AgentInspectionCapabilityMetadata {
   id: string
-  metadata: Record<string, AgentInspectionValue>
+  metadata?: Record<string, AgentInspectionValue>
 }
 
 export interface AgentInspectionModelMetadata {

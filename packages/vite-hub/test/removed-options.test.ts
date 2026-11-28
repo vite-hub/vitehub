@@ -44,3 +44,25 @@ describe("removed vitehub() options", () => {
     }))
   })
 })
+
+describe("unknown vitehub() options", () => {
+  it.each([
+    ["rate-limit", "Rename `rate-limit` to `rateLimit`."],
+    ["kvv", "Rename `kvv` to `kv`."],
+    ["databse", "Rename `databse` to `database`."],
+    ["stripe", "Remove `stripe`, or use an option from https://vitehub.dev/docs/reference/config-options."],
+  ])("fails on `%s` instead of ignoring it", (key, fix) => {
+    // SAFETY: the test passes a key that ViteHubOptions does not declare, as a typo in a config does.
+    const options = { host: "node", env: false, [key]: true } as ViteHubOptions
+    expect(() => vitehub(options)).toThrow(expect.objectContaining({
+      code: "VITE_HUB_UNKNOWN_OPTION",
+      message: expect.stringContaining(`\`${key}\` in \`vitehub()\` is not a ViteHub option.`),
+      fix,
+    }))
+  })
+
+  it("accepts an unknown key set to undefined", () => {
+    // SAFETY: a config spreads an optional value that is unset.
+    expect(() => vitehub({ host: "node", env: false, extra: undefined } as ViteHubOptions)).not.toThrow()
+  })
+})

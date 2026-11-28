@@ -2060,9 +2060,10 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("emits streamed workspace fallback text before finish events", async () => {
+  it("uses the latest user text for streamed workspace fallback before finish events", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { streamAgentInline } = await import("../src/internal/agent-run.ts")
+    const { createMessage } = await import("../src/messages.ts")
     agentStream.mockResolvedValueOnce({
       fullStream: (async function* () {
         yield {
@@ -2079,7 +2080,13 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never },
     }), { workspace: "docs" })
 
-    const stream = await streamAgentInline(agent, context(), { messages: [] })
+    const runtime = Object.assign(context(), { run: { messageId: "first", runId: "run-1" } })
+    const stream = await streamAgentInline(agent, runtime, {
+      messages: [
+        createMessage({ id: "first", role: "user", text: "Old question" }),
+        createMessage({ role: "user", text: "Where is Posthog initialized?" }),
+      ],
+    })
     const events: unknown[] = []
     for await (const event of stream as AsyncIterable<unknown>) {
       events.push(event)
@@ -2090,6 +2097,9 @@ describe("defineAgent workspace option", () => {
       { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
       { reason: "workspace-fallback", type: "finish" },
     ])
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("User message:\nWhere is Posthog initialized?\n\n"),
+    }))
   })
 
   it("emits streamed workspace fallback text before abort events", async () => {
@@ -2854,6 +2864,7 @@ describe("defineAgent workspace option", () => {
     }), { workspace: "support" })
 
     expect(createAgentInspectionMetadata(agent)).toEqual({
+      capabilities: [{ id: "workspace-shell" }],
       config: {
         driver: {
           executionAuthority: noExecutionAuthority,
@@ -3011,6 +3022,20 @@ describe("defineAgent workspace option", () => {
     ])
     expect((await materializeAgentInspectionSourceMetadata(workspaceAgent)).capabilities).toEqual([
       { id: "inspectable", metadata: { status: "ready" } },
+    ])
+  })
+
+  it("lists every Capability id in inspection, with metadata only where a Capability sets it", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { createAgentInspectionMetadata } = await import("../src/workspace-agent.ts")
+    const agent = defineAgent({
+      capabilities: [defineCapability({ id: "plain" }), defineCapability({ id: "inspectable", metadata: { status: "ready" } })],
+      driver: { run: () => "ok" },
+    })
+
+    expect(createAgentInspectionMetadata(agent).capabilities).toEqual([
+      { id: "inspectable", metadata: { status: "ready" } },
+      { id: "plain" },
     ])
   })
 

@@ -324,13 +324,23 @@ describe("contributed Schedules on every host", () => {
     await resolvePlugin(plugin, root, plugins)
     const registry = {}
     const invalidateModule = vi.fn()
+    const send = vi.fn()
 
-    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
+    const hotUpdate = plugin.hotUpdate as (this: object, context: object) => void
+    hotUpdate.call({
+      environment: {
+        config: { consumer: "server" },
+        hot: { send },
+        moduleGraph: { getModuleById: (id: string) => id === "\0#vitehub/schedule/registry" ? registry : undefined, invalidateModule },
+      },
+    }, {
       file: definition,
-      server: { config: { root }, moduleGraph: { getModuleById: () => registry, invalidateModule } },
+      server: { config: { root } },
+      type: "update",
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registry)
+    expect(send).toHaveBeenCalledWith({ type: "full-reload" })
   })
 })
 
