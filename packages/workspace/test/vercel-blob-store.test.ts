@@ -468,6 +468,19 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
   })
 
+  it("rejects conditional removal with recovery advice that preserves the precondition", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ driver: "vercel", token: "token" }, "docs")
+
+    await store.writeFile("draft.md", { path: "draft.md", content: "new draft" })
+    await expect(store.rm("draft.md", { ifDigest: "reviewed-digest" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      fix: expect.stringContaining("Use a Store that supports conditional removal"),
+    })
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({ content: expect.any(Uint8Array) })
+  })
+
   it("removes a file and its descendants when recursive removal targets both", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
@@ -577,9 +590,9 @@ describe("Vercel Blob workspace store", () => {
       token: "********",
     }, "docs")
 
-    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
-    await expect(store.readFile(".vitehub/snapshots/x.json")).rejects.toThrow("Workspace path escapes")
-    await expect(store.stat(".git/config")).rejects.toThrow("Workspace path escapes")
+    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("[vitehub] The Workspace path ")
+    await expect(store.readFile(".vitehub/snapshots/x.json")).rejects.toThrow("[vitehub] The Workspace path ")
+    await expect(store.stat(".git/config")).rejects.toThrow("[vitehub] The Workspace path ")
   })
 
   it("synthesizes immediate directories below a listing prefix", async () => {

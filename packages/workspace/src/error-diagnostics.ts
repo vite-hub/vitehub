@@ -12,7 +12,13 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workspace/diagnostics",
   codes: {
-    // Operation errors. The `workspace.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    // Operation errors. The file API and the `workspace.*` operations of the CLI, the Console, and Agents throw them. The operations add an HTTP status.
+    WORKSPACE_CONFLICT: {
+      ...dynamicError,
+      fix: ({ conditionalRemovalUnsupported }: { conditionalRemovalUnsupported?: boolean, message: string }) => conditionalRemovalUnsupported
+        ? "Use a Store that supports conditional removal to keep the `ifDigest` check. Remove a file without `ifDigest` only if you intend to delete it even if it changed since you read it."
+        : "Another write changed the file or ref after you read it. Read it again, apply your change to the new content, and retry with its new digest in `ifDigest` or its new head in `ifHead`. For a merge conflict or a publish that is in progress, do the step that the message names first.",
+    },
     WORKSPACE_FORBIDDEN: {
       why: "An Agent may not write past an edit lease that a person holds.",
       fix: "Tell the person you work for who is editing the files, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true }).",
@@ -35,6 +41,20 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         workspace: `Unknown Workspace: ${workspace}.`,
       })[problem],
       fix: "Check the Workspace name, the ref or revision, and the path. `vitehub workspace refs <workspace>` lists the refs, and `vitehub workspace get <workspace> <ref>` lists the files. When a base revision is gone, pull again without it.",
+    },
+    WORKSPACE_PATH_INVALID: {
+      why: ({ path, problem }: { path: string, problem: "not-relative" | "reserved" }) => problem === "reserved"
+        ? `The Workspace path ${path} uses a reserved name. ViteHub keeps \`.git\` at any depth for Git and \`.vitehub\` at the root for its own data. It also reserves their NTFS short names \`git~N\` and \`vitehu~N\`.`
+        : `The Workspace path ${path} is not a relative path inside the Workspace root. It is empty or absolute, starts with a drive letter, has a NUL byte, or has a \`.\` or \`..\` part.`,
+      fix: ({ problem }: { path: string, problem: "not-relative" | "reserved" }) => problem === "reserved"
+        ? "Rename the file or folder, for example `.git/config` to `git/config`. No part of a Workspace path can be `.git` or `git~1`, and the first part cannot be `.vitehub` or `vitehu~1`."
+        : "Pass a relative path inside the Workspace, for example `docs/guide.md`. Remove a leading `/` or drive letter, NUL bytes, and `.` or `..` parts. `error.details.path` has the path that the Workspace rejected.",
+    },
+    WORKSPACE_SOURCE_READ_ONLY: {
+      why: ({ path, source }: { path: string, source?: string }) => source === undefined
+        ? `The Workspace path "${path}" belongs to a Source. Source paths are read-only: a write, removal, or move cannot change them.`
+        : `The Workspace path "${path}" belongs to Source "${source}". Source paths are read-only: a write, removal, or move cannot change them.`,
+      fix: "Write the file outside the Source mount, for example under `drafts/`. To change a Source file, change it where the Source reads it, such as its GitHub repository, its URL, or its local files. For a Source with `sync: true`, run `workspace.sync({ sources: ['handbook'] })` with its Source key in place of `handbook`.",
     },
 
     // Checkout errors. `vitehub pull`, `push`, `resolve`, `status`, and the Git hooks print them with the code and the fix.

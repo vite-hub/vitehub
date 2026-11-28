@@ -14,5 +14,5 @@ export async function checkGlobCwd(store: Pick<WorkspaceStore, "glob">): Promise
   expect((await store.glob("*.md")).map(entry => entry.path)).toEqual(["root.md"])
   expect((await store.glob("*.md", { cwd: "." })).map(entry => entry.path)).toEqual(["root.md"])
   await expect(store.glob("**/*", { cwd: "missing" })).resolves.toEqual([])
-  await expect(store.glob("**/*", { cwd: "../docs" })).rejects.toThrow("Workspace path escapes")
+  await expect(store.glob("**/*", { cwd: "../docs" })).rejects.toThrow("is not a relative path inside the Workspace root")
 }

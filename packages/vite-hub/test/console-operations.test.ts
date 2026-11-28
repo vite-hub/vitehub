@@ -305,6 +305,31 @@ describe("contributed operations over the Console RPC", () => {
   it("answers 404 for an operation that no plugin contributed", async () => {
     const response = await call("fixture.missing")
     expect(response.status).toBe(404)
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_NOT_FOUND", fix: "Use a Console or `vitehub` CLI of the same ViteHub version as the app." })
+  })
+
+  it("reports an unknown operation in an enabled feature", async () => {
+    installConsoleOperations([{ operations: [defineOperation({ ...greet, name: "agents.list" })], plugin: "fixture-plugin" }])
+    const response = await call("agents.missing")
+    expect(response.status).toBe(404)
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_NOT_FOUND" })
+  })
+
+  it.each([["kv", "`kv`"], ["blob", "`blob`"], ["content", "`server/content.ts`"]])("reports a disabled %s plugin operation", async (feature, fix) => {
+    const response = await call(`${feature}.list`)
+    expect(response.status).toBe(404)
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CONSOLE_FEATURE_DISABLED", fix: expect.stringContaining(fix) })
+  })
+
+  it("names the feature to turn on for an operation of a feature that the app does not have", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    const response = await call("agents.list")
+    expect(response.status).toBe(404)
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({
+      code: "CONSOLE_FEATURE_DISABLED",
+      fix: "Add an Agent Definition, such as `server/agents/support.ts`, and set `agent` in `vitehub()`, or in the `vitehub` key of `nuxt.config.ts`. Then restart the dev server, or build and deploy the app again.",
+      message: "This app does not serve `agents.list`, because its feature is off.",
+    })
   })
 
   it("fails the build when a plugin reuses the name of another operation", async () => {

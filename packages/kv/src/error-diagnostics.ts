@@ -24,6 +24,11 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: KVCursorProblem }) => cursorProblems[problem],
       fix: "Pass the `cursor` of the previous page once, to the same store. If it fails, start again without `cursor`.",
     },
+    KV_INVALID_KEY: {
+      why: ({ key }: { key: string }) => `The key ${JSON.stringify(key)} is empty, or has a "." or ".." segment. Both "/" and ":" separate segments.`,
+      fix: "Use a key with at least one segment and no `.` or `..` segment, such as `users:alice`. For request text, use `` `users:id-${encodeURIComponent(text)}` ``.",
+      status: 400,
+    },
     KV_INVALID_LIMIT: {
       why: "`limit` must be a positive integer.",
       fix: "Pass a positive integer, for example `kv.list({ limit: 100 })`.",
@@ -110,8 +115,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.",
     },
     KV_INVALID_CONFIG: {
-      why: ({ path }: { path: "kv" | "kv.stores" }) => `\`${path}\` must be a plain object.`,
-      fix: "Pass an object, for example `kv: { driver: 'fs-lite' }`.",
+      why: ({ path }: { path: "kv" | "kv.stores" }) => path === "kv" ? "KV options must be a plain object or `false`. Only `vitehub()` accepts `kv: true`." : "`kv.stores` must be a plain object.",
+      fix: ({ path }: { path: "kv" | "kv.stores" }) => path === "kv"
+        ? "In `vitehub()`, set `kv: true` for the default store, `kv: { driver: 'redis' }` to choose a driver, or `kv: false` to turn KV off. Call `hubKV()` for the default store in a standalone app, pass a plain object to choose a driver, or pass `false` to turn KV off."
+        : "Set `kv.stores` to an object of named stores, such as `kv: { stores: { default: { driver: 'redis' } } }`.",
     },
     KV_INVALID_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed

@@ -215,6 +215,7 @@ const config: KnipConfiguration = {
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",
         "test/local/vercel-bridge-server.mjs",
+        "test/local/vercel-bridge.d.mts",
         ...matching("playground/vite", ["vite.config.ts", ...viteConfigEntries("playground/vite"), ...viteHubAppEntries])
           .map(pattern => `playground/vite/${pattern}`),
       ],
@@ -223,7 +224,7 @@ const config: KnipConfiguration = {
         "@vercel/blob",
         "sharp",
       ],
-      vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
+      vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts", "test/templates/vitest.config.ts"] },
     },
     ...packageWorkspaces,
     docs: {
@@ -274,6 +275,7 @@ const config: KnipConfiguration = {
       ],
     },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },
+    "templates/nuxt/*": { ignoreDependencies: ["vue-tsc"] },
   },
   ignoreWorkspaces: [
     "fixtures/tutorials/chat-app",

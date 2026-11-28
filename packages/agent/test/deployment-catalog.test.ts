@@ -86,7 +86,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  })",
       "}",
       "export const createAgentWebhookRequest = input => new Request(input.url, { ...input, ...(input.body ? { duplex: 'half' } : {}) })",
-      "export const hasChannelChatRoute = () => true",
+      "export const hasChannelChatRoute = agent => agent.description !== 'broken'",
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
       "export const createChannelWebhookRouteHandler = agent => async (request, webhook, options) => { capture().webhookRequest = { body: await request.text(), signature: request.headers.get('x-hub-signature-256') }; return handle('webhook', agent, webhook, options) }",
       "export const createDiscordGatewayRouteHandler = agent => async (_request, options) => handle('discord', agent, undefined, options)",
@@ -342,6 +342,9 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
+const unknownAgentMessage = "No Agent has this name. Check the name that you pass to useAgent() or put in the route path."
+const missingChatRouteMessage = "The Agent \"broken\" has no chat route. Add a web chat Channel to it: channels: { web: webChat() }, with webChat from vite-hub/channels/adapters."
+
 describe("generated Agent deployment catalog", () => {
   beforeEach(async () => {
     runtime = await createDeploymentRuntimeFixture()
@@ -370,7 +373,10 @@ describe("generated Agent deployment catalog", () => {
     })
     const missing = await runtime!.request("missing", "chat")
     expect(missing.status).toBe(404)
-    await expect(missing.json()).resolves.toEqual({ message: "Unknown ViteHub agent.", status: 404 })
+    await expect(missing.json()).resolves.toEqual({ message: unknownAgentMessage, status: 404 })
+    const withoutChat = await runtime!.request("broken", "chat")
+    expect(withoutChat.status).toBe(404)
+    await expect(withoutChat.json()).resolves.toEqual({ message: missingChatRouteMessage, status: 404 })
   })
 
   it("serves canonical inspection metadata with private error responses", async () => {
@@ -598,6 +604,7 @@ describe("generated Agent deployment catalog", () => {
       name: "reviewer",
     })
     expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
+    await expect((await runtime.request("broken", "chat")).json()).resolves.toMatchObject({ message: missingChatRouteMessage, status: 404 })
     expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["team/support"])
   })
 })
@@ -625,6 +632,8 @@ it("executes the same catalog through the Netlify Adapter", async () => {
     capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
     name: "reviewer",
   })
+  await expect((await runtime.request("missing", "chat")).json()).resolves.toEqual({ message: unknownAgentMessage, status: 404 })
+  await expect((await runtime.request("broken", "chat")).json()).resolves.toEqual({ message: missingChatRouteMessage, status: 404 })
   expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
   const workspace = await runtime.workspace("support")
   const sourceRootDir = parse(string(), workspace.sourceRootDir)

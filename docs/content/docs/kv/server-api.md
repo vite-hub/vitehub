@@ -221,7 +221,7 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 
 Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
-Keys are strings such as `users:alice` or `users/alice`. Both `/` and `:` separate segments. A key needs at least one segment and no `.` or `..` segment, so `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`. On Cloudflare KV, a key above 512 UTF-8 bytes returns `KV_KEY_TOO_LONG` ([Limits](/docs/kv/limits-and-errors#limits)).
+Keys are strings such as `users:alice` or `users/alice`. Both `/` and `:` separate segments. A key needs at least one segment and no `.` or `..` segment, so `''`, `':'`, and `'a/../b'` return `KV_INVALID_KEY` before any provider call. On Cloudflare KV, a key above 512 UTF-8 bytes returns `KV_KEY_TOO_LONG` ([Limits](/docs/kv/limits-and-errors#limits)).
 
 ## Typed reads
 

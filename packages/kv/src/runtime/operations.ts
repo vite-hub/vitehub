@@ -130,6 +130,7 @@ const maximumKeyLength = 2_048
 function unwrap<TResult>(result: Result<TResult>): TResult {
   const [error, value] = result
   if (!error) return value
+  if (error.status !== undefined) throw error
   throw Object.assign(error, { status: kvOperationStatus[error.code] ?? 502 })
 }
 
@@ -189,10 +190,12 @@ export async function runKVOperation(operation: KVDevOperation, input: KVOperati
   }
   catch (error) {
     const code: unknown = Reflect.get(Object(error), "code")
-    const status = Reflect.get(Object(error), "status") ?? (typeof code === "string" ? kvOperationStatus[code] : undefined)
+    const existingStatus: unknown = Reflect.get(Object(error), "status")
+    const status = existingStatus ?? (typeof code === "string" ? kvOperationStatus[code] : undefined)
     if (typeof status !== "number" || !(error instanceof Error)) throw error
     const cause = code === "KV_OPERATION_FAILED" && error.cause instanceof Error ? ` ${error.cause.message}` : ""
-    throw Object.assign(error, { status, statusMessage: redactInspectionText(`${error.message}${cause}`) })
+    if (existingStatus === undefined || existingStatus === null) Object.assign(error, { status })
+    throw Object.assign(error, { statusMessage: redactInspectionText(`${error.message}${cause}`) })
   }
 }
 

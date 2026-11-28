@@ -2013,6 +2013,6 @@ describe("sources and loaders", () => {
     const workspace = createMemoryWorkspaceStore()
     workspace.glob = async () => [{ path: "../escape.txt", type: "file" }]
 
-    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
+    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("is not a relative path inside the Workspace root")
   })
 })

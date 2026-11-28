@@ -3,6 +3,7 @@ export const testLayerIncludes = Object.freeze({
   consumer: ["test/consumer/**/*.test.ts"],
   output: ["test/output/**/*.test.ts"],
   packages: ["packages/*/test/**/*.test.ts", "packages/*/test/**/*.test-d.ts", "packages/*/fixtures/*/test/**/*.test.ts"],
+  templates: ["test/templates/**/*.test.ts"],
 });
 
 export function testLayersFor(path: string) {
@@ -17,6 +18,9 @@ export function testLayersFor(path: string) {
   }
   if (/^test\/output\/.+\.test\.ts$/.test(normalized)) {
     layers.push("output");
+  }
+  if (/^test\/templates\/.+\.test\.ts$/.test(normalized)) {
+    layers.push("templates");
   }
   if (/^packages\/[^/]+\/(?:fixtures\/[^/]+\/)?test\/.+\.test(?:-d)?\.ts$/.test(normalized)) {
     layers.push("packages");
