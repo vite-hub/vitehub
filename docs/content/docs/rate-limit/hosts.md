@@ -107,6 +107,17 @@ export default defineConfig({
 })
 ```
 :::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', rateLimit: true })],
+})
+```
+:::
 ::
 
 Connect an Upstash Redis store to the Vercel project. Vercel then sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`, and KV reads them at runtime. When they are missing, the first Rate Limit check fails with [`KV_MISSING_ENV`](/docs/kv/diagnostics/kv_missing_env). To use a Redis at `REDIS_URL` instead, set `kv: { driver: 'redis' }`. `kv: false` with `rateLimit: true` fails the build with `VITE_HUB_R0144`. Set `rateLimit: { driver: 'memory' }` only when the counts of one function instance are enough.
