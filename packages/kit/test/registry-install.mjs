@@ -41,7 +41,7 @@ after(() => registry?.close())
 test("every registry item installs into a new Nuxt 4.7 app that builds without Nuxt UI or Reka UI", async () => {
   rmSync(app, { force: true, recursive: true })
   mkdirSync(app, { recursive: true })
-  cpSync(fixture, app, { recursive: true, filter: source => !source.endsWith("app.vue") })
+  cpSync(fixture, app, { recursive: true, filter: source => !source.endsWith("app.vue") && !source.includes("/app/components") })
   const components = readFileSync(join(app, "components.json"), "utf8").replace("{registry}", `http://127.0.0.1:${registryPort}/r`)
   writeFileSync(join(app, "components.json"), components)
   writeFileSync(join(app, "pnpm-workspace.yaml"), "packages: []\nallowBuilds:\n  esbuild: true\n  \"@tailwindcss/oxide\": true\n  \"@parcel/watcher\": false\n  unrs-resolver: false\n")
@@ -73,6 +73,7 @@ test("every registry item installs into a new Nuxt 4.7 app that builds without N
   assert.equal(installed.dependencies["@ui-sdk/core"], kitPackage.dependencies["@ui-sdk/core"])
 
   cpSync(join(fixture, "app/app.vue"), join(app, "app/app.vue"))
+  cpSync(join(fixture, "app/components"), join(app, "app/components"), { recursive: true })
   await run("pnpm", ["exec", "nuxi", "typecheck"])
   await run("pnpm", ["exec", "nuxt", "build"])
 
@@ -136,9 +137,39 @@ test("the demo page renders every item in light and dark, at 390px and 1280px", 
         await shot("tabs")
 
         await page.locator("[data-demo=toast]").click()
+        await page.waitForFunction(() => document.querySelector("[data-slot=toast]")?.getAnimations().length === 0)
         await shot("toast")
         const toast = await page.locator("[data-slot=toast]").boundingBox()
         assert.ok(toast && toast.x >= 8 && toast.x + toast.width <= width - 8 && toast.y + toast.height <= 900 - 8, `${theme} ${width}: the toast touches the viewport edge`)
+
+        await page.getByRole("button", { name: "Dismiss" }).click()
+        await page.locator("[data-slot=toast]").waitFor({ state: "hidden" })
+
+        const chat = page.locator("[data-demo-section=chat]")
+        await chat.scrollIntoViewIfNeeded()
+        await page.waitForTimeout(450)
+        await chat.screenshot({ path: join(screenshots, `chat-${theme}-${width}.png`) })
+
+        await chat.locator("[data-tool-state]", { hasText: "readProject" }).getByRole("button", { name: /readProject/ }).click()
+        await page.waitForTimeout(450)
+        await chat.screenshot({ path: join(screenshots, `tool-${theme}-${width}.png`) })
+
+        const prompt = chat.getByRole("textbox", { name: "Message" })
+        await prompt.fill("Ship acme-web tonight")
+        const size = await prompt.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))
+        assert.ok(width >= 768 || size >= 16, `${theme} ${width}: the prompt text is ${size}px on touch`)
+        await page.waitForTimeout(200)
+        await chat.locator("[data-demo=prompt]").screenshot({ path: join(screenshots, `prompt-${theme}-${width}.png`) })
+        await prompt.press("Enter")
+        const sent = chat.locator("[data-slot=message][data-from=user]", { hasText: "Ship acme-web tonight" })
+        await sent.waitFor()
+        assert.equal(await prompt.inputValue(), "", `${theme} ${width}: Enter did not clear the prompt`)
+        await chat.getByRole("button", { name: "Stop" }).waitFor()
+        await page.waitForTimeout(450)
+        const log = await chat.locator("[data-slot=message-list]").boundingBox()
+        const bubble = await sent.boundingBox()
+        assert.ok(log && bubble && bubble.y >= log.y && bubble.y + bubble.height <= log.y + log.height, `${theme} ${width}: the sent message is out of view`)
+        await chat.screenshot({ path: join(screenshots, `chat-sent-${theme}-${width}.png`) })
         await context.close()
       }
     }

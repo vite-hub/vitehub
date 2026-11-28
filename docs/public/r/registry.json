@@ -653,6 +653,156 @@
       ]
     },
     {
+      "name": "message-list",
+      "type": "registry:ui",
+      "title": "Message list",
+      "description": "A chat log that stays pinned to the newest message while it streams, with a button to jump back down.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/message-list/MessageList.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message-list/MessageListScrollButton.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message-list/index.ts",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message-list/utils.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "message",
+      "type": "registry:ui",
+      "title": "Message",
+      "description": "One chat message from the user or the Agent, with streamed Markdown through Comark and a row of actions.",
+      "dependencies": [
+        "@comark/vue@^0.9.2"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/message/Message.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message/MessageActions.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message/MessageContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message/MessageMarkdown.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/message/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "prompt-input",
+      "type": "registry:ui",
+      "title": "Prompt input",
+      "description": "A chat composer on the ui-sdk Textarea and FileInput parts: Enter sends, Shift+Enter adds a line, and files attach by drop, paste or picker.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme",
+        "@vitehub/button"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/prompt-input/PromptInput.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputAttach.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputAttachment.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputAttachments.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputSubmit.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputTextarea.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/PromptInputToolbar.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/index.ts",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/prompt-input/utils.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "tool-call",
+      "type": "registry:ui",
+      "title": "Tool call",
+      "description": "A collapsible row for one Agent tool call, with its state, input, output or error.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme",
+        "@vitehub/badge"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/tool-call/ToolCall.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/tool-call/index.ts",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/tool-call/states.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
       "name": "sidebar",
       "type": "registry:ui",
       "title": "Sidebar",

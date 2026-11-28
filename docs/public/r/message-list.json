@@ -1,0 +1,36 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "message-list",
+  "type": "registry:ui",
+  "title": "Message list",
+  "description": "A chat log that stays pinned to the newest message while it streams, with a button to jump back down.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/message-list/MessageList.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { onBeforeUnmount, onMounted, provide, ref } from \"vue\";\nimport { cn } from \"@/lib/utils\";\nimport { messageListKey } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ label?: string; class?: HTMLAttributes[\"class\"] }>(), { label: \"Messages\" });\n\nconst viewport = ref<HTMLElement>();\nconst content = ref<HTMLElement>();\nconst atBottom = ref(true);\nlet lastTop = 0;\nlet observer: ResizeObserver | undefined;\n\nconst distanceToBottom = (element: HTMLElement) => element.scrollHeight - element.scrollTop - element.clientHeight;\n\nfunction scrollToBottom(behavior: ScrollBehavior = \"smooth\") {\n  const element = viewport.value;\n  if (!element) return;\n  atBottom.value = true;\n  const reduce = window.matchMedia(\"(prefers-reduced-motion: reduce)\").matches;\n  element.scrollTo({ top: element.scrollHeight, behavior: reduce ? \"instant\" : behavior });\n}\n\nfunction onScroll() {\n  const element = viewport.value;\n  if (!element) return;\n  if (distanceToBottom(element) < 32) atBottom.value = true;\n  else if (element.scrollTop < lastTop - 1) atBottom.value = false;\n  lastTop = element.scrollTop;\n}\n\nonMounted(() => {\n  scrollToBottom(\"instant\");\n  observer = new ResizeObserver(() => {\n    if (atBottom.value) scrollToBottom(\"instant\");\n  });\n  if (content.value) observer.observe(content.value);\n  if (viewport.value) observer.observe(viewport.value);\n});\n\nonBeforeUnmount(() => observer?.disconnect());\n\nprovide(messageListKey, { atBottom, scrollToBottom });\ndefineExpose({ scrollToBottom });\n</script>\n\n<template>\n  <div\n    ref=\"viewport\"\n    data-slot=\"message-list\"\n    role=\"log\"\n    :aria-label=\"props.label\"\n    tabindex=\"0\"\n    class=\"min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]\"\n    @scroll.passive=\"onScroll\"\n  >\n    <div ref=\"content\" data-slot=\"message-list-content\" :class=\"cn('mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6', props.class)\">\n      <slot />\n    </div>\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/message-list/MessageListScrollButton.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { ArrowDownIcon } from \"@lucide/vue\";\nimport { cn } from \"@/lib/utils\";\nimport { useMessageList } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ label?: string; class?: HTMLAttributes[\"class\"] }>(), { label: \"Scroll to the latest message\" });\nconst { atBottom, scrollToBottom } = useMessageList();\n</script>\n\n<template>\n  <button\n    v-if=\"!atBottom\"\n    type=\"button\"\n    data-slot=\"message-list-scroll-button\"\n    :aria-label=\"props.label\"\n    :class=\"cn('sticky bottom-3 z-10 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center self-center rounded-full bg-popover text-foreground shadow-popover backdrop-blur-xl transition-transform hover:bg-accent active:scale-97 motion-reduce:transition-none motion-reduce:active:scale-100 [&_svg]:size-4', props.class)\"\n    @click=\"scrollToBottom()\"\n  >\n    <slot><ArrowDownIcon aria-hidden=\"true\" /></slot>\n  </button>\n</template>\n"
+    },
+    {
+      "path": "ui/message-list/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as MessageList } from \"./MessageList.vue\";\nexport { default as MessageListScrollButton } from \"./MessageListScrollButton.vue\";\nexport { useMessageList } from \"./utils\";\nexport type { MessageListContext } from \"./utils\";\n"
+    },
+    {
+      "path": "ui/message-list/utils.ts",
+      "type": "registry:ui",
+      "content": "import type { InjectionKey, Ref } from \"vue\";\nimport { inject } from \"vue\";\n\nexport interface MessageListContext {\n  atBottom: Ref<boolean>;\n  scrollToBottom: (behavior?: ScrollBehavior) => void;\n}\n\nexport const messageListKey: InjectionKey<MessageListContext> = Symbol(\"message-list\");\n\nexport function useMessageList(): MessageListContext {\n  const context = inject(messageListKey);\n  if (!context) throw new Error(\"useMessageList() must be called inside <MessageList>.\");\n  return context;\n}\n"
+    }
+  ]
+}

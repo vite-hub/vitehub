@@ -1,0 +1,41 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "message",
+  "type": "registry:ui",
+  "title": "Message",
+  "description": "One chat message from the user or the Agent, with streamed Markdown through Comark and a row of actions.",
+  "dependencies": [
+    "@comark/vue@^0.9.2"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/message/Message.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = withDefaults(defineProps<{ from?: \"user\" | \"assistant\" | \"system\"; class?: HTMLAttributes[\"class\"] }>(), { from: \"assistant\" });\n</script>\n\n<template>\n  <div\n    data-slot=\"message\"\n    :data-from=\"props.from\"\n    :class=\"cn('group/message flex w-full min-w-0 flex-col gap-1.5 data-[from=user]:items-end', props.class)\"\n  >\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/message/MessageActions.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"message-actions\" :class=\"cn('-ms-1.5 flex items-center gap-0.5 text-muted-foreground group-data-[from=user]/message:-me-1.5', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/message/MessageContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div\n    data-slot=\"message-content\"\n    :class=\"cn('min-w-0 max-w-full text-sm leading-6 text-foreground group-data-[from=user]/message:max-w-[85%] group-data-[from=user]/message:rounded-xl group-data-[from=user]/message:bg-muted group-data-[from=user]/message:px-3.5 group-data-[from=user]/message:py-2 group-data-[from=user]/message:whitespace-pre-wrap group-data-[from=system]/message:text-muted-foreground', props.class)\"\n  >\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/message/MessageMarkdown.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Markdown } from \"@comark/vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ value: string; streaming?: boolean; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div\n    data-slot=\"message-markdown\"\n    :class=\"cn(\n      'min-w-0 text-sm leading-6 break-words',\n      '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:ps-5 [&_li]:my-1',\n      '[&_h1]:mt-6 [&_h1]:mb-3 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-6 [&_h2]:mb-3 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:font-semibold',\n      '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_blockquote]:border-s-2 [&_blockquote]:ps-3 [&_blockquote]:text-muted-foreground [&_hr]:my-4 [&_hr]:border-border',\n      '[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.8125rem]',\n      '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-[0.8125rem] [&_pre]:leading-5',\n      '[&_table]:my-3 [&_table]:w-full [&_table]:text-left [&_table]:tabular-nums [&_th]:border-b [&_th]:px-2 [&_th]:py-1.5 [&_th]:font-medium [&_td]:border-b [&_td]:px-2 [&_td]:py-1.5',\n      props.class,\n    )\"\n  >\n    <Markdown :value=\"props.value\" :streaming=\"props.streaming\" :caret=\"props.streaming ? { class: 'ms-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-xs bg-foreground motion-reduce:animate-none' } : false\" />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/message/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as Message } from \"./Message.vue\";\nexport { default as MessageActions } from \"./MessageActions.vue\";\nexport { default as MessageContent } from \"./MessageContent.vue\";\nexport { default as MessageMarkdown } from \"./MessageMarkdown.vue\";\n"
+    }
+  ]
+}

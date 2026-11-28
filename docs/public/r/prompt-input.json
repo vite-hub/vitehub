@@ -1,0 +1,64 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "prompt-input",
+  "type": "registry:ui",
+  "title": "Prompt input",
+  "description": "A chat composer on the ui-sdk Textarea and FileInput parts: Enter sends, Shift+Enter adds a line, and files attach by drop, paste or picker.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme",
+    "@vitehub/button"
+  ],
+  "files": [
+    {
+      "path": "ui/prompt-input/PromptInput.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { computed, provide, ref } from \"vue\";\nimport { FileInput, FileInputDropzone } from \"@ui-sdk/vue/file-input\";\nimport { cn } from \"@/lib/utils\";\nimport type { PromptInputMessage } from \"./utils\";\nimport { promptInputKey } from \"./utils\";\n\nconst props = defineProps<{\n  pending?: boolean;\n  disabled?: boolean;\n  accept?: string | string[];\n  maxFiles?: number;\n  maxSize?: number;\n  class?: HTMLAttributes[\"class\"];\n}>();\nconst text = defineModel<string>({ default: \"\" });\nconst files = defineModel<File[]>(\"files\", { default: () => [] });\nconst emit = defineEmits<{ submit: [message: PromptInputMessage]; stop: [] }>();\n\nconst form = ref<HTMLFormElement>();\nconst pending = computed(() => props.pending);\nconst canSubmit = computed(() => !props.disabled && (text.value.trim() !== \"\" || files.value.length > 0));\nconst textarea = () => form.value?.querySelector(\"textarea\") ?? null;\n\nfunction onSubmit() {\n  if (props.pending) {\n    emit(\"stop\");\n    return;\n  }\n  if (!canSubmit.value) return;\n  emit(\"submit\", { text: text.value, files: [...files.value] });\n  text.value = \"\";\n  files.value = [];\n}\n\nprovide(promptInputKey, { text, files, pending, canSubmit, submit: () => form.value?.requestSubmit(), textarea });\n</script>\n\n<template>\n  <form ref=\"form\" data-slot=\"prompt-input\" :class=\"cn('w-full', props.class)\" @submit.prevent=\"onSubmit\">\n    <FileInput v-model:value=\"files\" multiple :accept=\"props.accept\" :max-files=\"props.maxFiles\" :max-size=\"props.maxSize\" :disabled=\"props.disabled\">\n      <FileInputDropzone\n        :paste-target=\"textarea\"\n        class=\"flex flex-col rounded-xl border border-input bg-background transition-[border-color,box-shadow] duration-150 has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-1 has-[textarea:focus-visible]:ring-ring has-[textarea:focus-visible]:ring-inset data-drag-accept:border-ring data-drag-accept:bg-accent/40 data-drag-reject:border-destructive motion-reduce:transition-none\"\n      >\n        <slot />\n      </FileInputDropzone>\n    </FileInput>\n  </form>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputAttach.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { PaperclipIcon } from \"@lucide/vue\";\nimport { FileInputTrigger } from \"@ui-sdk/vue/file-input\";\nimport { buttonVariants } from \"@/components/ui/button\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = withDefaults(defineProps<{ label?: string; class?: HTMLAttributes[\"class\"] }>(), { label: \"Attach files\" });\n</script>\n\n<template>\n  <FileInputTrigger :aria-label=\"props.label\" :class=\"cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'text-muted-foreground', props.class)\">\n    <slot><PaperclipIcon aria-hidden=\"true\" /></slot>\n  </FileInputTrigger>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputAttachment.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport { ref, watchEffect } from \"vue\";\nimport { FileIcon, XIcon } from \"@lucide/vue\";\nimport { FileInputItemRemove, formatFileSize } from \"@ui-sdk/vue/file-input\";\n\nconst props = defineProps<{ file: File }>();\nconst preview = ref<string>();\n\nwatchEffect((onCleanup) => {\n  if (!props.file.type.startsWith(\"image/\")) {\n    preview.value = undefined;\n    return;\n  }\n  const url = URL.createObjectURL(props.file);\n  preview.value = url;\n  onCleanup(() => URL.revokeObjectURL(url));\n});\n</script>\n\n<template>\n  <span class=\"flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground\">\n    <img v-if=\"preview\" :src=\"preview\" alt=\"\" class=\"size-full object-cover\" />\n    <FileIcon v-else aria-hidden=\"true\" class=\"size-4\" />\n  </span>\n  <span class=\"flex min-w-0 flex-col\">\n    <span class=\"truncate text-xs font-medium text-foreground\">{{ props.file.name }}</span>\n    <span class=\"text-xs text-muted-foreground tabular-nums\">{{ formatFileSize(props.file.size) }}</span>\n  </span>\n  <FileInputItemRemove class=\"ms-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground\">\n    <XIcon aria-hidden=\"true\" class=\"size-3.5\" />\n  </FileInputItemRemove>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputAttachments.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { FileInputItem, FileInputList } from \"@ui-sdk/vue/file-input\";\nimport { cn } from \"@/lib/utils\";\nimport PromptInputAttachment from \"./PromptInputAttachment.vue\";\nimport { usePromptInput } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ label?: string; class?: HTMLAttributes[\"class\"] }>(), { label: \"Attachments\" });\nconst { files } = usePromptInput();\n</script>\n\n<template>\n  <FileInputList\n    v-show=\"files.length > 0\"\n    :aria-label=\"props.label\"\n    :class=\"cn('m-0 flex list-none gap-2 overflow-x-auto p-2 pb-0', props.class)\"\n  >\n    <FileInputItem\n      v-slot=\"{ state }\"\n      data-focus-inset=\"\"\n      class=\"flex max-w-56 shrink-0 items-center gap-2 rounded-lg bg-muted/60 p-1 pe-1.5 outline-none data-highlighted:bg-muted\"\n    >\n      <slot :file=\"state.file\">\n        <PromptInputAttachment :file=\"state.file\" />\n      </slot>\n    </FileInputItem>\n  </FileInputList>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputSubmit.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { ArrowUpIcon, SquareIcon } from \"@lucide/vue\";\nimport { buttonVariants } from \"@/components/ui/button\";\nimport { cn } from \"@/lib/utils\";\nimport { usePromptInput } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ label?: string; stopLabel?: string; class?: HTMLAttributes[\"class\"] }>(), {\n  label: \"Send\",\n  stopLabel: \"Stop\",\n});\nconst { pending, canSubmit } = usePromptInput();\n</script>\n\n<template>\n  <button\n    type=\"submit\"\n    data-slot=\"prompt-input-submit\"\n    :data-pending=\"pending ? '' : undefined\"\n    :aria-label=\"pending ? props.stopLabel : props.label\"\n    :disabled=\"!pending && !canSubmit\"\n    :class=\"cn(buttonVariants({ size: 'icon-sm' }), 'ms-auto', props.class)\"\n  >\n    <SquareIcon v-if=\"pending\" aria-hidden=\"true\" class=\"size-3 fill-current\" />\n    <ArrowUpIcon v-else aria-hidden=\"true\" />\n  </button>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputTextarea.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Textarea } from \"@ui-sdk/vue/textarea\";\nimport { cn } from \"@/lib/utils\";\nimport { usePromptInput } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ placeholder?: string; label?: string; class?: HTMLAttributes[\"class\"] }>(), {\n  placeholder: \"Send a message\",\n  label: \"Message\",\n});\nconst { text, submit } = usePromptInput();\n\nfunction onKeydown(event: KeyboardEvent) {\n  if (event.key !== \"Enter\" || event.shiftKey || event.isComposing) return;\n  event.preventDefault();\n  submit();\n}\n</script>\n\n<template>\n  <Textarea\n    v-model:value=\"text\"\n    auto-resize\n    :placeholder=\"props.placeholder\"\n    :aria-label=\"props.label\"\n    enterkeyhint=\"send\"\n    :class=\"cn('max-h-48 min-h-12 w-full resize-none border-0 bg-transparent px-3 pt-3 pb-1 text-base text-foreground outline-none pointer-fine:text-sm placeholder:text-ui-text-dimmed', props.class)\"\n    @keydown=\"onKeydown\"\n  />\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/PromptInputToolbar.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"prompt-input-toolbar\" :class=\"cn('flex items-center gap-1 p-2 pt-0', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/prompt-input/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as PromptInput } from \"./PromptInput.vue\";\nexport { default as PromptInputAttach } from \"./PromptInputAttach.vue\";\nexport { default as PromptInputAttachment } from \"./PromptInputAttachment.vue\";\nexport { default as PromptInputAttachments } from \"./PromptInputAttachments.vue\";\nexport { default as PromptInputSubmit } from \"./PromptInputSubmit.vue\";\nexport { default as PromptInputTextarea } from \"./PromptInputTextarea.vue\";\nexport { default as PromptInputToolbar } from \"./PromptInputToolbar.vue\";\nexport { usePromptInput } from \"./utils\";\nexport type { PromptInputContext, PromptInputMessage } from \"./utils\";\n"
+    },
+    {
+      "path": "ui/prompt-input/utils.ts",
+      "type": "registry:ui",
+      "content": "import type { ComputedRef, InjectionKey, Ref } from \"vue\";\nimport { inject } from \"vue\";\n\nexport interface PromptInputMessage {\n  text: string;\n  files: File[];\n}\n\nexport interface PromptInputContext {\n  text: Ref<string>;\n  files: Ref<File[]>;\n  pending: ComputedRef<boolean>;\n  canSubmit: ComputedRef<boolean>;\n  submit: () => void;\n  textarea: () => HTMLTextAreaElement | null;\n}\n\nexport const promptInputKey: InjectionKey<PromptInputContext> = Symbol(\"prompt-input\");\n\nexport function usePromptInput(): PromptInputContext {\n  const context = inject(promptInputKey);\n  if (!context) throw new Error(\"usePromptInput() must be called inside <PromptInput>.\");\n  return context;\n}\n"
+    }
+  ]
+}

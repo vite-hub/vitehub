@@ -331,9 +331,13 @@ The group takes ui-sdk `Avatar`s from `@ui-sdk/vue/avatar`, round and 24px (20px
 | `command` | `registry:ui` | `Command` and `CommandDialog`, a command palette |
 | `toast` | `registry:ui` | `Toaster` and `toast()` |
 | `skeleton`, `empty` | `registry:ui` | A loading placeholder and an empty state |
+| `message-list` | `registry:ui` | `MessageList`, a chat log that stays at the newest message while it grows, and `MessageListScrollButton`. Call `scrollToBottom()` on its ref when the user sends a message |
+| `message` | `registry:ui` | `Message`, `MessageContent`, `MessageActions`, and `MessageMarkdown`, which renders streamed Markdown with `@comark/vue` |
+| `prompt-input` | `registry:ui` | `PromptInput` with a textarea, attachments, an attach button, and a send button that turns into stop while `pending`. Enter sends, Shift + Enter adds a line, and files attach by drop, paste, or the picker |
+| `tool-call` | `registry:ui` | `ToolCall`, a collapsible row with the state, input, and output or error of one Agent tool call |
 | `app-shell` | `registry:block` | `components/app-shell/AppShell.vue`, a page frame with the sidebar, collapsible nav groups, and a top bar |
 
-The UI items are Vue components on ui-sdk, styled with Tailwind 4 and the ViteHub tokens. They follow the shadcn conventions: a `data-slot` on each element, a `class` prop merged with `cn()`, and variants in a small class map. Each item depends on `utils` and `theme`, and pins `@ui-sdk/vue` and `@ui-sdk/core` to the version this package uses.
+The UI items are Vue components on ui-sdk, styled with Tailwind 4 and the ViteHub tokens. They follow the shadcn conventions: a `data-slot` on each element, a `class` prop merged with `cn()`, and variants in a small class map. Each item depends on `utils` and `theme`, and pins `@ui-sdk/vue` and `@ui-sdk/core` to the version this package uses. The chat items (`message-list`, `message`, `prompt-input`, `tool-call`) are the parts of an Agent chat page. They take plain props, so they work with any chat client.
 
 To install them in a Nuxt 4.7 app with Tailwind 4:
 
