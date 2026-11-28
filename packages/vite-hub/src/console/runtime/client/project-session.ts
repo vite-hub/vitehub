@@ -393,6 +393,16 @@ export function consoleOpenProjectName(reported?: string): string | undefined {
   return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
+/**
+ * Where `consoleOpenProjectName()` takes the name from: `label` when the team renamed the app in the Console, `app` when
+ * the app reports it, and `undefined` when the Console shows the address.
+ */
+export function consoleOpenProjectNameSource(reported?: string): "label" | "app" | undefined {
+  const projects = useState()
+  if (projects.mode === "account" && projects.current.value?.label) return "label"
+  return reported || projects.info.value?.name ? "app" : undefined
+}
+
 /** Only owners and admins of a team link and unlink its apps. */
 export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">): boolean {
   return account.roles.includes("owner") || account.roles.includes("admin")

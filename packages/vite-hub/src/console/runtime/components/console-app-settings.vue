@@ -7,7 +7,7 @@ import type { ConsoleAccountAppStatus, ConsoleAccountCheck } from "../client/acc
 import type { ConsoleNavigation } from "../client/sections";
 import { accountAppStatusLabels, checkConsoleAccountProject } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
-import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleOpenProjectNameSource, useConsoleProjects } from "../client/project-session";
 import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleAddPrimitiveOpen } from "../client/sidebar";
 import { resolveConsoleRouteName } from "../console-route";
@@ -58,6 +58,7 @@ function select(id: string): void {
 // The sidebar loads the same navigation, so the primitives are usually there when the page opens.
 const navigation = shallowRef<ConsoleNavigation>();
 const navigationFailed = ref(false);
+const nameSource = computed(() => consoleOpenProjectNameSource(projects.info.value?.name || navigation.value?.projectName));
 const primitives = computed(() =>
   (navigation.value?.sections ?? []).flatMap((id) => {
     const details = resolveConsoleSectionDetails(navigation.value, id);
@@ -135,7 +136,8 @@ onBeforeUnmount(() => unsubscribe?.());
             <ConsoleSettingsCard title="App name" description="The name that the Console shows for this app.">
               <ConsoleSettingsValue label="App name" :value="app.name" />
               <template #footer>
-                <template v-if="projects.info.value?.name || navigation?.projectName">Set by <code>name</code> in the app's <code>package.json</code>, or its folder name. Change it there and deploy.</template>
+                <template v-if="nameSource === 'label'">Set in the Console with <strong>Rename app</strong>, in the app's menu on the Apps page. Clear it there to show the name in the app's <code>package.json</code>.</template>
+                <template v-else-if="nameSource === 'app'">Set by <code>name</code> in the app's <code>package.json</code>, or its folder name. Change it there and deploy.</template>
                 <template v-else>The app did not report a name, so the Console shows its address.</template>
               </template>
             </ConsoleSettingsCard>
