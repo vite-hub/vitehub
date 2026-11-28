@@ -46,7 +46,6 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Check the request body, and update `vite-hub` in the app when the Console is newer. |
-| `CONSOLE_FEATURE_DISABLED` | `404` | The app does not have the feature of the operation, such as `vitehub agent list` on an app without Agents. Turn the feature on as the `fix` says, then restart the dev server or deploy again. |
 | `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
 | `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
 | `CONSOLE_UNAVAILABLE` | `408`, `429`, `502` to `504` | Wait, then try again. |

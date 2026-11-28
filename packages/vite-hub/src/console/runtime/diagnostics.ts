@@ -171,12 +171,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/limits-and-errors#fix-common-failures`,
       "reload",
     ),
-    CONSOLE_FEATURE_DISABLED: code(
-      "The app does not have the feature that owns this operation, so it does not serve it.",
-      "Turn the feature on in the ViteHub configuration of the app, then restart the dev server, or build and deploy the app again.",
-      `${consoleGuide}/limits-and-errors#error-codes`,
-      "docs",
-    ),
     CONSOLE_NOT_FOUND: code(
       "The item does not exist, or the server removed it.",
       "Reload the Console to see the current data.",
@@ -188,6 +182,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Reload the Console, then try again.",
       `${consoleGuide}/limits-and-errors#fix-common-failures`,
       "reload",
+    ),
+    CONSOLE_FEATURE_DISABLED: code(
+      "The app does not have the feature that owns this operation, so it does not serve it.",
+      "Turn the feature on in the ViteHub configuration of the app, then restart the dev server, or build and deploy the app again.",
+      `${consoleGuide}/limits-and-errors#error-codes`,
+      "docs",
     ),
     CONSOLE_SITE_ACCOUNT_MISMATCH: code(
       "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",
