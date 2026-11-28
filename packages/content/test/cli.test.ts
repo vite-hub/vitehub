@@ -2,6 +2,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -96,8 +97,8 @@ function stream() {
 function devServer(content: unknown) {
   vi.stubEnv("NODE_ENV", "development")
   const registry = createOperationRegistry([{ operations: contentOperations }])
-  Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ default: content }) })
-  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+  Reflect.set(globalThis, Symbol.for("vitehub.content.module"), content === undefined ? undefined : async () => ({ default: content }))
+  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
   return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
     const { input, operation } = operationRpcRequest(init?.body)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
@@ -779,8 +780,8 @@ describe("Content operations", () => {
     cleanup.push(() => content.dispose())
     const saved = await content.collection("posts").save("hello", { data: { title: "Hello" } })
     const schedule = await content.schedule({ at: new Date(Date.now() + 3_600_000), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
     const list = (input: unknown) => runOperation(registry, "content.schedules", input, context)
@@ -805,8 +806,8 @@ describe("Content operations", () => {
     cleanup.push(() => content.dispose())
     for (const id of ["hidden", "visible-a", "visible-b"]) await content.collection("posts").save(id, { data: { title: id } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
     const first = await runOperation(registry, "content.list", { collection: "posts", limit: 1 }, context)
@@ -821,8 +822,8 @@ describe("Content operations", () => {
 
   it("does not trust runtime NODE_ENV as production Content authorization", async () => {
     const content = contentOn(await historyWorkspace())
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     vi.stubEnv("NODE_ENV", "development")
     const registry = createOperationRegistry([{ operations: contentOperations }])
     expect(await runOperation(registry, "content.list", { collection: "posts" }, {
@@ -834,8 +835,8 @@ describe("Content operations", () => {
     const { content } = await setup()
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     for (const input of [
       {},
       { collection: "posts" },
@@ -865,8 +866,8 @@ describe("Content operations", () => {
     await content.collection("pages").save("about", { data: { title: "About" } })
     await content.collection("pages").save("secret", { data: { title: "Secret" } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     expect(await resolve("/blog/hello%20world")).toEqual({ ok: true, value: { collection: "posts", id: "hello world" } })
@@ -889,8 +890,8 @@ describe("Content operations", () => {
     await posts.save("hello", { data: { title: "published" } })
     await posts.save("secret", { data: { title: "secret" } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     const found = { ok: true, value: { collection: "posts", id: "hello" } }
@@ -921,8 +922,8 @@ describe("Content operations", () => {
     await content.publish()
     await pages.save("live", { data: { title: "moved" } })
     await pages.save("unpublished", { data: { title: "about" } })
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
@@ -949,8 +950,8 @@ describe("Content operations", () => {
     await content.collection("posts").save("hello", { data: { title: "Hello" } })
     await content.collection("posts").save("secret", { data: { title: "Secret" } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
@@ -972,8 +973,8 @@ describe("Content operations", () => {
     cleanup.push(() => content.dispose())
     await content.collection("posts").save("hello", { data: { title } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     for (const path of [target, `${target}/`, `${target}/?ref=1#top`]) {
       expect(await runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
@@ -997,8 +998,8 @@ describe("Content operations", () => {
     await posts.save("hello", { data: { title: "Hello" } })
     await pages.save("about", { data: { title: "About" } })
     await content.publish()
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const postList = vi.spyOn(posts, "list")
     const pageList = vi.spyOn(pages, "list")
     const registry = createOperationRegistry([{ operations: contentOperations }])
@@ -1047,8 +1048,8 @@ describe("Content operations", () => {
       sitemap: async () => undefined,
       unschedule: async () => undefined,
     }
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: runtime }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: runtime }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     // The last document of 5,000: far beyond any first page.
@@ -1067,8 +1068,8 @@ describe("Content operations", () => {
       workspace,
     })
     cleanup.push(() => content.dispose())
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const text = "---\ntitle: Hello\n---\n\nHi\n"
     const as = (id: string | undefined) => ({ access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: id ? { id } : null })
@@ -1107,13 +1108,40 @@ describe("hubContent", () => {
     const operations = plugin.vitehub.operations
     if (!(operations instanceof Function)) throw new Error("expected a function that reads the project first")
     const entries = await operations()
-    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: ownModule(import.meta.url, "operations") })])
+    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: join(root, ".vitehub/nitro/content/operations.mjs") })])
+    expect(await readFile(entries[0]!.module, "utf8")).toContain(`from ${JSON.stringify(ownModule(import.meta.url, "operations"))}`)
     expect(await entries[0]!.load!()).toBe(contentOperations)
     // An app without server/content.ts has no Content to operate on.
     const without = hubContent()
     await configHook(without)({ root: await project(false) }, { command: "serve", mode: "development" })
     const none = without.vitehub.operations
     expect(none instanceof Function ? await none() : none).toEqual([])
+  })
+
+  it("runs the Content operations of an app whose Content has only Sources", async () => {
+    const root = await project(true)
+    const index = pathToFileURL(fileURLToPath(new URL("../src/index.ts", import.meta.url))).href
+    await writeFile(join(root, "server", "content.ts"), [
+      `import { contentSource, defineContent } from ${JSON.stringify(index)}`,
+      "export default defineContent({",
+      "  sources: { guides: contentSource({ async items() { return [{ key: 'start.md', path: 'guides/start.md', content: '# Start' }] } }, { url: '/:id' }) },",
+      "  access: 'public',",
+      "  seo: { site: 'https://example.com' },",
+      "  logger: false,",
+      "})",
+      "",
+    ].join("\n"))
+    const plugin = hubContent()
+    await configHook(plugin)({ root }, { command: "serve", mode: "development" })
+    const operations = plugin.vitehub.operations
+    if (!(operations instanceof Function)) throw new Error("expected a function that reads the project first")
+    const [entry] = await operations()
+    const generated = await import(pathToFileURL(entry!.module).href) as { contentOperations: typeof contentOperations }
+    const registry = createOperationRegistry([{ operations: generated.contentOperations }])
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
+    const context = { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null } as const
+    expect(await runOperation(registry, "content.collections", {}, context)).toMatchObject({ ok: true, value: { collections: [] } })
+    expect(await runOperation(registry, "content.sitemap", {}, context)).toMatchObject({ ok: true, value: { entries: [{ collection: "guides", id: "guides/start" }] } })
   })
 
   it.each([
@@ -1159,8 +1187,8 @@ describe("hubContent", () => {
 
 describe("Content operations in a development server and for Agents", () => {
   async function operationsOn(content: ReturnType<typeof defineContent>) {
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
     return (name: string, input: unknown, context: Parameters<typeof runOperation>[3]) => runOperation(registry, name, input, context)
   }
