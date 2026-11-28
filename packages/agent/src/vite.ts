@@ -513,17 +513,21 @@ function transformGeneratedAgentWorkflowRegistry(
   // and the Vite transform runs again on that file. The latest call owns the setup block.
   const registry = new MagicString(code)
   const setupEnd = generatedAgentWorkflowRegistrySetupLength(code)
+  const setup = capabilityLoaders.imports.length || stateImports.length
+    ? `${[
+        generatedAgentWorkflowRegistrySetupStart,
+        ...capabilityLoaders.imports,
+        ...stateImports,
+        "",
+        ...capabilityLoaders.setup,
+        ...stateSetup,
+        generatedAgentWorkflowRegistrySetupEnd,
+      ].join("\n")}\n`
+    : ""
+  if (code.slice(0, setupEnd) === setup) return registry
   if (setupEnd) registry.remove(0, setupEnd)
-  if (!capabilityLoaders.imports.length && !stateImports.length) return registry
-  return registry.prepend(`${[
-    generatedAgentWorkflowRegistrySetupStart,
-    ...capabilityLoaders.imports,
-    ...stateImports,
-    "",
-    ...capabilityLoaders.setup,
-    ...stateSetup,
-    generatedAgentWorkflowRegistrySetupEnd,
-  ].join("\n")}\n`)
+  if (setup) registry.prepend(setup)
+  return registry
 }
 
 const generatedAgentWorkflowRegistrySetupStart = "// @vite-hub/agent workflow registry setup start"
