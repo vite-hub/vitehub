@@ -1,3 +1,7 @@
+---
+description: Fix invalid Connections options by setting a valid base path, activity retention policy, or Database name.
+---
+
 ## How to fix it
 
 - If the error names `basePath`, set it to a pathname with a route segment and no query or fragment, such as `basePath: '/_vitehub/connections'`.

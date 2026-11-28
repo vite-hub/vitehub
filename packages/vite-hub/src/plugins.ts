@@ -737,6 +737,11 @@ export function resolveSandboxTaskDriver(sandboxTask: ViteHubOptions["sandboxTas
   return plan.services.sandbox.supported ? plan.services.sandbox.driver : undefined
 }
 
+function queueConfigObject(queue: ViteHubOptions["queue"]): Exclude<QueueOptions, false> | undefined {
+  if (queue === true || queue === false || queue === undefined) return undefined
+  return isPlainObject(queue) ? queue : undefined
+}
+
 /** The local and Postgres drivers run only on the Node host. */
 function assertNodeQueueDriver(driver: string | undefined, host: ViteHubHost): void {
   if ((driver === "local" || driver === "postgres") && host !== "node") {
@@ -1195,7 +1200,7 @@ function deploymentPlugins(
             plan.host === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
           )
           const name = identity.name
-          const configuredQueue = isPlainObject(options.queue) ? options.queue : undefined
+          const configuredQueue = queueConfigObject(options.queue)
           if (requestedServices.includes("queue") && plan.services.queue.supported && (options.queue === true || configuredQueue)) {
             const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
@@ -1607,7 +1612,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   const sandboxTaskEnabled = sandboxTaskDriver !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const queueEnabled = options.queue !== undefined && options.queue !== false
-  const configuredQueue = isPlainObject(options.queue) ? options.queue : undefined
+  const configuredQueue = queueConfigObject(options.queue)
   assertNodeQueueDriver(configuredQueue?.driver, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
   const { browserErrors, ...observabilityOptions } = observability ?? {}
