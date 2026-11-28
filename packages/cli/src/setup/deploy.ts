@@ -237,7 +237,7 @@ async function recordLink(root: string, host: DeployHost, result: DeployResult, 
     verified: false,
     linkedAt: new Date().toISOString(),
   })
-  await ensureViteHubGitignore(root)
+  await ensureViteHubGitignore(root, host)
 }
 
 function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHubCliContext): void {
