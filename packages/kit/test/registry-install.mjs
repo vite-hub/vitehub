@@ -34,7 +34,10 @@ before(async () => {
     if (!/^[a-z0-9-]+\.json$/.test(name) || !existsSync(file)) return response.writeHead(404).end()
     response.writeHead(200, { "content-type": "application/json" }).end(readFileSync(file))
   })
-  await new Promise(done => registry.listen(registryPort, "127.0.0.1", done))
+  await new Promise((done, fail) => {
+    registry.once("error", fail)
+    registry.listen(registryPort, "127.0.0.1", done)
+  })
 })
 after(() => registry?.close())
 
@@ -49,7 +52,7 @@ test("every registry item installs into a new Nuxt 4.7 app that builds without N
     name: "registry-install-app",
     private: true,
     type: "module",
-    dependencies: { "@tailwindcss/vite": "4.3.5", nuxt: "4.7.0", tailwindcss: "4.3.5", vue: "^3.5.0" },
+    dependencies: { "@tailwindcss/vite": "4.3.5", nitro: "3.0.261103-rc", nuxt: "4.7.0", tailwindcss: "4.3.5", vue: "^3.5.0" },
     devDependencies: { typescript: "^6.0.3", "vue-tsc": "^3.3.14" },
   }, null, 2)}\n`)
 
@@ -80,6 +83,7 @@ test("every registry item installs into a new Nuxt 4.7 app that builds without N
   const deps = Object.keys({ ...installed.dependencies, ...installed.devDependencies })
   assert.deepEqual(deps.filter(name => name === "reka-ui" || name === "@nuxt/ui"), [])
   const store = readdirSync(join(app, "node_modules/.pnpm"))
+  assert.ok(store.some(name => name.startsWith("nitro@3.")), "the fixture must install Nitro 3")
   assert.deepEqual(store.filter(name => /^(?:reka-ui|@nuxt\+ui)@/.test(name)), [])
   const output = spawnSync("grep", ["-rlE", "reka-ui|@nuxt/ui", ".output"], { cwd: app, encoding: "utf8" })
   assert.equal(output.stdout.trim(), "", "the build output names Reka UI or Nuxt UI")
@@ -119,14 +123,54 @@ test("the demo page renders every item in light and dark, at 390px and 1280px", 
 
         await page.locator("[data-slot=sidebar-trigger]").click()
         await shot("sidebar-toggled")
-        if (width < 768) await page.keyboard.press("Escape")
-        else await page.locator("[data-slot=sidebar-trigger]").click()
-        await closed()
+        const documents = page.getByRole("button", { name: "Documents" })
+        const drafts = page.getByRole("link", { name: "Drafts" })
+        if (width < 768) {
+          const inbox = page.getByRole("link", { name: "Inbox" })
+          await inbox.click({ modifiers: ["ControlOrMeta"] })
+          assert.ok(await inbox.isVisible(), "a modified click must leave the drawer open")
+          await inbox.click()
+          await page.waitForURL(url => url.hash === "#inbox")
+          await closed()
+
+          await page.locator("[data-slot=sidebar-trigger]").click()
+          await documents.click()
+          await drafts.press("Enter")
+          await page.waitForURL(url => url.hash === "#drafts")
+          await closed()
+        } else {
+          await documents.click()
+          await drafts.waitFor({ state: "visible" })
+          await page.locator("[data-slot=sidebar-trigger]").click()
+          await documents.click()
+          await drafts.waitFor({ state: "visible" })
+        }
+
+        await page.locator("#notes").focus()
+        await page.keyboard.press("Tab")
+        await page.waitForFunction(() => document.activeElement?.id === "status" && getComputedStyle(document.activeElement).outlineStyle === "solid")
 
         for (const name of ["dialog", "sheet", "menu", "command"]) {
-          await page.locator(`[data-demo=${name}]`).click()
-          if (name === "command") await page.keyboard.type("se")
+          const trigger = page.locator(`[data-demo=${name}]`)
+          if (name === "command") {
+            await trigger.press("Enter")
+            await page.waitForFunction(() => document.activeElement?.matches("[placeholder='Type a command or search']") && getComputedStyle(document.activeElement).outlineStyle === "solid")
+            await page.keyboard.type("se")
+          } else await trigger.click()
           await shot(name)
+          if (name === "sheet") {
+            const apply = page.getByRole("button", { name: "Apply" })
+            await apply.evaluate(button => {
+              const filler = document.createElement("div")
+              filler.style.flex = "0 0 1200px"
+              button.parentElement.before(filler)
+            })
+            const sheet = page.getByRole("dialog", { name: "Filters" })
+            assert.ok(await sheet.evaluate(element => element.scrollHeight > element.clientHeight && getComputedStyle(element).overflowY === "auto"), "long sheet content must scroll")
+            await apply.click()
+            await closed()
+            continue
+          }
           await page.keyboard.press("Escape")
           if (name === "command") await page.keyboard.press("Escape")
           await closed()

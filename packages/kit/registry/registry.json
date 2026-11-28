@@ -82,7 +82,7 @@
           ":where([role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], [role='tab'], tr, [data-focus-inset]):focus-visible": {
             "outline-offset": "-2px"
           },
-          ":where(input, textarea, select, [tabindex='-1']):focus-visible": {
+          ":where([tabindex='-1']):focus-visible": {
             "outline": "none"
           },
           "::selection": {

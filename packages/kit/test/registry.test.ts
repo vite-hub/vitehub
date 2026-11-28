@@ -84,6 +84,12 @@ describe("@vitehub registry", () => {
     ]);
   });
 
+  it("rejects a manifest with a non-string dependency version", () => {
+    expect(() => buildRegistry((path) => path === "package.json"
+      ? JSON.stringify({ dependencies: { "@ui-sdk/vue": ["0.1.0"] } })
+      : read(path))).toThrow("package.json must declare dependency versions as strings.");
+  });
+
   it("gives every component item the utils and theme items", () => {
     for (const item of items.filter((entry) => entry.type === "registry:ui")) {
       expect(item.registryDependencies, item.name).toEqual(expect.arrayContaining(["@vitehub/utils", "@vitehub/theme"]));

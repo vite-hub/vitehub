@@ -123,6 +123,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ],
   },
   comments: { ignoreDependencies: ["@vite-hub/ui"] },
+  kit: { ignore: ["registry/{blocks,lib,ui}/**", "test/registry-install/**"] },
   console: {
     entry: viteHubAppEntries,
     vite: false,

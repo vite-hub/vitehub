@@ -13,7 +13,8 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
     <SearchIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     <CommandInputPart
       v-bind="$attrs"
-      :class="cn('h-full w-full min-w-0 border-0 bg-transparent p-0 text-base outline-none pointer-fine:text-sm placeholder:text-ui-text-dimmed disabled:cursor-not-allowed disabled:opacity-50', props.class)"
+      data-focus-inset=""
+      :class="cn('h-full w-full min-w-0 border-0 bg-transparent px-1 text-base pointer-fine:text-sm placeholder:text-ui-text-dimmed disabled:cursor-not-allowed disabled:opacity-50', props.class)"
     />
   </div>
 </template>

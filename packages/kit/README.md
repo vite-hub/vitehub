@@ -346,7 +346,7 @@ To install them in a Nuxt 4.7 app with Tailwind 4:
 3. Run `npx shadcn-vue@latest add @vitehub/app-shell @vitehub/button @vitehub/dialog` (or the item URLs, such as `https://vitehub.dev/r/button.json`).
 4. Scan only `.vue` files for components: `components: [{ path: "~/components", extensions: [".vue"] }]`. Each item keeps an `index.ts` beside its files, and Nuxt warns about duplicate names when it scans both. Or import the parts from `@/components/ui/<item>`.
 
-`pnpm --filter @vite-hub/kit test:registry-install` checks this end to end. It serves `docs/public/r` on port 4841, installs every item into a new Nuxt 4.7 app, typechecks and builds the app, and fails when `reka-ui` or `@nuxt/ui` is in the app or its build. With `REGISTRY_SCREENSHOTS=<dir>`, it also renders a page with every item in Chromium, light and dark, at 390px and 1280px.
+`pnpm --filter @vite-hub/kit test:registry-install` checks this end to end. It serves `docs/public/r` on port 4841, installs every item into a new Nuxt 4.7 app with Nitro 3, typechecks and builds the app, and fails when `reka-ui` or `@nuxt/ui` is in the app or its build. With `REGISTRY_SCREENSHOTS=<dir>`, it also checks the installed UI in Chromium, light and dark, at 390px and 1280px.
 
 In an app with Tailwind 4 and a font set in `components.json`, shadcn-vue 2.9.0 can also add its base CSS when it installs the skill. The skill item declares `tw-animate-css` so the base CSS import resolves.
 
