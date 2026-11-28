@@ -29,6 +29,7 @@ Vercel details stay in the config and output.
 | Vercel Queues | Queue provider config and generated callback output. |
 | Vercel Workflow | Workflow provider config and generated runtime output. |
 | Vercel Sandbox | Sandbox Provider config. Sandbox Identity only when a run reuses a sandbox. |
+| Realtime | WebSocket rooms in Vercel Functions, shared across instances through Redis (`REDIS_URL` or a Redis `KV_URL`) or Postgres. See [Deploy Realtime to Vercel](/docs/realtime/configure#deploy-to-vercel). |
 | External Database | A Database Definition on Cloudflare D1 over authenticated HTTP, or a Database integration `connection` to hosted libSQL. |
 | Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`, plus an optional team id, for Blob Provision. Server Env for runtime secrets. |
 

@@ -726,7 +726,7 @@ describe("built-in host integration", () => {
       const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
       const owned = (JSON.parse(text) as { env: Array<{ owners?: string[] }> }).env.filter(entry => entry.owners?.some(owner => ["queue", "realtime", "workflow"].includes(owner)))
       expect(owned).toEqual([
-        { names: ["REDIS_URL"], required: true, secret: true, hasDefault: false, owners: ["realtime"] },
+        { names: ["REDIS_URL", "KV_URL"], required: true, secret: true, hasDefault: false, owners: ["realtime"] },
         { names: ["REALTIME_NAMESPACE"], required: false, secret: false, hasDefault: true, owners: ["realtime"] },
         { names: ["OPENWORKFLOW_SQLITE_PATH"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
         { names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"], required: false, secret: true, hasDefault: true, owners: ["workflow"] },

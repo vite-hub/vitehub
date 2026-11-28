@@ -23,7 +23,7 @@ const services: Record<OptionalService, { label: string, ownerPlugin: string, fi
     ownerPlugin: "@vite-hub/realtime/vite",
     fix: plan => plan.services.realtime.supported
       ? "Set `realtime: true` in vitehub()."
-      : "Deploy with the Cloudflare host and set `realtime: true` in vitehub().",
+      : "Deploy with the Cloudflare, Node, or Vercel host and set `realtime: true` in vitehub().",
   },
 }
 

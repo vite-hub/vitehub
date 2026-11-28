@@ -1,4 +1,5 @@
-import { createServer } from "node:http"
+import { AsyncLocalStorage } from "node:async_hooks"
+import { createServer, ServerResponse } from "node:http"
 import { existsSync } from "node:fs"
 import { pathToFileURL } from "node:url"
 import { resolve } from "node:path"
@@ -35,6 +36,16 @@ export async function writeWebResponse(res, response) {
   if (!response.body) return res.end()
   for await (const chunk of response.body) res.write(chunk)
   res.end()
+}
+
+const vercelRequestContextKey = Symbol.for("@vercel/request-context")
+
+function installRequestContext() {
+  const existing = globalThis[vercelRequestContextKey]
+  if (existing?.storage instanceof AsyncLocalStorage) return existing.storage
+  const storage = new AsyncLocalStorage()
+  globalThis[vercelRequestContextKey] = { get: () => storage.getStore(), storage }
+  return storage
 }
 
 export async function createVercelBridge({ outputDir, port, env = {} }) {
@@ -83,6 +94,25 @@ export async function createVercelBridge({ outputDir, port, env = {} }) {
       res.statusCode = 500
       res.end(`[e2e:local] bridge error: ${error instanceof Error ? error.stack : error}`)
     }
+  })
+
+  const requestContext = installRequestContext()
+  server.on("upgrade", (req, socket, head) => {
+    const context = {
+      upgradeWebSocket: () => ({ head, req, socket }),
+      waitUntil: (promise) => {
+        Promise.resolve(promise).catch(() => {})
+      },
+    }
+    requestContext.run(context, async () => {
+      try {
+        await serverHandler(req, new ServerResponse(req))
+      }
+      catch (error) {
+        console.error("[e2e:local] bridge upgrade error:", error)
+        socket.destroy()
+      }
+    })
   })
 
   await new Promise((resolvePromise, rejectPromise) => {

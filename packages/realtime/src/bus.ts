@@ -37,38 +37,52 @@ export interface RealtimeNodeBusOptions {
   env?: Record<string, string | undefined>
   /** The namespace of this app's rooms on the bus. The generated handler passes the app name. */
   namespace?: string
+  /**
+   * True when the host runs many short-lived instances, such as Vercel Functions. The rooms then need a bus, and a
+   * server without Redis or Postgres fails instead of keeping its rooms in memory.
+   */
+  shared?: boolean
 }
 
 /** Where the rooms of this process live: alone in memory, or shared with other instances over a bus. */
 export interface RealtimeNodeDriverChoice {
   driver: "memory" | "postgres" | "redis"
   /** What the bus connects with: a variable, or the connection of the Default Database. */
-  source?: "REDIS_URL" | typeof realtimePostgresUrlVariable | "Default Database"
+  source?: "REDIS_URL" | "KV_URL" | typeof realtimePostgresUrlVariable | "Default Database"
   url?: string
 }
 
 const postgresUrl = /^postgres(?:ql)?:\/\//i
+const redisUrl = /^rediss?:\/\//i
 
 function readVariable(env: Record<string, string | undefined>, name: string): string | undefined {
   const value = env[name]?.trim()
   return value || undefined
 }
 
+function readRedisUrl(env: Record<string, string | undefined>): { source: "KV_URL" | "REDIS_URL", url: string } | undefined {
+  const redis = readVariable(env, "REDIS_URL")
+  if (redis) return { source: "REDIS_URL", url: redis }
+  const kv = readVariable(env, "KV_URL")
+  return kv && redisUrl.test(kv) ? { source: "KV_URL", url: kv } : undefined
+}
+
 /**
- * Picks the room driver of a Node server: `REDIS_URL` selects Redis. Else `REALTIME_POSTGRES_URL`, or the Default
- * Database when it is on Postgres, selects Postgres. Else the rooms stay in this process. An explicit `postgres` or
- * `redis` requires its connection. `database` is true when the build found the Default Database on Postgres.
+ * Picks the room driver of a Node server: `REDIS_URL`, or a Redis `KV_URL`, selects Redis. Else
+ * `REALTIME_POSTGRES_URL`, or the Default Database when it is on Postgres, selects Postgres. Else the rooms stay in
+ * this process, or the call fails when `shared` is true. An explicit `postgres` or `redis` requires its connection.
+ * `database` is true when the build found the Default Database on Postgres.
  */
 export function resolveRealtimeNodeDriver(
   driver: RealtimeNodeDriver,
-  options: { database?: boolean, env?: Record<string, string | undefined> } = {},
+  options: { database?: boolean, env?: Record<string, string | undefined>, shared?: boolean } = {},
 ): RealtimeNodeDriverChoice {
   const env = options.env ?? globalThis.process?.env ?? {}
-  const redis = readVariable(env, "REDIS_URL")
+  const redis = readRedisUrl(env)
   const override = readVariable(env, realtimePostgresUrlVariable)
   if (driver === "redis" || (driver === "auto" && redis)) {
     if (!redis) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "redis" })
-    return { driver: "redis", source: "REDIS_URL", url: redis }
+    return { driver: "redis", ...redis }
   }
   if (override) {
     if (!postgresUrl.test(override)) throw realtimeErrorDiagnostics.REALTIME_INVALID_POSTGRES_URL()
@@ -76,6 +90,7 @@ export function resolveRealtimeNodeDriver(
   }
   if (options.database) return { driver: "postgres", source: "Default Database" }
   if (driver === "postgres") throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "postgres" })
+  if (options.shared) throw realtimeErrorDiagnostics.REALTIME_MISSING_SHARED_BUS()
   return { driver: "memory" }
 }
 
@@ -96,7 +111,7 @@ async function defaultDatabaseClient(databases: (() => Promise<RealtimeDatabases
  * process. A bus on the Default Database borrows its client and never closes it.
  */
 export async function createRealtimeNodeBus(driver: RealtimeNodeDriver, options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
-  const choice = resolveRealtimeNodeDriver(driver, { database: !!options.databases, env: options.env })
+  const choice = resolveRealtimeNodeDriver(driver, { database: !!options.databases, env: options.env, shared: options.shared })
   const namespace = resolveRealtimeNamespace(options.namespace, options.env)
   if (choice.driver === "redis") return await createRedisRealtimeBus(choice.url!, { namespace })
   if (choice.driver === "memory") return undefined
@@ -134,7 +149,7 @@ export function useRealtimeBus(driver: RealtimeNodeDriver = "auto", options: Rea
  * Prints the Realtime driver that this server uses. The generated Nitro plugin calls it when the server starts.
  * `database` is true when the build found the Default Database on Postgres.
  */
-export function logRealtimeNodeDriver(driver: RealtimeNodeDriver = "auto", options: { database?: boolean, namespace?: string } = {}): void {
+export function logRealtimeNodeDriver(driver: RealtimeNodeDriver = "auto", options: { database?: boolean, namespace?: string, shared?: boolean } = {}): void {
   try {
     const choice = resolveRealtimeNodeDriver(driver, options)
     console.info(choice.driver === "memory" ? describeChoice(choice) : `${describeChoice(choice).slice(0, -1)}, namespace "${resolveRealtimeNamespace(options.namespace)}".`)

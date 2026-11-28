@@ -90,6 +90,7 @@ interface NitroConfig extends Record<string, unknown> {
   features?: Record<string, unknown>
   handlers?: Array<Record<string, unknown>>
   preset?: string
+  vercel?: Record<string, unknown>
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig): void {
@@ -148,10 +149,11 @@ function hasPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boo
 
 type RealtimeNodeDriver = "auto" | "postgres" | "redis"
 
-function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string }): Array<[string, string]> {
-  const { busPlugin, database, handlerFile, importBase, namespace, nodeDriver, registryFile } = input
-  const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)} }`
-  const logOptions = `{ ${database ? "database: true, " : ""}namespace: ${JSON.stringify(namespace)} }`
+function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string, shared: boolean }): Array<[string, string]> {
+  const { busPlugin, database, handlerFile, importBase, namespace, nodeDriver, registryFile, shared } = input
+  const sharedOption = shared ? ", shared: true" : ""
+  const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)}${sharedOption} }`
+  const logOptions = `{ ${database ? "database: true, " : ""}namespace: ${JSON.stringify(namespace)}${sharedOption} }`
   const handler = [
     `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
     `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
@@ -207,7 +209,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   const databaseImport = options.databaseImport ?? "@vite-hub/database/runtime/registry"
   let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabase = false
-  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined
+  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string, shared: boolean } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -244,7 +246,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const driver = options.driver || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       const build = isProductionBuild(config, environment)
-      const node = !host || host === "node"
+      const shared = host === "vercel"
+      const node = !host || host === "node" || shared
       const nodeDriver = !build || !node ? undefined
         : driver === "postgres" || driver === "redis" ? driver
           : driver === "auto" && provider !== "cloudflare" ? "auto" as const : undefined
@@ -297,8 +300,9 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         importBase,
         namespace,
         nodeDriver,
+        shared,
       })
-      nodeWrite = nodeDriver ? { busPlugin, handlerFile, namespace, nodeDriver, postgres: postgresDatabase, registryFile } : undefined
+      nodeWrite = nodeDriver ? { busPlugin, handlerFile, namespace, nodeDriver, postgres: postgresDatabase, registryFile, shared } : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
@@ -329,11 +333,15 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       else if (driver !== "auto" && !node && host) {
         throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver, host })
       }
+      else if (build && driver === "memory" && shared) {
+        throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver, host })
+      }
       if (nodeDriver) inspectionDriver = nodeDriver === "auto" ? "node" : nodeDriver
       else if (driver === "memory" || driver === "postgres" || driver === "redis" || (driver === "auto" && !build && inspectionDriver !== "cloudflare")) {
         inspectionDriver = "memory"
       }
       nitro.features = { ...nitro.features, websocket: true }
+      if (shared) nitro.vercel = { ...nitro.vercel, entryFormat: "node" }
       const kit = createNitroServerKit(nitro)
       const { mount } = viteHubPageToolsBase(config)
       const { base: nitroBase } = viteHubPageToolsBase({ base: nitro.baseURL ?? process.env.NITRO_APP_BASE_URL })

@@ -64,7 +64,7 @@ describe("built-in deployment plans", () => {
       cloudflare: true, deno: false, netlify: false, node: false, vercel: false,
     })
     expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.realtime.supported]))).toEqual({
-      cloudflare: true, deno: false, netlify: false, node: true, vercel: false,
+      cloudflare: true, deno: false, netlify: false, node: true, vercel: true,
     })
   })
   it("keeps legacy hosting detection limited to hosted providers", () => {
