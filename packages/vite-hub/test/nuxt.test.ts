@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
@@ -649,6 +649,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(names.indexOf("vite-hub/forge-build-check")).toBeGreaterThanOrEqual(0)
     expect(names.indexOf("vite-hub/forge-build-check")).toBeLessThan(names.indexOf("vite-hub/nitro-optional-peers"))
     expect(await pluginNames(true)).not.toContain("vite-hub/forge-build-check")
+  })
+
+  it("keeps the disabled KV config file when its content is the same", async () => {
+    const disabledConfig = `${tmp}/vitehub-nuxt/.vitehub/nuxt/disabled-kv-config.mjs`
+    const replay = async () => {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+      await runNitroConfigHook({})
+    }
+    await replay()
+    const written = new Date("2020-01-01T00:00:00Z")
+    await utimes(disabledConfig, written, written)
+    await replay()
+    expect((await stat(disabledConfig)).mtime).toEqual(written)
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
