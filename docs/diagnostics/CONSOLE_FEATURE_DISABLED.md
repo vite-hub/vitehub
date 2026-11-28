@@ -1,6 +1,6 @@
 ---
 description: "Fix CONSOLE_FEATURE_DISABLED in ViteHub when the CLI or the Console calls an operation of a feature that the app does not have."
-seo.title: "CONSOLE_FEATURE_DISABLED: the feature is off in the app"
+seo.title: "CONSOLE_FEATURE_DISABLED: the feature is off"
 ---
 
 The app answers `404` with `CONSOLE_FEATURE_DISABLED` when it knows the operation but does not have the feature that owns it, such as `vitehub agent list` on an app without Agents.

@@ -126,8 +126,8 @@ export const consoleFeatureOperations = {
   },
 } as const satisfies Record<string, { fix: string, operations: Record<string, readonly string[]> }>
 
-const featureFixes = new Map(Object.values(consoleFeatureOperations).flatMap(({ fix, operations }) =>
-  Object.entries(operations).flatMap(([namespace, names]) => names.map(name => [`${namespace}.${name}`, fix] as const)),
+const featureFixes = new Map<string, string>(Object.values(consoleFeatureOperations).flatMap(({ fix, operations }) =>
+  Object.entries<readonly string[]>(operations).flatMap(([namespace, names]) => names.map(name => [`${namespace}.${name}`, fix] as const)),
 ))
 
 export function consoleFeatureFix(name: string): string | undefined {
