@@ -1,3 +1,4 @@
+import { betterAuth } from "better-auth"
 import { admin, username } from "better-auth/plugins"
 import { getAuthTables } from "better-auth/db"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -155,6 +156,7 @@ describe("Auth option resolution", () => {
     function buildRuntime() {
       vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
       vi.stubEnv("NODE_ENV", "production")
+      vi.stubEnv("VITEHUB_SECRET", "s".repeat(32))
     }
 
     it.each([
@@ -238,6 +240,7 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   it("derives the secret that deriveSecret('vitehub:auth') returns", async () => {
@@ -264,16 +267,60 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
     expect(resolveAuthOptions(defineAuth(() => ({ secret: "" }))).providerOptions.secret).toBe("")
     const secrets = [{ version: 1, value: "rotated" }]
     expect(resolveAuthOptions(defineAuth(() => ({ secrets }))).providerOptions).not.toHaveProperty("secret")
-    for (const name of ["BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) {
-      vi.stubEnv(name, "1:from-better-auth-env")
-      expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
+    for (const name of ["BETTER_AUTH_SECRET", "AUTH_SECRET"]) {
+      vi.stubEnv(name, "from-better-auth-env")
+      expect(resolveAuthOptions(definition).providerOptions.secret).toBe("from-better-auth-env")
       vi.stubEnv(name, undefined)
     }
+    vi.stubEnv("BETTER_AUTH_SECRETS", "1:from-better-auth-env")
+    expect(resolveAuthOptions(definition).providerOptions.secrets).toEqual([{ version: 1, value: "from-better-auth-env" }])
   })
 
   it("leaves the secret to Better Auth without a root secret, and rejects a short one", () => {
     expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
     vi.stubEnv("VITEHUB_SECRET", "short")
     expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_R0016" }))
+  })
+
+  it("fails a build without any secret, also without NODE_ENV", () => {
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", undefined)
+    const definition = defineAuth({ appName: "ViteHub", database: "memory" })
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_SECRET_MISSING" }))
+    expect(resolveAuthOptions(defineAuth(() => ({ database: "memory" as const, secret: "explicit" }))).providerOptions.secret).toBe("explicit")
+    const request = new Request("https://app.example.com/api/auth")
+    const event = requestEvent(request, { VITEHUB_SECRET: root })
+    expect(resolveAuthOptions(definition, { request, event }).providerOptions.secret).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it.each([{ secret: "" }, { secret: undefined }, { secrets: undefined }])("rejects an unset Definition secret in a build: %o", async (options) => {
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", undefined)
+    const definition = defineAuth(() => ({ database: "memory" as const, ...options }))
+    await expect(async () => betterAuth(resolveAuthOptions(definition).providerOptions).$context)
+      .rejects.toMatchObject({ code: "AUTH_SECRET_MISSING" })
+    vi.stubEnv("VITEHUB_SECRET", root)
+    const context = await betterAuth(resolveAuthOptions(definition).providerOptions).$context
+    expect(context.secret).toBe(await deriveViteHubSecret(root, "vitehub:auth"))
+  })
+
+  it.each(["BETTER_AUTH_SECRET", "AUTH_SECRET", "BETTER_AUTH_SECRETS"])("passes the binding-only %s to Better Auth", async (name) => {
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", undefined)
+    const definition = defineAuth({ database: "memory" })
+    const request = new Request("https://app.example.com/api/auth")
+    const event = requestEvent(request, { [name]: name === "BETTER_AUTH_SECRETS" ? `2:${root},1:previous-key` : root })
+    const context = await betterAuth(resolveAuthOptions(definition, { request, event }).providerOptions).$context
+    expect(context.secret).toBe(root)
+    if (name === "BETTER_AUTH_SECRETS") {
+      expect(context.secretConfig).toMatchObject({ currentVersion: 2, keys: new Map([[2, root], [1, "previous-key"]]) })
+    }
+  })
+
+  it("rejects the public default even when configured for rotation", () => {
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("BETTER_AUTH_SECRETS", `2:${root},1:better-auth-secret-12345678901234567890`)
+    const definition = defineAuth({ database: "memory" })
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_SECRET_MISSING" }))
   })
 })

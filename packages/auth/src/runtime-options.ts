@@ -13,7 +13,7 @@ import { assertAuthDatabaseIdStrategy, authDatabaseName, authMemoryDatabaseError
 import { assertAuthDatabaseNames } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
 import { applyAuthPreset } from "./preset-options.ts"
-import { deriveAuthSecret } from "./secret.ts"
+import { resolveAuthSecrets } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
@@ -108,23 +108,18 @@ function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonN
   return { ...advanced, ipAddress: { ...advanced?.ipAddress, ipAddressHeaders: [clientAddressHeader] } }
 }
 
-// Better Auth reads these variables when it builds an instance, so an instance keeps the values of that time.
-const betterAuthSetupVariables = ["AUTH_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "BETTER_AUTH_TRUSTED_ORIGINS"] as const
-
 /**
  * The environment values that an instance for these options uses. Auth reads a value only when the options use it, so
  * the instance key and the instance read the same values, and a value that the options replace cannot fail a request.
  */
 function readProviderEnvironment(options: AuthRuntimeOptions & Record<string, unknown>, event?: ViteHubContext) {
-  const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
+  const bindings = authCloudflareEnv(event)
   return {
     admins: readAdmins(event),
     members: readMembers(event),
     adminClaim: options.adminClaim === false ? undefined : readAdminClaim(event),
-    // Presence is significant here: Better Auth must validate an explicitly empty secret
-    // instead of silently replacing it with the ViteHub-derived fallback.
-    secret: Object.hasOwn(options, "secret") || Object.hasOwn(options, "secrets") ? undefined : deriveAuthSecret(event),
-    betterAuth: betterAuthSetupVariables.map(name => env[name] ?? null),
+    ...resolveAuthSecrets(options, bindings, isDevelopmentServer()),
+    trustedOrigins: bindings?.BETTER_AUTH_TRUSTED_ORIGINS ?? globalThis.process?.env?.BETTER_AUTH_TRUSTED_ORIGINS,
   }
 }
 
@@ -243,9 +238,9 @@ function withSessionRefresh(options: Pick<AuthRuntimeOptions, "plugins" | "sessi
   }
 }
 
-/** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
-function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, { secret }: ProviderEnvironment): AuthBetterAuthRuntimeOptions {
-  return secret ? { ...options, secret } : options
+function withResolvedSecrets(options: AuthBetterAuthRuntimeOptions, { secret, secrets, secretMissing }: ProviderEnvironment): AuthBetterAuthRuntimeOptions {
+  if (secretMissing) throw authErrorDiagnostics.AUTH_SECRET_MISSING()
+  return { ...options, ...(secret ? { secret } : {}), ...(secrets ? { secrets } : {}) }
 }
 
 export function trustsProxyHeaders(options: unknown): boolean {
@@ -321,7 +316,7 @@ export function resolveAuthOptions(
     get providerOptions() {
       const options = resolveSnapshot()
       const environment = resolveEnvironment()
-      return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, options, environment)), environment)
+      return withResolvedSecrets(withPasswordHasher(stripViteHubOptions(definition, options, environment)), environment)
     },
     /** Equal for two resolutions of this Definition that give Better Auth equal options, else `undefined`. */
     get providerKey() {

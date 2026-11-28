@@ -151,6 +151,7 @@ describe("authDatabase()", () => {
     // A Worker build: the Auth Vite plugin marks it as a build, and there is no NODE_ENV.
     vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
     vi.stubEnv("NODE_ENV", "")
+    vi.stubEnv("VITEHUB_SECRET", "s".repeat(32))
     try {
       const definition = defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })
       const signIn = async (address: string) => {
