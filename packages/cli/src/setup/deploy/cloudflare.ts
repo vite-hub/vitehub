@@ -1,5 +1,6 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { stripVTControlCharacters } from "node:util"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
 import { dirname, join } from "pathe"
@@ -277,7 +278,8 @@ interface CloudflareVersion {
 /**
  * The secrets of the linked Worker. Wrangler 4.158 (`wrangler secret put --help`, `wrangler secret list --help`, in
  * test/fixtures/host-cli-help/). `secret put` reads the value from stdin when stdin is not a terminal, and creates a
- * draft Worker when the Worker does not exist. A Worker has one set of secrets for every version, so there is no
+ * draft Worker when the Worker does not exist. A Worker that was deleted on Cloudflare has no secrets, so the next deploy
+ * creates it again. A Worker has one set of secrets for every version, so there is no
  * preview target. Every value becomes a secret: a plain var lives in the Wrangler config that the build writes.
  */
 export function cloudflareEnv(context: HostEnvContext): HostEnv {
@@ -290,7 +292,10 @@ export function cloudflareEnv(context: HostEnvContext): HostEnv {
   return {
     async listSecretNames() {
       const result = await run(["secret", "list", "--format", "json", ...worker])
-      if (result.exitCode !== 0) throw hostListFailed("wrangler secret list", result, context.secrets)
+      if (result.exitCode !== 0) {
+        if (stripVTControlCharacters(result.stderr).includes(`Worker "${context.link.project.name}" not found.`)) return []
+        throw hostListFailed("wrangler secret list", result, context.secrets)
+      }
       const start = result.stdout.indexOf("[")
       let value: unknown
       try {

@@ -1,5 +1,6 @@
 // A fake wrangler, vercel, netlify, and deno for `vitehub deploy` tests. It never reaches a host.
 // Each run appends `{ name, argv, stdin, cwd }` to FAKE_HOST_LOG and keeps its state in FAKE_HOST_STATE.
+// A state with `missingWorker: true` answers `wrangler secret list` as Wrangler does for a deleted Worker.
 // FAKE_HOST_FAIL names a step that exits 1, such as "wrangler secret list". FAKE_HOST_ECHO_STDIN prints stdin then.
 // FAKE_HOST_HANG names the start of a step that never ends, so a test can interrupt the CLI while it waits.
 const { appendFileSync, existsSync, fstatSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs")
@@ -68,6 +69,10 @@ function wrangler() {
     return
   }
   if (argv[0] === "secret" && argv[1] === "list") {
+    if (state.missingWorker) {
+      process.stderr.write(`\u001B[31m✘ \u001B[41;31m[\u001B[41;97mERROR\u001B[41;31m]\u001B[0m \u001B[1mWorker "${flag("--name")}" not found.\u001B[0m\n\n  If this is a new Worker, run \`wrangler deploy\` first to create it.\n`)
+      process.exit(1)
+    }
     process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ name: key, type: "secret_text" }))))
     return
   }

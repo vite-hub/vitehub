@@ -112,6 +112,20 @@ describe("vitehub deploy checks Server Env", () => {
     }
   })
 
+  it("redeploys a linked Worker that was deleted on Cloudflare, and still fails on another secret list error", async () => {
+    const root = await project("cloudflare", [apiKey])
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    await seed(hosts.env, { missingWorker: true })
+    const result = await deploy([], root, { ...hosts.env, API_KEY: canary })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"], ["deploy", "--config"]])
+    expect(result.json.env).toMatchObject({ missing: [], pushed: ["API_KEY"] })
+
+    const failed = await deploy([], root, { ...hosts.env, API_KEY: canary, FAKE_HOST_FAIL: "wrangler secret list" })
+    expect(failed.json.error).toMatchObject({ code: "SETUP_DEPLOY_FAILED", why: expect.stringContaining("wrangler secret list failed") })
+  })
+
   it("uploads local values to Cloudflare with the version in a JSON secrets file that is mode 600 and removed after", async () => {
     const root = await project("cloudflare", [apiKey, sentry], {
       files: { ".env.production": `API_KEY=${canary}\nSENTRY_DSN=https://sentry.example\n`, ".env.preview": `API_KEY=${previewCanary}\n` },
