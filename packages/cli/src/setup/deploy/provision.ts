@@ -5,7 +5,7 @@ import { planProvisionSteps } from "@vite-hub/internal/provision"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { isProvisionHost, provisionActionStatus, provisionEnv, writeProvisionActions } from "../../provision.ts"
+import { isProvisionHost, provisionActionStatus, provisionHostEnv, writeProvisionActions } from "../../provision.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -47,7 +47,7 @@ function missingCredential(host: ProvisionProvider, env: NodeJS.ProcessEnv): str
     return "A saved `vercel login` cannot create Vercel resources. Set VERCEL_TOKEN to a token from https://vercel.com/account/tokens."
   }
   if (host === "vercel" && !env.VERCEL_PROJECT_ID?.trim()) {
-    return "Run `vitehub link --host vercel` to store the project id, or set VERCEL_PROJECT_ID."
+    return "Run `vitehub link --host vercel` or `vercel link` to store the project id, or set VERCEL_PROJECT_ID."
   }
   return "Fix the cause of the warnings."
 }
@@ -70,11 +70,8 @@ async function confirmProvision(count: number, host: DeployHost): Promise<boolea
 export async function provisionForDeploy(input: DeployProvisionInput, context: ViteHubCliContext): Promise<DeployProvisionOutput | undefined> {
   const { host } = input
   if (!isProvisionHost(host) || !context.loadProvision) return
-  const env = provisionEnv(context.env, input.credentials, {
-    ...(input.link?.account?.id ? { accountId: input.link.account.id } : {}),
-    ...(input.link?.project.id ? { projectId: input.link.project.id } : {}),
-  })
   const loaded = await context.loadProvision(host)
+  const env = await provisionHostEnv(loaded.rootDir, context.env, input.credentials, input.link)
   const steps = loaded.steps.filter(step => step.provider === host && declaresResources(step, env))
   if (!steps.length) return
   const root = loaded.rootDir

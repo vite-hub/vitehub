@@ -80,7 +80,9 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision
 
 Vercel Blob needs `VERCEL_PROJECT_ID` to connect the store to the project. The
 connection adds `BLOB_STORE_ID`, which the driver uses for OIDC on Vercel.
-`VERCEL_TEAM_ID` or `VERCEL_ORG_ID` sets an optional team scope.
+`VERCEL_TEAM_ID` or `VERCEL_ORG_ID` sets an optional team scope. Without
+`VERCEL_PROJECT_ID` or a `vitehub link`, the CLI reads the project and team from
+`.vercel/project.json`, which `vercel link` writes.
 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.

@@ -341,7 +341,7 @@ Provisioned 1 resource on cloudflare. Ids are in .vitehub/provision.json.
 ```
 
 - Provision uses the credentials of the deploy: environment variables first, then a `wrangler login`. A Cloudflare login with several accounts needs `CLOUDFLARE_ACCOUNT_ID`, or the account of the link.
-- Vercel Blob needs `VERCEL_TOKEN` and the project id of the link, or `VERCEL_PROJECT_ID`. A saved `vercel login` can deploy but cannot create resources.
+- Vercel Blob needs `VERCEL_TOKEN` and the project id of the link, `VERCEL_PROJECT_ID`, or the `.vercel/project.json` of `vercel link`, in that order. A saved `vercel login` can deploy but cannot create resources.
 - When a step cannot check its resources, the deploy stops before it builds or deploys, with `SETUP_DEPLOY_PROVISION_UNCHECKED`.
 - The deploy asks before it creates or changes a resource. `--yes` skips the question. A preview deploy also provisions, because it binds the same resources. A temporary deploy does not.
 - `--json` returns the result in `provision`: `changed` lists what the deploy created or changed, and `ids` the ids of the host resources. It is missing when the app declares no host resource, or with `--no-provision`.

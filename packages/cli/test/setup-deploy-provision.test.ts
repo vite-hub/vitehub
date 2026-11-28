@@ -206,6 +206,26 @@ describe("vitehub deploy provisions the host", () => {
     expect(await hosts.calls()).toEqual([])
   })
 
+  it("gives provision the project and team of `vercel link`, after the environment", async () => {
+    const root = await builtProject("vercel", { ".vercel/project.json": JSON.stringify({ orgId: "team_folder", projectId: "prj_folder" }) })
+    const hosts = await fakeHosts({ VERCEL_TOKEN: "vercel-token-1" })
+    const seen: Array<[string | undefined, string | undefined]> = []
+    const blob: ProvisionStep = {
+      id: "blob:vercel-blob",
+      provider: "vercel",
+      async plan(context) {
+        seen.push([context.env.VERCEL_PROJECT_ID, context.env.VERCEL_TEAM_ID])
+        return []
+      },
+    }
+    const linked = await runSetup<DeployJson>(["deploy", "--yes", "--json"], root, hosts.env, { provisionSteps: () => [blob], spawn: fakeBuild(root, []) })
+    expect(linked.exitCode, linked.stderr).toBe(0)
+
+    const fromEnv = await runSetup<DeployJson>(["deploy", "--yes", "--json"], root, { ...hosts.env, VERCEL_PROJECT_ID: "prj_env", VERCEL_TEAM_ID: "team_env" }, { provisionSteps: () => [blob], spawn: fakeBuild(root, []) })
+    expect(fromEnv.exitCode, fromEnv.stderr).toBe(0)
+    expect(seen).toEqual([["prj_folder", "team_folder"], ["prj_env", "team_env"]])
+  })
+
   it("does not create resources for an output built without their ids", async () => {
     const root = await builtProject("cloudflare")
     const hosts = await fakeHosts(cloudflareEnv)
