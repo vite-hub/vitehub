@@ -14,6 +14,7 @@ type WorkflowProviderOperation =
   | "get"
   | "get-run"
   | "import"
+  | "list-runs"
   | "list-steps"
   | "resume-signal"
   | "run"

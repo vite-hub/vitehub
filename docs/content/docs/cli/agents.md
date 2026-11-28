@@ -44,7 +44,7 @@ Execution authority is a snapshot of what the Agent can reach: filesystem, netwo
 With more than one Agent, pass the name.
 `agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`. With `--url <app>`, it reads the `status.get` [operation](/docs/console/operations) of that app's Console instead, and prints JSON. This includes locally served production builds, such as `--url http://localhost:3000`.
 
-With the Console on, `vitehub agent list` lists the Agents of the app, and `vitehub agent invoke <agent> --prompt <text>` starts an Invocation. Both take `--url` for a deployed app.
+`vitehub agent list` lists the Agents of the app, and `vitehub agent invoke <agent> --prompt <text>` starts an Invocation. On the dev server they work when you omit `console` or enable the Console with its Agents section. `console: false` turns off the endpoint. Both take `--url` for a deployed app, which must enable `console` in `vitehub()`.
 
 `agent get`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
 

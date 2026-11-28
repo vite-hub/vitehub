@@ -136,8 +136,8 @@ afterEach(() => {
 })
 
 it("rejects GitHub Workspace roots that escape the repository", () => {
-  expect(() => resolveGitHubWorkspaceRoot("../../outside", "docs")).toThrow("escapes the workspace root");
-  expect(() => resolveGitHubWorkspaceRoot("workspaces/<workspace>/../outside", "docs")).toThrow("escapes the workspace root");
+  expect(() => resolveGitHubWorkspaceRoot("../../outside", "docs")).toThrow("is not a relative path inside the Workspace root");
+  expect(() => resolveGitHubWorkspaceRoot("workspaces/<workspace>/../outside", "docs")).toThrow("is not a relative path inside the Workspace root");
 });
 
 it.each([

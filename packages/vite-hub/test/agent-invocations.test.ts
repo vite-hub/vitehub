@@ -13,14 +13,13 @@ import { defineAgent } from "../src/agent.ts"
 import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsDatabaseContributions, renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
 import { consoleStateKey, resolveConsoleInvocations } from "../src/console/internal.ts"
-import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
+import { getConsoleInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { getConsoleAgentDefinition, installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { AgentInvocationStore } from "@vite-hub/agent/server"
 import type { Plugin } from "vite"
 
-// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
 const libsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
@@ -108,7 +107,6 @@ describe("defineAgent({ invocations })", () => {
     const overrides = defineAgent({ driver, invocations: "memory", name: "overrides" })
     expect(overrides.invocations).not.toBe(shared)
 
-    // The same setting keeps the same journal when the generated plugin loads again.
     installAgentInvocations({ default: "memory" })
     expect(resolveDefaultAgentInvocations()).toBe(shared)
   })
@@ -142,7 +140,6 @@ describe("Default Agent journal", () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-default-journal-"))
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "")
     try {
-      // The generated server installs the same journal with the Console on or off. Here the Console is off.
       installAgentInvocations({ journal: { libsql, projectRoot } })
       const agent = defineAgent({ driver: { run: () => "recorded" }, name: "support" })
       await runAgentWithContext(agent, { ...context(), run: { runId: "console-off" } }, { prompt: "Record me" })
@@ -152,7 +149,6 @@ describe("Default Agent journal", () => {
       expect(resolveConsoleInvocations()).toBeUndefined()
       await expect(readFile(join(projectRoot, ".vitehub/data/agent-invocations.sqlite"))).resolves.toBeInstanceOf(Buffer)
 
-      // A new server process with the Console on: it installs the same default journal and the Console reads it.
       Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.invocations.default"))
       installAgentInvocations({ journal: { libsql, projectRoot } })
       const restarted = defineAgent({ driver: { run: () => "recorded" }, name: "support" })
@@ -231,11 +227,23 @@ describe("Console journal", () => {
       { definition: { default: defineAgent({ driver, invocations: "memory", name: "other" }) }, fallbackName: "other" },
     ], { projectRoot: process.cwd() })).toThrow("multiple Agent invocation journals")
   })
+
+  it("keeps local Agent Definitions available when only journal reads need a shared journal", () => {
+    installAgentInvocations({ default: "memory" })
+    const shared = defineAgent({ driver, name: "shared" })
+    const separate = defineAgent({ driver, invocations: "memory", name: "separate" })
+    const journal = separate.invocations
+    expect(installConsoleAgentDefinitions([
+      { definition: shared, fallbackName: "shared" },
+      { definition: separate, fallbackName: "separate" },
+    ], { allowSeparateJournals: true, invoke: true, projectRoot: process.cwd() })).toEqual(["separate", "shared"])
+    expect(getConsoleAgentDefinition("separate")).toBe(separate)
+    expect(separate.invocations).toBe(journal)
+    expect(() => getConsoleInvocations()).toThrow(expect.objectContaining({ code: "VITE_HUB_R0047" }))
+  })
 })
 
-/** The Agent Invocations plugin that Vite keeps for an app without the Content `cms` preset. */
 function agentInvocationsPlugin(options: Parameters<typeof vitehub>[0]): Plugin | undefined {
-  // vitehub() also lists the plugins of the cms preset case, whose `apply` drops them in other apps.
   return vitehub(options)
     .filter((candidate): candidate is Plugin => !!candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/agent-invocations")
     .find(plugin => !(plugin.apply instanceof Function) || plugin.apply({ root: "/vitehub-test-app-without-content" }, { command: "build", mode: "production" }))
@@ -265,14 +273,12 @@ describe("vitehub({ agent: { invocations } })", () => {
     expect(renderAgentInvocationsNitroPlugin({ database: false, projectRoot: "/app" })).toContain(`installAgentInvocations({ journal: { projectRoot: "/app", libsql: () => import(${JSON.stringify(libsqlModule)}) } })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, d1Binding: "DB", default: { retention: { maxAge: "14d" } }, projectRoot: "/app" }))
       .toContain(`installAgentInvocations({ default: {"retention":{"maxAge":"14d"}}, journal: { projectRoot: "/app", d1: { binding: "DB", env: async () => (await import("cloudflare:workers")).env }, libsql: () => import(${JSON.stringify(libsqlModule)}) } })`)
-    // A store setting needs no default journal location.
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory", projectRoot: "/app" })).toContain(`installAgentInvocations({ default: "memory" })`)
   })
 
   it.each([false, true])("generates the same journal plugin with the Console on: %s", async (consoleOn) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-console-"))
     try {
-      // `comments: false` keeps the Database off, so the Console adds nothing else to the generated plugin.
       const plugin = agentInvocationsPlugin({ agent: true, host: "node", ...(consoleOn ? { comments: false, console: { auth: false } } : {}) })
       if (!plugin) throw new Error("Missing Agent Invocations plugin.")
       // SAFETY: The plugin reads only the root and the Nitro config, which this fixture supplies.
@@ -316,7 +322,6 @@ describe("vitehub({ agent: { invocations } })", () => {
         dialect: "postgresql",
         plugin: "vite-hub/agent-invocations",
       })])
-      // The contributed names are the SQL names of the tables in the schema module.
       const { agentDefaultJournalPostgresSchema, agentInvocationsPostgresSchema } = await import("@vite-hub/agent/invocations/postgres")
       const { getTableName } = await import("drizzle-orm")
       expect(tables.find(table => table.name === "agent-default-journal")).toMatchObject({
@@ -327,11 +332,9 @@ describe("vitehub({ agent: { invocations } })", () => {
       await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([expect.objectContaining({
         tables: Object.fromEntries(Object.entries(agentInvocationsPostgresSchema).map(([key, table]) => [key, getTableName(table)])),
       })])
-      // The app-wide journal names another Database, which does not exist.
       await expect(agentInvocationsDatabaseContributions(context, { database: "journal", store: "database" })).resolves.toEqual([])
       await definition("")
       await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
-      // Without a Definition, another Postgres contribution makes the implicit `default` Database use Postgres.
       await rm(join(root, "server/databases/default.ts"))
       const postgresUse = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
       await expect(agentInvocationsDatabaseContributions({ ...context, plugins: [...plugins, postgresUse] }, undefined)).resolves.toEqual([expect.objectContaining({ database: "default", dialect: "postgresql" })])

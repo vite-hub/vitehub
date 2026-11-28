@@ -1077,7 +1077,7 @@ describe("agent capability runtime", () => {
       }
       await resolve()
       await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
-      await expect(workspace.fs.writeFile(`${skillDirectory}/references/guide.md`, "User guide")).rejects.toThrow("Source-backed workspace paths are read-only")
+      await expect(workspace.fs.writeFile(`${skillDirectory}/references/guide.md`, "User guide")).rejects.toMatchObject({ code: "WORKSPACE_SOURCE_READ_ONLY", message: expect.stringContaining("Source paths are read-only") })
       await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
     }
     finally {

@@ -140,12 +140,20 @@ describe("vitehub agent invocations with a deployed Console", () => {
     [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [404, { message: "Invocation not found", ok: false, status: 404 }, "Console request failed with HTTP 404: Invocation not found."],
-    [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub Console (HTTP 404)."],
+    [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub app (HTTP 404). A production build answers only when `vitehub()` sets `console`."],
   ])("reports a Console HTTP %s response", async (status, body, message) => {
     const host = deployedConsole(() => new Response(typeof body === "string" ? body : body ? JSON.stringify(body) : null, { status }))
     const result = await run(["get", "ainv_1", "--url", "https://agent.example.com"], host.fetch)
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain(message)
+  })
+
+  it("keeps the code and fix of an app that does not have the feature", async () => {
+    const off = () => Response.json({ code: "CONSOLE_FEATURE_DISABLED", fix: "Add an Agent Definition.", message: "This app does not serve `invocations.get`, because its feature is off.", ok: false, status: 404 }, { status: 404 })
+    const result = await run(["get", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(off).fetch)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("[AGENT_R0511] Console request failed with HTTP 404: CONSOLE_FEATURE_DISABLED: This app does not serve `invocations.get`, because its feature is off.\n")
+    expect(result.stderr).toContain("fix: Add an Agent Definition.")
   })
 
   it("adds the credential hint to a 403 only when no Console credential is set", async () => {

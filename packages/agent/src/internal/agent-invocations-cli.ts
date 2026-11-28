@@ -607,11 +607,14 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
   }
   // A page, another JSON endpoint, or a missing route, not a Console reply. On localhost, cancel asks the dev endpoint instead.
   if (!answered && (!isRuntimeRecord(json) || status < 300 || status === 404 || status === 405)) {
-    const error = agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
+    const error = agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub app (HTTP ${status}). A production build answers only when \`vitehub()\` sets \`console\`. Pass the app URL of such a deployment.` })
     notConsoleAnswers.add(error)
     throw error
   }
-  throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })
+  const code = isRuntimeRecord(failure) && typeof failure.code === "string" ? failure.code : undefined
+  const fix = isRuntimeRecord(failure) && typeof failure.fix === "string" && failure.fix ? failure.fix : undefined
+  const error = agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${code ? `${code}: ` : ""}${message}` : ""}.` })
+  throw fix ? Object.assign(error, { fix }) : error
 }
 
 type InvocationSummary = AgentInvocationListResult["invocations"][number]

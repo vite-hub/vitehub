@@ -31,11 +31,21 @@ function tools(options: { header?: string, context?: Record<string, unknown>, re
 }
 
 describe("page()", () => {
-  it("keeps ui-sdk's tools, with page_ names in their names and descriptions", () => {
+  it("keeps ui-sdk's tools with page_ names and without closed-section queries", () => {
     const rewrite = (text: string) => text.replace(/\b(snapshot|query|act)\b/g, "page_$1")
-    expect(pageTools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })).sort((a, b) => a.name.localeCompare(b.name)))
-      .toEqual(agentTools.map(tool => ({ name: `page_${tool.name}`, description: rewrite(tool.description), inputSchema: tool.inputSchema })).sort((a, b) => a.name.localeCompare(b.name)))
-    for (const tool of pageTools) expect(tool.description).not.toMatch(/(?<!page_)\b(snapshot|query|act)\b/)
+    expect(pageTools.map(tool => tool.name).sort()).toEqual(agentTools.map(tool => `page_${tool.name}`).sort())
+    for (const tool of pageTools) {
+      const upstream = agentTools.find(candidate => candidate.name === tool.method)!
+      const inputSchema = structuredClone(upstream.inputSchema)
+      if (tool.method === "query") Reflect.deleteProperty(inputSchema.properties, "closed")
+      expect(tool.inputSchema).toEqual(inputSchema)
+
+      const description = rewrite(upstream.description)
+        .replace('with one page_query, { "closed": true }', 'with page_snapshot or page_query')
+        .replace(/ closed: true reads [^.]+\./, " page_query never opens closed tabs or sections.")
+        .replace(": page_query with closed: true reads those too.", ".")
+      expect(tool.description).toBe(description)
+    }
   })
 
   it("gives a run without a page no page tools", () => {
@@ -146,10 +156,6 @@ describe("connectPage()", () => {
     }
   }
 
-  /**
-   * A small stand-in for ui-sdk's bridge: it resolves a step by ref or label, asks `allow` with the resolved step, and
-   * reports each change with `source: "agent"`, as `createAgent()` does.
-   */
   function bridge(components: Array<{ ref: string, component: string, label: string, value: unknown, confirm?: string }>) {
     let allow: PageAllow = () => true
     const listeners = new Set<(change: PageObservedChange) => void>()
@@ -214,8 +220,8 @@ describe("connectPage()", () => {
     await connected.ready
 
     await expect(fake.ask({ method: "snapshot", rules })).resolves.toEqual(page.value.snapshot())
-    await expect(fake.ask({ method: "query", input: { within: "Default region" } })).resolves.toEqual([])
-    expect(page.value.query).toHaveBeenCalledWith({ within: "Default region" })
+    await expect(fake.ask({ method: "query", input: { within: "Default region", from: 50, closed: false } })).resolves.toEqual([])
+    expect(page.value.query).toHaveBeenCalledWith({ text: undefined, within: "Default region", kind: undefined, from: 50 })
     await expect(fake.ask({ method: "subscribe" })).resolves.toEqual({ ok: false, error: "Unknown page call: use page_snapshot, page_query, or page_act." })
     connected.close()
     expect(fake.value.destroy).toHaveBeenCalled()
@@ -240,7 +246,6 @@ describe("connectPage()", () => {
     await expect(fake.ask({ method: "act", input: { steps: [{ ref: "Save changes", action: "press" }] }, rules })).resolves.toMatchObject({
       approvals: [{ label: "Save changes", approved: true, confirm: "Allow the Agent to Press Save changes?" }],
     })
-    // A data-agent-confirm step needs the person too, and their no is a named refusal.
     await expect(fake.ask({ method: "act", input: { steps: [{ ref: "Delete project", action: "press" }] }, rules })).resolves.toMatchObject({
       refused: { step: 0, code: "AGENT_R1049" },
       approvals: [{ label: "Delete project", approved: false, confirm: "Delete the project" }],
@@ -262,7 +267,6 @@ describe("connectPage()", () => {
     const queued = fake.ask({ method: "act", input: { steps: [{ ref: "Default region", action: "setValue", args: ["fra"] }] }, rules })
     const rejected = expect(queued).rejects.toMatchObject({ code: "AGENT_R1054" })
     connected.close()
-    // Closing settles the call even if the person's UI never answers.
     await expect(active).resolves.toMatchObject({ result: { ok: false }, changes: [] })
     await rejected
     approve(true)
@@ -321,10 +325,8 @@ describe("connectPage()", () => {
     await expect(connected.undo()).resolves.toEqual([visibility])
     expect(page.components.map(component => component.value)).toEqual(["iad", "public"])
     expect(connected.changes()[0]).toMatchObject({ undone: true })
-    // An undo is not a new change of the Agent.
     expect(connected.changes()).toHaveLength(2)
     expect(heard).toHaveBeenCalledTimes(2)
-    // The server asks by id, as an operator's undo does.
     await expect(fake.ask({ method: "undo", input: { change: "chg_unknown" } })).resolves.toMatchObject({ ok: false })
   })
 

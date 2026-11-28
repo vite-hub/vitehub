@@ -286,6 +286,8 @@ jobs:
     name: package tests (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NODE_OPTIONS: ${{ matrix.shard.node-options }}
     strategy:
       fail-fast: false
       matrix:
@@ -301,6 +303,7 @@ jobs:
             test-shard: 3/3
           - name: vite-hub
             args: --packages vite-hub
+            node-options: --max-old-space-size=6144
           - name: workspace and presets
             args: --packages @vite-hub/workspace,@vite-hub/presets
           - name: content, workflow, and docs

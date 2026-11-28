@@ -1,13 +1,54 @@
 import { createServer } from "node:http"
 import { existsSync } from "node:fs"
+import { readFile, realpath, stat } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
-import { resolve } from "node:path"
+import { extname, resolve, sep } from "node:path"
+
+const staticContentTypes = new Map([
+  [".css", "text/css"],
+  [".html", "text/html; charset=utf-8"],
+  [".js", "text/javascript"],
+  [".json", "application/json"],
+  [".mjs", "text/javascript"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".woff2", "font/woff2"],
+])
+
+async function serveStatic(root, path, req, res) {
+  if (!root || (req.method !== "GET" && req.method !== "HEAD")) return false
+  let pathname
+  try {
+    pathname = decodeURIComponent(path)
+  }
+  catch {
+    return false
+  }
+  if (pathname.includes("\0")) return false
+  const candidate = resolve(root, `.${pathname}`)
+  if (!candidate.startsWith(`${root}${sep}`)) return false
+
+  const asset = await realpath(candidate).catch((error) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined
+    throw error
+  })
+  if (!asset?.startsWith(`${root}${sep}`)) return false
+  const info = await stat(asset)
+  if (!info.isFile()) return false
+
+  const body = req.method === "HEAD" ? undefined : await readFile(asset)
+  res.setHeader("content-type", staticContentTypes.get(extname(candidate)) ?? "application/octet-stream")
+  res.setHeader("content-length", body?.length ?? info.size)
+  res.end(body)
+  return true
+}
 
 async function loadFunction(outputDir, funcPath) {
   const entry = resolve(outputDir, "functions", funcPath, "index.mjs")
   if (!existsSync(entry)) throw new Error(`[e2e:local] Missing Vercel function entry: ${entry}`)
   const mod = await import(pathToFileURL(entry).href)
-  const handler = mod.default ?? mod.handler ?? mod.fetch ?? mod.POST
+  const exported = mod.default ?? mod.handler ?? mod.fetch ?? mod.POST
+  const handler = typeof exported?.fetch === "function" ? request => exported.fetch(request) : exported
   if (typeof handler !== "function") {
     throw new Error(`[e2e:local] Vercel function at ${entry} has no callable default/handler/fetch/POST export.`)
   }
@@ -40,6 +81,8 @@ export async function writeWebResponse(res, response) {
 export async function createVercelBridge({ outputDir, port, env = {} }) {
   Object.assign(process.env, env)
   const serverHandler = await loadFunction(outputDir, "__server.func")
+  const staticDir = resolve(outputDir, "static")
+  const staticRoot = existsSync(staticDir) ? await realpath(staticDir) : undefined
   const functionRoutes = []
   const workflowPath = "/.well-known/workflow/v1/flow"
   const workflowFunc = `${workflowPath.slice(1)}.func`
@@ -67,6 +110,7 @@ export async function createVercelBridge({ outputDir, port, env = {} }) {
         if (!loaded.has(path)) loaded.set(path, await route.load(path))
         handler = loaded.get(path)
       }
+      else if (await serveStatic(staticRoot, path, req, res)) return
       if (handler.length >= 2) {
         await handler(req, res)
         return

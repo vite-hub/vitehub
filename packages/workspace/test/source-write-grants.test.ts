@@ -7,10 +7,11 @@ import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
 import type { WorkspaceDefinition } from "../src/core/types.ts"
 
-function docsSource() {
+function docsSource(options: { materialize?: "lazy" | "startup" | "none", sync?: boolean } = {}) {
   return custom({
     materialize: "lazy",
     mount: "docs",
+    ...options,
     async getKeys() {
       return ["guide.md"]
     },
@@ -35,6 +36,18 @@ describe("Source write grants", () => {
     await expect(view.rm("docs/guide.md")).rejects.toThrow("read-only")
   })
 
+  it("names the path and its Source with a fix", async () => {
+    const view = createWorkspaceSourceView(definition("grant-source-diagnostic"), createMemoryWorkspaceStore())
+
+    await expect(view.writeFile("docs/guide.md", "nope")).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      details: { path: "docs/guide.md", source: "docs" },
+      fix: expect.stringContaining("`workspace.sync({ sources: ['handbook'] })`"),
+      name: "ViteHubError",
+      why: 'The Workspace path "docs/guide.md" belongs to Source "docs". Source paths are read-only: a write, removal, or move cannot change them.',
+    })
+  })
+
   it("binds a grant to one normalized path", async () => {
     const view = createWorkspaceSourceView(definition("grant-binding"), createMemoryWorkspaceStore())
     const write = vi.fn(async (path: string, content: string) => `${path}:${content}`)
@@ -47,6 +60,46 @@ describe("Source write grants", () => {
     await expect(guarded(grant, "notes/b.md", "nope")).rejects.toThrow("requires a Source write grant")
     await expect(guarded(grant, "docs/guide.md", "nope")).rejects.toThrow("requires a Source write grant")
     expect(write).toHaveBeenCalledOnce()
+  })
+
+  it("rejects writes to a synced file with an empty Source key", async () => {
+    const workspace = createWorkspace({ ...definition("grant-empty-sync-key"), sources: { "": docsSource({ materialize: "none", sync: true }) } })
+    await workspace.sync({ sources: [""] })
+
+    await expect(workspace.writeFile("docs/guide.md", "nope")).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      details: { path: "docs/guide.md", source: "" },
+    })
+    await expect(workspace.readFile("docs/guide.md")).resolves.toBe("# Guide\n")
+  })
+
+  it("rejects writes inside a startup mount with an empty Source key", async () => {
+    const workspace = createWorkspace({ ...definition("grant-empty-startup-key"), sources: { "": docsSource({ materialize: "startup" }) } })
+
+    await expect(workspace.writeFile("docs/guide.md", "nope")).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      details: { path: "docs/guide.md", source: "" },
+    })
+  })
+
+  it("reports the recorded owner on a shared mount and omits ambiguous claims", async () => {
+    const workspace = createWorkspace({
+      ...definition("grant-shared-mount"),
+      sources: {
+        policies: docsSource({ materialize: "startup" }),
+        reference: docsSource({ materialize: "none", sync: true }),
+      },
+    })
+    await workspace.sync({ sources: ["reference"] })
+
+    await expect(workspace.writeFile("docs/guide.md", "nope")).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      details: { path: "docs/guide.md", source: "reference" },
+    })
+    await expect(workspace.writeFile("docs/new.md", "nope")).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      why: expect.stringContaining('"docs/new.md" belongs to a Source'),
+    })
   })
 
   it("rejects forged, missing, and foreign grants", async () => {

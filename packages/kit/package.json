@@ -57,8 +57,8 @@
     "test:styles": "node --test test/browser/styles.browser.mjs"
   },
   "dependencies": {
-    "@ui-sdk/core": "0.1.0-beta.14",
-    "@ui-sdk/vue": "0.1.0-beta.14"
+    "@ui-sdk/core": "0.1.0-beta.19",
+    "@ui-sdk/vue": "0.1.0-beta.19"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "catalog:ui",

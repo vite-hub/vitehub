@@ -275,6 +275,7 @@
     "comark": "catalog:markdown",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
+    "magic-string": "^1.4.5",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -292,7 +293,7 @@
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
-    "@ui-sdk/core": "0.1.0-beta.14",
+    "@ui-sdk/core": "0.1.0-beta.19",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -323,7 +324,7 @@
     "forges": "catalog:",
     "@json-render/core": "0.23.2",
     "@json-render/vue": "0.23.2",
-    "@ui-sdk/vue": "0.1.0-beta.14",
+    "@ui-sdk/vue": "0.1.0-beta.19",
     "@vite-hub/forms": "workspace:*"
   },
   "optionalDependencies": {
@@ -357,7 +358,7 @@
     "@vite-hub/connections": "workspace:*",
     "@json-render/core": "0.23.2",
     "@json-render/vue": "0.23.2",
-    "@ui-sdk/vue": "0.1.0-beta.14",
+    "@ui-sdk/vue": "0.1.0-beta.19",
     "@vite-hub/forms": "workspace:*",
     "zod": "^4.3.6",
     "@vite-hub/forge": "workspace:*"

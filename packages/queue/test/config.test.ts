@@ -75,6 +75,14 @@ describe("normalizeQueueOptions", () => {
     })
   })
 
+  it.each([true, "cloudflare"])("rejects %j and shows the default for each Queue config form", options => {
+    expect(() => normalizeQueueOptions(options as never)).toThrow(expect.objectContaining({
+      code: "QUEUE_INVALID_CONFIG",
+      fix: expect.stringContaining("Call `hubQueue()` for the default driver"),
+      message: "Queue options must be a plain object or `false`. Only `vitehub()` accepts `queue: true`.",
+    }))
+  })
+
   it("throws on unknown drivers", () => {
     expect(() => normalizeQueueOptions({ driver: "memory" } as never)).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_DRIVER" }))
   })

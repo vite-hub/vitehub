@@ -31,14 +31,9 @@ export type { DiscoveredSandboxTaskDefinition } from './discovery'
 export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandboxTaskConsoleSection } from './inspect'
 
 export type SandboxTaskOptions = AgentSandboxTaskConfig | false
-type SandboxTaskNitroBuildConfig = {
-  builder: string
-  rolldown?: { resolve?: { alias?: Record<string, string | string[] | false> } }
-}
 type SandboxTaskNitroHost = {
   hooks: {
     hook(name: 'build:before', callback: () => void): void
-    hook(name: 'build:config', callback: (nitro: unknown, config: SandboxTaskNitroBuildConfig) => void): void
   }
   options: { alias?: unknown, dev?: boolean, devServer?: unknown, noExternals?: unknown }
 }
@@ -70,6 +65,7 @@ type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeDependencyByPro
 function mergeSandboxTaskNitroProviderAliases(
   nitro: SandboxTaskNitroHost['options'],
   aliases: AliasMap,
+  entryFile: string | undefined,
   frameworkSpecifier: string | undefined,
 ) {
   const providerAliases = Object.fromEntries(
@@ -78,9 +74,8 @@ function mergeSandboxTaskNitroProviderAliases(
       return replacement ? [[specifier, replacement]] : []
     }),
   )
-  const facade = aliases[SANDBOX_PACKAGE_ID]
-  if (frameworkSpecifier && facade)
-    providerAliases[frameworkSpecifier] = facade
+  if (frameworkSpecifier && entryFile)
+    providerAliases[frameworkSpecifier] = entryFile
   if (!Object.keys(providerAliases).length)
     return
 
@@ -254,6 +249,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     : internalOptions
   const mergeSandboxTaskNoExternal = createNoExternalAddition(SANDBOX_PACKAGE_NAME)
   let generatedAliases: AliasMap = {}
+  let generatedEntryFile: string | undefined
   let generatedFiles: string[] = []
   let watchFiles: string[] = []
   let definitions: DiscoveredSandboxTaskDefinition[] = []
@@ -285,21 +281,12 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
-      mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
+      mergeSandboxTaskNitroProviderAliases(options, generatedAliases, generatedEntryFile, internalOptions?.providerImportSpecifier)
     nitro.hooks.hook('build:before', () => {
       mergeSandboxTaskNitroNoExternals(options, selectedProvider)
       if (selectedProvider)
-        mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
+        mergeSandboxTaskNitroProviderAliases(options, generatedAliases, generatedEntryFile, internalOptions?.providerImportSpecifier)
     })
-    if (options.dev) {
-      nitro.hooks.hook('build:config', (_nitro, config) => {
-        const resolver = config.builder === 'rolldown' ? config.rolldown?.resolve : undefined
-        const specifier = internalOptions?.providerImportSpecifier
-        const facade = generatedAliases[SANDBOX_PACKAGE_ID]
-        if (resolver && selectedProvider && specifier && facade)
-          resolver.alias = { ...resolver.alias, [specifier]: facade }
-      })
-    }
   }
 
   function cloneConfigValue<T>(value: T): T {
@@ -333,6 +320,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   async function activateCurrentSandboxTaskRuntime() {
     const prepared = await prepareCurrentSandboxTaskRuntime()
     generatedAliases = prepared.aliases
+    generatedEntryFile = prepared.entryFile
     generatedFiles = prepared.files
     watchFiles = prepared.watchFiles
     definitions = prepared.definitions
@@ -420,6 +408,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       const prepared = await prepareCurrentSandboxTaskRuntime(false)
       sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       generatedAliases = prepared.aliases
+      generatedEntryFile = prepared.entryFile
       generatedFiles = prepared.files
       watchFiles = prepared.watchFiles
       definitions = prepared.definitions
