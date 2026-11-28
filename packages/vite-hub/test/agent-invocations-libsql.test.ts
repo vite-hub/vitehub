@@ -119,7 +119,7 @@ async function buildWarnings(options: { d1?: string, databaseUrl?: string, host:
     if (!configHook || !resolvedHook) throw new TypeError("Expected Agent Invocations config hooks.")
     await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [{ root }, { command: "build", mode: "production" }])
     const warnings: string[] = []
-    await Reflect.apply("handler" in resolvedHook ? resolvedHook.handler : resolvedHook, {}, [{ logger: { info() {}, warn: (message: string) => warnings.push(message) }, plugins: [] }])
+    await Reflect.apply("handler" in resolvedHook ? resolvedHook.handler : resolvedHook, {}, [{ command: "build", root, logger: { info() {}, warn: (message: string) => warnings.push(message) }, plugins: [] }])
     return warnings
   }
   finally {
@@ -129,7 +129,10 @@ async function buildWarnings(options: { d1?: string, databaseUrl?: string, host:
 
 describe("default Agent Invocation journal build warning", () => {
   it("warns when a Cloudflare build keeps the journal in Worker memory", async () => {
-    expect(await buildWarnings({ host: "cloudflare" })).toEqual([expect.stringContaining("keeps records in the memory of the Worker isolate")])
+    const [warning] = await buildWarnings({ host: "cloudflare" })
+    expect(warning).toContain("loses its records when the isolate stops")
+    expect(warning).toContain("D1 binding on the `default` or only Database Definition")
+    expect(warning).toContain("agent.invocations.databaseUrl")
   })
 
   it.each([

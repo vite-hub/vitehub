@@ -401,6 +401,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass `invocationUrl()` an Invocation with a string `agentName` and `id`, such as the current Invocation of the handler.",
     },
+    VITE_HUB_AGENT_JOURNAL_IN_WORKER_MEMORY: {
+      why: "The default Agent Invocation journal has no D1 binding or libSQL URL. It keeps records in Worker memory and loses its records when the isolate stops.",
+      fix: "Configure a D1 binding on the `default` or only Database Definition, or set `agent.invocations.databaseUrl` to a remote libSQL URL.",
+    },
     VITE_HUB_B0001: {
       ...dynamicError,
       fix: "Reinstall the project dependencies, so that the `vite-hub` package has its Console runtime files, then build again.",
