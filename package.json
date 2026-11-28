@@ -9,6 +9,9 @@
     "url": "git+https://github.com/vite-hub/vitehub.git"
   },
   "type": "module",
+  "scripts": {
+    "test:templates": "node test/templates/run.mjs"
+  },
   "dependencies": {
     "yaml": "catalog:tooling"
   },

@@ -217,6 +217,7 @@ describe("release PR workflow", () => {
       })
       writeManifest("packages/peers/package.json", { name: "@vite-hub/peers", version: current, peerDependencies: { "@vite-hub/env": "workspace:^" } })
       writeManifest("playground/app/package.json", { name: "app", private: true, dependencies: { "@vite-hub/peers": "workspace:*" } })
+      writeManifest("templates/nuxt/app/package.json", { name: "template", private: true, dependencies: { "@vite-hub/peers": "*" } })
     }
     const pnpm = (...args: string[]) => execFileSync("corepack", ["pnpm@12.21.0", ...args, "--ignore-scripts", "--offline"], {
       cwd: directory,
@@ -225,7 +226,7 @@ describe("release PR workflow", () => {
     })
     const check = () => execFileSync("node", [checker, `release/v${version}`], { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
     try {
-      writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n  - \"playground/*\"\nlinkWorkspacePackages: true\n")
+      writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n  - \"playground/*\"\n  - \"templates/nuxt/*\"\nlinkWorkspacePackages: true\n")
       workspace("0.1.0", "*")
       pnpm("install", "--lockfile-only", "--no-frozen-lockfile")
       const lockfile = readFileSync(join(directory, "pnpm-lock.yaml"), "utf8")
@@ -240,6 +241,9 @@ describe("release PR workflow", () => {
       workspace(version, "*")
       writeManifest("playground/app/package.json", { name: "app", private: true, dependencies: { "@vite-hub/peers": version } })
       expect(() => check()).toThrow(`playground/app/package.json dependencies @vite-hub/peers is ${version}`)
+      writeManifest("playground/app/package.json", { name: "app", private: true, dependencies: { "@vite-hub/peers": "workspace:*" } })
+      writeManifest("templates/nuxt/app/package.json", { name: "template", private: true, dependencies: { "@vite-hub/peers": "^0.1.0" } })
+      expect(() => check()).toThrow("templates/nuxt/app/package.json dependencies @vite-hub/peers is ^0.1.0")
     }
     finally {
       rmSync(directory, { recursive: true, force: true })

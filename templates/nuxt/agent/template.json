@@ -1,0 +1,17 @@
+{
+  "title": "Agent",
+  "description": "A chat assistant with tools, memory, and channels.",
+  "primitives": [
+    "agent",
+    "gateways",
+    "connections",
+    "channels",
+    "workspace",
+    "source",
+    "browser",
+    "blob",
+    "rate-limit",
+    "shell",
+    "presets"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "title": "Dashboard",
+  "description": "A SaaS app with a public landing page, a blog, and a signed-in dashboard.",
+  "primitives": [
+    "auth",
+    "database",
+    "kv",
+    "cache",
+    "env",
+    "blob",
+    "rate-limit",
+    "agent",
+    "mcp",
+    "sync",
+    "device",
+    "choices",
+    "i18n",
+    "forms",
+    "webhooks",
+    "content",
+    "cms",
+    "comments",
+    "observability"
+  ]
+}
