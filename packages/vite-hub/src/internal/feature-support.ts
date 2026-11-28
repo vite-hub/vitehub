@@ -54,7 +54,8 @@ export type HostSelectedService = keyof typeof serviceFeatures
  * Throws when the host has no provider for `service`, which the app asks ViteHub to select. The catalog decides, and
  * the Deployment Plan gives the reason in the error. A parity test keeps the two in agreement.
  */
-export function assertHostService(plan: DeploymentPlan, service: HostSelectedService): void {
-  if (featureSupport(serviceFeatures[service], plan.host).level === "native") return
-  assertDeploymentService(plan, service)
+export function assertHostService(plan: DeploymentPlan, service: HostSelectedService, importSource?: string): void {
+  const support = featureSupport(serviceFeatures[service], plan.host)
+  if (support.level === "native") return
+  assertDeploymentService(plan, service, { driverFix: support.level === "explicit" ? support.detail : undefined, importSource })
 }

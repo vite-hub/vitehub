@@ -55,7 +55,7 @@ describe("built-in deployment plans", () => {
       supported: true,
     })
     expect(() => assertDeploymentService(resolveDeploymentPlan("deno"), "sandbox")).toThrow(
-      'The "deno" host cannot provide sandbox',
+      'The "deno" host cannot provide `sandboxTask`',
     )
   })
   it("says which presets provide Browser and Realtime", () => {

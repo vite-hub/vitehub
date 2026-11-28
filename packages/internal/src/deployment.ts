@@ -139,10 +139,35 @@ export function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService): void {
+const serviceOptions = {
+  blob: "blob",
+  browser: "browser",
+  queue: "queue",
+  rateLimit: "rateLimit",
+  realtime: "realtime",
+  sandbox: "sandboxTask",
+} as const satisfies Record<DeploymentService, string>
+
+/** The hosts whose Deployment Plan provides `service`, such as `["cloudflare", "vercel"]` for `sandbox`. */
+export function hostsProviding(service: DeploymentService): ViteHubHost[] {
+  return Object.values(plans).filter(plan => plan.services[service].supported).map(plan => plan.host)
+}
+
+/**
+ * Throws when the host cannot provide `service`. The fix names the hosts that provide it and how to stop using it.
+ * It also includes `driverFix` when the app can choose a driver on this host.
+ */
+export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService, { driverFix, importSource }: { driverFix?: string, importSource?: string } = {}): void {
   const policy = plan.services[service]
   if (policy.supported) return
-  throw internalErrorDiagnostics.INTERNAL_R0002({ message: `[vitehub] The ${JSON.stringify(plan.host)} host cannot provide ${service}. ${policy.reason} Configure an explicit portable implementation through the owner package or disable this capability.` })
+  const option = serviceOptions[service]
+  const hosts = new Intl.ListFormat("en", { type: "disjunction" }).format(hostsProviding(service).map(host => JSON.stringify(host)))
+  const stopFix = importSource ? `remove the \`${importSource}\` import` : `set \`${option}: false\``
+  const hostFix = `Build for ${hosts}, or ${stopFix}.`
+  throw internalErrorDiagnostics.INTERNAL_R0002({
+    message: `[vitehub] The ${JSON.stringify(plan.host)} host cannot provide \`${option}\`. ${policy.reason}`,
+    fix: driverFix ? `${driverFix} Or: ${hostFix}` : hostFix,
+  })
 }
 
 /** Maps a host name or a Nitro preset name, such as `cloudflare-module` or `node-server`, to its ViteHub host. */

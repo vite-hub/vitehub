@@ -88,7 +88,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_C0001: { ...dynamicError, fix: "Rename or remove one of the two files that the message lists. ViteHub takes the Definition name from the file path." },
     INTERNAL_C0002: { ...dynamicError, fix: "Rename or remove one of the two files that the message lists. ViteHub takes the Definition name from the file path." },
     INTERNAL_R0001: { ...dynamicError, fix: "Set `host` in `vitehub()`, or in the `vitehub` options of `nuxt.config.ts`, to `cloudflare`, `deno`, `netlify`, `node`, or `vercel`. Or remove `host` so that ViteHub finds the host from the environment." },
-    INTERNAL_R0002: { ...dynamicError, fix: "Stop using the feature that the message names, or set `host` in `vitehub()` to a host that provides it. For Blob, you can also set `blob: { driver: \"s3\" }` with a remote store." },
+    INTERNAL_R0002: { ...dynamicError, fix: ({ fix }: { message?: unknown, fix?: string }) => fix ?? "Build for a host that provides this capability, or set the option named in the message to `false`." },
     INTERNAL_R0004: { ...dynamicError, fix: "Set a larger `maxResponseBytes` on the HTTP request, such as the `url()` Source options, or ask the server for a smaller response." },
     INTERNAL_R0005: { ...dynamicError, fix: "Set `method` of the HTTP request to `GET`, `HEAD`, or `POST`." },
     INTERNAL_R0006: { ...dynamicError, fix: "Set `timeout` of the HTTP request to a number of milliseconds from 1 to 2147483647, or remove it to use the default." },

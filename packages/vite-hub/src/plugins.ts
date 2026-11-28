@@ -1180,7 +1180,7 @@ function deploymentPlugins(
         filter: { id: blobImports },
         handler(source) {
           if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
-            assertHostService(plan, "blob")
+            assertHostService(plan, "blob", "vite-hub/blob")
             throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
           }
         },

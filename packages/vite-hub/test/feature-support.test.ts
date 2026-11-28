@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
@@ -100,8 +100,57 @@ describe("feature catalog host checks", () => {
       if (featureSupport("email", host).level !== "explicit") continue
       expect(() => build(host, { email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
     }
-    expect(featureSupport("blob", "deno").level).toBe("explicit")
-    expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002" }))
+  })
+
+  it("names the S3 bucket option and how to disable Blob on Deno", () => {
+    expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({
+      code: "INTERNAL_R0002",
+      fix: expect.stringMatching(/Set `blob: \{ driver: "s3", bucket: "my-bucket" \}`.*or set `blob: false`/),
+    }))
+  })
+
+  it.each([{}, { blob: false }] as const)("names the Blob import to remove on Deno with %j", (options) => {
+    const plugin = findPlugin(vitehub({ host: "deno", ...options }), "vite-hub/deployment-host")
+    const hook = plugin.resolveId
+    const handler = isCallable(hook) ? hook : hook?.handler
+    if (!isCallable(handler)) throw new TypeError("Expected a callable resolveId hook.")
+    expect(() => Reflect.apply(handler, undefined, ["vite-hub/blob"])).toThrow(expect.objectContaining({
+      code: "INTERNAL_R0002",
+      fix: expect.stringContaining("or remove the `vite-hub/blob` import"),
+    }))
+  })
+
+  it("gives a fix for discovered Queue when the CLI overrides the config host", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "queue-host-"))
+    try {
+      await mkdir(join(projectRoot, "server/queues"), { recursive: true })
+      await writeFile(join(projectRoot, "server/queues/welcome.ts"), "export default defineQueue({ handler() {} })\n")
+      const cwd = vi.spyOn(process, "cwd").mockReturnValue(projectRoot)
+      vi.stubEnv("VITEHUB_HOST", "netlify")
+      vi.stubEnv("VITEHUB_HOST_SOURCE", "cli")
+      try {
+        expect(() => build("cloudflare", {})).toThrow(expect.objectContaining({
+          code: "INTERNAL_R0002",
+          message: expect.stringContaining('The "netlify" host cannot provide `queue`'),
+          fix: expect.stringContaining('Build for "cloudflare", "node", or "vercel", or set `queue: false`.'),
+        }))
+        expect(() => build("cloudflare", { queue: false })).not.toThrow()
+      }
+      finally {
+        cwd.mockRestore()
+        vi.unstubAllEnvs()
+      }
+    }
+    finally {
+      await rm(projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("tells sandboxTask: true on Node to choose Vercel Sandbox or a host that has a Sandbox", () => {
+    expect(() => build("node", { sandboxTask: true })).toThrow(expect.objectContaining({
+      code: "INTERNAL_R0002",
+      fix: expect.stringMatching(/Set `sandboxTask: \{ driver: "vercel" \}`.*Build for "cloudflare" or "vercel"/),
+    }))
   })
 
   it("allows email: true during Nuxt type preparation on every host", () => {
