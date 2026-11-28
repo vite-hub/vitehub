@@ -61,7 +61,7 @@ export default defineConfig({
 ::::
 :::
 
-- `host: 'vercel'` runs the Sandbox on Vercel. The `node` host has no Sandbox provider, so `sandboxTask: true` fails during config on `node`.
+- `host: 'vercel'` runs the Sandbox on Vercel. On the `node` host, `sandboxTask: true` runs each task in a Docker container. In `vite dev`, every host uses a Docker container.
 
 If you run the built app, export your Vercel keys in the terminal where you start it, using the values from your Vercel project:
 

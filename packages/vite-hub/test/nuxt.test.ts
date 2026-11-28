@@ -4130,7 +4130,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   it("keeps Sandbox Console metadata disabled when replay runs on an unsupported preset", async () => {
     const development = createNuxt(true)
 
-    await viteHubNuxtModule({ console: { auth: false }, host: "node", sandboxTask: true }, development.nuxt)
+    await viteHubNuxtModule({ console: { auth: false }, host: "netlify", sandboxTask: true }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
 

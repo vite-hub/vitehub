@@ -14,8 +14,9 @@ Choose the provider in app or host config, not in the task.
 | --- | --- | --- |
 | Vercel Sandbox | The `vercel` host, or `sandboxTask: { driver: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
 | Cloudflare Sandbox | The `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
+| Docker container | The `node` host, or `sandboxTask: { driver: 'container' }` | Node servers whose `docker` CLI reaches a Docker daemon. `vite dev` on every host. |
 
-`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `driver: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
+`sandboxTask: true` uses the Sandbox of the host. The `deno` and `netlify` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `driver: 'cloudflare'` works only on the `cloudflare` host, and `driver: 'container'` only on the `node` host. The Vercel and Cloudflare providers run remote machines that may bill you. The container driver runs on your own Docker daemon.
 
 To set provider options, give `sandboxTask` an object with the `driver` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
 
@@ -69,9 +70,11 @@ Apps that do not use `vite-hub` pass the same object to `hubSandboxTask()` from 
 
 ### Development
 
-On macOS, Linux, or WSL, the Vite or Nuxt dev server runs each Sandbox Task as a Node process on your computer, in a temporary folder that the run removes. You need no Vercel credentials and no Docker. The process is not isolated: it can read your files and use your network, and `executionAuthority` reports `isolation: 'none'`.
+The Vite or Nuxt dev server runs each Sandbox Task in a new Docker container on your computer, on every host, and removes the container after the run. You need Docker and no provider account. `executionAuthority` reports `isolation: 'container'`. The container uses the `node:24-bookworm` image and the [container options](#container-options). The first run pulls the image.
 
-For Cloudflare apps, use Nitro's `node-worker` dev runner (`nitro.devServer.runner: 'node-worker'`). The `miniflare` dev runner cannot start Node processes. On native Windows, use WSL or run against the provider as described below.
+If the `docker` CLI is missing or Docker is not running, the run fails with `SANDBOX_TASK_DOCKER_UNAVAILABLE`. Start Docker and check that `docker version` works. ViteHub does not fall back to a process on your computer.
+
+For Cloudflare apps, use Nitro's `node-worker` dev runner (`nitro.devServer.runner: 'node-worker'`). The `miniflare` dev runner cannot start the container.
 
 To run the tasks in the host's Sandbox during development, set `remote: true`:
 
@@ -81,9 +84,29 @@ sandboxTask: { driver: 'vercel', remote: true }
 
 With `remote: true`, the Vercel provider needs Vercel credentials. The Cloudflare provider still cannot run in the dev server, because the dev server cannot host a Container. The `cloudflare` host writes the Durable Object and Container only to `.output/server/wrangler.json`. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker.
 
+When you cannot run Docker and you trust every task, `unsafeHostProcess: true` runs each task as a Node process on your computer, in a temporary folder that the run removes. The process is not isolated: it can read your files and use your network, and `executionAuthority` reports `isolation: 'none'`. It works on macOS, Linux, and WSL, and it rejects every `networkPolicy` other than `'allow-all'`. Builds ignore it.
+
+```ts fragment
+sandboxTask: { unsafeHostProcess: true }
+```
+
+### Node and Docker deploys
+
+On the `node` host, `sandboxTask: true` uses the container driver. The server runs the `docker` CLI, which uses the local daemon socket or `DOCKER_HOST`. Each run starts one container and removes it, so the capacity of that daemon limits how many tasks run at once.
+
+In a Docker deploy, the app container needs a Docker daemon too. The `.output/Dockerfile` that ViteHub writes copies the static `docker` CLI from `docker:29-cli`, and its usage comment mounts the host socket. This is the default:
+
+```sh
+docker build -t my-app .output
+docker run --init -p 3000:3000 --env-file .env -v my-app-data:/app/.vitehub \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock) my-app
+```
+
+`--group-add` lets the `node` user of the image use the socket. With rootless Docker, mount `$XDG_RUNTIME_DIR/docker.sock` and add `--user root`. Root in a rootless container is your own host user, and the host group of the socket does not exist in the container. The socket gives the app root access to the Docker host, so use it only for your own app. To keep the daemon off the app host, do not mount the socket and set `DOCKER_HOST` to a remote daemon, such as `ssh://deploy@sandbox-host` or `tcp://sandbox-host:2376` with TLS. To use no daemon, set `sandboxTask: { driver: 'vercel' }` with Vercel credentials.
+
 ### Size
 
-Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `sandboxTask`. The two options work the same on both providers.
+Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `sandboxTask`. The two options work the same on every driver.
 
 ```ts fragment
 sandboxTask: { driver: 'cloudflare', cpu: 1, memory: 4096 }
@@ -99,6 +122,7 @@ Both values are minimums. ViteHub picks the smallest provider size that gives at
 | Provider | Size that ViteHub picks | Default | Largest |
 | --- | --- | --- | --- |
 | Vercel | `resources.vcpus`. Vercel gives 2048 MiB for each vCPU, so ViteHub uses the larger of `cpu` and `memory / 2048`, rounded up to 1 or the next even number. | Vercel default: 2 vCPU, 4096 MiB | 32 vCPU. Your Vercel plan can allow fewer. |
+| Docker container | `docker run --cpus` gets `cpu`, and `--memory` gets `memory`. | No limit | The limits of the Docker host. |
 | Cloudflare | The smallest instance type from `lite`, `basic`, `standard-1`, `standard-2`, `standard-3`, and `standard-4` that fits both values. | `standard-1`: 1/2 vCPU, 4096 MiB | `standard-4`: 4 vCPU, 12288 MiB |
 
 A size above the largest fails the build with `SANDBOX_TASK_SIZE_TOO_LARGE`.
@@ -116,6 +140,16 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | `source` | - | Source to load. |
 | `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). Vercel also takes `subnets`. |
 | `token`, `teamId`, `projectId` | - | Credentials. Or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`, or use the project environment. |
+
+### Container options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `image` | `'node:24-bookworm'` | Image of the Sandbox container. It must have `sh` and `node`. When it has Corepack, `pnpm` and `yarn` work. |
+| `docker` | `'docker'` | Docker CLI command. Set `DOCKER_HOST` in the server env to use a remote daemon. |
+| `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). |
+
+`cpu` and `memory` set `docker run --cpus` and `--memory`. The container runs on the [caged container runtime](https://github.com/vite-hub/vitehub/tree/main/packages/sandbox#run-in-a-caged-container): an internal Docker network, no `NET_RAW`, a process limit, and a broker container as the only network exit.
 
 ### Cloudflare options
 
@@ -142,7 +176,7 @@ For a custom image, give your container a complete Dockerfile that copies `/usr/
 
 ## Network policy
 
-Both providers take the same `networkPolicy`. The local dev runner cannot enforce network restrictions. It rejects `deny-all`, hostname allowlists, and Vercel subnet policies before starting a task. To develop with a restrictive policy, use `remote: true` on Vercel or the Wrangler setup above on Cloudflare.
+Every driver takes the same `networkPolicy`. The container driver, also in `vite dev`, turns it into the container egress: `'allow-all'` has no limit, `'deny-all'` has no network exit, and `{ allow }` lets the broker reach only those hosts. `'deny-all'` and `{ allow }` need rootful Docker Engine on native Linux. Docker Desktop, OrbStack, WSL, and rootless Docker have host routes outside the container network, so the driver rejects these policies there before it starts a container. The container driver rejects Vercel `subnets`. To develop with a restrictive policy on another Docker, use `remote: true` on Vercel or the Wrangler setup above on Cloudflare.
 
 ```ts [vite.config.ts]
 import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'

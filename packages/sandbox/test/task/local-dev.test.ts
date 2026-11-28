@@ -55,11 +55,65 @@ async function startDevApp(config: AgentSandboxTaskConfig) {
 }
 
 describe("Sandbox Tasks in vite dev", () => {
-  it.skipIf(process.platform === "win32").each(["cloudflare", "vercel"] as const)("runs a %s Sandbox Task as a local process", async (driver) => {
+  it.each(["cloudflare", "vercel", "container"] as const)("runs a %s Sandbox Task in a Docker container by default", async (driver) => {
+    const app = await startDevApp({ driver, networkPolicy: "allow-all" })
+    try {
+      const runner = await app.task.resolveSandboxTaskRunner("release-notes")
+      expect(runner.executionAuthority).toMatchObject({ isolation: "container", network: "unrestricted", filesystem: { scope: "sandbox" } })
+    }
+    finally {
+      await app.close()
+    }
+  }, 60_000)
+
+  it("maps the network policy to container egress", async () => {
+    for (const [networkPolicy, network] of [["deny-all", "none"], [{ allow: ["registry.npmjs.org"] }, "restricted"], [{ allow: ["*"] }, "unrestricted"]] as const) {
+      const app = await startDevApp({ driver: "cloudflare", networkPolicy })
+      try {
+        expect((await app.task.resolveSandboxTaskRunner("release-notes")).executionAuthority.network).toBe(network)
+      }
+      finally {
+        await app.close()
+      }
+    }
+  }, 60_000)
+
+  it("rejects a Vercel subnet policy in the dev container", async () => {
+    const app = await startDevApp({ driver: "vercel", networkPolicy: { subnets: { deny: ["10.0.0.0/8"] } } })
+    try {
+      await expect(app.task.resolveSandboxTaskRunner("release-notes")).rejects.toMatchObject({
+        code: "SANDBOX_TASK_CONTAINER_NETWORK_POLICY",
+        fix: expect.stringContaining("remote: true"),
+      })
+    }
+    finally {
+      await app.close()
+    }
+  }, 60_000)
+
+  it("names the fix when Docker is missing", async () => {
+    const app = await startDevApp({ driver: "container", docker: join(tmpdir(), "vitehub-missing-docker", "docker") })
+    try {
+      const [error] = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
+      expect(error).toMatchObject({
+        status: 500,
+        cause: {
+          code: "SANDBOX_TASK_DOCKER_UNAVAILABLE",
+          message: expect.stringContaining("the docker command is not installed or not on PATH."),
+          cause: { code: "SANDBOX_TASK_DOCKER_UNAVAILABLE", fix: expect.stringContaining("Start Docker Engine") },
+        },
+      })
+    }
+    finally {
+      await app.close()
+    }
+  }, 60_000)
+
+  it.skipIf(process.platform === "win32").each(["cloudflare", "vercel"] as const)("runs a %s Sandbox Task as a local process with unsafeHostProcess", async (driver) => {
     const temp = await mkdtemp(join(tmpdir(), "sandbox#task-"))
     roots.push(temp)
     vi.stubEnv("TMPDIR", temp)
-    const app = await startDevApp({ driver, networkPolicy: "allow-all" })
+    const app = await startDevApp({ driver, networkPolicy: "allow-all", unsafeHostProcess: true })
     try {
       const runner = await app.task.resolveSandboxTaskRunner("release-notes")
       expect(runner.executionAuthority).toMatchObject({ isolation: "none", filesystem: { scope: "host" } })
@@ -80,10 +134,10 @@ describe("Sandbox Tasks in vite dev", () => {
   }, 60_000)
 
   it.skipIf(process.platform === "win32").each([
-    { driver: "cloudflare", networkPolicy: "deny-all" },
-    { driver: "cloudflare", networkPolicy: { allow: ["example.org"] } },
-    { driver: "vercel", networkPolicy: { subnets: { deny: ["10.0.0.0/8"] } } },
-  ] as const)("rejects a restrictive $driver network policy in local dev: $networkPolicy", async (config) => {
+    { driver: "cloudflare", networkPolicy: "deny-all", unsafeHostProcess: true },
+    { driver: "cloudflare", networkPolicy: { allow: ["example.org"] }, unsafeHostProcess: true },
+    { driver: "vercel", networkPolicy: { subnets: { deny: ["10.0.0.0/8"] } }, unsafeHostProcess: true },
+  ] as const)("rejects a restrictive $driver network policy with unsafeHostProcess: $networkPolicy", async (config) => {
     const app = await startDevApp(config)
     try {
       await expect(app.task.resolveSandboxTaskRunner("release-notes")).rejects.toMatchObject({
@@ -99,7 +153,7 @@ describe("Sandbox Tasks in vite dev", () => {
   }, 60_000)
 
   it.skipIf(process.platform !== "win32")("rejects local dev on native Windows before starting a task", async () => {
-    await expect(startDevApp({ driver: "vercel" })).rejects.toMatchObject({
+    await expect(startDevApp({ driver: "vercel", unsafeHostProcess: true })).rejects.toMatchObject({
       code: "SANDBOX_TASK_LOCAL_WINDOWS",
       fix: expect.stringContaining("WSL"),
     })

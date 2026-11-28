@@ -30,6 +30,7 @@ export const sandboxTaskRuntimeStateSpecifier = '@vite-hub/sandbox/task/runtime/
 export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/internal/task/runtime'
 export const sandboxTaskRuntimeProviderSpecifiers = {
   cloudflare: `${sandboxTaskRuntimeSpecifier}/providers/cloudflare`,
+  container: `${sandboxTaskRuntimeSpecifier}/providers/container`,
   vercel: `${sandboxTaskRuntimeSpecifier}/providers/vercel`,
 } as const
 /** Only the `vite dev` facade imports the local provider, so builds do not bundle it. */
@@ -40,7 +41,7 @@ export const sandboxTaskRuntimeDependencyByProvider = {
   vercel: '@vercel/sandbox',
 } as const satisfies Partial<Record<string, string>>
 
-type SandboxTaskDriver = 'cloudflare' | 'vercel'
+type SandboxTaskDriver = 'cloudflare' | 'container' | 'vercel'
 
 function resolveSandboxTaskProviderLoaderTarget(
   provider: SandboxTaskDriver | undefined,
@@ -192,7 +193,9 @@ function createSandboxTaskProviderLoaderContents(
 export function sandboxTaskProviderRuntimeExport(provider: SandboxTaskDriver) {
   return provider === 'cloudflare'
     ? 'resolveCloudflareTaskSandbox'
-    : 'resolveVercelTaskSandbox'
+    : provider === 'container'
+      ? 'resolveContainerTaskSandbox'
+      : 'resolveVercelTaskSandbox'
 }
 
 export function resolveSandboxTaskFeatureConfig(sandboxTaskConfig: AgentSandboxTaskConfig, hosting?: string): AgentSandboxTaskConfig {
@@ -209,6 +212,8 @@ export function resolveSandboxTaskFeatureConfig(sandboxTaskConfig: AgentSandboxT
   }
 
   const unsupportedHostedProvider = hostFromNitroPreset(hosting)
+  if (unsupportedHostedProvider === 'node')
+    return { ...config, driver: 'container' } as AgentSandboxTaskConfig
   if (unsupportedHostedProvider) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandboxTask.driver` is required.' })
   }

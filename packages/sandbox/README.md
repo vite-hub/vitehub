@@ -303,13 +303,13 @@ sandbox: {
 
 Each session starts a new container on an internal Docker network, through the Docker CLI of the ViteHub process. Without `egress`, the container has no network exit. With `egress: { allow }` or `egress: "open"`, a broker container (`mitmproxy/mitmproxy`, pinned) is the only exit. It refuses hosts outside the allowlist at `CONNECT` time and for each request. Credential hosts are always allowed.
 
-The Docker daemon must be rootful Docker Engine 28 or newer on native Linux. The isolated bridge has no host address, and the Sandbox has no `NET_RAW` capability. This blocks direct access to host services with or without egress. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary and are rejected before resources are created, as are older daemons. The CLI may use a remote native Linux daemon. Host patterns without a port allow only port 443; use `host:port` for another HTTP or HTTPS port. The broker rejects raw TCP tunnels.
+The Docker daemon must be Docker Engine 28 or newer. With `egress: "none"` or `egress: { allow }`, it must be rootful Docker Engine on native Linux. The isolated bridge has no host address, and the Sandbox has no `NET_RAW` capability. This blocks direct access to host services. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary, so these egress values are rejected there before resources are created, as are older daemons. `egress: "open"` runs on those daemons too, because it sets no network limit. Without a reachable daemon or a `docker` CLI, `open()` fails with `SANDBOX_DOCKER_UNAVAILABLE`. The CLI may use a remote native Linux daemon. Host patterns without a port allow only port 443; use `host:port` for another HTTP or HTTPS port. The broker rejects raw TCP tunnels.
 
 Credential values resolve on the ViteHub host for each session and reach only the broker, through the Docker CLI environment. They are never on a command line. The Sandbox gets `vitehub-<NAME>-<random>` in each credential variable. The broker replaces it only in HTTPS request headers, including Basic authentication, to a host that the credential lists. A placeholder in a URL, over HTTP, to another host, or from an earlier session gets a `403` with a `SANDBOX_BROKER_B00x` code. The broker logs each request as a JSON line, without query strings. Read them with `docker logs`.
 
 The Sandbox trusts the broker certificate through `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`, and `REQUESTS_CA_BUNDLE`, and uses `HTTPS_PROXY`, `HTTP_PROXY`, and `NODE_USE_ENV_PROXY=1`. The CA private key stays in the broker. Home is `/vitehub/home` and the workspace is `/vitehub/workspace`. Relative file paths are relative to the workspace. `spawn` forwards input only with `stdin: true`. `kill()` signals the process group in the container. Closing the session removes both containers and the network. Each Docker object has the `dev.vitehub.sandbox` label, so `docker ps -a --filter label=dev.vitehub.sandbox` finds anything that a crashed process left.
 
-The image needs `sh`, coreutils, GNU `find`, and `git` for a checkout. The runtime has no ports, no `cwd` mount, and no durable Home state. `cpus`, `memoryBytes`, and `pidsLimit` (default 4096) map to the `docker run` limits, and `user` runs commands as another image user. `docker` selects another Docker CLI.
+The image needs `sh`, coreutils, GNU `find`, and `git` for a checkout. When the image has Corepack, setup runs `corepack enable`, so `pnpm` and `yarn` work. The runtime has no ports, no `cwd` mount, and no durable Home state. `cpus`, `memoryBytes`, and `pidsLimit` (default 4096) map to the `docker run` limits, and `user` runs commands as another image user. `docker` selects another Docker CLI.
 
 ## Bring a custom runtime
 
@@ -367,7 +367,30 @@ pnpm add @vite-hub/sandbox typescript @vercel/sandbox vite
 
 Sandbox Task requires Node.js 24.15 or newer. The Vercel provider accepts `@vercel/sandbox` 3.9 and 4. Vercel execution also requires a Vercel project with Sandbox access. At runtime, use the project's environment or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`.
 
-For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure. In `vite dev` on macOS, Linux, or WSL, Sandbox Tasks run as local processes on the `trusted-host` runtime, with no isolation and no provider account. Nitro's `miniflare` runner cannot run local tasks; select `node-worker`. To use a restrictive network policy in dev, opt into Vercel Sandbox with `remote: true`, or build for Cloudflare and run the output with Wrangler and Docker.
+For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure.
+
+### Run with Docker in dev and on Node
+
+`vite dev` runs each Sandbox Task in a new local Docker container, on every host, with no provider account. The Node host uses the same `container` driver in production. It needs no package other than `@vite-hub/sandbox`, only a `docker` CLI that reaches a Docker daemon:
+
+```ts fragment
+hubSandboxTask({ driver: "container" })
+// or, with the vite-hub distribution on the node host:
+vitehub({ host: "node", sandboxTask: true })
+```
+
+The container driver uses the [caged container runtime](#run-in-a-caged-container) with the `node:24-bookworm` image. Set `image` for another image with `sh` and `node`, `cpu` and `memory` (MiB) for the `docker run` limits, and `docker` for another Docker CLI. `networkPolicy` maps to the runtime's `egress`: `"allow-all"` (default) is `"open"`, `"deny-all"` is `"none"`, and `{ allow }` is the allowlist. A policy other than `"allow-all"` needs rootful Docker Engine on native Linux. With `"allow-all"`, the driver also runs on Docker Desktop, OrbStack, WSL, and rootless Docker. On those daemons the container can reach more host routes, so the `executionAuthority` says `network: "unrestricted"`.
+
+When the `docker` CLI is missing or cannot reach a daemon, the run fails with `SANDBOX_TASK_DOCKER_UNAVAILABLE`, and its `fix` names the next step. ViteHub never falls back to a process on the host. In `vite dev`, `remote: true` uses the host's Sandbox instead. `unsafeHostProcess: true` runs trusted tasks as local processes on the `trusted-host` runtime, with no isolation, on macOS, Linux, or WSL only. Nitro's `miniflare` runner cannot run local tasks; select `node-worker`.
+
+In a Docker deploy, the app container needs a Docker daemon. The Dockerfile that `vitehub()` writes for the Node host copies the static `docker` CLI from `docker:29-cli` and shows the default run command, which mounts the host socket:
+
+```sh
+docker run --init -p 3000:3000 --env-file .env \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock) my-app
+```
+
+With rootless Docker, mount `$XDG_RUNTIME_DIR/docker.sock` and use `--user root` in place of `--group-add`. The socket gives the app root access to the Docker host, so run only your own app this way. To keep the daemon off the app host, remove the mount and set `DOCKER_HOST` to a remote daemon, such as `ssh://user@sandbox-host` or `tcp://sandbox-host:2376` with TLS. Or set `sandboxTask: { driver: "vercel" }` to use Vercel Sandbox with Vercel credentials.
 
 ### Run one Sandbox Task
 
@@ -444,7 +467,8 @@ The Definition entrypoint does not import `@vite-hub/sandbox/task`. ViteHub call
 ### Provider and lifecycle limits
 
 - Set `cpu` (vCPUs) and `memory` (MiB) next to `driver`, such as `hubSandboxTask({ driver: "cloudflare", cpu: 1, memory: 4096 })`. They are minimums, and ViteHub picks the smallest driver size that fits both. Vercel gets `resources.vcpus`: 1 or an even number up to 32, with 2048 MiB for each vCPU. Cloudflare gets the smallest instance type from `lite` to `standard-4`, and the default is `standard-1` (1/2 vCPU, 4096 MiB). On Cloudflare the size belongs to the Container class, so it applies to every task of the app. ViteHub keeps the `instance_type` of your own `containers` entry and fails the build when it is smaller than `cpu` or `memory`. `maxInstances` sets the Cloudflare Container limit (default 12).
-- Driver selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ driver: "vercel" })` and `hubSandboxTask({ driver: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution infers the driver from its Vercel and Cloudflare hosts, and takes the same options in `vitehub({ sandboxTask: { ... } })`.
+- Driver selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ driver: "vercel" })`, `hubSandboxTask({ driver: "cloudflare" })`, and `hubSandboxTask({ driver: "container" })` are the direct-package forms. The Node Nitro preset infers `container`. The `vite-hub` distribution infers the driver from its Vercel, Cloudflare, and Node hosts, and takes the same options in `vitehub({ sandboxTask: { ... } })`.
+- The container driver starts and removes one container for each run. It runs on the daemon of one host, so its concurrency is the capacity of that daemon.
 - `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. Without it, a run stops after 5 minutes on every driver. It bounds one execution attempt after driver startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable driver operations and returns `SANDBOX_TASK_RUN_FAILED` with `error.data.code` set to `SANDBOX_TASK_TIMEOUT` and status 504. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
 - `vitehub.sandboxTask.transfer` accepts the same transfer limits as `defineSandboxTask()`.
 - Pass `signal` to `runSandboxTask()` when it belongs to a request or Agent Invocation. ViteHub forwards it to Sandbox startup and execution, cancels queued Cloudflare runs and retry backoff, and preserves the caller's abort reason. A Definition timeout remains the independent bound for each execution attempt.
@@ -468,7 +492,7 @@ const runner = await resolveSandboxTaskRunner("release-notes");
 console.log(runner.executionAuthority);
 ```
 
-The descriptor reports the provider's complete `ExecutionAuthority`, including dimensions it cannot establish as `unknown`. Set `networkPolicy` in the `vercel` or `cloudflare` provider options to limit outbound traffic, keep secrets in server environment or provider configuration, and do not treat container execution alone as authorization for untrusted code.
+The descriptor reports the provider's complete `ExecutionAuthority`, including dimensions it cannot establish as `unknown`. Set `networkPolicy` in the `vercel`, `cloudflare`, or `container` provider options to limit outbound traffic, keep secrets in server environment or provider configuration, and do not treat container execution alone as authorization for untrusted code.
 
 Payloads, context, and results must be JSON-serializable. Nested `Blob` and `Uint8Array` values cross the Sandbox boundary through invocation-local binary files, and Node.js `Buffer` values retain their type.
 

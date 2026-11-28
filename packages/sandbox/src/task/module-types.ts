@@ -5,7 +5,7 @@ import type { SandboxTaskSizeOptions } from './size'
 
 export type { SandboxTaskSizeOptions } from './size'
 
-export type SandboxTaskDriver = 'cloudflare' | 'vercel'
+export type SandboxTaskDriver = 'cloudflare' | 'container' | 'vercel'
 
 export interface CloudflareSandboxTaskOptions {
   sleepAfter?: string | number
@@ -15,10 +15,25 @@ export interface CloudflareSandboxTaskOptions {
 
 export interface SandboxTaskDevOptions {
   /**
-   * `vite dev` runs Sandbox Tasks as processes on this machine, with no isolation and no provider account.
+   * `vite dev` runs each Sandbox Task in a local Docker container, with no provider account.
    * Set `true` to use the host's Sandbox in `vite dev` too.
    */
   remote?: boolean
+  /**
+   * Run Sandbox Tasks in `vite dev` as Node processes on this machine, with no isolation, instead of in a Docker container.
+   * Use it only for trusted code when Docker is not available. It has no effect outside `vite dev`.
+   */
+  unsafeHostProcess?: boolean
+}
+
+export interface ContainerSandboxTaskDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
+  driver: 'container'
+  /** The image of the Sandbox container. It must have `sh` and `node`. Defaults to `node:24-bookworm`. */
+  image?: string
+  /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. A limit other than `"allow-all"` needs rootful Docker Engine on Linux. */
+  networkPolicy?: SandboxNetworkPolicy
+  /** The Docker CLI command. Defaults to `docker`. Set `DOCKER_HOST` to use a remote daemon. */
+  docker?: string
 }
 
 export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
@@ -52,6 +67,7 @@ export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTas
 export type SandboxTaskDefinitionDriverOptions
   = VercelSandboxTaskDriverOptions
     | CloudflareSandboxTaskDefinitionDriverOptions
+    | ContainerSandboxTaskDriverOptions
 
 export type AgentSandboxTaskConfig =
   | SandboxTaskDefinitionDriverOptions

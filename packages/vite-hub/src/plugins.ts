@@ -700,11 +700,12 @@ export interface ViteHubOptions {
    */
   docker?: boolean
   /**
-   * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
-   * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
-   * `{ driver: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ driver: "vercel", networkPolicy: "deny-all" }`.
-   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials. `vite dev` runs
-   * each task as a local process with no isolation; `remote: true` uses the provider's Sandbox in dev too.
+   * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Sandbox:
+   * Cloudflare Sandbox on `cloudflare`, Vercel Sandbox on `vercel`, and a Docker container on `node`. `true` uses the
+   * Sandbox of the host. An object sets the driver options, such as `{ driver: "cloudflare", keepAlive: true }`,
+   * `{ driver: "vercel", networkPolicy: "deny-all" }`, or `{ driver: "container", image: "node:24-bookworm" }`.
+   * `driver: "vercel"` also works on `node` and `netlify` with Vercel credentials. `vite dev` runs each task in a local
+   * Docker container on every host; `remote: true` uses the host's Sandbox in dev too.
    */
   sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
@@ -728,11 +729,14 @@ export type ViteHubSandboxTaskOptions = Exclude<SandboxTaskOptions, false>
  * The Sandbox driver of the app, or undefined when Sandbox Tasks are off or the host has no Sandbox. An explicit
  * `driver` wins over the host's Sandbox. Cloudflare Sandbox needs the Cloudflare host for its Container binding.
  */
-export function resolveSandboxTaskDriver(sandboxTask: ViteHubOptions["sandboxTask"], plan: DeploymentPlan): "cloudflare" | "vercel" | undefined {
+export function resolveSandboxTaskDriver(sandboxTask: ViteHubOptions["sandboxTask"], plan: DeploymentPlan): "cloudflare" | "container" | "vercel" | undefined {
   if (!sandboxTask) return
   const driver = sandboxTask === true ? undefined : sandboxTask.driver
   if (driver === "cloudflare" && plan.host !== "cloudflare") {
     throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED({ message: `[vitehub] sandboxTask.driver "cloudflare" works with the "cloudflare" host only, because Cloudflare Sandbox needs the Container and Durable Object binding of a Worker. The "${plan.host}" host cannot provide them.` })
+  }
+  if (driver === "container" && plan.host !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED({ message: `[vitehub] sandboxTask.driver "container" works with the "node" host only, because it starts Docker containers on the server. The "${plan.host}" host has no Docker daemon. \`vite dev\` uses Docker on every host without this option.` })
   }
   if (driver) return driver
   return plan.services.sandbox.supported ? plan.services.sandbox.driver : undefined
@@ -1327,6 +1331,7 @@ function deploymentPlugins(
                   drainMs: agentDrainMs(options.agent),
                   ...(options.health ? { healthRoute: options.health === true ? defaultHealthRoute : options.health.route ?? defaultHealthRoute } : {}),
                   name,
+                  ...(resolveSandboxTaskDriver(options.sandboxTask, plan) === "container" ? { dockerSandbox: true } : {}),
                 }
               : undefined
             const viteRoot = resolve(config.root ?? process.cwd())

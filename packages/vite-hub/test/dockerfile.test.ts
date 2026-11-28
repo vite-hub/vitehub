@@ -153,6 +153,14 @@ describe("vitehub({ docker })", () => {
     expect(text).toContain("CMD [\"node\",\".output/server/index.mjs\"]\n")
   })
 
+  it("adds the Docker CLI and the daemon socket mount when Sandbox Tasks use the container driver", async () => {
+    const text = await build({ host: "node", sandboxTask: true })
+    expect(text).toContain("#   docker run --init --stop-timeout 30 -p 3000:3000 --env-file .env -v acme-agent-server-data:/app/.vitehub -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock) acme-agent-server\n")
+    expect(text).toContain("set DOCKER_HOST")
+    expect(text).toContain("WORKDIR /app\nCOPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker\nCOPY . .output/\n")
+    expect(await build({ host: "node", sandboxTask: { driver: "vercel" } })).not.toContain("docker.sock")
+  })
+
   it("writes no Dockerfile with docker: false, in development, or on other presets", async () => {
     expect(await build({ host: "node", docker: false })).toBeUndefined()
     expect(await build({ host: "node" }, "serve")).toBeUndefined()

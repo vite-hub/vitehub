@@ -38,7 +38,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Queue | Local driver | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local driver |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
 | Realtime | memory | Durable Objects | — | — | — | Host driver | Postgres or Redis |
-| Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
+| Sandbox | Docker | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel / Docker | Docker |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | Deno.cron | Provider Wake | process |
 | Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
@@ -78,7 +78,7 @@ The table names built-in providers or adapters.
 - **Email:** `email: true` selects Cloudflare Email on the Cloudflare host. On other hosts, `vite dev` keeps each message in the development outbox and sends nothing, and a production build fails with `VITE_HUB_R0089` until you set `email.driver`, such as `resend`.
 - **Realtime:** Production uses Cloudflare Durable Objects on Cloudflare. On Node, `auto` picks Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else memory in one process. Vercel, Netlify, and Deno builds with Realtime Definitions fail.
 
-Local Vite delivers Queue Jobs in the dev server through the local driver, which stores jobs in `.vitehub/data/queue`. For every Queue driver, development follows the retry, delay, and size rules of the driver of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted driver output. `vitehub({ queue: true })` fails on Netlify because `queue` has no driver option. Compose `hubQueue({ driver })` to select the Cloudflare or Vercel Queue driver there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox with Vercel credentials. Cloudflare Sandbox works only on the Cloudflare host, because it needs a Cloudflare binding.
+Local Vite delivers Queue Jobs in the dev server through the local driver, which stores jobs in `.vitehub/data/queue`. For every Queue driver, development follows the retry, delay, and size rules of the driver of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted driver output. `vitehub({ queue: true })` fails on Netlify because `queue` has no driver option. Compose `hubQueue({ driver })` to select the Cloudflare or Vercel Queue driver there. `vitehub({ sandboxTask: true })` runs each Sandbox Task in a Docker container on the Node host and in Local Vite, and fails on the Netlify host. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox with Vercel credentials. Cloudflare Sandbox works only on the Cloudflare host, because it needs a Cloudflare binding.
 
 Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. On other hosts, `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` at build time selects Vercel Blob. Without them at build time, Vercel uses process-local memory. On the other hosts, Workspace Definitions without a Workspace `store` or `root` check them at runtime and use local files when they are missing. Realtime on Node shares rooms across instances with Redis or Postgres. With `memory`, rooms stay in one process.
 
@@ -143,7 +143,7 @@ The Nuxt module has its own check. CI packs the ViteHub packages, installs them 
 | `queue` | Tested | Tested | Tested | Tested |
 | `schedule` | Tested | Tested | Tested | Tested |
 | `workflow` | Tested | Tested | Tested | Tested |
-| `sandbox` | Not tested | Tested | Not tested | Tested |
+| `sandbox` | Tested | Tested | Not tested | Tested |
 | `realtime` | Tested | Tested | Tested | Tested |
 | `agent` | Tested | Tested | Tested | Tested |
 | `channels` | Tested | Tested | Tested | Tested |
@@ -176,7 +176,6 @@ The Nuxt module has its own check. CI packs the ViteHub packages, installs them 
 
 Not tested:
 
-- `sandbox`, Node build: The Vercel Sandbox driver needs credentials in a Node production build, which this local check does not have.
 - `sandbox`, Cloudflare build: `wrangler dev` does not start the Sandbox Container on a local machine: workerd logs `kj/timer.c++:30: overloaded: operation timed out` and then `exec() cannot be called on a container that is not running`, with rootless Docker and with rootful Docker 29. The repository's local e2e also treats Sandbox as live-only, and the `Sandbox Task Live E2E` job in live-smoke.yml runs it on Cloudflare.
 - `browser`, Node build: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.
 - `browser`, Node dev: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.

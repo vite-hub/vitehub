@@ -207,7 +207,7 @@ function createSandboxTaskRuntimeFacadeContents(
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     ...(localDev
-      ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
+      ? [`setSandboxTaskRuntimeLocalProvider(async config => await (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox(config))`]
       : []),
     'setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)',
     '',
@@ -490,7 +490,7 @@ export async function prepareSandboxTaskRuntime(options: {
   }
 
   const localDev = context.command === 'serve' && !context.config.remote
-  if (localDev && process.platform === 'win32')
+  if (localDev && context.config.unsafeHostProcess && process.platform === 'win32')
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_WINDOWS()
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), 'runtime/sandbox-task.mjs')

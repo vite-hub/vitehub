@@ -123,13 +123,54 @@ describe("container Sandbox runtime", () => {
     { KernelVersion: "6.8.0-generic", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: ["name=rootless"] },
     { KernelVersion: "10.0", OSType: "windows", OperatingSystem: "Windows Server", SecurityOptions: [] },
     {},
-  ])("rejects unsupported daemon $OperatingSystem before creating resources", async (serverInfo) => {
-    for (const egress of ["none", "open"] as const) {
+  ])("rejects a network limit on unsupported daemon $OperatingSystem before creating resources", async (serverInfo) => {
+    for (const egress of ["none", { allow: ["registry.npmjs.org"] }] as const) {
       const fake = await fakeDocker({ serverInfo });
       const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, egress, image: "node:24", kind: "container" } }, {});
       await expect(sandbox.open()).rejects.toThrow(/requires rootful Docker Engine on native Linux/);
       expect((await fake.calls()).map(call => call.argv[0])).toEqual(["version", "info"]);
     }
+  });
+
+  it.each([
+    { KernelVersion: "6.10.14-linuxkit", OSType: "linux", OperatingSystem: "Docker Desktop", SecurityOptions: [] },
+    { KernelVersion: "6.8.0-generic", OSType: "linux", OperatingSystem: "Ubuntu 24.04", SecurityOptions: ["name=rootless"] },
+  ])("runs with open egress on daemon $OperatingSystem", async (serverInfo) => {
+    const fake = await fakeDocker({ serverInfo });
+    const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, egress: "open", image: "node:24", kind: "container" } }, {});
+    expect(sandbox.plan.executionAuthority).toMatchObject({ isolation: "container", network: "unrestricted" });
+    const session = await sandbox.open();
+    try {
+      expect((await session.exec("true")).ok).toBe(true);
+    } finally {
+      await session.close();
+    }
+    expect((await fake.calls()).map(call => call.argv[0])).not.toContain("info");
+  });
+
+  it("names the fix when the Docker CLI is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-container-"));
+    temporary.push(root);
+    const sandbox = await resolveSandbox({ runtime: { docker: join(root, "docker"), egress: "open", image: "node:24", kind: "container" } }, {});
+    await expect(sandbox.open()).rejects.toMatchObject({
+      code: "SANDBOX_DOCKER_UNAVAILABLE",
+      fix: expect.stringContaining("/var/run/docker.sock"),
+      message: expect.stringContaining("not installed or not on PATH"),
+    });
+  });
+
+  it("names the fix when the Docker daemon is not reachable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-container-"));
+    temporary.push(root);
+    const docker = join(root, "docker");
+    await writeFile(docker, "#!/bin/sh\necho 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' >&2\nexit 1\n");
+    await chmod(docker, 0o755);
+    const sandbox = await resolveSandbox({ runtime: { docker, egress: "open", image: "node:24", kind: "container" } }, {});
+    await expect(sandbox.open()).rejects.toMatchObject({
+      code: "SANDBOX_DOCKER_UNAVAILABLE",
+      fix: expect.stringContaining("DOCKER_HOST"),
+      message: expect.stringContaining("Cannot connect to the Docker daemon"),
+    });
   });
 
   it.each(["none", "open"] as const)("accepts native Azure Linux with egress %s", async (egress) => {

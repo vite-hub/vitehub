@@ -102,6 +102,11 @@
       "import": "./dist/task/runtime/providers/cloudflare.js",
       "default": "./dist/task/runtime/providers/cloudflare.js"
     },
+    "./internal/task/runtime/providers/container": {
+      "types": "./dist/task/runtime/providers/container.d.ts",
+      "import": "./dist/task/runtime/providers/container.js",
+      "default": "./dist/task/runtime/providers/container.js"
+    },
     "./internal/task/runtime/providers/local": {
       "types": "./dist/task/runtime/providers/local.d.ts",
       "import": "./dist/task/runtime/providers/local.js",

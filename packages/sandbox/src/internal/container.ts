@@ -254,26 +254,28 @@ async function startContainer(
   };
 
   try {
-    const version = await required(docker(["version", "--format", "{{.Server.Version}}"], { signal }), "check the Docker daemon version");
+    const version = await dockerReachable(docker(["version", "--format", "{{.Server.Version}}"], { signal }));
     const major = /^v?(\d+)\./.exec(version.stdout.trim());
     if (!major || Number(major[1]) < 28)
       throw invalid("Container Sandbox requires Docker Engine 28 or newer for isolated bridge gateway mode.");
-    const details = await required(docker(["info", "--format", "{{json .}}"], { signal }), "check the Docker daemon platform");
-    const unsupportedPlatform = () => invalid("Container Sandbox requires rootful Docker Engine on native Linux. Docker Desktop, OrbStack, WSL, and rootless Docker are not supported because their host routes bypass isolated bridge gateway mode.");
-    let platform: { OSType?: unknown; OperatingSystem?: unknown; KernelVersion?: unknown; SecurityOptions?: unknown };
-    try {
-      platform = JSON.parse(details.stdout);
-    } catch {
-      throw unsupportedPlatform();
+    if (options.egress.policy !== "open") {
+      const details = await required(docker(["info", "--format", "{{json .}}"], { signal }), "check the Docker daemon platform");
+      const unsupportedPlatform = () => invalid("Container Sandbox with egress \"none\" or { allow } requires rootful Docker Engine on native Linux. Docker Desktop, OrbStack, WSL, and rootless Docker are not supported because their host routes bypass isolated bridge gateway mode. Set egress to \"open\" to run there without a network limit.");
+      let platform: { OSType?: unknown; OperatingSystem?: unknown; KernelVersion?: unknown; SecurityOptions?: unknown };
+      try {
+        platform = JSON.parse(details.stdout);
+      } catch {
+        throw unsupportedPlatform();
+      }
+      if (!platform || platform.OSType !== "linux"
+        || typeof platform.OperatingSystem !== "string" || !platform.OperatingSystem.trim()
+        || typeof platform.KernelVersion !== "string" || !platform.KernelVersion.trim()
+        || /docker desktop|orbstack|rancher desktop|colima|linuxkit/i.test(`${platform.OperatingSystem} ${platform.KernelVersion}`)
+        || /microsoft|wsl/i.test(platform.KernelVersion)
+        || !Array.isArray(platform.SecurityOptions)
+        || platform.SecurityOptions.some(option => typeof option !== "string" || /rootless/i.test(option)))
+        throw unsupportedPlatform();
     }
-    if (!platform || platform.OSType !== "linux"
-      || typeof platform.OperatingSystem !== "string" || !platform.OperatingSystem.trim()
-      || typeof platform.KernelVersion !== "string" || !platform.KernelVersion.trim()
-      || /docker desktop|orbstack|rancher desktop|colima|linuxkit/i.test(`${platform.OperatingSystem} ${platform.KernelVersion}`)
-      || /microsoft|wsl/i.test(platform.KernelVersion)
-      || !Array.isArray(platform.SecurityOptions)
-      || platform.SecurityOptions.some(option => typeof option !== "string" || /rootless/i.test(option)))
-      throw unsupportedPlatform();
     await required(docker([
       "network", "create", "--internal",
       "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
@@ -362,7 +364,7 @@ async function startSandboxContainer(
   ], { signal }), "start the Sandbox container");
   const owner = options.user === undefined ? "\"$(id -u):$(id -g)\"" : shellQuote(options.user);
   const setup = await docker(["exec", ...(options.user === undefined ? [] : ["-u", "0"]), name, "sh", "-c",
-    `mkdir -p ${sandboxRoot} ${pidDirectory} && chown ${owner} ${sandboxRoot} ${pidDirectory}`,
+    `mkdir -p ${sandboxRoot} ${pidDirectory} && chown ${owner} ${sandboxRoot} ${pidDirectory} && { ! command -v corepack >/dev/null 2>&1 || corepack enable >/dev/null 2>&1 || true; }`,
   ], { signal });
   if (setup.exitCode !== 0) {
     throw sandboxErrorDiagnostics.SANDBOX_R0161({ message: `[vitehub] Container Sandbox could not prepare ${sandboxRoot}. Run the image as root, or set user to a user that root can chown to: ${setup.stderr.trim()}` });
@@ -398,6 +400,20 @@ interface CommandResult {
   exitCode: number;
   stderr: string;
   stdout: string;
+}
+
+async function dockerReachable(result: Promise<CommandResult>) {
+  let value: CommandResult;
+  try {
+    value = await result;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw sandboxErrorDiagnostics.SANDBOX_DOCKER_UNAVAILABLE({ detail: "the docker command is not installed or not on PATH." });
+    throw error;
+  }
+  if (value.exitCode !== 0)
+    throw sandboxErrorDiagnostics.SANDBOX_DOCKER_UNAVAILABLE({ detail: value.stderr.trim() || value.stdout.trim() || `docker version exited with ${value.exitCode}.` });
+  return value;
 }
 
 async function required(result: Promise<CommandResult>, action: string) {

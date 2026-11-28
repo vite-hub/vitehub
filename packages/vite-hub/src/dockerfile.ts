@@ -23,6 +23,8 @@ export interface DockerfileBuild {
   healthRoute?: string
   /** The deployment name. */
   name: string
+  /** Sandbox Tasks start Docker containers, so the image needs the Docker CLI and a daemon. */
+  dockerSandbox?: boolean
 }
 
 export interface Dockerfile {
@@ -31,6 +33,8 @@ export interface Dockerfile {
   /** Persistence targets in the container. */
   dataDirs: string[]
   drainMs: number
+  /** The image has the Docker CLI, and the usage comment mounts the host daemon socket for Sandbox Tasks. */
+  dockerSandbox?: boolean
   /** The health route, when `health` is on. */
   healthRoute?: string
   /** The image name in the usage comment. */
@@ -41,6 +45,8 @@ export interface Dockerfile {
 }
 
 const appDir = "/app"
+const dockerCliImage = "docker:29-cli"
+const dockerSocketMount = "-v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)"
 const defaultDataDir = `${appDir}/.vitehub`
 const dockerArch: Record<string, string> = { arm: "arm/v7", arm64: "arm64", ppc64: "ppc64le", s390x: "s390x", x64: "amd64" }
 
@@ -99,6 +105,7 @@ export function resolveDockerfile(options: DockerfileBuild & { nativePackages: r
     baseImage: `node:${major}-${native && platform.libc === "musl" ? "alpine" : "slim"}`,
     dataDirs: coversDefault ? [dataDir] : [defaultDataDir, dataDir],
     drainMs: options.drainMs,
+    ...(options.dockerSandbox ? { dockerSandbox: true } : {}),
     ...(options.healthRoute ? { healthRoute: options.healthRoute } : {}),
     hasNativePackages: options.nativePackages.length > 0,
     imageName: imageName(options.name),
@@ -129,7 +136,11 @@ export function renderDockerfile(dockerfile: Dockerfile): string {
     `#   docker build -t ${dockerfile.imageName} .output`,
     ...(volumes.includes("\n") || volumes.includes("\r")
       ? ["# Mount a named volume at each path listed in VOLUME."]
-      : [`#   docker run --init --stop-timeout ${stopTimeout} -p 3000:3000 --env-file .env ${volumes} ${dockerfile.imageName}`]),
+      : [`#   docker run --init --stop-timeout ${stopTimeout} -p 3000:3000 --env-file .env ${volumes}${dockerfile.dockerSandbox ? ` ${dockerSocketMount}` : ""} ${dockerfile.imageName}`]),
+    ...(dockerfile.dockerSandbox ? [
+      "# Sandbox Tasks start Docker containers. The socket mount lets the app use the host daemon, which gives it root",
+      "# access to the host. To use another daemon, remove the mount and set DOCKER_HOST, such as ssh://user@sandbox-host.",
+    ] : []),
     `# --init reaps child processes. The build-time default stop timeout is ${stopTimeout} seconds.`,
     "# If VITEHUB_SHUTDOWN_DRAIN_MS is set at runtime, use --stop-timeout = ceil(budget in seconds) + 30.",
     ...(dockerfile.platform ? ["# The output has native packages for this CPU, so the image uses the same platform."] : []),
@@ -140,6 +151,7 @@ export function renderDockerfile(dockerfile: Dockerfile): string {
     ] : []),
     `FROM ${dockerfile.platform ? `--platform=${dockerfile.platform} ` : ""}${dockerfile.hasNativePackages ? "${VITEHUB_NODE_IMAGE}" : dockerfile.baseImage}`,
     `WORKDIR ${appDir}`,
+    ...(dockerfile.dockerSandbox ? [`COPY --from=${dockerCliImage} /usr/local/bin/docker /usr/local/bin/docker`] : []),
     "COPY . .output/",
     // Relative data paths resolve in the working directory, as in the systemd unit.
     `RUN ${JSON.stringify(["install", "-d", "-o", "node", "-g", "node", ...new Set([appDir, ...dockerfile.dataDirs])])}`,

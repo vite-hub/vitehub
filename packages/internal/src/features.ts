@@ -458,19 +458,20 @@ export default defineRealtime({
     title: "Realtime",
   }),
   sandboxTask: feature({
+    developmentOverrides: ["cloudflare", "vercel"],
     docs: "/docs/sandbox",
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox driver is provided."),
-      dev: unsupported("The default Node host has no Sandbox Provider. With the Cloudflare or Vercel host, `vite dev` runs each Sandbox Task as a process on this machine, with no isolation and no provider account. `sandboxTask: { remote: true }` uses the host's Sandbox instead."),
+      dev: native("container", "Docker", "`vite dev` runs each Sandbox Task in a local Docker container. Without Docker, the run fails with a fix. `sandboxTask: { remote: true }` uses the host's Sandbox instead, and `unsafeHostProcess: true` runs trusted tasks on this machine with no isolation.", "single-host"),
       netlify: explicit("sandboxTask.driver", "Vercel Sandbox", "The Netlify host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { driver: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
-      node: explicit("sandboxTask.driver", "Vercel Sandbox", "The Node host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { driver: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
+      node: native("container", "Docker", "Each run starts a Docker container on the daemon that the `docker` CLI reaches. In the generated Docker image, mount `/var/run/docker.sock` or set `DOCKER_HOST`. `sandboxTask: { driver: \"vercel\" }` uses Vercel Sandbox instead.", "single-host"),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
     packages: ["@vite-hub/sandbox"],
     service: "sandbox",
-    summary: "Sandbox Tasks in `server/sandbox-tasks/`. Each run starts an isolated Cloudflare or Vercel Sandbox.",
+    summary: "Sandbox Tasks in `server/sandbox-tasks/`. Each run starts an isolated Cloudflare Sandbox, Vercel Sandbox, or Docker container.",
     title: "Sandbox",
   }),
   schedule: feature({

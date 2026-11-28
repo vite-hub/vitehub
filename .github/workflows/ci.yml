@@ -608,6 +608,9 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
+      # The Nuxt primitives test runs a Sandbox Task in this image on the Node host.
+      - name: Pull the Sandbox Task image
+        run: docker pull --quiet node:24-bookworm
       - name: Install Chromium
         run: pnpm exec playwright-core install --with-deps --only-shell chromium
       - run: vp run test:consumer --shard=${{ matrix.shard }}
@@ -641,6 +644,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
+      # The Nuxt primitives test runs a Sandbox Task in this image on the Node host.
+      - name: Pull the Sandbox Task image
+        run: docker pull --quiet node:24-bookworm
       - name: Install Chromium
         run: pnpm exec playwright-core install --with-deps --only-shell chromium
       - run: vp run test:consumer -t Nuxt

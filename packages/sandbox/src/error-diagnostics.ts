@@ -155,6 +155,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `[vitehub] Invalid Cloudflare sleepAfter ${value}. Use seconds or a value such as "30s", "5m" or "1h".`,
       fix: "Set `sleepAfter` of the Cloudflare Sandbox to a number of seconds or a string such as `\"30s\"`, `\"5m\"`, or `\"1h\"`.",
     },
+    SANDBOX_DOCKER_UNAVAILABLE: {
+      why: ({ detail }: { detail: string }) => `[vitehub] The container Sandbox cannot reach a Docker daemon: ${detail}`,
+      fix: "Start Docker Engine or Docker Desktop, and check that `docker version` works for the user of the ViteHub process. In a Docker deploy, mount the daemon socket with `-v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)`, or set `DOCKER_HOST` to a remote daemon. For Sandbox Tasks, `sandboxTask: { driver: \"vercel\" }` uses Vercel Sandbox instead.",
+    },
     SANDBOX_NETWORK_POLICY_INVALID: {
       why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
       fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",

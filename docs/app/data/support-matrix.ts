@@ -201,8 +201,8 @@ const serverPrimitives: SupportMatrixGroup = {
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(
       "package",
-      "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host.",
-      "Cloudflare / Vercel",
+      "Uses Cloudflare Sandbox or Vercel Sandbox on those Nitro hosts, and a Docker container on the Node host.",
+      "Cloudflare / Vercel / Docker",
     ), "sandbox"),
     featureRow("schedule", "Static schedules and schedules that code starts", cell(
       "available",

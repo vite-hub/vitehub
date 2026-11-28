@@ -2225,8 +2225,9 @@ describe("vitehub", () => {
       const config = await applyDeploymentConfig({ host, sandboxTask: { driver: "vercel", runtime: "node22" } })
       expect(getResolvedFeatureOptions(config, "sandboxTask")).toBeUndefined()
     }
-    await expect(applyDeploymentConfig({ host: "node", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
-    await expect(applyDeploymentConfig({ host: "node", sandboxTask: { name: "box" } })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    await expect(applyDeploymentConfig({ host: "netlify", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    await expect(applyDeploymentConfig({ host: "netlify", sandboxTask: { name: "box" } })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    expect(getResolvedFeatureOptions(await applyDeploymentConfig({ host: "node", sandboxTask: true }), "sandboxTask")).toEqual({ driver: "container" })
     expect(() => vitehub({ host: "node", sandboxTask: { driver: "cloudflare" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED" }))
     expect(() => vitehub({ host: "cloudflare", sandboxTask: { driver: "vercel" } })).not.toThrow()
   })

@@ -27,6 +27,11 @@ export async function loadSandboxTaskRuntimeProvider(provider: SandboxTaskDriver
     return { resolveTaskSandbox: resolveCloudflareTaskSandbox }
   }
 
+  if (provider === 'container') {
+    const { resolveContainerTaskSandbox } = await dynamicImport<typeof import('./providers/container')>('./providers/container.js')
+    return { resolveTaskSandbox: resolveContainerTaskSandbox }
+  }
+
   if (provider === 'vercel') {
     const { resolveVercelTaskSandbox } = await dynamicImport<typeof import('./providers/vercel')>('./providers/vercel.js')
     return { resolveTaskSandbox: resolveVercelTaskSandbox }

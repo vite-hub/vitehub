@@ -1224,7 +1224,7 @@ describe("hubSandboxTask", () => {
     const { build, createNitro } = await import("nitro/builder")
     const { rolldown } = await import("vite/rolldown")
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const options = { driver: "vercel" as const, providerImportAliases: {}, providerImportSpecifier: "vite-hub/sandbox/task" }
+    const options = { driver: "vercel" as const, unsafeHostProcess: true, providerImportAliases: {}, providerImportSpecifier: "vite-hub/sandbox/task" }
     const plugin = hubSandboxTask(options)
     const refresh = () => resolveConfig({ root: rootDir, plugins: [plugin] }, "serve")
     await refresh()
@@ -1442,9 +1442,14 @@ describe("hubSandboxTask", () => {
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
   })
 
-  it.each(["deno-deploy", "netlify", "node-server"])("rejects implicit Sandbox providers for %s hosting", async (hosting) => {
+  it.each(["deno-deploy", "netlify"])("rejects implicit Sandbox providers for %s hosting", async (hosting) => {
     const { resolveSandboxTaskFeatureConfig } = await import("../../src/task/feature.ts")
-    expect(() => resolveSandboxTaskFeatureConfig({}, hosting)).toThrow("does not support " + (hosting === "deno-deploy" ? "deno" : hosting === "node-server" ? "node" : "netlify"))
+    expect(() => resolveSandboxTaskFeatureConfig({}, hosting)).toThrow("does not support " + (hosting === "deno-deploy" ? "deno" : "netlify"))
+  })
+
+  it("selects the container driver for node-server hosting", async () => {
+    const { resolveSandboxTaskFeatureConfig } = await import("../../src/task/feature.ts")
+    expect(resolveSandboxTaskFeatureConfig({}, "node-server")).toMatchObject({ driver: "container" })
   })
 
   it("keeps the runtime provider loader available when provider is inferred later", async () => {

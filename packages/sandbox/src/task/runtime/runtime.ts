@@ -142,12 +142,8 @@ async function resolveSandboxTaskProvider(
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
   const local = getSandboxTaskRuntimeLocalProvider()
-  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote)) {
-    const policy = sandboxTaskConfig && 'networkPolicy' in sandboxTaskConfig ? sandboxTaskConfig.networkPolicy : undefined
-    if (policy !== undefined && policy !== 'allow-all')
-      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NETWORK_POLICY()
-    return await local()
-  }
+  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote))
+    return await local(sandboxTaskConfig)
   const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
