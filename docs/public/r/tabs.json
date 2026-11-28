@@ -1,0 +1,50 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "tabs",
+  "type": "registry:component",
+  "title": "Tabs",
+  "description": "Tabs on a 1px line, with an indicator that slides to the selected tab.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/tabs/Tabs.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./tabs.css\";\nimport { Tabs as TabsRoot } from \"@ui-sdk/vue/tabs\";\nimport type { TabsEmits, TabsProps, TabsSlots } from \"./types.ts\";\n\nconst model = defineModel<string>();\nconst { defaultValue, orientation = \"horizontal\" } = defineProps<TabsProps>();\ndefineEmits<TabsEmits>();\ndefineSlots<TabsSlots>();\n</script>\n\n<template>\n  <TabsRoot v-model:value=\"model\" data-slot=\"tabs\" :default-value=\"defaultValue\" :orientation=\"orientation\"><slot /></TabsRoot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tabs/TabsContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { TabsPanel } from \"@ui-sdk/vue/tabs\";\nimport type { TabsContentSlots, TabsContentProps } from \"./types.ts\";\nconst { value } = defineProps<TabsContentProps>();\ndefineSlots<TabsContentSlots>();\n</script>\n\n<template>\n  <TabsPanel :value=\"value\">\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <div v-bind=\"part\" data-slot=\"tabs-content\"><component :is=\"children\" /></div>\n    </template>\n    <slot />\n  </TabsPanel>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tabs/TabsList.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { TabsIndicator, TabsList as TabsListPart } from \"@ui-sdk/vue/tabs\";\nimport type { TabsListSlots } from \"./types.ts\";\n\ndefineSlots<TabsListSlots>();\n</script>\n\n<template>\n  <TabsListPart data-slot=\"tabs-list\">\n    <slot />\n    <TabsIndicator data-slot=\"tabs-indicator\" />\n  </TabsListPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tabs/TabsTrigger.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { TabsTab } from \"@ui-sdk/vue/tabs\";\nimport type { TabsTriggerSlots, TabsTriggerProps } from \"./types.ts\";\nconst { value, disabled = false } = defineProps<TabsTriggerProps>();\ndefineSlots<TabsTriggerSlots>();\n</script>\n\n<template>\n  <TabsTab :value=\"value\" :disabled=\"disabled || undefined\">\n    <!-- The ui-sdk part writes its own data-slot. The render slot keeps the item's name on the element. -->\n    <template #render=\"{ props: part, children }\">\n      <button v-bind=\"part\" data-slot=\"tabs-trigger\"><component :is=\"children\" /></button>\n    </template>\n    <slot />\n  </TabsTab>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/tabs/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Tabs } from \"./Tabs.vue\";\nexport { default as TabsContent } from \"./TabsContent.vue\";\nexport { default as TabsList } from \"./TabsList.vue\";\nexport { default as TabsTrigger } from \"./TabsTrigger.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/tabs/tabs.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Tabs: a row of tabs on a 1px line, with a 1px indicator under the selected tab that slides between tabs. */\n  [data-slot=\"tabs\"] {\n    display: flex;\n    flex-direction: column;\n  }\n\n  [data-slot=\"tabs\"][data-orientation=\"vertical\"] {\n    flex-direction: row;\n  }\n\n  [data-slot=\"tabs-list\"] {\n    border-bottom: 1px solid var(--vh-border);\n    display: flex;\n    position: relative;\n  }\n\n  [data-slot=\"tabs-list\"][data-orientation=\"vertical\"] {\n    border-bottom: 0;\n    border-inline-end: 1px solid var(--vh-border);\n    flex-direction: column;\n  }\n\n  [data-slot=\"tabs-trigger\"] {\n    align-items: center;\n    background: none;\n    border: 0;\n    border-radius: 0;\n    color: var(--vh-muted);\n    cursor: pointer;\n    display: inline-flex;\n    font: inherit;\n    font-size: 0.875rem;\n    font-weight: 500;\n    gap: 0.375rem;\n    height: 2rem;\n    padding-inline: 0.75rem;\n    transition: color 150ms ease-out;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"tabs-trigger\"]:hover:not([data-disabled]) {\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"tabs-trigger\"][data-selected] {\n    color: var(--vh-text);\n  }\n\n  [data-slot=\"tabs-trigger\"][data-disabled] {\n    cursor: not-allowed;\n    opacity: 0.5;\n  }\n\n  /* The list clips nothing, but the ring stays inside the tab, so it does not cover the next tab. */\n  [data-slot=\"tabs-trigger\"]:focus-visible {\n    outline: 2px solid var(--vh-ring);\n    outline-offset: -2px;\n  }\n\n  [data-slot=\"tabs-trigger\"] > svg {\n    height: 1rem;\n    width: 1rem;\n  }\n\n  [data-slot=\"tabs-indicator\"] {\n    background: var(--vh-text);\n    bottom: -1px;\n    height: 1px;\n    left: var(--active-tab-left);\n    position: absolute;\n    transition: left 200ms cubic-bezier(0.22, 1, 0.36, 1), width 200ms cubic-bezier(0.22, 1, 0.36, 1);\n    width: var(--active-tab-width);\n  }\n\n  [data-slot=\"tabs-indicator\"]:not([data-visible]) {\n    display: none;\n  }\n\n  [data-slot=\"tabs-indicator\"][data-activation-direction=\"none\"] {\n    transition: none;\n  }\n\n  [data-slot=\"tabs-indicator\"][data-orientation=\"vertical\"] {\n    bottom: auto;\n    height: var(--active-tab-height);\n    left: auto;\n    right: -1px;\n    top: var(--active-tab-top);\n    transition-property: top, height;\n    width: 1px;\n  }\n\n  @media (prefers-reduced-motion: reduce) {\n    [data-slot=\"tabs-indicator\"] {\n      transition: none;\n    }\n  }\n\n  [data-slot=\"tabs-content\"] {\n    font-size: 0.875rem;\n    outline: none;\n  }\n\n  [data-slot=\"tabs-content\"]:not([hidden]) {\n    padding-block-start: 0.75rem;\n  }\n\n  [data-slot=\"tabs-content\"][data-orientation=\"vertical\"]:not([hidden]) {\n    padding-block-start: 0;\n    padding-inline-start: 0.75rem;\n  }\n\n  [data-slot=\"tabs-content\"]:focus-visible {\n    outline: 2px solid var(--vh-ring);\n    outline-offset: 2px;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/tabs/types.ts",
+      "type": "registry:component",
+      "content": "export interface TabsProps {\n  modelValue?: string;\n  defaultValue?: string;\n  orientation?: \"horizontal\" | \"vertical\";\n}\n\nexport interface TabsEmits {\n  \"update:modelValue\": [value: string];\n}\n\nexport interface TabsTriggerProps {\n  value: string;\n  disabled?: boolean;\n}\n\nexport interface TabsContentProps {\n  value: string;\n}\n\nexport interface TabsSlots {\n  default?: () => unknown;\n}\n\nexport interface TabsListSlots {\n  default?: () => unknown;\n}\n\nexport interface TabsTriggerSlots {\n  default?: () => unknown;\n}\n\nexport interface TabsContentSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

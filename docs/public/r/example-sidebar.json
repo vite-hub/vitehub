@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-sidebar",
+  "type": "registry:block",
+  "title": "Sidebar example",
+  "description": "A sidebar with a header, a group of links, a badge, and a footer, beside the page.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/sidebar"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-sidebar/SidebarExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarSeparator, SidebarTrigger } from \"../sidebar/index.ts\";\nimport { Box, House, Rocket, Settings } from \"@lucide/vue\";\n</script>\n\n<template>\n  <!-- `contain: layout` keeps the fixed sidebar inside this frame. -->\n  <div\n    data-slot=\"example-sidebar\"\n    style=\"contain: layout; height: 28rem; overflow: hidden; border: 1px solid var(--border); border-radius: 12px\"\n  >\n    <SidebarProvider>\n      <Sidebar>\n        <SidebarHeader>\n          <SidebarMenuButton size=\"lg\"><Box aria-hidden=\"true\" /><span>My app</span></SidebarMenuButton>\n        </SidebarHeader>\n        <SidebarContent>\n          <SidebarGroup>\n            <SidebarGroupLabel label=\"Project\" />\n            <SidebarMenu>\n              <SidebarMenuItem>\n                <SidebarMenuButton href=\"#overview\" is-active><House aria-hidden=\"true\" /><span>Overview</span></SidebarMenuButton>\n              </SidebarMenuItem>\n              <SidebarMenuItem>\n                <SidebarMenuButton href=\"#deploys\"><Rocket aria-hidden=\"true\" /><span>Deploys</span></SidebarMenuButton>\n                <SidebarMenuBadge>12</SidebarMenuBadge>\n              </SidebarMenuItem>\n            </SidebarMenu>\n          </SidebarGroup>\n        </SidebarContent>\n        <SidebarSeparator />\n        <SidebarFooter>\n          <SidebarMenuButton><Settings aria-hidden=\"true\" /><span>Settings</span></SidebarMenuButton>\n        </SidebarFooter>\n      </Sidebar>\n      <SidebarInset>\n        <header data-slot=\"example-sidebar-header\" style=\"display: flex; align-items: center; height: 3rem; padding-inline: 0.75rem\">\n          <SidebarTrigger />\n        </header>\n        <p style=\"padding: 1rem; margin: 0\">Overview</p>\n      </SidebarInset>\n    </SidebarProvider>\n  </div>\n</template>\n"
+    }
+  ]
+}

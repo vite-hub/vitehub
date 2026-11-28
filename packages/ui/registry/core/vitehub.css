@@ -7,7 +7,19 @@
  * restyle each other.
  */
 
-@import "@ui-sdk/core/web.css";
+/*
+ * The layer order. Tailwind declares the same order, so this changes nothing in an app that loads Tailwind first. When
+ * this file loads first, as in a Nuxt page whose item stylesheet is in an async chunk, it keeps `components` after
+ * `base`, so Tailwind's preflight does not reset the items.
+ */
+@layer theme, base, components, utilities;
+
+/*
+ * web.css goes in a sublayer of `components`. The item stylesheets are in `components` itself, so they win over
+ * web.css, and utility classes win over both. In its own `ui-sdk` layer after `utilities`, web.css would win over
+ * every item rule and every utility class.
+ */
+@import "@ui-sdk/core/web.css" layer(components);
 
 :root {
   --success: oklch(0.696 0.17 162.48);
@@ -66,6 +78,15 @@
   --vh-info: var(--vh-ui-info, var(--info));
   --vh-success: var(--vh-ui-success, var(--success));
   --vh-warning: var(--vh-ui-warning, var(--warning));
+  /* Menus, popovers, toasts, and dialogs: a translucent surface with a blur and a hairline shadow. */
+  --vh-popover: var(--vh-ui-popover, var(--popover));
+  --vh-shadow-popover: var(--vh-ui-shadow-popover, var(--shadow-popover));
+  --vh-shadow-dialog: var(--vh-ui-shadow-dialog, var(--shadow-dialog));
+  --vh-overlay: var(--vh-ui-overlay, var(--overlay));
+  --vh-sidebar: var(--vh-ui-sidebar, var(--sidebar));
+  --vh-sidebar-text: var(--vh-ui-sidebar-text, var(--sidebar-foreground, var(--foreground)));
+  --vh-sidebar-accent: var(--vh-ui-sidebar-accent, var(--sidebar-accent, var(--accent)));
+  --vh-sidebar-border: var(--vh-ui-sidebar-border, var(--sidebar-border, var(--border)));
 }
 
 /* web.css has no page base. It has no specificity, so any app rule wins. */

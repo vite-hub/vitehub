@@ -1,0 +1,61 @@
+@layer components {
+  /* Card: an 8px box on a 1px ring. The header puts an action in its top end corner, as in shadcn. */
+  [data-slot="card"] {
+    background: var(--vh-bg);
+    border-radius: var(--vh-radius);
+    box-shadow: 0 0 0 1px var(--vh-border);
+    color: var(--vh-text);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow: hidden;
+    padding: 1rem;
+  }
+
+  [data-slot="card"][data-variant="soft"] {
+    background: var(--vh-bg-muted);
+    box-shadow: none;
+  }
+
+  [data-slot="card-header"] {
+    align-items: start;
+    display: grid;
+    gap: 0.25rem;
+    grid-template-columns: 1fr;
+  }
+
+  [data-slot="card-header"]:has(> [data-slot="card-action"]) {
+    grid-template-columns: 1fr auto;
+  }
+
+  [data-slot="card-title"] {
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    margin: 0;
+  }
+
+  [data-slot="card-description"] {
+    color: var(--vh-muted);
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    margin: 0;
+  }
+
+  [data-slot="card-action"] {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-self: end;
+  }
+
+  [data-slot="card-content"] {
+    font-size: 0.875rem;
+    min-width: 0;
+  }
+
+  [data-slot="card-footer"] {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+  }
+}

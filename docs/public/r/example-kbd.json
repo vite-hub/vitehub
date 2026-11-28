@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-kbd",
+  "type": "registry:block",
+  "title": "Kbd example",
+  "description": "A key combination and one key.",
+  "registryDependencies": [
+    "@vitehub/kbd"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-kbd/KbdExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Kbd, KbdGroup } from \"../kbd/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-kbd\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <KbdGroup>\n      <Kbd label=\"Ctrl\" />\n      <Kbd label=\"K\" />\n    </KbdGroup>\n    <Kbd size=\"sm\" label=\"Esc\" />\n  </div>\n</template>\n"
+    }
+  ]
+}

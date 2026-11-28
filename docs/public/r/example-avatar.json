@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-avatar",
+  "type": "registry:block",
+  "title": "Avatar example",
+  "description": "Avatars with an image, with initials, and with an image that does not load.",
+  "registryDependencies": [
+    "@vitehub/avatar"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-avatar/AvatarExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Avatar, AvatarFallback, AvatarImage } from \"../avatar/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-avatar\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Avatar src=\"https://github.com/vite-hub.png\" alt=\"ViteHub\" fallback=\"VH\" />\n    <Avatar size=\"sm\" fallback=\"AB\" />\n    <Avatar size=\"lg\">\n      <AvatarImage src=\"https://example.invalid/missing.png\" alt=\"Missing image\" />\n      <AvatarFallback>MI</AvatarFallback>\n    </Avatar>\n  </div>\n</template>\n"
+    }
+  ]
+}

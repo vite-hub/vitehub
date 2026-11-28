@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-app-shell",
+  "type": "registry:block",
+  "title": "App shell example",
+  "description": "An app shell with a group of links and a group that opens.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/app-shell"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-app-shell/AppShellExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { AppShell } from \"../app-shell/index.ts\";\nimport { House, Rocket, Settings } from \"@lucide/vue\";\nimport type { AppShellGroup } from \"../app-shell/index.ts\";\n\nconst groups: AppShellGroup[] = [\n  {\n    label: \"Project\",\n    items: [\n      { title: \"Overview\", href: \"#overview\", icon: House },\n      { title: \"Deploys\", href: \"#deploys\", icon: Rocket, badge: 12 },\n      { title: \"Settings\", icon: Settings, children: [{ title: \"General\", href: \"#general\" }, { title: \"Domains\", href: \"#domains\" }] },\n    ],\n  },\n];\n</script>\n\n<template>\n  <!-- `contain: layout` keeps the fixed sidebar inside this frame. -->\n  <div\n    data-slot=\"example-app-shell\"\n    style=\"contain: layout; height: 28rem; overflow: hidden; border: 1px solid var(--border); border-radius: 12px\"\n  >\n    <AppShell title=\"My app\" heading=\"Overview\" :groups=\"groups\" current=\"#overview\">\n      <p style=\"margin: 0\">The project runs on Cloudflare.</p>\n    </AppShell>\n  </div>\n</template>\n"
+    }
+  ]
+}

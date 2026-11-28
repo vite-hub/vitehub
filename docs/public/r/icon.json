@@ -1,0 +1,32 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "icon",
+  "type": "registry:component",
+  "title": "Icon",
+  "description": "A frame that sizes a Lucide icon and names it, or hides it from screen readers.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/icon/Icon.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./icon.css\";\nimport type { IconProps, IconSlots } from \"./types.ts\";\n\nconst { size = \"md\", label } = defineProps<IconProps>();\ndefineSlots<IconSlots>();\n</script>\n\n<template>\n  <span data-slot=\"icon\" :data-size=\"size\" :role=\"label ? 'img' : undefined\" :aria-label=\"label\" :aria-hidden=\"label ? undefined : 'true'\">\n    <slot />\n  </span>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/icon/icon.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Icon: a box of the icon size. The SVG in it fills the box and takes the text color. */\n  [data-slot=\"icon\"] {\n    align-items: center;\n    display: inline-flex;\n    flex: none;\n    height: 1rem;\n    justify-content: center;\n    width: 1rem;\n  }\n\n  [data-slot=\"icon\"][data-size=\"xs\"] {\n    height: 0.75rem;\n    width: 0.75rem;\n  }\n\n  [data-slot=\"icon\"][data-size=\"sm\"] {\n    height: 0.875rem;\n    width: 0.875rem;\n  }\n\n  [data-slot=\"icon\"][data-size=\"lg\"] {\n    height: 1.25rem;\n    width: 1.25rem;\n  }\n\n  [data-slot=\"icon\"] > svg {\n    height: 100%;\n    width: 100%;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/icon/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Icon } from \"./Icon.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/icon/types.ts",
+      "type": "registry:component",
+      "content": "export type IconSize = \"xs\" | \"sm\" | \"md\" | \"lg\";\n\nexport interface IconProps {\n  size?: IconSize;\n  label?: string;\n}\n\nexport interface IconSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+@layer components {
+  /* Skeleton: a muted block that pulses while its content loads. */
+  [data-slot="skeleton"] {
+    animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    background: var(--vh-bg-muted);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    display: block;
+  }
+
+  @keyframes skeleton-pulse {
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="skeleton"] {
+      animation: none;
+    }
+  }
+}

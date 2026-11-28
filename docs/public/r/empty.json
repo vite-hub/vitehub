@@ -1,0 +1,57 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "empty",
+  "type": "registry:component",
+  "title": "Empty",
+  "description": "The empty state of a list or a page: an icon, a title, a description, and actions.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/empty/Empty.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./empty.css\";\nimport type { EmptyProps, EmptySlots } from \"./types.ts\";\n\nconst { size = \"md\", variant = \"ghost\" } = defineProps<EmptyProps>();\ndefineSlots<EmptySlots>();\n</script>\n\n<template>\n  <div data-slot=\"empty\" :data-size=\"size\" :data-variant=\"variant\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/EmptyContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { EmptyContentSlots } from \"./types.ts\";\n\ndefineSlots<EmptyContentSlots>();\n</script>\n\n<template>\n  <div data-slot=\"empty-content\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/EmptyDescription.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { EmptyDescriptionSlots } from \"./types.ts\";\n\ndefineSlots<EmptyDescriptionSlots>();\n</script>\n\n<template>\n  <p data-slot=\"empty-description\"><slot /></p>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/EmptyHeader.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { EmptyHeaderSlots } from \"./types.ts\";\n\ndefineSlots<EmptyHeaderSlots>();\n</script>\n\n<template>\n  <div data-slot=\"empty-header\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/EmptyMedia.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { EmptyMediaSlots } from \"./types.ts\";\n\ndefineSlots<EmptyMediaSlots>();\n</script>\n\n<template>\n  <div data-slot=\"empty-media\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/EmptyTitle.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { EmptyTitleSlots } from \"./types.ts\";\n\ndefineSlots<EmptyTitleSlots>();\n</script>\n\n<template>\n  <h3 data-slot=\"empty-title\"><slot /></h3>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/empty/empty.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Empty: a centered state with an icon in a circle, a title, a description, and actions. */\n  [data-slot=\"empty\"] {\n    align-items: center;\n    border-radius: var(--vh-radius);\n    display: flex;\n    flex-direction: column;\n    gap: 0.5rem;\n    justify-content: center;\n    min-width: 0;\n    padding: 1.25rem;\n    position: relative;\n    text-align: center;\n  }\n\n  @media (min-width: 40rem) {\n    [data-slot=\"empty\"] {\n      padding: 1.5rem;\n    }\n  }\n\n  @media (min-width: 64rem) {\n    [data-slot=\"empty\"] {\n      padding: 2rem;\n    }\n  }\n\n  [data-slot=\"empty\"][data-variant=\"outline\"] {\n    background: var(--vh-bg);\n    box-shadow: 0 0 0 1px var(--vh-border);\n  }\n\n  [data-slot=\"empty-header\"] {\n    align-items: center;\n    display: flex;\n    flex-direction: column;\n    gap: 0.25rem;\n    max-width: 24rem;\n  }\n\n  [data-slot=\"empty-media\"] {\n    align-items: center;\n    background: var(--vh-bg-muted);\n    border-radius: 9999px;\n    color: var(--vh-muted);\n    display: inline-flex;\n    font-size: 1.25rem;\n    height: 2.5rem;\n    justify-content: center;\n    margin-bottom: 0.25rem;\n    width: 2.5rem;\n  }\n\n  [data-slot=\"empty-media\"] > svg {\n    height: 1em;\n    width: 1em;\n  }\n\n  [data-slot=\"empty\"][data-size=\"xs\"] [data-slot=\"empty-media\"] {\n    font-size: 1rem;\n    height: 2rem;\n    width: 2rem;\n  }\n\n  [data-slot=\"empty\"][data-size=\"sm\"] [data-slot=\"empty-media\"] {\n    font-size: 1.125rem;\n    height: 2.25rem;\n    width: 2.25rem;\n  }\n\n  [data-slot=\"empty-title\"] {\n    font-size: 1rem;\n    font-weight: 500;\n    line-height: 1.5rem;\n    margin: 0;\n    text-wrap: pretty;\n  }\n\n  [data-slot=\"empty-description\"] {\n    color: var(--vh-muted);\n    font-size: 0.875rem;\n    line-height: 1.25rem;\n    margin: 0;\n    text-wrap: balance;\n  }\n\n  [data-slot=\"empty\"]:is([data-size=\"xs\"], [data-size=\"sm\"]) [data-slot=\"empty-title\"] {\n    font-size: 0.875rem;\n    line-height: 1.25rem;\n  }\n\n  [data-slot=\"empty\"]:is([data-size=\"xs\"], [data-size=\"sm\"]) [data-slot=\"empty-description\"] {\n    font-size: 0.75rem;\n    line-height: 1rem;\n  }\n\n  [data-slot=\"empty-content\"] {\n    align-items: center;\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.5rem;\n    justify-content: center;\n    margin-top: 0.5rem;\n    max-width: 24rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/empty/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Empty } from \"./Empty.vue\";\nexport { default as EmptyContent } from \"./EmptyContent.vue\";\nexport { default as EmptyDescription } from \"./EmptyDescription.vue\";\nexport { default as EmptyHeader } from \"./EmptyHeader.vue\";\nexport { default as EmptyMedia } from \"./EmptyMedia.vue\";\nexport { default as EmptyTitle } from \"./EmptyTitle.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/empty/types.ts",
+      "type": "registry:component",
+      "content": "export type EmptySize = \"xs\" | \"sm\" | \"md\";\nexport type EmptyVariant = \"ghost\" | \"outline\";\n\nexport interface EmptyProps {\n  size?: EmptySize;\n  variant?: EmptyVariant;\n}\n\nexport interface EmptySlots {\n  default?: () => unknown;\n}\n\nexport interface EmptyHeaderSlots {\n  default?: () => unknown;\n}\n\nexport interface EmptyMediaSlots {\n  default?: () => unknown;\n}\n\nexport interface EmptyTitleSlots {\n  default?: () => unknown;\n}\n\nexport interface EmptyDescriptionSlots {\n  default?: () => unknown;\n}\n\nexport interface EmptyContentSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

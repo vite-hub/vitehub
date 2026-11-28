@@ -1,0 +1,169 @@
+@layer components {
+  /* The trigger and the close button have the look of the plain button. */
+  :is([data-slot="dropdown-menu-trigger"]) {
+    align-items: center;
+    background: var(--vh-bg);
+    border: 1px solid var(--vh-border-accented);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-text);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    gap: 0.375rem;
+    height: 2rem;
+    justify-content: center;
+    padding-inline: 0.75rem;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  @media (hover: hover) {
+    :is([data-slot="dropdown-menu-trigger"]):hover:not([data-disabled]) {
+      background: var(--vh-bg-muted);
+    }
+  }
+
+  :is([data-slot="dropdown-menu-trigger"]):focus-visible {
+    outline: 2px solid var(--vh-ring);
+    outline-offset: 2px;
+  }
+
+  :is([data-slot="dropdown-menu-trigger"])[data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  [data-slot="dropdown-menu-trigger"][data-open] {
+    background: var(--vh-bg-muted);
+  }
+
+  /* Menu: a 10rem popup that floats on a 1px ring and a soft shadow. `--vh-popover` is translucent over a blurred page. */
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]) {
+    backdrop-filter: blur(12px);
+    background: var(--vh-popover);
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 1.125);
+    box-shadow: var(--vh-shadow-popover);
+    color: var(--vh-text);
+    font-size: 0.875rem;
+    margin: 0;
+    max-height: var(--available-height);
+    min-width: 10rem;
+    outline: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.25rem;
+  }
+
+  :is(
+    [data-slot="dropdown-menu-item"],
+    [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"],
+    [data-slot="dropdown-menu-sub-trigger"]
+  ) {
+    align-items: center;
+    border-radius: calc(var(--vh-radius) * 0.75 - 0.125rem);
+    cursor: default;
+    display: flex;
+    gap: 0.5rem;
+    min-height: 1.875rem;
+    outline: none;
+    padding-inline: 0.5rem;
+    position: relative;
+    user-select: none;
+  }
+
+  :is(
+    [data-slot="dropdown-menu-item"],
+    [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"],
+    [data-slot="dropdown-menu-sub-trigger"]
+  ):is([data-highlighted], [data-open]) {
+    background: var(--vh-bg-muted);
+  }
+
+  :is(
+    [data-slot="dropdown-menu-item"],
+    [data-slot="dropdown-menu-checkbox-item"],
+    [data-slot="dropdown-menu-radio-item"],
+    [data-slot="dropdown-menu-sub-trigger"]
+  )[data-disabled] {
+    opacity: 0.5;
+  }
+
+  [data-slot="dropdown-menu-item"][data-destructive] {
+    color: var(--vh-text-error, var(--vh-error));
+  }
+
+  :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"]) > svg {
+    color: var(--vh-muted);
+    height: 1rem;
+    width: 1rem;
+  }
+
+  [data-slot="dropdown-menu-item"][data-destructive] > svg {
+    color: inherit;
+  }
+
+  :is([data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-inset]) {
+    padding-inline-start: 2rem;
+  }
+
+  [data-slot="dropdown-menu-item-indicator"] {
+    align-items: center;
+    display: flex;
+    height: 1rem;
+    inset-inline-start: 0.5rem;
+    justify-content: center;
+    position: absolute;
+    width: 1rem;
+  }
+
+  [data-slot="dropdown-menu-item-indicator"][data-unchecked] {
+    visibility: hidden;
+  }
+
+  [data-slot="dropdown-menu-item-indicator"] > svg {
+    height: 1rem;
+    width: 1rem;
+  }
+
+  [data-slot="dropdown-menu-radio-dot"] {
+    fill: currentColor;
+    scale: 0.5;
+  }
+
+  [data-slot="dropdown-menu-sub-icon"] {
+    margin-inline-start: auto;
+  }
+
+  [data-slot="dropdown-menu-sub-icon"]:is([dir="rtl"] *) {
+    rotate: 180deg;
+  }
+
+  [data-slot="dropdown-menu-label"] {
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.375rem 0.5rem 0.25rem;
+  }
+
+  [data-slot="dropdown-menu-label"][data-inset] {
+    padding-inline-start: 2rem;
+  }
+
+  [data-slot="dropdown-menu-separator"] {
+    background: var(--vh-border);
+    height: 1px;
+    margin: 0.25rem -0.25rem;
+  }
+
+  [data-slot="dropdown-menu-shortcut"] {
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    margin-inline-start: auto;
+  }
+}

@@ -1,0 +1,99 @@
+@layer components {
+  /* App shell: the sidebar and a 48px header that sticks to the top of the page. */
+  [data-slot="app-shell-brand"] {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+    height: 2rem;
+    min-width: 0;
+    padding-inline: 0.5rem;
+  }
+
+  [data-slot="app-shell-title"] {
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="sidebar"][data-collapsed][data-collapsible="icon"] [data-slot="app-shell-title"],
+  [data-slot="sidebar"][data-collapsed][data-collapsible="icon"] [data-slot="app-shell-chevron"] {
+    display: none;
+  }
+
+  [data-slot="app-shell-chevron"] {
+    color: var(--vh-muted);
+    margin-inline-start: auto;
+    transition: rotate 200ms ease-out;
+  }
+
+  [data-slot="app-shell-group"][data-open] [data-slot="app-shell-chevron"] {
+    rotate: 90deg;
+  }
+
+  [data-slot="app-shell-chevron"]:is([dir="rtl"] *) {
+    rotate: 180deg;
+  }
+
+  [data-slot="app-shell-group"][data-open] [data-slot="app-shell-chevron"]:is([dir="rtl"] *) {
+    rotate: 90deg;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="app-shell-chevron"] {
+      transition: none;
+    }
+  }
+
+  [data-slot="app-shell-header"] {
+    align-items: center;
+    background: var(--vh-bg);
+    border-bottom: 1px solid var(--vh-border);
+    display: flex;
+    flex: none;
+    gap: 0.5rem;
+    height: 3rem;
+    padding-inline: 0.75rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  [data-slot="app-shell-divider"] {
+    background: var(--vh-border);
+    height: 1rem;
+    width: 1px;
+  }
+
+  [data-slot="app-shell-heading"] {
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="app-shell-actions"] {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+  }
+
+  [data-slot="app-shell-body"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    [data-slot="app-shell-body"] {
+      padding: 1.5rem;
+    }
+  }
+}

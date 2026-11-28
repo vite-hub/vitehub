@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-tooltip",
+  "type": "registry:block",
+  "title": "Tooltip example",
+  "description": "A tooltip from a label, and one with its own content under an icon-only trigger.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/tooltip"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-tooltip/TooltipExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Tooltip, TooltipContent, TooltipTrigger } from \"../tooltip/index.ts\";\nimport { Settings } from \"@lucide/vue\";\n</script>\n\n<template>\n  <div data-slot=\"example-tooltip\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Tooltip label=\"Deploy the main branch\">\n      <TooltipTrigger>Deploy</TooltipTrigger>\n    </Tooltip>\n    <Tooltip :delay=\"0\">\n      <TooltipTrigger aria-label=\"Settings\"><Settings aria-hidden=\"true\" /></TooltipTrigger>\n      <TooltipContent side=\"bottom\">Settings</TooltipContent>\n    </Tooltip>\n  </div>\n</template>\n"
+    }
+  ]
+}

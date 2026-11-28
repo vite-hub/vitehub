@@ -1,0 +1,76 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "command",
+  "type": "registry:component",
+  "title": "Command",
+  "description": "A searchable list of commands, inline or as a palette in a dialog.",
+  "dependencies": [
+    "@lucide/vue",
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/command/Command.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./command.css\";\nimport { Command as CommandRoot } from \"@ui-sdk/vue/command\";\nimport type { CommandEmits, CommandProps, CommandSlots } from \"./types.ts\";\n\nconst query = defineModel<string>(\"query\");\nconst { defaultQuery } = defineProps<CommandProps>();\nconst emit = defineEmits<CommandEmits>();\ndefineSlots<CommandSlots>();\n</script>\n\n<template>\n  <CommandRoot v-model:query=\"query\" data-slot=\"command\" :default-query=\"defaultQuery\" @action=\"(value: string) => emit('action', { value })\"><slot /></CommandRoot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandDialog.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./command.css\";\nimport { Dialog, DialogBackdrop, DialogContent, DialogDescription, DialogTitle } from \"@ui-sdk/vue/dialog\";\nimport Command from \"./Command.vue\";\nimport type { CommandDialogEmits, CommandDialogProps, CommandDialogSlots } from \"./types.ts\";\n\nconst open = defineModel<boolean | undefined>(\"open\", { default: undefined });\nconst { defaultOpen = false, title = \"Command palette\", description = \"Search for a command to run.\" } = defineProps<CommandDialogProps>();\nconst emit = defineEmits<CommandDialogEmits>();\ndefineSlots<CommandDialogSlots>();\n\nfunction run(event: { value: string }) {\n  emit(\"action\", event);\n  open.value = false;\n}\n</script>\n\n<template>\n  <Dialog v-model:open=\"open\" :default-open=\"defaultOpen || undefined\">\n    <slot name=\"trigger\" />\n    <DialogBackdrop data-slot=\"dialog-backdrop\" />\n    <!-- ui-sdk handles Escape and the Tab trap only on `dialog-content`, so the palette keeps that slot. -->\n    <DialogContent data-command-dialog=\"\">\n      <!-- ui-sdk writes its own `data-slot` over an attribute. The render slots keep the item's names. -->\n      <DialogTitle>\n        <template #render=\"{ props: part }\">\n          <h2 v-bind=\"part\" data-slot=\"command-dialog-title\">{{ title }}</h2>\n        </template>\n      </DialogTitle>\n      <DialogDescription>\n        <template #render=\"{ props: part }\">\n          <p v-bind=\"part\" data-slot=\"command-dialog-description\">{{ description }}</p>\n        </template>\n      </DialogDescription>\n      <Command @action=\"run\"><slot /></Command>\n    </DialogContent>\n  </Dialog>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandEmpty.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandEmpty as CommandEmptyPart } from \"@ui-sdk/vue/command\";\nimport type { CommandEmptyProps, CommandEmptySlots } from \"./types.ts\";\n\nconst { label = \"No results found.\" } = defineProps<CommandEmptyProps>();\ndefineSlots<CommandEmptySlots>();\n</script>\n\n<template>\n  <CommandEmptyPart data-slot=\"command-empty\"><slot>{{ label }}</slot></CommandEmptyPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandGroup.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandGroup as CommandGroupPart, CommandGroupLabel } from \"@ui-sdk/vue/command\";\nimport type { CommandGroupProps, CommandGroupSlots } from \"./types.ts\";\n\nconst { heading } = defineProps<CommandGroupProps>();\ndefineSlots<CommandGroupSlots>();\n</script>\n\n<template>\n  <CommandGroupPart data-slot=\"command-group\">\n    <CommandGroupLabel v-if=\"heading\" data-slot=\"command-group-label\">{{ heading }}</CommandGroupLabel>\n    <slot />\n  </CommandGroupPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandInput.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Search } from \"@lucide/vue\";\nimport { CommandInput as CommandInputPart } from \"@ui-sdk/vue/command\";\nimport type { CommandInputProps, CommandInputSlots } from \"./types.ts\";\n\ndefineOptions({ inheritAttrs: false });\nconst { label = \"Search commands\", placeholder = \"Type a command or search…\" } = defineProps<CommandInputProps>();\ndefineSlots<CommandInputSlots>();\n</script>\n\n<template>\n  <div data-slot=\"command-input-wrapper\">\n    <slot name=\"icon\"><Search aria-hidden=\"true\" /></slot>\n    <CommandInputPart v-bind=\"$attrs\" data-slot=\"command-input\" :aria-label=\"label\" :placeholder=\"placeholder\" />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandItem.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandItem as CommandItemPart } from \"@ui-sdk/vue/command\";\nimport type { CommandItemProps, CommandItemSlots } from \"./types.ts\";\n\nconst { value, disabled = false, shortcut } = defineProps<CommandItemProps>();\ndefineSlots<CommandItemSlots>();\n</script>\n\n<template>\n  <CommandItemPart data-slot=\"command-item\" :value=\"value\" :disabled=\"disabled || undefined\" :shortcut=\"shortcut\"><slot /></CommandItemPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandList.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandList as CommandListPart } from \"@ui-sdk/vue/command\";\nimport type { CommandListSlots } from \"./types.ts\";\n\ndefineSlots<CommandListSlots>();\n</script>\n\n<template>\n  <CommandListPart data-slot=\"command-list\"><slot /></CommandListPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandSeparator.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandSeparator as CommandSeparatorPart } from \"@ui-sdk/vue/command\";\n</script>\n\n<template>\n  <CommandSeparatorPart data-slot=\"command-separator\" />\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/CommandShortcut.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { CommandShortcut as CommandShortcutPart } from \"@ui-sdk/vue/command\";\nimport type { CommandShortcutSlots } from \"./types.ts\";\n\ndefineSlots<CommandShortcutSlots>();\n</script>\n\n<template>\n  <!-- Empty, it shows the item's `shortcut` in the keys of the platform. -->\n  <CommandShortcutPart data-slot=\"command-shortcut\"><slot /></CommandShortcutPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/command/command.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Command: ui-sdk's stylesheet draws the search field over the list. The ViteHub palette floats with no border. */\n  [data-slot=\"command\"] {\n    background: var(--vh-bg);\n    border-radius: var(--vh-radius);\n    box-shadow: 0 0 0 1px var(--vh-border);\n    border: 0;\n  }\n\n  [data-slot=\"command-input-wrapper\"] {\n    align-items: center;\n    border-bottom: 1px solid var(--vh-border);\n    color: var(--vh-muted);\n    display: flex;\n    gap: 0.5rem;\n    height: 2.75rem;\n    padding-inline: 0.75rem;\n  }\n\n  [data-slot=\"command-input-wrapper\"] > svg {\n    flex: none;\n    height: 1rem;\n    width: 1rem;\n  }\n\n  [data-slot=\"command-input-wrapper\"] > [data-slot=\"command-input\"] {\n    border-bottom: 0;\n    color: var(--vh-text);\n    height: 100%;\n    padding-inline: 0;\n  }\n\n  [data-slot=\"command-item\"] > svg {\n    color: var(--vh-muted);\n  }\n\n  [data-slot=\"dialog-content\"][data-command-dialog] {\n    background: var(--vh-popover);\n    backdrop-filter: blur(12px);\n    border-radius: calc(var(--vh-radius) * 1.5);\n    box-shadow: var(--vh-shadow-dialog);\n    color: var(--vh-text);\n    height: fit-content;\n    inset: 0;\n    margin: 12dvh auto auto;\n    max-height: calc(100dvh - 2rem);\n    outline: none;\n    overflow: hidden;\n    padding: 0;\n    position: fixed;\n    width: min(32rem, calc(100% - 2rem));\n    z-index: 50;\n  }\n\n  :is([data-slot=\"command-dialog-title\"], [data-slot=\"command-dialog-description\"]) {\n    clip-path: inset(50%);\n    height: 1px;\n    overflow: hidden;\n    position: absolute;\n    white-space: nowrap;\n    width: 1px;\n  }\n\n  [data-slot=\"dialog-content\"][data-command-dialog] > [data-slot=\"command\"] {\n    background: transparent;\n    box-shadow: none;\n    width: 100%;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/command/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Command } from \"./Command.vue\";\nexport { default as CommandDialog } from \"./CommandDialog.vue\";\nexport { default as CommandEmpty } from \"./CommandEmpty.vue\";\nexport { default as CommandGroup } from \"./CommandGroup.vue\";\nexport { default as CommandInput } from \"./CommandInput.vue\";\nexport { default as CommandItem } from \"./CommandItem.vue\";\nexport { default as CommandList } from \"./CommandList.vue\";\nexport { default as CommandSeparator } from \"./CommandSeparator.vue\";\nexport { default as CommandShortcut } from \"./CommandShortcut.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/command/types.ts",
+      "type": "registry:component",
+      "content": "export interface CommandProps {\n  query?: string;\n  defaultQuery?: string;\n}\n\nexport interface CommandEmits {\n  \"update:query\": [query: string];\n  action: [event: { value: string }];\n}\n\nexport interface CommandInputProps {\n  label?: string;\n  placeholder?: string;\n}\n\nexport interface CommandInputSlots {\n  icon?: () => unknown;\n}\n\nexport interface CommandEmptyProps {\n  label?: string;\n}\n\nexport interface CommandGroupProps {\n  heading?: string;\n}\n\nexport interface CommandItemProps {\n  value: string;\n  disabled?: boolean;\n  shortcut?: string;\n}\n\nexport interface CommandDialogProps {\n  open?: boolean;\n  defaultOpen?: boolean;\n  title?: string;\n  description?: string;\n}\n\nexport interface CommandDialogEmits {\n  \"update:open\": [open: boolean];\n  action: [event: { value: string }];\n}\n\nexport interface CommandDialogSlots {\n  default?: () => unknown;\n  trigger?: () => unknown;\n}\n\nexport interface CommandSlots {\n  default?: () => unknown;\n}\n\nexport interface CommandListSlots {\n  default?: () => unknown;\n}\n\nexport interface CommandEmptySlots {\n  default?: () => unknown;\n}\n\nexport interface CommandGroupSlots {\n  default?: () => unknown;\n}\n\nexport interface CommandItemSlots {\n  default?: () => unknown;\n}\n\nexport interface CommandShortcutSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

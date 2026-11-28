@@ -1,0 +1,72 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "table",
+  "type": "registry:component",
+  "title": "Table",
+  "description": "A data table with a header, rows, and a caption.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/table/Table.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./table.css\";\nimport type { TableSlots } from \"./types.ts\";\n\ndefineSlots<TableSlots>();\n</script>\n\n<template>\n  <div data-slot=\"table-container\">\n    <table data-slot=\"table\"><slot /></table>\n  </div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableBody.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableBodySlots } from \"./types.ts\";\n\ndefineSlots<TableBodySlots>();\n</script>\n\n<template>\n  <tbody data-slot=\"table-body\"><slot /></tbody>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableCaption.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableCaptionSlots } from \"./types.ts\";\n\ndefineSlots<TableCaptionSlots>();\n</script>\n\n<template>\n  <caption data-slot=\"table-caption\"><slot /></caption>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableCell.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableCellSlots } from \"./types.ts\";\n\ndefineSlots<TableCellSlots>();\n</script>\n\n<template>\n  <td data-slot=\"table-cell\"><slot /></td>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableEmpty.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableEmptyProps, TableEmptySlots } from \"./types.ts\";\n\nconst { colspan = 1, label = \"No results.\" } = defineProps<TableEmptyProps>();\ndefineSlots<TableEmptySlots>();\n</script>\n\n<template>\n  <tr data-slot=\"table-empty\">\n    <td :colspan=\"colspan\"><slot>{{ label }}</slot></td>\n  </tr>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableFooter.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableFooterSlots } from \"./types.ts\";\n\ndefineSlots<TableFooterSlots>();\n</script>\n\n<template>\n  <tfoot data-slot=\"table-footer\"><slot /></tfoot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableHead.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableHeadSlots } from \"./types.ts\";\n\ndefineSlots<TableHeadSlots>();\n</script>\n\n<template>\n  <th data-slot=\"table-head\" scope=\"col\"><slot /></th>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableHeader.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableHeaderSlots } from \"./types.ts\";\n\ndefineSlots<TableHeaderSlots>();\n</script>\n\n<template>\n  <thead data-slot=\"table-header\"><slot /></thead>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/TableRow.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { TableRowSlots } from \"./types.ts\";\n\ndefineSlots<TableRowSlots>();\n</script>\n\n<template>\n  <tr data-slot=\"table-row\"><slot /></tr>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/table/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Table } from \"./Table.vue\";\nexport { default as TableBody } from \"./TableBody.vue\";\nexport { default as TableCaption } from \"./TableCaption.vue\";\nexport { default as TableCell } from \"./TableCell.vue\";\nexport { default as TableEmpty } from \"./TableEmpty.vue\";\nexport { default as TableFooter } from \"./TableFooter.vue\";\nexport { default as TableHead } from \"./TableHead.vue\";\nexport { default as TableHeader } from \"./TableHeader.vue\";\nexport { default as TableRow } from \"./TableRow.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/table/table.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Table: rows on 1px lines, a muted head, and a hover fill. The container scrolls a wide table. */\n  [data-slot=\"table-container\"] {\n    overflow-x: auto;\n    position: relative;\n    width: 100%;\n  }\n\n  [data-slot=\"table\"] {\n    border-collapse: collapse;\n    caption-side: bottom;\n    color: var(--vh-text);\n    font-size: 0.875rem;\n    width: 100%;\n  }\n\n  [data-slot=\"table-header\"] [data-slot=\"table-row\"] {\n    border-bottom: 1px solid var(--vh-border);\n  }\n\n  [data-slot=\"table-row\"] {\n    border-bottom: 1px solid var(--vh-border);\n    transition: background-color 150ms ease-out;\n  }\n\n  [data-slot=\"table-body\"] [data-slot=\"table-row\"]:last-child {\n    border-bottom: 0;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"table-body\"] [data-slot=\"table-row\"]:hover {\n      background: color-mix(in oklab, var(--vh-bg-muted) 50%, transparent);\n    }\n  }\n\n  [data-slot=\"table-row\"][aria-selected=\"true\"] {\n    background: var(--vh-bg-muted);\n  }\n\n  [data-slot=\"table-head\"] {\n    color: var(--vh-muted);\n    font-weight: 500;\n    height: 2.5rem;\n    padding: 0 0.75rem;\n    text-align: start;\n    vertical-align: middle;\n    white-space: nowrap;\n  }\n\n  [data-slot=\"table-cell\"] {\n    padding: 0.625rem 0.75rem;\n    vertical-align: middle;\n  }\n\n  [data-slot=\"table-footer\"] {\n    background: color-mix(in oklab, var(--vh-bg-muted) 50%, transparent);\n    border-top: 1px solid var(--vh-border);\n    font-weight: 500;\n  }\n\n  [data-slot=\"table-caption\"] {\n    color: var(--vh-muted);\n    font-size: 0.8125rem;\n    margin-top: 1rem;\n  }\n\n  [data-slot=\"table-empty\"] > td {\n    color: var(--vh-muted);\n    padding: 1.5rem 0.75rem;\n    text-align: center;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/table/types.ts",
+      "type": "registry:component",
+      "content": "export interface TableSlots {\n  default?: () => unknown;\n}\n\nexport interface TableEmptyProps {\n  colspan?: number;\n  label?: string;\n}\n\nexport interface TableEmptySlots {\n  default?: () => unknown;\n}\n\nexport interface TableHeaderSlots {\n  default?: () => unknown;\n}\n\nexport interface TableBodySlots {\n  default?: () => unknown;\n}\n\nexport interface TableFooterSlots {\n  default?: () => unknown;\n}\n\nexport interface TableRowSlots {\n  default?: () => unknown;\n}\n\nexport interface TableHeadSlots {\n  default?: () => unknown;\n}\n\nexport interface TableCellSlots {\n  default?: () => unknown;\n}\n\nexport interface TableCaptionSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

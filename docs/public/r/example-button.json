@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-button",
+  "type": "registry:block",
+  "title": "Button example",
+  "description": "Every variant and size of Button, an icon-only button, and a loading button.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/button"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-button/ButtonExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Button } from \"../button/index.ts\";\nimport { Plus } from \"@lucide/vue\";\n</script>\n\n<template>\n  <div data-slot=\"example-button\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Button variant=\"solid\" label=\"Deploy\" />\n    <Button label=\"Cancel\" />\n    <Button variant=\"soft\" label=\"Preview\" />\n    <Button variant=\"ghost\" label=\"Skip\" />\n    <Button variant=\"link\" label=\"Learn more\" />\n    <Button variant=\"destructive\" label=\"Delete\" />\n    <Button size=\"sm\" label=\"Small\">\n      <template #icon><Plus aria-hidden=\"true\" /></template>\n    </Button>\n    <Button aria-label=\"Add project\" size=\"sm\"><Plus aria-hidden=\"true\" /></Button>\n    <Button variant=\"solid\" label=\"Saving\" loading />\n  </div>\n</template>\n"
+    }
+  ]
+}

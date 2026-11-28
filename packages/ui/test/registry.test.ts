@@ -64,8 +64,8 @@ describe("@vitehub registry", () => {
   it("derives the item and package dependencies from the imports", () => {
     expect(item("status")?.registryDependencies).toEqual(["@vitehub/core"]);
     expect(item("copy-button")?.registryDependencies).toEqual(["@vitehub/core"]);
-    expect(item("copy-button")?.dependencies).toEqual(["@lucide/vue", "@ui-sdk/vue@0.1.0-beta.14"]);
-    expect(item("core")?.dependencies).toEqual(["@ui-sdk/core@0.1.0-beta.14"]);
+    expect(item("copy-button")?.dependencies).toEqual(["@lucide/vue", "@ui-sdk/vue@0.1.0-beta.19"]);
+    expect(item("core")?.dependencies).toEqual(["@ui-sdk/core@0.1.0-beta.19"]);
     expect(item("example-status")?.registryDependencies).toEqual(["@vitehub/status"]);
     expect(item("example-copy-button")?.registryDependencies).toEqual(["@vitehub/copy-button"]);
     expect(item("base")?.registryDependencies).toEqual(["@vitehub/theme", "@vitehub/core"]);

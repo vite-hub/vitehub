@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-sheet",
+  "type": "registry:block",
+  "title": "Sheet example",
+  "description": "A sheet with a long body that scrolls.",
+  "registryDependencies": [
+    "@vitehub/sheet"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-sheet/SheetExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from \"../sheet/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-sheet\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Sheet>\n      <SheetTrigger>Open settings</SheetTrigger>\n      <SheetContent>\n        <SheetHeader>\n          <SheetTitle>Settings</SheetTitle>\n          <SheetDescription>Change the project settings.</SheetDescription>\n        </SheetHeader>\n        <p v-for=\"line in 40\" :key=\"line\" data-slot=\"example-sheet-line\">Setting {{ line }}</p>\n        <SheetFooter>\n          <SheetClose>Done</SheetClose>\n        </SheetFooter>\n      </SheetContent>\n    </Sheet>\n  </div>\n</template>\n"
+    }
+  ]
+}

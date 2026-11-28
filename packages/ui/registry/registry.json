@@ -45,6 +45,144 @@
       "description": "A button that copies text and shows a check for a moment."
     },
     {
+      "name": "button",
+      "type": "registry:component",
+      "title": "Button",
+      "description": "A button in the ViteHub look: solid, outline, soft, ghost, link, and destructive, with a loading state."
+    },
+    {
+      "name": "icon",
+      "type": "registry:component",
+      "title": "Icon",
+      "description": "A frame that sizes a Lucide icon and names it, or hides it from screen readers."
+    },
+    {
+      "name": "input",
+      "type": "registry:component",
+      "title": "Input",
+      "description": "A one-line text field with a blue focus frame and an invalid state."
+    },
+    {
+      "name": "textarea",
+      "type": "registry:component",
+      "title": "Textarea",
+      "description": "A multi-line text field with the look of Input."
+    },
+    {
+      "name": "label",
+      "type": "registry:component",
+      "title": "Label",
+      "description": "The name of a form control."
+    },
+    {
+      "name": "field",
+      "type": "registry:component",
+      "title": "Field",
+      "description": "A form control with its label, description, and error, linked for screen readers."
+    },
+    {
+      "name": "tooltip",
+      "type": "registry:component",
+      "title": "Tooltip",
+      "description": "A short text that shows when the pointer rests on its trigger or the trigger has focus."
+    },
+    {
+      "name": "skeleton",
+      "type": "registry:component",
+      "title": "Skeleton",
+      "description": "A pulsing block that holds the place of content that loads."
+    },
+    {
+      "name": "empty",
+      "type": "registry:component",
+      "title": "Empty",
+      "description": "The empty state of a list or a page: an icon, a title, a description, and actions."
+    },
+    {
+      "name": "alert",
+      "type": "registry:component",
+      "title": "Alert",
+      "description": "A message in a status color that the page shows in its flow."
+    },
+    {
+      "name": "badge",
+      "type": "registry:component",
+      "title": "Badge",
+      "description": "A short label in a status color."
+    },
+    {
+      "name": "card",
+      "type": "registry:component",
+      "title": "Card",
+      "description": "A surface with a header, content, and a footer."
+    },
+    {
+      "name": "kbd",
+      "type": "registry:component",
+      "title": "Kbd",
+      "description": "A keyboard key or a key combination."
+    },
+    {
+      "name": "avatar",
+      "type": "registry:component",
+      "title": "Avatar",
+      "description": "An image of a person or a project, with initials when the image does not load."
+    },
+    {
+      "name": "dialog",
+      "type": "registry:component",
+      "title": "Dialog",
+      "description": "A modal window over a dimmed page, with a close button in the corner."
+    },
+    {
+      "name": "sheet",
+      "type": "registry:component",
+      "title": "Sheet",
+      "description": "A panel that slides in from an edge of the viewport. A long body scrolls."
+    },
+    {
+      "name": "dropdown-menu",
+      "type": "registry:component",
+      "title": "Dropdown menu",
+      "description": "A menu of actions, checkboxes, and radio items that a button opens."
+    },
+    {
+      "name": "tabs",
+      "type": "registry:component",
+      "title": "Tabs",
+      "description": "Tabs on a 1px line, with an indicator that slides to the selected tab."
+    },
+    {
+      "name": "table",
+      "type": "registry:component",
+      "title": "Table",
+      "description": "A data table with a header, rows, and a caption."
+    },
+    {
+      "name": "command",
+      "type": "registry:component",
+      "title": "Command",
+      "description": "A searchable list of commands, inline or as a palette in a dialog."
+    },
+    {
+      "name": "toast",
+      "type": "registry:component",
+      "title": "Toast",
+      "description": "Short notifications in a corner of the viewport. Call toast() from anywhere."
+    },
+    {
+      "name": "sidebar",
+      "type": "registry:component",
+      "title": "Sidebar",
+      "description": "An app sidebar that collapses to a rail of icons on desktop and is a sheet on mobile. Ctrl+B or Cmd+B toggles it."
+    },
+    {
+      "name": "app-shell",
+      "type": "registry:block",
+      "title": "App shell",
+      "description": "An app layout: a sidebar of grouped links and a header that sticks to the top of the page."
+    },
+    {
       "name": "example-status",
       "type": "registry:block",
       "title": "Status example",
@@ -55,6 +193,144 @@
       "type": "registry:block",
       "title": "Copy button example",
       "description": "An icon-only copy button and one with a label."
+    },
+    {
+      "name": "example-button",
+      "type": "registry:block",
+      "title": "Button example",
+      "description": "Every variant and size of Button, an icon-only button, and a loading button."
+    },
+    {
+      "name": "example-icon",
+      "type": "registry:block",
+      "title": "Icon example",
+      "description": "An icon at every size, and a named icon."
+    },
+    {
+      "name": "example-input",
+      "type": "registry:block",
+      "title": "Input example",
+      "description": "Inputs with v-model, a small size, an invalid value, and a disabled state."
+    },
+    {
+      "name": "example-textarea",
+      "type": "registry:block",
+      "title": "Textarea example",
+      "description": "A textarea with v-model, and an invalid one."
+    },
+    {
+      "name": "example-label",
+      "type": "registry:block",
+      "title": "Label example",
+      "description": "A label for an email input."
+    },
+    {
+      "name": "example-field",
+      "type": "registry:block",
+      "title": "Field example",
+      "description": "A field with a description, and an invalid field with an error."
+    },
+    {
+      "name": "example-tooltip",
+      "type": "registry:block",
+      "title": "Tooltip example",
+      "description": "A tooltip from a label, and one with its own content under an icon-only trigger."
+    },
+    {
+      "name": "example-skeleton",
+      "type": "registry:block",
+      "title": "Skeleton example",
+      "description": "The skeleton of an avatar and two lines of text."
+    },
+    {
+      "name": "example-empty",
+      "type": "registry:block",
+      "title": "Empty example",
+      "description": "The empty state of a project list, with an action."
+    },
+    {
+      "name": "example-alert",
+      "type": "registry:block",
+      "title": "Alert example",
+      "description": "An info alert, and an error alert with an action and a close button."
+    },
+    {
+      "name": "example-badge",
+      "type": "registry:block",
+      "title": "Badge example",
+      "description": "A badge in every tone and variant."
+    },
+    {
+      "name": "example-card",
+      "type": "registry:block",
+      "title": "Card example",
+      "description": "A card with a title, a description, an action, content, and a footer."
+    },
+    {
+      "name": "example-kbd",
+      "type": "registry:block",
+      "title": "Kbd example",
+      "description": "A key combination and one key."
+    },
+    {
+      "name": "example-avatar",
+      "type": "registry:block",
+      "title": "Avatar example",
+      "description": "Avatars with an image, with initials, and with an image that does not load."
+    },
+    {
+      "name": "example-dialog",
+      "type": "registry:block",
+      "title": "Dialog example",
+      "description": "A dialog with a header, a field, and a footer."
+    },
+    {
+      "name": "example-sheet",
+      "type": "registry:block",
+      "title": "Sheet example",
+      "description": "A sheet with a long body that scrolls."
+    },
+    {
+      "name": "example-dropdown-menu",
+      "type": "registry:block",
+      "title": "Dropdown menu example",
+      "description": "A menu with a group, icons, a shortcut, a checkbox, radio items, a submenu, and a destructive item."
+    },
+    {
+      "name": "example-tabs",
+      "type": "registry:block",
+      "title": "Tabs example",
+      "description": "Three tabs."
+    },
+    {
+      "name": "example-table",
+      "type": "registry:block",
+      "title": "Table example",
+      "description": "A table of deploys with a caption."
+    },
+    {
+      "name": "example-command",
+      "type": "registry:block",
+      "title": "Command example",
+      "description": "An inline command list and a command palette in a dialog."
+    },
+    {
+      "name": "example-toast",
+      "type": "registry:block",
+      "title": "Toast example",
+      "description": "A button that shows a toast with a description and an action."
+    },
+    {
+      "name": "example-sidebar",
+      "type": "registry:block",
+      "title": "Sidebar example",
+      "description": "A sidebar with a header, a group of links, a badge, and a footer, beside the page."
+    },
+    {
+      "name": "example-app-shell",
+      "type": "registry:block",
+      "title": "App shell example",
+      "description": "An app shell with a group of links and a group that opens."
     },
     {
       "name": "vitehub-ui-skill",

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-table",
+  "type": "registry:block",
+  "title": "Table example",
+  "description": "A table of deploys with a caption.",
+  "registryDependencies": [
+    "@vitehub/table"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-table/TableExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from \"../table/index.ts\";\n\nconst rows = [\n  { branch: \"main\", status: \"Live\", age: \"3m\" },\n  { branch: \"feat/registry\", status: \"Building\", age: \"10m\" },\n];\n</script>\n\n<template>\n  <div data-slot=\"example-table\" style=\"max-width: 32rem\">\n    <Table>\n      <TableCaption>The last deploys.</TableCaption>\n      <TableHeader>\n        <TableRow>\n          <TableHead>Branch</TableHead>\n          <TableHead>Status</TableHead>\n          <TableHead>Age</TableHead>\n        </TableRow>\n      </TableHeader>\n      <TableBody>\n        <TableRow v-for=\"row in rows\" :key=\"row.branch\">\n          <TableCell>{{ row.branch }}</TableCell>\n          <TableCell>{{ row.status }}</TableCell>\n          <TableCell>{{ row.age }}</TableCell>\n        </TableRow>\n      </TableBody>\n    </Table>\n  </div>\n</template>\n"
+    }
+  ]
+}

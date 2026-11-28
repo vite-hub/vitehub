@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-dialog",
+  "type": "registry:block",
+  "title": "Dialog example",
+  "description": "A dialog with a header, a field, and a footer.",
+  "registryDependencies": [
+    "@vitehub/dialog",
+    "@vitehub/input"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-dialog/DialogExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from \"../dialog/index.ts\";\nimport { Input } from \"../input/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-dialog\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Dialog>\n      <DialogTrigger>Rename project</DialogTrigger>\n      <DialogContent>\n        <DialogHeader>\n          <DialogTitle>Rename project</DialogTitle>\n          <DialogDescription>The URL of the project changes too.</DialogDescription>\n        </DialogHeader>\n        <Input aria-label=\"Project name\" default-value=\"my-app\" />\n        <DialogFooter>\n          <DialogClose>Cancel</DialogClose>\n        </DialogFooter>\n      </DialogContent>\n    </Dialog>\n  </div>\n</template>\n"
+    }
+  ]
+}

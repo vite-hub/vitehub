@@ -1,0 +1,71 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "dialog",
+  "type": "registry:component",
+  "title": "Dialog",
+  "description": "A modal window over a dimmed page, with a close button in the corner.",
+  "dependencies": [
+    "@lucide/vue",
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/dialog/Dialog.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./dialog.css\";\nimport { Dialog as DialogRoot } from \"@ui-sdk/vue/dialog\";\nimport type { DialogEmits, DialogProps, DialogSlots } from \"./types.ts\";\n\nconst open = defineModel<boolean | undefined>(\"open\", { default: undefined });\nconst { defaultOpen = false } = defineProps<DialogProps>();\ndefineEmits<DialogEmits>();\ndefineSlots<DialogSlots>();\n</script>\n\n<template>\n  <DialogRoot v-model:open=\"open\" :default-open=\"defaultOpen || undefined\"><slot /></DialogRoot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogClose.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DialogClose as DialogClosePart } from \"@ui-sdk/vue/dialog\";\nimport type { DialogCloseSlots } from \"./types.ts\";\n\ndefineSlots<DialogCloseSlots>();\n</script>\n\n<template>\n  <DialogClosePart data-slot=\"dialog-close\"><slot /></DialogClosePart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { X } from \"@lucide/vue\";\nimport { DialogBackdrop, DialogClose, DialogContent as DialogContentPart } from \"@ui-sdk/vue/dialog\";\nimport type { DialogContentProps, DialogContentSlots } from \"./types.ts\";\n\ndefineOptions({ inheritAttrs: false });\nconst { closeLabel = \"Close\" } = defineProps<DialogContentProps>();\ndefineSlots<DialogContentSlots>();\n</script>\n\n<template>\n  <DialogBackdrop data-slot=\"dialog-backdrop\" />\n  <DialogContentPart v-bind=\"$attrs\" data-slot=\"dialog-content\">\n    <slot />\n    <!-- An empty `close` slot removes the button. -->\n    <slot name=\"close\">\n      <DialogClose data-slot=\"dialog-close\" :aria-label=\"closeLabel\"><X aria-hidden=\"true\" /></DialogClose>\n    </slot>\n  </DialogContentPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogDescription.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DialogDescription as DialogDescriptionPart } from \"@ui-sdk/vue/dialog\";\nimport type { DialogDescriptionSlots } from \"./types.ts\";\n\ndefineSlots<DialogDescriptionSlots>();\n</script>\n\n<template>\n  <DialogDescriptionPart data-slot=\"dialog-description\"><slot /></DialogDescriptionPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogFooter.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { DialogFooterSlots } from \"./types.ts\";\n\ndefineSlots<DialogFooterSlots>();\n</script>\n\n<template>\n  <div data-slot=\"dialog-footer\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogHeader.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { DialogHeaderSlots } from \"./types.ts\";\n\ndefineSlots<DialogHeaderSlots>();\n</script>\n\n<template>\n  <div data-slot=\"dialog-header\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogTitle.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DialogTitle as DialogTitlePart } from \"@ui-sdk/vue/dialog\";\nimport type { DialogTitleSlots } from \"./types.ts\";\n\ndefineSlots<DialogTitleSlots>();\n</script>\n\n<template>\n  <DialogTitlePart data-slot=\"dialog-title\"><slot /></DialogTitlePart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/DialogTrigger.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { DialogTrigger as DialogTriggerPart } from \"@ui-sdk/vue/dialog\";\nimport type { DialogTriggerSlots } from \"./types.ts\";\n\ndefineSlots<DialogTriggerSlots>();\n</script>\n\n<template>\n  <DialogTriggerPart data-slot=\"dialog-trigger\"><slot /></DialogTriggerPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/dialog/dialog.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Dialog: ui-sdk's stylesheet centers the box over the backdrop. The ViteHub dialog floats on a shadow, with no border. */\n  [data-slot=\"dialog-content\"] {\n    border-width: 0;\n    box-shadow: var(--vh-shadow-dialog);\n  }\n\n  /* The icon-only close button sits in the top end corner, as in shadcn. */\n  [data-slot=\"dialog-content\"] > [data-slot=\"dialog-close\"][aria-label]:has(> svg:only-child) {\n    background: transparent;\n    border-color: transparent;\n    color: var(--vh-muted);\n    height: 1.75rem;\n    inset-block-start: 0.75rem;\n    inset-inline-end: 0.75rem;\n    padding: 0;\n    position: absolute;\n    width: 1.75rem;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"dialog-content\"] > [data-slot=\"dialog-close\"][aria-label]:has(> svg:only-child):hover {\n      background: var(--vh-bg-muted);\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"dialog-header\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.375rem;\n    padding-inline-end: 1.5rem;\n  }\n\n  [data-slot=\"dialog-header\"] [data-slot=\"dialog-description\"] {\n    margin: 0;\n  }\n\n  [data-slot=\"dialog-footer\"] {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.5rem;\n    justify-content: flex-end;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/dialog/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Dialog } from \"./Dialog.vue\";\nexport { default as DialogClose } from \"./DialogClose.vue\";\nexport { default as DialogContent } from \"./DialogContent.vue\";\nexport { default as DialogDescription } from \"./DialogDescription.vue\";\nexport { default as DialogFooter } from \"./DialogFooter.vue\";\nexport { default as DialogHeader } from \"./DialogHeader.vue\";\nexport { default as DialogTitle } from \"./DialogTitle.vue\";\nexport { default as DialogTrigger } from \"./DialogTrigger.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/dialog/types.ts",
+      "type": "registry:component",
+      "content": "export interface DialogProps {\n  open?: boolean;\n  defaultOpen?: boolean;\n}\n\nexport interface DialogEmits {\n  \"update:open\": [open: boolean];\n}\n\nexport interface DialogSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogContentProps {\n  closeLabel?: string;\n}\n\nexport interface DialogContentSlots {\n  default?: () => unknown;\n  close?: () => unknown;\n}\n\nexport interface DialogTriggerSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogHeaderSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogFooterSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogTitleSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogDescriptionSlots {\n  default?: () => unknown;\n}\n\nexport interface DialogCloseSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

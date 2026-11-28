@@ -1,0 +1,60 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "alert",
+  "type": "registry:component",
+  "title": "Alert",
+  "description": "A message in a status color that the page shows in its flow.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/alert/Alert.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./alert.css\";\nimport type { AlertProps, AlertSlots } from \"./types.ts\";\n\nconst { tone = \"neutral\", variant = \"soft\" } = defineProps<AlertProps>();\ndefineSlots<AlertSlots>();\n</script>\n\n<template>\n  <div data-slot=\"alert\" :data-tone=\"tone\" :data-variant=\"variant\" :role=\"tone === 'error' || tone === 'warning' ? 'alert' : 'status'\">\n    <slot name=\"icon\" />\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/AlertActions.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { AlertActionsSlots } from \"./types.ts\";\n\ndefineSlots<AlertActionsSlots>();\n</script>\n\n<template>\n  <div data-slot=\"alert-actions\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/AlertClose.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { X } from \"@lucide/vue\";\nimport type { AlertCloseEmits, AlertCloseProps, AlertCloseSlots } from \"./types.ts\";\n\nconst { label = \"Dismiss\" } = defineProps<AlertCloseProps>();\nconst emit = defineEmits<AlertCloseEmits>();\ndefineSlots<AlertCloseSlots>();\n</script>\n\n<template>\n  <button type=\"button\" data-slot=\"alert-close\" :aria-label=\"label\" @click=\"emit('close')\">\n    <slot><X aria-hidden=\"true\" /></slot>\n  </button>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/AlertContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { AlertContentSlots } from \"./types.ts\";\n\ndefineSlots<AlertContentSlots>();\n</script>\n\n<template>\n  <div data-slot=\"alert-content\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/AlertDescription.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { AlertDescriptionSlots } from \"./types.ts\";\n\ndefineSlots<AlertDescriptionSlots>();\n</script>\n\n<template>\n  <div data-slot=\"alert-description\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/AlertTitle.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { AlertTitleSlots } from \"./types.ts\";\n\ndefineSlots<AlertTitleSlots>();\n</script>\n\n<template>\n  <p data-slot=\"alert-title\"><slot /></p>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/alert/alert.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  [data-slot=\"alert\"][data-tone=\"success\"] {\n    --alert-tone: var(--vh-success);\n    --alert-tone-text: var(--vh-text-success, var(--vh-success));\n  }\n\n  [data-slot=\"alert\"][data-tone=\"warning\"] {\n    --alert-tone: var(--vh-warning);\n    --alert-tone-text: var(--vh-text-warning, var(--vh-warning));\n  }\n\n  [data-slot=\"alert\"][data-tone=\"error\"] {\n    --alert-tone: var(--vh-error);\n    --alert-tone-text: var(--vh-text-error, var(--vh-error));\n  }\n\n  [data-slot=\"alert\"][data-tone=\"info\"] {\n    --alert-tone: var(--vh-info);\n    --alert-tone-text: var(--vh-text-info, var(--vh-info));\n  }\n\n  /* Alert: an 8px box with a tinted fill and a 1px inner ring, an icon, the content, and actions. */\n  [data-slot=\"alert\"] {\n    --alert-fill: color-mix(in oklab, var(--vh-bg-muted) 50%, transparent);\n    --alert-ring: var(--vh-border-accented);\n    align-items: flex-start;\n    background: var(--alert-fill);\n    border-radius: var(--vh-radius);\n    box-shadow: inset 0 0 0 1px var(--alert-ring);\n    color: var(--vh-text);\n    display: flex;\n    gap: 0.5rem;\n    overflow: hidden;\n    padding: 0.75rem;\n    position: relative;\n    width: 100%;\n  }\n\n  [data-slot=\"alert\"]:not([data-tone=\"neutral\"]) {\n    --alert-fill: color-mix(in oklab, var(--alert-tone) 10%, transparent);\n    --alert-ring: color-mix(in oklab, var(--alert-tone) 25%, transparent);\n    color: var(--alert-tone-text);\n  }\n\n  [data-slot=\"alert\"][data-variant=\"outline\"] {\n    --alert-fill: transparent;\n  }\n\n  [data-slot=\"alert\"][data-variant=\"outline\"][data-tone=\"neutral\"] {\n    --alert-fill: var(--vh-bg);\n    --alert-ring: var(--vh-border);\n  }\n\n  [data-slot=\"alert\"]:has(> [data-slot=\"alert-actions\"]) {\n    align-items: center;\n  }\n\n  [data-slot=\"alert\"] > svg {\n    height: 1rem;\n    margin-top: 0.125rem;\n    width: 1rem;\n  }\n\n  [data-slot=\"alert-content\"] {\n    display: flex;\n    flex: 1;\n    flex-direction: column;\n    min-width: 0;\n  }\n\n  [data-slot=\"alert-title\"] {\n    font-size: 0.8125rem;\n    font-weight: 500;\n    line-height: 1.5;\n    margin: 0;\n  }\n\n  [data-slot=\"alert-description\"] {\n    font-size: 0.75rem;\n    line-height: 1.25rem;\n    opacity: 0.9;\n  }\n\n  [data-slot=\"alert-title\"] + [data-slot=\"alert-description\"] {\n    margin-top: 0.25rem;\n  }\n\n  [data-slot=\"alert-actions\"] {\n    align-items: center;\n    display: flex;\n    flex-wrap: wrap;\n    gap: 0.375rem;\n  }\n\n  [data-slot=\"alert-content\"] [data-slot=\"alert-actions\"] {\n    align-self: flex-start;\n    margin-top: 0.625rem;\n  }\n\n  [data-slot=\"alert-close\"] {\n    align-items: center;\n    background: transparent;\n    border: 0;\n    border-radius: calc(var(--vh-radius) * 0.75);\n    color: var(--vh-muted);\n    cursor: pointer;\n    display: inline-flex;\n    flex: none;\n    padding: 0;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"alert-close\"]:hover {\n      color: var(--vh-text);\n    }\n  }\n\n  [data-slot=\"alert-close\"]:focus-visible {\n    outline: 2px solid var(--vh-ring);\n    outline-offset: 2px;\n  }\n\n  [data-slot=\"alert-close\"] > svg {\n    height: 1rem;\n    opacity: 0.8;\n    width: 1rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/alert/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Alert } from \"./Alert.vue\";\nexport { default as AlertActions } from \"./AlertActions.vue\";\nexport { default as AlertClose } from \"./AlertClose.vue\";\nexport { default as AlertContent } from \"./AlertContent.vue\";\nexport { default as AlertDescription } from \"./AlertDescription.vue\";\nexport { default as AlertTitle } from \"./AlertTitle.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/alert/types.ts",
+      "type": "registry:component",
+      "content": "export type AlertTone = \"neutral\" | \"success\" | \"warning\" | \"error\" | \"info\";\nexport type AlertVariant = \"soft\" | \"outline\";\n\nexport interface AlertProps {\n  tone?: AlertTone;\n  variant?: AlertVariant;\n}\n\nexport interface AlertSlots {\n  default?: () => unknown;\n  icon?: () => unknown;\n}\n\nexport interface AlertCloseProps {\n  label?: string;\n}\n\nexport interface AlertCloseEmits {\n  close: [];\n}\n\nexport interface AlertCloseSlots {\n  default?: () => unknown;\n}\n\nexport interface AlertContentSlots {\n  default?: () => unknown;\n}\n\nexport interface AlertTitleSlots {\n  default?: () => unknown;\n}\n\nexport interface AlertDescriptionSlots {\n  default?: () => unknown;\n}\n\nexport interface AlertActionsSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

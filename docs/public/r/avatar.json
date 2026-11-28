@@ -1,0 +1,45 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "avatar",
+  "type": "registry:component",
+  "title": "Avatar",
+  "description": "An image of a person or a project, with initials when the image does not load.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/avatar/Avatar.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./avatar.css\";\nimport { Avatar as AvatarPart } from \"@ui-sdk/vue/avatar\";\nimport AvatarFallback from \"./AvatarFallback.vue\";\nimport AvatarImage from \"./AvatarImage.vue\";\nimport type { AvatarProps, AvatarSlots } from \"./types.ts\";\n\nconst { size = \"md\", src, alt, fallback } = defineProps<AvatarProps>();\ndefineSlots<AvatarSlots>();\n</script>\n\n<template>\n  <AvatarPart data-slot=\"avatar\" :data-size=\"size\">\n    <slot>\n      <AvatarImage v-if=\"src\" :src=\"src\" :alt=\"alt ?? ''\" />\n      <AvatarFallback>{{ fallback }}</AvatarFallback>\n    </slot>\n  </AvatarPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/avatar/AvatarFallback.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { AvatarFallback as AvatarFallbackPart } from \"@ui-sdk/vue/avatar\";\nimport type { AvatarFallbackSlots } from \"./types.ts\";\n\ndefineSlots<AvatarFallbackSlots>();\n</script>\n\n<template>\n  <AvatarFallbackPart data-slot=\"avatar-fallback\"><slot /></AvatarFallbackPart>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/avatar/AvatarImage.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { AvatarImage as AvatarImagePart } from \"@ui-sdk/vue/avatar\";\nimport type { AvatarImageProps } from \"./types.ts\";\n\nconst { src, alt = \"\" } = defineProps<AvatarImageProps>();\n</script>\n\n<template>\n  <AvatarImagePart data-slot=\"avatar-image\" :src=\"src\" :alt=\"alt\" />\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/avatar/avatar.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Avatar: ui-sdk's stylesheet draws the circle, the image, and the fallback. These set the sizes. */\n  [data-slot=\"avatar\"] {\n    background: var(--vh-bg-muted);\n    color: var(--vh-muted);\n    font-size: 0.75rem;\n    font-weight: 500;\n    height: 2rem;\n    width: 2rem;\n  }\n\n  [data-slot=\"avatar\"][data-size=\"xs\"] {\n    font-size: 0.5rem;\n    height: 1.25rem;\n    width: 1.25rem;\n  }\n\n  [data-slot=\"avatar\"][data-size=\"sm\"] {\n    font-size: 0.625rem;\n    height: 1.5rem;\n    width: 1.5rem;\n  }\n\n  [data-slot=\"avatar\"][data-size=\"lg\"] {\n    font-size: 0.875rem;\n    height: 2.5rem;\n    width: 2.5rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/avatar/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Avatar } from \"./Avatar.vue\";\nexport { default as AvatarFallback } from \"./AvatarFallback.vue\";\nexport { default as AvatarImage } from \"./AvatarImage.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/avatar/types.ts",
+      "type": "registry:component",
+      "content": "export type AvatarSize = \"xs\" | \"sm\" | \"md\" | \"lg\";\n\nexport interface AvatarProps {\n  size?: AvatarSize;\n  src?: string;\n  alt?: string;\n  fallback?: string;\n}\n\nexport interface AvatarSlots {\n  default?: () => unknown;\n}\n\nexport interface AvatarImageProps {\n  src: string;\n  alt?: string;\n}\n\nexport interface AvatarFallbackSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

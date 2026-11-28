@@ -1,0 +1,94 @@
+@layer components {
+  /*
+   * Button: ui-sdk's stylesheet draws the plain button, `solid`, and `destructive`. These add `soft`, `ghost`, and
+   * `link`, the sizes, and the spinner. A rule here wins over web.css, so a rule that sets a background sets its hover too.
+   */
+  [data-slot="button"]:is([data-variant="soft"], [data-variant="ghost"], [data-variant="link"]) {
+    border-color: transparent;
+  }
+
+  [data-slot="button"][data-variant="soft"] {
+    background: var(--vh-bg-muted);
+  }
+
+  [data-slot="button"][data-variant="ghost"] {
+    background: transparent;
+  }
+
+  [data-slot="button"][data-variant="link"] {
+    background: transparent;
+    color: var(--vh-muted);
+    height: auto;
+    padding-inline: 0;
+  }
+
+  @media (hover: hover) {
+    [data-slot="button"][data-variant="soft"]:hover:not([data-disabled]) {
+      background: color-mix(in oklab, var(--vh-bg-muted), var(--vh-text) 8%);
+    }
+
+    [data-slot="button"][data-variant="ghost"]:hover:not([data-disabled]) {
+      background: var(--vh-bg-muted);
+    }
+
+    [data-slot="button"][data-variant="link"]:hover:not([data-disabled]) {
+      background: transparent;
+      color: var(--vh-text);
+    }
+  }
+
+  [data-slot="button"][data-size="xs"] {
+    font-size: 0.75rem;
+    gap: 0.25rem;
+    height: 1.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  [data-slot="button"][data-size="sm"] {
+    height: 1.75rem;
+    padding-inline: 0.625rem;
+  }
+
+  [data-slot="button"][data-size="lg"] {
+    height: 2.25rem;
+    padding-inline: 0.875rem;
+  }
+
+  /* An icon-only button is a square. */
+  [data-slot="button"][aria-label]:has(> svg:only-child) {
+    padding: 0;
+    width: 2rem;
+  }
+
+  [data-slot="button"][data-size="xs"][aria-label]:has(> svg:only-child) {
+    width: 1.5rem;
+  }
+
+  [data-slot="button"][data-size="sm"][aria-label]:has(> svg:only-child) {
+    width: 1.75rem;
+  }
+
+  [data-slot="button"][data-size="lg"][aria-label]:has(> svg:only-child) {
+    width: 2.25rem;
+  }
+
+  [data-slot="button"][data-loading] {
+    cursor: progress;
+  }
+
+  [data-slot="button-spinner"] {
+    animation: button-spin 1s linear infinite;
+  }
+
+  @keyframes button-spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="button-spinner"] {
+      animation-duration: 3s;
+    }
+  }
+}

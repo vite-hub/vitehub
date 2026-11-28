@@ -1,0 +1,57 @@
+@layer components {
+  /* Toast: ui-sdk's stylesheet stacks the toasts in their region. The ViteHub toast floats on a shadow, with no border. */
+  [data-slot="toast"] {
+    background: var(--vh-bg);
+    border: 0;
+    box-shadow: var(--vh-shadow-popover);
+    color: var(--vh-text);
+    flex-wrap: nowrap;
+    padding: 0.875rem 1rem;
+  }
+
+  [data-slot="toast-content"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  [data-slot="toast-title"] {
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  [data-slot="toast-description"] {
+    color: var(--vh-muted);
+    font-size: 0.8125rem;
+  }
+
+  [data-slot="toast-action"]:empty,
+  [data-slot="toast-description"]:empty {
+    display: none;
+  }
+
+  [data-slot="toast-close"] {
+    align-self: flex-start;
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-muted);
+    cursor: pointer;
+    display: inline-flex;
+    flex: none;
+    padding: 0.125rem;
+  }
+
+  @media (hover: hover) {
+    [data-slot="toast-close"]:hover {
+      color: var(--vh-text);
+    }
+  }
+
+  [data-slot="toast-close"] > svg {
+    height: 1rem;
+    width: 1rem;
+  }
+}

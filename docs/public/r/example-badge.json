@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-badge",
+  "type": "registry:block",
+  "title": "Badge example",
+  "description": "A badge in every tone and variant.",
+  "registryDependencies": [
+    "@vitehub/badge"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-badge/BadgeExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Badge } from \"../badge/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-badge\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Badge label=\"Draft\" />\n    <Badge tone=\"success\" label=\"Live\" />\n    <Badge tone=\"warning\" variant=\"outline\" label=\"Pending\" />\n    <Badge tone=\"error\" variant=\"solid\" label=\"Failed\" />\n    <Badge tone=\"info\" size=\"sm\" label=\"Beta\" />\n  </div>\n</template>\n"
+    }
+  ]
+}

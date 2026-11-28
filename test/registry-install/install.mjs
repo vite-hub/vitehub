@@ -3,7 +3,6 @@
 // `node --test test/registry-install/install.mjs`. It needs network access to the npm registry.
 //
 // REGISTRY_APPS=vite-vue,nuxt runs only those apps. REGISTRY_INSTALL_DIR=<dir> keeps the apps in that directory.
-// REGISTRY_SCREENSHOTS=<dir> saves a screenshot of each app.
 import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -55,6 +54,20 @@ ${[...imports.map(({ name, path }) => `import ${name} from "${path}";`), script]
   <main data-test="examples" style="display: grid; gap: 24px; padding: 24px">
 ${[...imports.map(({ name }) => `    <${name} />`), template].join("\n")}
   </main>
+</template>
+`;
+}
+
+function lazyPage({ script = "", template = "" } = {}) {
+  return `<script setup lang="ts">
+import { defineAsyncComponent } from "vue";
+${script}
+const Examples = defineAsyncComponent(() => import("./examples.vue"));
+</script>
+
+<template>
+  <Examples />
+${template}
 </template>
 `;
 }
@@ -159,12 +172,14 @@ const apps = {
     // The base item is the preset that starts an app on ViteHub UI.
     init: (registry) => [["init", "--preset", registry.replace("{name}", "base"), "--yes", "--force", "--silent"]],
     serve: "static",
+    css: "src/style.css",
     reka: false,
   },
   nuxt: {
-    files: (registry) => ({ ...nuxtFiles(), "components.json": componentsJson("app/assets/css/main.css", registry), "app/app.vue": page() }),
+    files: (registry) => ({ ...nuxtFiles(), "components.json": componentsJson("app/assets/css/main.css", registry), "app/app.vue": lazyPage(), "app/examples.vue": page() }),
     init: () => [],
     serve: "nitro",
+    css: "app/assets/css/main.css",
     reka: false,
   },
   "shadcn-reka": {
@@ -175,16 +190,19 @@ const apps = {
     // Stock shadcn-vue with Reka UI, and its own Button, before the @vitehub items.
     init: () => [["init", "--defaults", "--template", "vite", "--base", "reka", "--yes", "--force", "--silent"], ["add", "button", "--yes", "--silent"]],
     serve: "static",
+    css: "src/style.css",
     reka: true,
   },
   "nuxt-ui": {
     files: (registry) => ({
       ...nuxtFiles(["@nuxt/ui"]),
       "components.json": componentsJson("app/assets/css/main.css", registry),
-      "app/app.vue": page({ template: '    <UApp><UButton data-test="stock" icon="i-lucide-rocket">Nuxt UI</UButton></UApp>' }),
+      "app/app.vue": lazyPage({ template: '  <UApp><UButton data-test="stock" icon="i-lucide-rocket">Nuxt UI</UButton></UApp>' }),
+      "app/examples.vue": page(),
     }),
     init: () => [],
     serve: "nitro",
+    css: "app/assets/css/main.css",
     reka: true,
   },
 };
@@ -270,6 +288,116 @@ function filesUnder(directory) {
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
+async function flows({ browser, url, app, theme, width }) {
+  const context = await browser.newContext({ colorScheme: theme, viewport: { width, height: 900 }, hasTouch: width < 768, isMobile: width < 768 });
+  await context.addInitScript((dark) => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  const at = `${app} ${theme} ${width}`;
+  const shot = async (state) => {
+    if (!screenshots) return;
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: join(screenshots, `${app}-${state}-${theme}-${width}.png`) });
+  };
+  const closed = () => page.waitForFunction(() => !document.querySelector("[role=dialog], [role=menu]"), undefined, { timeout: 5000 });
+  const outline = (locator) => locator.evaluate((element) => getComputedStyle(element).outlineStyle);
+  try {
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.locator("[data-test=examples]").waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await shot("page");
+
+    for (const [own, part] of [["tabs-trigger", "tabs-tab"], ["tabs-content", "tabs-panel"], ["dropdown-menu-trigger", "menu-trigger"], ["sheet-trigger", "drawer-trigger"]]) {
+      assert.ok(await page.locator(`[data-slot="${own}"]`).count() > 0, `${at}: ${own} renders`);
+      assert.equal(await page.locator(`[data-slot="${part}"]`).count(), 0, `${at}: no ${part} slot replaces ${own}`);
+    }
+
+    await page.keyboard.press("Tab");
+    assert.notEqual(await outline(page.locator(":focus")), "none", `${at}: the first Tab stop has a focus ring`);
+    await shot("focus");
+    await page.locator("[data-slot=example-input] [data-slot=input]").first().focus();
+    const frame = await page.locator(":focus").evaluate((element) => getComputedStyle(element).boxShadow);
+    assert.notEqual(frame, "none", `${at}: the focused input has its frame`);
+
+    const shell = page.locator("[data-slot=example-app-shell]");
+    await shell.scrollIntoViewIfNeeded();
+    await shell.locator("[data-slot=sidebar-trigger]").click();
+    if (width < 768) {
+      const sheet = page.locator("[data-slot=drawer-content][data-sidebar]");
+      await sheet.waitFor();
+      await shot("sidebar-open");
+      const deploys = sheet.getByRole("link", { name: "Deploys" });
+      await deploys.click({ modifiers: ["ControlOrMeta"] });
+      assert.ok(await sheet.isVisible(), `${at}: a modified click leaves the sheet open`);
+      await deploys.click();
+      await page.waitForURL((next) => next.hash === "#deploys");
+      await closed();
+    }
+    else {
+      await shell.locator("[data-slot=sidebar][data-collapsed]").waitFor();
+      await shot("sidebar-collapsed");
+      await shell.getByRole("button", { name: "Settings" }).click();
+      await shell.getByRole("link", { name: "Domains" }).waitFor();
+      assert.equal(await shell.locator("[data-slot=sidebar][data-collapsed]").count(), 0, `${at}: opening a group expands the sidebar`);
+    }
+
+    await page.locator("[data-slot=example-dialog] [data-slot=dialog-trigger]").click();
+    const dialog = page.locator("[data-slot=dialog-content]");
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate((element) => getComputedStyle(element).borderTopWidth), "0px", `${at}: the dialog has no border`);
+    await shot("dialog");
+    await page.keyboard.press("Escape");
+    await closed();
+
+    await page.locator("[data-slot=sheet-trigger]").click();
+    const sheet = page.locator("[data-slot=drawer-content][data-sheet]");
+    await sheet.waitFor();
+    assert.ok(await sheet.evaluate((element) => element.scrollHeight > element.clientHeight && getComputedStyle(element).overflowY === "auto"), `${at}: the long sheet scrolls`);
+    await shot("sheet");
+    await page.keyboard.press("Escape");
+    await closed();
+
+    await page.locator("[data-slot=dropdown-menu-trigger]").click();
+    await page.locator("[data-slot=dropdown-menu-content]").waitFor();
+    await page.keyboard.press("ArrowDown");
+    await shot("menu");
+    await page.keyboard.press("Escape");
+    await closed();
+
+    await page.locator("[data-slot=example-command] [data-slot=dialog-trigger]").click();
+    await page.locator("[data-slot=dialog-content][data-command-dialog]").waitFor();
+    await page.waitForFunction(() => document.activeElement?.getAttribute("data-slot") === "command-input");
+    await page.keyboard.type("dep");
+    await shot("command");
+    await page.keyboard.press("Escape");
+    if (await page.locator("[data-slot=dialog-content][data-command-dialog]").count()) await page.keyboard.press("Escape");
+    await closed();
+
+    await page.locator("[data-slot=tabs-trigger]", { hasText: "Deploys" }).click();
+    await page.locator("[data-slot=tabs-content]", { hasText: "12 deploys" }).waitFor();
+    assert.equal(await page.locator("[data-slot=tabs-indicator]").evaluate((element) => getComputedStyle(element).display), "block", `${at}: the tab indicator shows`);
+    await page.locator("[data-slot=example-tabs]").scrollIntoViewIfNeeded();
+    await shot("tabs");
+
+    await page.locator("[data-slot=example-toast] [data-slot=button]").click();
+    const toast = page.locator("[data-slot=toast]");
+    await toast.waitFor();
+    await page.waitForFunction(() => document.querySelector("[data-slot=toast]")?.getAnimations().length === 0);
+    const box = await toast.boundingBox();
+    assert.ok(box && box.x >= 8 && box.x + box.width <= width - 8 && box.y + box.height <= 900 - 8, `${at}: the toast stays inside the viewport`);
+    await shot("toast");
+    await toast.getByRole("button", { name: "Dismiss" }).click();
+    await toast.waitFor({ state: "hidden" });
+
+    assert.deepEqual(errors, [], `${at}: no console errors`);
+  }
+  finally {
+    await context.close();
+  }
+}
+
 describe("@vitehub registry install", { concurrency: false }, () => {
   let registry;
   let base;
@@ -322,7 +450,17 @@ describe("@vitehub registry install", { concurrency: false }, () => {
         assert.equal({ ...manifest.dependencies, ...manifest.devDependencies }["reka-ui"], undefined, "package.json has no reka-ui");
       }
 
+      assert.doesNotMatch(await readFile(join(cwd, app.css), "utf8"), /@layer\s+ui-sdk/, `${app.css} declares no ui-sdk layer`);
+
       await exec("npm", ["run", "build"], cwd);
+      if (app.serve === "nitro") {
+        const css = filesUnder(join(cwd, ".output/public/_nuxt")).filter((file) => file.endsWith(".css"));
+        const sources = await Promise.all(css.map(async (file) => ({ file, content: await readFile(file, "utf8") })));
+        const preflight = sources.filter(({ content }) => content.includes("tailwindcss")).map(({ file }) => file);
+        const items = sources.filter(({ content }) => /\[data-slot=["']?dialog-content/.test(content)).map(({ file }) => file);
+        assert.ok(items.length > 0, "an item stylesheet is in the build");
+        assert.deepEqual(items.filter((file) => preflight.includes(file)), [], "the item stylesheets are in an async chunk, not in the entry CSS");
+      }
       const server = app.serve === "static" ? await serveStatic(join(cwd, "dist")) : await serveNitro(cwd);
       const context = await browser.newContext({ viewport: { width: 900, height: 700 } });
       try {
@@ -370,6 +508,11 @@ describe("@vitehub registry install", { concurrency: false }, () => {
       }
       finally {
         await context.close();
+      }
+      try {
+        for (const theme of ["light", "dark"]) for (const width of [390, 1280]) await flows({ browser, url: server.url, app: name, theme, width });
+      }
+      finally {
         server.stop();
       }
     });

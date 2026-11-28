@@ -1,0 +1,72 @@
+@layer components {
+  /* Table: rows on 1px lines, a muted head, and a hover fill. The container scrolls a wide table. */
+  [data-slot="table-container"] {
+    overflow-x: auto;
+    position: relative;
+    width: 100%;
+  }
+
+  [data-slot="table"] {
+    border-collapse: collapse;
+    caption-side: bottom;
+    color: var(--vh-text);
+    font-size: 0.875rem;
+    width: 100%;
+  }
+
+  [data-slot="table-header"] [data-slot="table-row"] {
+    border-bottom: 1px solid var(--vh-border);
+  }
+
+  [data-slot="table-row"] {
+    border-bottom: 1px solid var(--vh-border);
+    transition: background-color 150ms ease-out;
+  }
+
+  [data-slot="table-body"] [data-slot="table-row"]:last-child {
+    border-bottom: 0;
+  }
+
+  @media (hover: hover) {
+    [data-slot="table-body"] [data-slot="table-row"]:hover {
+      background: color-mix(in oklab, var(--vh-bg-muted) 50%, transparent);
+    }
+  }
+
+  [data-slot="table-row"][aria-selected="true"] {
+    background: var(--vh-bg-muted);
+  }
+
+  [data-slot="table-head"] {
+    color: var(--vh-muted);
+    font-weight: 500;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    text-align: start;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  [data-slot="table-cell"] {
+    padding: 0.625rem 0.75rem;
+    vertical-align: middle;
+  }
+
+  [data-slot="table-footer"] {
+    background: color-mix(in oklab, var(--vh-bg-muted) 50%, transparent);
+    border-top: 1px solid var(--vh-border);
+    font-weight: 500;
+  }
+
+  [data-slot="table-caption"] {
+    color: var(--vh-muted);
+    font-size: 0.8125rem;
+    margin-top: 1rem;
+  }
+
+  [data-slot="table-empty"] > td {
+    color: var(--vh-muted);
+    padding: 1.5rem 0.75rem;
+    text-align: center;
+  }
+}

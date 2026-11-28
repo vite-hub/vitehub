@@ -154,7 +154,7 @@
         }
       },
       "dependencies": [
-        "@ui-sdk/core@0.1.0-beta.14"
+        "@ui-sdk/core@0.1.0-beta.19"
       ],
       "files": [
         {
@@ -209,7 +209,7 @@
       "description": "A button that copies text and shows a check for a moment.",
       "dependencies": [
         "@lucide/vue",
-        "@ui-sdk/vue@0.1.0-beta.14"
+        "@ui-sdk/vue@0.1.0-beta.19"
       ],
       "registryDependencies": [
         "@vitehub/core"
@@ -233,6 +233,1035 @@
         },
         {
           "path": "components/vitehub/copy-button/use-copy.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "button",
+      "type": "registry:component",
+      "title": "Button",
+      "description": "A button in the ViteHub look: solid, outline, soft, ghost, link, and destructive, with a loading state.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/button/Button.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/button/button.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/button/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/button/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "type": "registry:component",
+      "title": "Icon",
+      "description": "A frame that sizes a Lucide icon and names it, or hides it from screen readers.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/icon/Icon.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/icon/icon.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/icon/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/icon/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "input",
+      "type": "registry:component",
+      "title": "Input",
+      "description": "A one-line text field with a blue focus frame and an invalid state.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/input/Input.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/input/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/input/input.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/input/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "textarea",
+      "type": "registry:component",
+      "title": "Textarea",
+      "description": "A multi-line text field with the look of Input.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/textarea/Textarea.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/textarea/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/textarea/textarea.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/textarea/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "label",
+      "type": "registry:component",
+      "title": "Label",
+      "description": "The name of a form control.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/label/Label.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/label/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/label/label.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/label/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "field",
+      "type": "registry:component",
+      "title": "Field",
+      "description": "A form control with its label, description, and error, linked for screen readers.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/field/Field.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/FieldDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/FieldError.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/FieldLabel.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/field.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/field/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "tooltip",
+      "type": "registry:component",
+      "title": "Tooltip",
+      "description": "A short text that shows when the pointer rests on its trigger or the trigger has focus.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/tooltip/Tooltip.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tooltip/TooltipContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tooltip/TooltipTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tooltip/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tooltip/tooltip.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tooltip/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "skeleton",
+      "type": "registry:component",
+      "title": "Skeleton",
+      "description": "A pulsing block that holds the place of content that loads.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/skeleton/Skeleton.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/skeleton/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/skeleton/skeleton.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/skeleton/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "type": "registry:component",
+      "title": "Empty",
+      "description": "The empty state of a list or a page: an icon, a title, a description, and actions.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/empty/Empty.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/EmptyContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/EmptyDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/EmptyHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/EmptyMedia.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/EmptyTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/empty.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/empty/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "alert",
+      "type": "registry:component",
+      "title": "Alert",
+      "description": "A message in a status color that the page shows in its flow.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/alert/Alert.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/AlertActions.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/AlertClose.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/AlertContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/AlertDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/AlertTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/alert.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/alert/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "badge",
+      "type": "registry:component",
+      "title": "Badge",
+      "description": "A short label in a status color.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/badge/Badge.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/badge/badge.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/badge/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/badge/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "card",
+      "type": "registry:component",
+      "title": "Card",
+      "description": "A surface with a header, content, and a footer.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/card/Card.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardAction.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/CardTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/card.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/card/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "kbd",
+      "type": "registry:component",
+      "title": "Kbd",
+      "description": "A keyboard key or a key combination.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/kbd/Kbd.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/kbd/KbdGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/kbd/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/kbd/kbd.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/kbd/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "avatar",
+      "type": "registry:component",
+      "title": "Avatar",
+      "description": "An image of a person or a project, with initials when the image does not load.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/avatar/Avatar.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/avatar/AvatarFallback.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/avatar/AvatarImage.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/avatar/avatar.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/avatar/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/avatar/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "dialog",
+      "type": "registry:component",
+      "title": "Dialog",
+      "description": "A modal window over a dimmed page, with a close button in the corner.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/dialog/Dialog.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogClose.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/DialogTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/dialog.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dialog/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "sheet",
+      "type": "registry:component",
+      "title": "Sheet",
+      "description": "A panel that slides in from an edge of the viewport. A long body scrolls.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/sheet/Sheet.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetClose.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/SheetTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/sheet.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sheet/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "dropdown-menu",
+      "type": "registry:component",
+      "title": "Dropdown menu",
+      "description": "A menu of actions, checkboxes, and radio items that a button opens.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenu.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuCheckboxItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuLabel.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuRadioGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuRadioItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuSeparator.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuShortcut.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuSub.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuSubContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuSubTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/DropdownMenuTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/dropdown-menu.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/dropdown-menu/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "tabs",
+      "type": "registry:component",
+      "title": "Tabs",
+      "description": "Tabs on a 1px line, with an indicator that slides to the selected tab.",
+      "dependencies": [
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/tabs/Tabs.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/TabsContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/TabsList.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/TabsTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/tabs.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/tabs/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "table",
+      "type": "registry:component",
+      "title": "Table",
+      "description": "A data table with a header, rows, and a caption.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/table/Table.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableBody.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableCaption.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableCell.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableEmpty.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableHead.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/TableRow.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/table.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/table/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "command",
+      "type": "registry:component",
+      "title": "Command",
+      "description": "A searchable list of commands, inline or as a palette in a dialog.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/command/Command.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandDialog.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandEmpty.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandInput.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandList.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandSeparator.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/CommandShortcut.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/command.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/command/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "toast",
+      "type": "registry:component",
+      "title": "Toast",
+      "description": "Short notifications in a corner of the viewport. Call toast() from anywhere.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/toast/Toaster.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/toast/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/toast/toast.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/toast/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "sidebar",
+      "type": "registry:component",
+      "title": "Sidebar",
+      "description": "An app sidebar that collapses to a rail of icons on desktop and is a sheet on mobile. Ctrl+B or Cmd+B toggles it.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/sidebar/Sidebar.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarGroupContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarGroupLabel.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarInset.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenu.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuBadge.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuButton.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuSub.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuSubButton.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarMenuSubItem.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarProvider.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarSeparator.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/SidebarTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/context.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/sidebar.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/sidebar/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "app-shell",
+      "type": "registry:block",
+      "title": "App shell",
+      "description": "An app layout: a sidebar of grouped links and a header that sticks to the top of the page.",
+      "dependencies": [
+        "@lucide/vue",
+        "@ui-sdk/vue@0.1.0-beta.19"
+      ],
+      "registryDependencies": [
+        "@vitehub/sidebar"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/app-shell/AppShell.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/app-shell/app-shell.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/app-shell/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/app-shell/types.ts",
           "type": "registry:component"
         }
       ]
@@ -263,6 +1292,383 @@
       "files": [
         {
           "path": "components/vitehub/example-copy-button/CopyButtonExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-button",
+      "type": "registry:block",
+      "title": "Button example",
+      "description": "Every variant and size of Button, an icon-only button, and a loading button.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/button"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-button/ButtonExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-icon",
+      "type": "registry:block",
+      "title": "Icon example",
+      "description": "An icon at every size, and a named icon.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/icon"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-icon/IconExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-input",
+      "type": "registry:block",
+      "title": "Input example",
+      "description": "Inputs with v-model, a small size, an invalid value, and a disabled state.",
+      "registryDependencies": [
+        "@vitehub/input"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-input/InputExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-textarea",
+      "type": "registry:block",
+      "title": "Textarea example",
+      "description": "A textarea with v-model, and an invalid one.",
+      "registryDependencies": [
+        "@vitehub/textarea"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-textarea/TextareaExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-label",
+      "type": "registry:block",
+      "title": "Label example",
+      "description": "A label for an email input.",
+      "registryDependencies": [
+        "@vitehub/input",
+        "@vitehub/label"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-label/LabelExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-field",
+      "type": "registry:block",
+      "title": "Field example",
+      "description": "A field with a description, and an invalid field with an error.",
+      "registryDependencies": [
+        "@vitehub/field",
+        "@vitehub/input"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-field/FieldExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-tooltip",
+      "type": "registry:block",
+      "title": "Tooltip example",
+      "description": "A tooltip from a label, and one with its own content under an icon-only trigger.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/tooltip"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-tooltip/TooltipExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-skeleton",
+      "type": "registry:block",
+      "title": "Skeleton example",
+      "description": "The skeleton of an avatar and two lines of text.",
+      "registryDependencies": [
+        "@vitehub/skeleton"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-skeleton/SkeletonExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-empty",
+      "type": "registry:block",
+      "title": "Empty example",
+      "description": "The empty state of a project list, with an action.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/button",
+        "@vitehub/empty"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-empty/EmptyExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-alert",
+      "type": "registry:block",
+      "title": "Alert example",
+      "description": "An info alert, and an error alert with an action and a close button.",
+      "registryDependencies": [
+        "@vitehub/alert",
+        "@vitehub/button"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-alert/AlertExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-badge",
+      "type": "registry:block",
+      "title": "Badge example",
+      "description": "A badge in every tone and variant.",
+      "registryDependencies": [
+        "@vitehub/badge"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-badge/BadgeExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-card",
+      "type": "registry:block",
+      "title": "Card example",
+      "description": "A card with a title, a description, an action, content, and a footer.",
+      "registryDependencies": [
+        "@vitehub/button",
+        "@vitehub/card"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-card/CardExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-kbd",
+      "type": "registry:block",
+      "title": "Kbd example",
+      "description": "A key combination and one key.",
+      "registryDependencies": [
+        "@vitehub/kbd"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-kbd/KbdExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-avatar",
+      "type": "registry:block",
+      "title": "Avatar example",
+      "description": "Avatars with an image, with initials, and with an image that does not load.",
+      "registryDependencies": [
+        "@vitehub/avatar"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-avatar/AvatarExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-dialog",
+      "type": "registry:block",
+      "title": "Dialog example",
+      "description": "A dialog with a header, a field, and a footer.",
+      "registryDependencies": [
+        "@vitehub/dialog",
+        "@vitehub/input"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-dialog/DialogExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-sheet",
+      "type": "registry:block",
+      "title": "Sheet example",
+      "description": "A sheet with a long body that scrolls.",
+      "registryDependencies": [
+        "@vitehub/sheet"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-sheet/SheetExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-dropdown-menu",
+      "type": "registry:block",
+      "title": "Dropdown menu example",
+      "description": "A menu with a group, icons, a shortcut, a checkbox, radio items, a submenu, and a destructive item.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/dropdown-menu"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-dropdown-menu/DropdownMenuExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-tabs",
+      "type": "registry:block",
+      "title": "Tabs example",
+      "description": "Three tabs.",
+      "registryDependencies": [
+        "@vitehub/tabs"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-tabs/TabsExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-table",
+      "type": "registry:block",
+      "title": "Table example",
+      "description": "A table of deploys with a caption.",
+      "registryDependencies": [
+        "@vitehub/table"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-table/TableExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-command",
+      "type": "registry:block",
+      "title": "Command example",
+      "description": "An inline command list and a command palette in a dialog.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/command",
+        "@vitehub/dialog"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-command/CommandExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-toast",
+      "type": "registry:block",
+      "title": "Toast example",
+      "description": "A button that shows a toast with a description and an action.",
+      "registryDependencies": [
+        "@vitehub/button",
+        "@vitehub/toast"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-toast/ToastExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-sidebar",
+      "type": "registry:block",
+      "title": "Sidebar example",
+      "description": "A sidebar with a header, a group of links, a badge, and a footer, beside the page.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/sidebar"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-sidebar/SidebarExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-app-shell",
+      "type": "registry:block",
+      "title": "App shell example",
+      "description": "An app shell with a group of links and a group that opens.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/app-shell"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-app-shell/AppShellExample.vue",
           "type": "registry:component"
         }
       ]

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "textarea",
+  "type": "registry:component",
+  "title": "Textarea",
+  "description": "A multi-line text field with the look of Input.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.19"
+  ],
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/textarea/Textarea.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./textarea.css\";\nimport { Textarea as TextareaPart } from \"@ui-sdk/vue/textarea\";\nimport type { TextareaProps } from \"./types.ts\";\n\nconst model = defineModel<string>();\nconst { defaultValue, invalid = false, disabled = false } = defineProps<TextareaProps>();\n</script>\n\n<template>\n  <TextareaPart\n    v-model=\"model\"\n    data-slot=\"textarea\"\n    :default-value=\"defaultValue\"\n    :disabled=\"disabled || undefined\"\n    v-bind=\"invalid ? { 'aria-invalid': 'true', 'data-invalid': '' } : {}\"\n  />\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/textarea/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Textarea } from \"./Textarea.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/textarea/textarea.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* A text field turns its own frame blue on focus: the border and a 1px shadow, with no ring outside. */\n  [data-slot=\"textarea\"]:focus-visible {\n    border-color: var(--vh-ring);\n    box-shadow: 0 0 0 1px var(--vh-ring);\n    outline: none;\n  }\n\n  [data-slot=\"textarea\"][aria-invalid=\"true\"] {\n    border-color: var(--vh-error);\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/textarea/types.ts",
+      "type": "registry:component",
+      "content": "export interface TextareaProps {\n  modelValue?: string;\n  defaultValue?: string;\n  invalid?: boolean;\n  disabled?: boolean;\n}\n"
+    }
+  ]
+}

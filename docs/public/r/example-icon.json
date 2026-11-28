@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-icon",
+  "type": "registry:block",
+  "title": "Icon example",
+  "description": "An icon at every size, and a named icon.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/icon"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-icon/IconExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Icon } from \"../icon/index.ts\";\nimport { Rocket } from \"@lucide/vue\";\n</script>\n\n<template>\n  <div data-slot=\"example-icon\" style=\"display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem\">\n    <Icon size=\"xs\"><Rocket /></Icon>\n    <Icon size=\"sm\"><Rocket /></Icon>\n    <Icon><Rocket /></Icon>\n    <Icon size=\"lg\" label=\"Deployed\"><Rocket /></Icon>\n  </div>\n</template>\n"
+    }
+  ]
+}

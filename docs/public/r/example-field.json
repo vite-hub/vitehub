@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-field",
+  "type": "registry:block",
+  "title": "Field example",
+  "description": "A field with a description, and an invalid field with an error.",
+  "registryDependencies": [
+    "@vitehub/field",
+    "@vitehub/input"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-field/FieldExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Field, FieldDescription, FieldError, FieldLabel } from \"../field/index.ts\";\nimport { Input } from \"../input/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-field\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Field name=\"project\">\n      <FieldLabel label=\"Project name\" />\n      <Input placeholder=\"my-app\" />\n      <FieldDescription>Lowercase letters, digits, and dashes.</FieldDescription>\n    </Field>\n    <Field name=\"domain\" invalid>\n      <FieldLabel label=\"Domain\" />\n      <Input default-value=\"not a domain\" />\n      <FieldError>Enter a domain such as app.example.com.</FieldError>\n    </Field>\n  </div>\n</template>\n"
+    }
+  ]
+}

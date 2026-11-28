@@ -1,0 +1,21 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-command",
+  "type": "registry:block",
+  "title": "Command example",
+  "description": "An inline command list and a command palette in a dialog.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/command",
+    "@vitehub/dialog"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-command/CommandExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from \"../command/index.ts\";\nimport { DialogTrigger } from \"../dialog/index.ts\";\nimport { Rocket, ScrollText } from \"@lucide/vue\";\nimport { ref } from \"vue\";\n\nconst open = ref(false);\nconst last = ref(\"\");\n</script>\n\n<template>\n  <div data-slot=\"example-command\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Command @action=\"last = $event.value\">\n      <CommandInput />\n      <CommandList>\n        <CommandEmpty />\n        <CommandGroup heading=\"Project\">\n          <CommandItem value=\"deploy\"><Rocket aria-hidden=\"true\" />Deploy</CommandItem>\n          <CommandItem value=\"logs\" shortcut=\"mod+l\"><ScrollText aria-hidden=\"true\" />Open logs<CommandShortcut /></CommandItem>\n        </CommandGroup>\n        <CommandSeparator />\n        <CommandGroup heading=\"Account\">\n          <CommandItem value=\"sign-out\">Sign out</CommandItem>\n        </CommandGroup>\n      </CommandList>\n    </Command>\n    <CommandDialog v-model:open=\"open\" @action=\"last = $event.value\">\n      <template #trigger><DialogTrigger>Open palette</DialogTrigger></template>\n      <CommandInput />\n      <CommandList>\n        <CommandEmpty />\n        <CommandItem value=\"deploy\">Deploy</CommandItem>\n        <CommandItem value=\"rollback\">Roll back</CommandItem>\n      </CommandList>\n    </CommandDialog>\n    <output data-slot=\"example-command-last\">{{ last }}</output>\n  </div>\n</template>\n"
+    }
+  ]
+}

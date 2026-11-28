@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-alert",
+  "type": "registry:block",
+  "title": "Alert example",
+  "description": "An info alert, and an error alert with an action and a close button.",
+  "registryDependencies": [
+    "@vitehub/alert",
+    "@vitehub/button"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-alert/AlertExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Alert, AlertActions, AlertClose, AlertContent, AlertDescription, AlertTitle } from \"../alert/index.ts\";\nimport { Button } from \"../button/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-alert\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Alert tone=\"info\">\n      <AlertContent>\n        <AlertTitle>A new version is out</AlertTitle>\n        <AlertDescription>ViteHub 0.7 adds the registry.</AlertDescription>\n      </AlertContent>\n    </Alert>\n    <Alert tone=\"error\" variant=\"outline\">\n      <AlertContent>\n        <AlertTitle>The deploy failed</AlertTitle>\n        <AlertDescription>The build step exited with code 1.</AlertDescription>\n        <AlertActions><Button size=\"xs\" label=\"Open logs\" /></AlertActions>\n      </AlertContent>\n      <AlertClose />\n    </Alert>\n  </div>\n</template>\n"
+    }
+  ]
+}
