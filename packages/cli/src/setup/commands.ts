@@ -84,6 +84,7 @@ function linkLabel(status: SetupLinkStatus): string {
 
 function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
   if (!credentials) return "not needed"
+  if (credentials.ok && credentials.host === "vercel" && credentials.source === "host-cli") return "vercel (vercel login; deploy uses it. Set VERCEL_TOKEN for link checks, provision, and live status)"
   return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
 }
 
