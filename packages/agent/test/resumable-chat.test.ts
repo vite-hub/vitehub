@@ -6,6 +6,7 @@ import { createResumableChatProcessCustody } from "../src/internal/resumable-cha
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 
 import type { ResumableChatProcessClaim } from "../src/internal/resumable-chat.ts"
+import type { AgentRunContext } from "../src/types.ts"
 
 function chatRequest(
   method: "DELETE" | "GET" | "POST",
@@ -31,7 +32,7 @@ function chatBody(messageId = "message-1"): Record<string, unknown> {
   }
 }
 
-function resumableHandler(run: () => Response | Promise<Response>) {
+function resumableHandler(run: (context: AgentRunContext) => Response | Promise<Response>) {
   return createChannelChatRouteHandler(
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     defineAgent({ capabilities: [defineChatCapability()], driver: { run } }) as never,
@@ -281,6 +282,20 @@ describe("resumable Chat process custody", () => {
 })
 
 describe("resumable Agent chat routes", () => {
+  it("passes the latest user text to the run Driver when regenerating an absent assistant reply", async () => {
+    const handler = resumableHandler(({ prompt }) => new Response(prompt ?? "no prompt"))
+    const response = await handler(chatRequest("POST", "user-1", {
+      id: "chat-1",
+      messageId: "assistant-1",
+      messages: [{ id: "user-1", parts: [{ text: "Ada", type: "text" }], role: "user" }],
+      trigger: "regenerate-message",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vitehub-message-id")).toBe("assistant-1")
+    await expect(response.text()).resolves.toBe("Ada")
+  })
+
   it("invokes duplicate POSTs once and replays the stream only to its authenticated owner", async () => {
     const encoder = new TextEncoder()
     let source!: ReadableStreamDefaultController<Uint8Array>
