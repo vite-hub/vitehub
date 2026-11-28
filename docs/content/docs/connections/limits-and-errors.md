@@ -126,7 +126,7 @@ The provider rejected the request.
 
 ### CONNECTIONS_REQUEST_FAILED
 
-Read the server logs.
+The request failed with an error that is not a ViteHub error. The server log has the error. A ViteHub error from the app, such as `ENV_REQUIRED_MISSING` for a missing `GOOGLE_CLIENT_ID`, shows its own code and message instead.
 
 ### CONNECTIONS_ROUTE_NOT_FOUND
 

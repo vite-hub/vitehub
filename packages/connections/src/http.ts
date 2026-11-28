@@ -1,3 +1,6 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log";
+import { getViteHubErrorShape } from "@vite-hub/runtime";
+
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
@@ -49,6 +52,13 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   return normalized;
 }
 
+function logRequestFailure(error: unknown, path: string, request: Request): void {
+  logFailure(
+    { error, field: "connections", fields: { path }, level: "error", message: "The Connections request failed.", request },
+    () => console.error("[vitehub] The Connections request failed.", error),
+  );
+}
+
 /**
  * Management API for Connections, as a Fetchable: `{ fetch(request) }`. Every route runs the `actor` policy
  * first. A route body reads the Connections runtime only through the access that the policy grants for this request.
@@ -81,11 +91,13 @@ export function createConnectionsHandler(options: ConnectionsHandlerOptions): Co
           });
         return await route.handle(check.access, base);
       } catch (error) {
+        const shape = getViteHubErrorShape(error);
+        if (!shape && !isConnectionError(error)) logRequestFailure(error, path, request);
         if (request.method === "GET") {
           return page({
-            code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
+            code: isConnectionError(error) ? error.code : shape?.code ?? "CONNECTIONS_REQUEST_FAILED",
             fix: isConnectionError(error) ? error.fix : undefined,
-            message: isConnectionError(error) ? error.message : "The connection could not be completed.",
+            message: isConnectionError(error) ? error.message : shape?.message ?? "The connection could not be completed.",
             outcome: "error",
             returnTo: requestReturnPath(request),
             status: errorStatus(error),

@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { chatgptTransfers } from "./chatgpt-transfer.ts";
 
-import { resolvePublicUrl } from "@vite-hub/runtime";
+import { getViteHubErrorShape, resolvePublicUrl } from "@vite-hub/runtime";
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
 import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
@@ -86,6 +86,8 @@ export function errorStatus(error: unknown): number {
 export function errorResponse(error: unknown): Response {
   if (isConnectionError(error))
     return json({ error: managementErrorBody(error.code, error.why, undefined, undefined, error.fix) }, errorStatus(error));
+  const shape = getViteHubErrorShape(error);
+  if (shape) return json({ error: managementErrorBody(shape.code, shape.message) }, 500);
   return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 

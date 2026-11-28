@@ -1,3 +1,4 @@
+import { ViteHubError } from "@vite-hub/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsHandler } from "../src/http.ts";
@@ -232,5 +233,31 @@ describe("Connections OAuth state binding", () => {
     const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" });
     await expect(test.runtime.complete({ actor: "user:other", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" });
     await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" });
+  });
+});
+
+describe("Connections route failures", () => {
+  it("shows a ViteHub error from the app, such as a missing Env value, on the action and connect routes", async () => {
+    const test = createTestRuntime();
+    const missing = new ViteHubError("ENV_REQUIRED_MISSING", "[vitehub] Required Env value google.clientId is missing. Set GOOGLE_CLIENT_ID.");
+    const runtime = { ...test.runtime, authorize: vi.fn(() => Promise.reject(missing)), list: vi.fn(() => Promise.reject(missing)) };
+    const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime });
+    const action = await handler.fetch(routeRequests.action());
+    expect(action.status).toBe(500);
+    expect(await action.json()).toEqual({ error: { code: "ENV_REQUIRED_MISSING", message: missing.message } });
+    const connect = await (await handler.fetch(routeRequests.connect())).text();
+    expect(connect).toContain("ENV_REQUIRED_MISSING");
+    expect(connect).toContain("Set GOOGLE_CLIENT_ID.");
+  });
+
+  it("logs an unknown failure on the server and hides its message from the caller", async () => {
+    const test = createTestRuntime();
+    const failure = new Error("/srv/app/private path");
+    const runtime = { ...test.runtime, list: vi.fn(() => Promise.reject(failure)) };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime }).fetch(routeRequests.action());
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_REQUEST_FAILED", message: "The Connections request failed." } });
+    expect(logged).toHaveBeenCalledWith("[vitehub] The Connections request failed.", failure);
+    logged.mockRestore();
   });
 });
