@@ -1502,10 +1502,10 @@ describe("ViteHub Nuxt integration", () => {
         const source = `import { defineAgent } from '@vite-hub/agent'\nimport { github } from '@vite-hub/agent/channels'\n${body}`
         await mkdir(dirname(file), { recursive: true })
         await writeFile(file, source)
-        const transformed = await Reflect.apply(transform, {}, [source, file])
+        const transformed: { code: string } | undefined = await Reflect.apply(transform, {}, [source, file])
         const artifact = resolve(root, `${name}.mjs`)
         // Compile the direct import without loading the generated catalog or running any Vite plugin.
-        await build({ stdin: { contents: transformed ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
+        await build({ stdin: { contents: transformed?.code ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
         const loaded = import(/* @vite-ignore */ pathToFileURL(artifact).href)
         if (name === "review") await expect(loaded).rejects.toMatchObject({ code: "AGENT_R1037" })
         else expect((await loaded).default).toBeDefined()
@@ -1564,10 +1564,11 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
         await expect(result).rejects.toThrow("whose static imports lead back to that Agent")
         return
       }
-      const transformed = String(await result)
-      expect(transformed).toContain(`import vitehubChannel0 from ${JSON.stringify(channel)}`)
-      expect(transformed).toContain(`vitehubRegisterAgentChannels({ ["hooks"]: vitehubChannel0 })`)
-      expect(transformed).toContain(`vitehubWithDiscoveredAgentName(`)
+      const transformed: { code: string, map: unknown } = await result
+      expect(transformed.map).toBeDefined()
+      expect(transformed.code).toContain(`import vitehubChannel0 from ${JSON.stringify(channel)}`)
+      expect(transformed.code).toContain(`vitehubRegisterAgentChannels({ ["hooks"]: vitehubChannel0 })`)
+      expect(transformed.code).toContain(`vitehubWithDiscoveredAgentName(`)
       expect(resolved, "the import cycle check skips installed packages").toEqual(["@vite-hub/channels", "@vite-hub/channels/adapters", "@vite-hub/agent/channels", specifier])
     }
     finally {
