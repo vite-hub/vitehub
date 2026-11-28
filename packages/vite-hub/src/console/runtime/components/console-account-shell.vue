@@ -236,7 +236,7 @@ async function retry(): Promise<void> {
           <component :is="ConsoleAccountTeamSettings" v-else-if="page === 'team-settings'" />
           <component :is="ConsoleAccountEnv" v-else-if="page === 'env'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
-          <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
+          <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" :reason="gate.reason" @checked="(value) => { status[gate.project.id] = value; }" />
           <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">
             <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Opening {{ title }}…
