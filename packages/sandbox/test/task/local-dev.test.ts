@@ -95,9 +95,14 @@ describe("Sandbox Tasks in vite dev", () => {
     const app = await startDevApp({ driver: "container", docker: join(tmpdir(), "vitehub-missing-docker", "docker") })
     try {
       const [error] = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
-      expect(error).toMatchObject({ status: 500 })
-      expect(error?.cause).toMatchObject({ code: "SANDBOX_TASK_DOCKER_UNAVAILABLE", message: expect.stringContaining("the docker command is not installed or not on PATH.") })
-      expect(error?.cause?.cause).toMatchObject({ code: "SANDBOX_TASK_DOCKER_UNAVAILABLE", fix: expect.stringContaining("Start Docker Engine") })
+      expect(error).toMatchObject({
+        status: 500,
+        cause: {
+          code: "SANDBOX_TASK_DOCKER_UNAVAILABLE",
+          message: expect.stringContaining("the docker command is not installed or not on PATH."),
+          cause: { code: "SANDBOX_TASK_DOCKER_UNAVAILABLE", fix: expect.stringContaining("Start Docker Engine") },
+        },
+      })
     }
     finally {
       await app.close()

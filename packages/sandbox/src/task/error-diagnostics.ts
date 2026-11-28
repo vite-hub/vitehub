@@ -138,10 +138,6 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ className, configured, requested }: { className: string, configured: number, requested: number }) => `[vitehub] The Cloudflare containers entry of class ${className} sets max_instances ${configured}, but the Sandbox Task option maxInstances is ${requested}.`,
       fix: "Set the instance limit in one place: remove `maxInstances` from the Sandbox Task options, or remove `max_instances` from your `containers` entry.",
     },
-    SANDBOX_TASK_LOCAL_NETWORK_POLICY: {
-      why: "`unsafeHostProcess: true` runs Sandbox Tasks on this machine and cannot enforce the configured `networkPolicy`.",
-      fix: "Remove `unsafeHostProcess` so that `vite dev` uses a Docker container, or set `remote: true` to keep the policy on the host's Sandbox.",
-    },
     SANDBOX_TASK_CONTAINER_NETWORK_POLICY: {
       why: "The container Sandbox takes `networkPolicy` as `\"allow-all\"`, `\"deny-all\"`, or `{ allow: hostnames }`. It cannot apply `subnets` or a transform map.",
       fix: "Use `{ allow: [\"api.example.com\"] }` in `vite dev`, or set `remote: true` to keep the Vercel policy on Vercel Sandbox.",
@@ -149,6 +145,10 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_DOCKER_UNAVAILABLE: {
       why: ({ detail }: { detail: string }) => `[vitehub] Sandbox Tasks run in Docker containers here, but the Docker CLI cannot reach a daemon: ${detail}`,
       fix: "Start Docker Engine or Docker Desktop, and check that `docker version` works for the user of the ViteHub process. In a Docker deploy, mount the daemon socket with `-v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)`, or set `DOCKER_HOST` to a remote daemon. Or set `sandboxTask: { driver: \"vercel\" }` to use Vercel Sandbox. In `vite dev` only, `unsafeHostProcess: true` runs trusted tasks on this machine without isolation.",
+    },
+    SANDBOX_TASK_LOCAL_NETWORK_POLICY: {
+      why: "`unsafeHostProcess: true` runs Sandbox Tasks on this machine and cannot enforce the configured `networkPolicy`.",
+      fix: "Remove `unsafeHostProcess` so that `vite dev` uses a Docker container, or set `remote: true` to keep the policy on the host's Sandbox.",
     },
     SANDBOX_TASK_LOCAL_NITRO_RUNNER: {
       why: "Local Sandbox Tasks cannot start Node processes in Nitro's `miniflare` dev runner.",

@@ -72,7 +72,7 @@ Apps that do not use `vite-hub` pass the same object to `hubSandboxTask()` from 
 
 The Vite or Nuxt dev server runs each Sandbox Task in a new Docker container on your computer, on every host, and removes the container after the run. You need Docker and no provider account. `executionAuthority` reports `isolation: 'container'`. The container uses the `node:24-bookworm` image and the [container options](#container-options). The first run pulls the image.
 
-If the `docker` CLI is missing or Docker is not running, the run fails with `SANDBOX_DOCKER_UNAVAILABLE`. Start Docker and check that `docker version` works. ViteHub does not fall back to a process on your computer.
+If the `docker` CLI is missing or Docker is not running, the run fails with `SANDBOX_TASK_DOCKER_UNAVAILABLE`. Start Docker and check that `docker version` works. ViteHub does not fall back to a process on your computer.
 
 For Cloudflare apps, use Nitro's `node-worker` dev runner (`nitro.devServer.runner: 'node-worker'`). The `miniflare` dev runner cannot start the container.
 

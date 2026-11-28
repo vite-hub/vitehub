@@ -373,7 +373,7 @@ For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cl
 
 `vite dev` runs each Sandbox Task in a new local Docker container, on every host, with no provider account. The Node host uses the same `container` driver in production. It needs no package other than `@vite-hub/sandbox`, only a `docker` CLI that reaches a Docker daemon:
 
-```ts
+```ts fragment
 hubSandboxTask({ driver: "container" })
 // or, with the vite-hub distribution on the node host:
 vitehub({ host: "node", sandboxTask: true })
@@ -381,7 +381,7 @@ vitehub({ host: "node", sandboxTask: true })
 
 The container driver uses the [caged container runtime](#run-in-a-caged-container) with the `node:24-bookworm` image. Set `image` for another image with `sh` and `node`, `cpu` and `memory` (MiB) for the `docker run` limits, and `docker` for another Docker CLI. `networkPolicy` maps to the runtime's `egress`: `"allow-all"` (default) is `"open"`, `"deny-all"` is `"none"`, and `{ allow }` is the allowlist. A policy other than `"allow-all"` needs rootful Docker Engine on native Linux. With `"allow-all"`, the driver also runs on Docker Desktop, OrbStack, WSL, and rootless Docker. On those daemons the container can reach more host routes, so the `executionAuthority` says `network: "unrestricted"`.
 
-When the `docker` CLI is missing or cannot reach a daemon, the run fails with `SANDBOX_DOCKER_UNAVAILABLE`, and its `fix` names the next step. ViteHub never falls back to a process on the host. In `vite dev`, `remote: true` uses the host's Sandbox instead. `unsafeHostProcess: true` runs trusted tasks as local processes on the `trusted-host` runtime, with no isolation, on macOS, Linux, or WSL only. Nitro's `miniflare` runner cannot run local tasks; select `node-worker`.
+When the `docker` CLI is missing or cannot reach a daemon, the run fails with `SANDBOX_TASK_DOCKER_UNAVAILABLE`, and its `fix` names the next step. ViteHub never falls back to a process on the host. In `vite dev`, `remote: true` uses the host's Sandbox instead. `unsafeHostProcess: true` runs trusted tasks as local processes on the `trusted-host` runtime, with no isolation, on macOS, Linux, or WSL only. Nitro's `miniflare` runner cannot run local tasks; select `node-worker`.
 
 In a Docker deploy, the app container needs a Docker daemon. The Dockerfile that `vitehub()` writes for the Node host copies the static `docker` CLI from `docker:29-cli` and shows the default run command, which mounts the host socket:
 
