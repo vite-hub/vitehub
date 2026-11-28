@@ -58,6 +58,13 @@ function resolveSandboxTaskProviderLoaderTarget(
   return hasCloudflareSandbox ? 'cloudflare' : 'vercel'
 }
 
+export const sandboxTaskEntryFilename = 'sandbox-task-entry.mjs'
+const sandboxTaskEntryContents = [
+  'export * from "./runtime/sandbox-task.mjs"',
+  'export { default } from "./runtime/sandbox-task.mjs"',
+  '',
+].join('\n')
+
 export const sandboxTaskProviderLoaderSpecifiers = ['vitehub-sandbox-task-provider-loader', '@vite-hub/sandbox/task/runtime/provider-loader', 'virtual:vitehub-sandbox-task-provider-loader', '#vitehub-sandbox-task-provider-loader'] as const
 
 function createSandboxTaskProviderLoaderAliases(defaultProviderName: SandboxTaskDriver | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
@@ -298,6 +305,11 @@ export async function createSandboxTaskFeaturePlan(
     ],
     artifacts: [
       ...sandboxTaskArtifacts,
+      {
+        key: 'sandbox-task-entry',
+        filename: sandboxTaskEntryFilename,
+        contents: sandboxTaskEntryContents,
+      },
       {
         key: 'sandbox-task-registry',
         filename: 'runtime/sandbox-task-registry.mjs',
