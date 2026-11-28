@@ -1,5 +1,9 @@
 import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 
+import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
+
+import type { Diagnostic } from "nostics"
+
 /**
  * The Console server fetches the URLs of linked projects. A person who links a project must not make it fetch an
  * address inside the network of the Console, such as a metadata service or a database admin page. So a project URL is
@@ -44,13 +48,11 @@ export function isPrivateHost(hostname: string): boolean {
  * Read the URL of a project that a person typed: an `https://` origin, with the application mount when there is one,
  * such as `https://app.example.com/portal`. A pasted Console URL keeps only the part before `/_vitehub`.
  */
-export function parseProjectUrl(input: string, options: { allowPrivate: boolean }): { url: string } | { error: string } {
+export function parseProjectUrl(input: string, options: { allowPrivate: boolean }): { url: string } | { error: Diagnostic<unknown> } {
   const value = input.trim()
   const url = normalizeConsoleProjectUrl(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`)
-  if (!url) return { error: `"${value}" is not a project URL. Use the https:// URL of the app, such as https://app.example.com.` }
+  if (!url) return { error: consoleErrorDiagnostics.CONSOLE_PROJECT_URL_INVALID({ value }) }
   const { hostname } = new URL(url)
-  if (!options.allowPrivate && isPrivateHost(hostname)) {
-    return { error: `${hostname} is a private address. This Console links only public apps. Set ${allowPrivateVariable}=true on a Console that runs next to its apps.` }
-  }
+  if (!options.allowPrivate && isPrivateHost(hostname)) return { error: consoleErrorDiagnostics.CONSOLE_PROJECT_URL_PRIVATE({ hostname }) }
   return { url }
 }

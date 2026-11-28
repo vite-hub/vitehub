@@ -18,7 +18,7 @@ describe("project URLs", () => {
     "ftp://app.example.com",
     "not a url",
   ])("refuses %s", (input) => {
-    expect(parseProjectUrl(input, { allowPrivate: false })).toEqual({ error: expect.stringContaining("is not a project URL") })
+    expect(parseProjectUrl(input, { allowPrivate: false })).toMatchObject({ error: { code: "CONSOLE_PROJECT_URL_INVALID", why: expect.stringContaining("is not a project URL") } })
   })
 
   it.each([
@@ -34,9 +34,9 @@ describe("project URLs", () => {
   })
 
   it("refuses a private address unless the Console allows them", () => {
-    expect(parseProjectUrl("https://10.0.0.8", { allowPrivate: false })).toEqual({ error: expect.stringContaining("VITEHUB_CONSOLE_ALLOW_PRIVATE=true") })
+    expect(parseProjectUrl("https://10.0.0.8", { allowPrivate: false })).toMatchObject({ error: { code: "CONSOLE_PROJECT_URL_PRIVATE", fix: expect.stringContaining("VITEHUB_CONSOLE_ALLOW_PRIVATE=true") } })
     expect(parseProjectUrl("https://10.0.0.8", { allowPrivate: true })).toEqual({ url: "https://10.0.0.8" })
     expect(parseProjectUrl("http://localhost:3000", { allowPrivate: true })).toEqual({ url: "http://localhost:3000" })
-    expect(parseProjectUrl("http://localhost:3000", { allowPrivate: false })).toEqual({ error: expect.stringContaining("private address") })
+    expect(parseProjectUrl("http://localhost:3000", { allowPrivate: false })).toMatchObject({ error: { code: "CONSOLE_PROJECT_URL_PRIVATE", why: expect.stringContaining("private address") } })
   })
 })

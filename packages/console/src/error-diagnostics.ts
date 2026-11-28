@@ -79,6 +79,14 @@ export const consoleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Reload the Console to see the current data.",
       data: ({ status }: ConsoleMcpFailure) => ({ status }),
     },
+    CONSOLE_PROJECT_URL_INVALID: {
+      why: ({ value }: { value: string }) => `"${value}" is not a project URL.`,
+      fix: "Use the https:// URL of the app, such as https://app.example.com.",
+    },
+    CONSOLE_PROJECT_URL_PRIVATE: {
+      why: ({ hostname }: { hostname: string }) => `${hostname} is a private address. This Console links only apps that it can reach on the public internet.`,
+      fix: "Link a public https:// URL of the app: deploy the app, or expose it through a tunnel, such as `cloudflared tunnel --url http://localhost:3000`. On Node.js, set `vitehub({ publicUrl })` to that URL. Only a Console that you run yourself, next to its apps, can link a private address, with VITEHUB_CONSOLE_ALLOW_PRIVATE=true on that Console.",
+    },
     CONSOLE_REQUEST_INVALID: {
       why: ({ message }: ConsoleMcpFailure) => message,
       fix: "Reload the Console. If this continues, deploy the Console and the server from the same build.",
