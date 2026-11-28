@@ -998,7 +998,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const writeNuxtAgentJournal = async (database: typeof options.database, databaseRoot: string) => {
     if (!options.agent || nuxt.options.dev || nuxt.options.vitehubCliDiscovery || !isDefaultAgentJournal(agentJournal)) return
     // An explicit `databaseUrl` keeps libSQL.
-    const definitions = { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+    const definitions = { implicitDefault: true, provisionRoot: viteRoot, root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
     const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.host, database, definitions)
     assertAgentInvocationsRetention(agentJournal?.retention, { d1: d1Binding }, agentJournal?.databaseUrl)
     if (!nuxt.options._prepare) assertAgentInvocationsUrl(plan.host, agentJournal?.databaseUrl)
