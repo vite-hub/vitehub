@@ -5,10 +5,11 @@ import { parseArgs } from "node:util"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { readSetupProject } from "./project.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 
-/** The hosted Console. `--console` and `VITEHUB_CONSOLE_URL` name a self-hosted one. */
+/** The hosted Console. `--console`, `VITEHUB_CONSOLE_URL`, and `vitehub({ console: { url } })` name a self-hosted one. */
 export const defaultConsoleUrl = "https://console.vitehub.dev"
 
 /** An API key for CI. It wins over the saved key, and `vitehub logout` does not remove it. */
@@ -75,9 +76,22 @@ export function consoleOrigin(value: string): string {
 }
 
 /**
+ * The Console that a command names: `--console`, else `VITEHUB_CONSOLE_URL`, else the literal `console.url` of
+ * `vitehub()` in the app config in `rootDir`. `undefined` when none names one.
+ */
+export async function namedConsole(context: Pick<ViteHubCliContext, "env" | "rootDir">, flag?: string): Promise<string | undefined> {
+  const named = flag ?? context.env[consoleUrlVariable]
+  if (named) return named
+  const project = await readSetupProject(context.rootDir, context.env).catch(() => undefined)
+  const options = project?.config?.ok ? project.config.site.keys.console : undefined
+  const url = options?.kind === "literal" && options.value && typeof options.value === "object" && !Array.isArray(options.value) ? options.value.url : undefined
+  return typeof url === "string" ? url : undefined
+}
+
+/**
  * The key that a command sends to a Console, and where it came from: `VITEHUB_CONSOLE_TOKEN`, else the key that
  * `vitehub login` saved for the Console. Without `console`, the Console is `VITEHUB_CONSOLE_URL`, else the only saved
- * Console, else console.vitehub.dev. `undefined` when there is no key.
+ * Console, else console.vitehub.dev. Commands pass `console` from `namedConsole()`. `undefined` when there is no key.
  */
 export async function readConsoleCredential(env: NodeJS.ProcessEnv, console?: string, signal?: AbortSignal): Promise<{ origin: string, token: string, source: "env" | "file", saved?: ConsoleCredential } | undefined> {
   const file = await readCredentials(consoleCredentialsFile(env), signal)
@@ -183,7 +197,7 @@ async function deviceLogin(origin: string, context: ViteHubCliContext, prompt: V
 const loginUsage = "vitehub login [--console <url>] [--json]"
 
 export const loginCommand: ViteHubCliCommand = {
-  description: `Sign in to a ViteHub Console with the device flow, and save an API key for this machine. The default Console is ${defaultConsoleUrl}; --console or ${consoleUrlVariable} names another.`,
+  description: `Sign in to a ViteHub Console with the device flow, and save an API key for this machine. The default Console is ${defaultConsoleUrl}; --console, ${consoleUrlVariable}, or console.url in the app config names another.`,
   name: "login",
   usage: loginUsage,
   run: async (args, context) => {
@@ -194,7 +208,7 @@ export const loginCommand: ViteHubCliCommand = {
         context.stdout.write(`Usage: ${loginUsage}\n\n${loginCommand.description}\n`)
         return setupExitCodes.done
       }
-      const origin = consoleOrigin(values.console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl)
+      const origin = consoleOrigin(await namedConsole(context, values.console) ?? defaultConsoleUrl)
       const answer = await deviceLogin(origin, context, json ? context.stderr : context.stdout)
       const file = consoleCredentialsFile(context.env)
       const saved = await readCredentials(file)
@@ -226,8 +240,9 @@ export const whoamiCommand: ViteHubCliCommand = {
         context.stdout.write(`Usage: ${whoamiUsage}\n\n${whoamiCommand.description}\n`)
         return setupExitCodes.done
       }
-      const credential = await readConsoleCredential(context.env, values.console)
-      if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(values.console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl) })
+      const named = await namedConsole(context, values.console)
+      const credential = await readConsoleCredential(context.env, named)
+      if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(named ?? defaultConsoleUrl) })
       const response = await (context.fetch ?? fetch)(`${credential.origin}/api/whoami`, { headers: { accept: "application/json", authorization: `Bearer ${credential.token}` } })
       if (response.status === 401) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: credential.origin })
       if (!response.ok) throw cliErrorDiagnostics.CLI_R0001({ message: `[vitehub] ${credential.origin} answered ${response.status} to /api/whoami.` })
@@ -265,7 +280,7 @@ export const logoutCommand: ViteHubCliCommand = {
       }
       const file = consoleCredentialsFile(context.env)
       const saved = await readCredentials(file)
-      const credential = await readConsoleCredential({ ...context.env, [consoleTokenVariable]: undefined }, values.console)
+      const credential = await readConsoleCredential({ ...context.env, [consoleTokenVariable]: undefined }, await namedConsole(context, values.console))
       if (!credential) {
         if (json) writeSetupJson(context, { removed: false })
         else context.stdout.write("Not signed in.\n")

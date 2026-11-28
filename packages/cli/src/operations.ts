@@ -9,7 +9,7 @@ import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 import { consoleClient } from "./setup/console-apps.ts"
-import { readConsoleCredential } from "./setup/console-auth.ts"
+import { namedConsole, readConsoleCredential } from "./setup/console-auth.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
@@ -321,7 +321,7 @@ async function throughConsole(url: string, context: ViteHubCliContext, signal: A
     context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
   }
   try {
-    const credential = await readConsoleCredential(context.env, undefined, signal)
+    const credential = await readConsoleCredential(context.env, await namedConsole(context), signal)
     if (!credential) return
     const { body } = await consoleClient(context, credential, signal).request("/api/projects")
     signal.throwIfAborted()

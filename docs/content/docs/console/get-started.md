@@ -103,7 +103,7 @@ Sign in with GitHub or a passkey. Each account has a personal team. You can crea
 
 The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console) package. It runs on Node.js with SQLite, on Cloudflare Workers with D1, or on Vercel with hosted libSQL, and its README covers how to build, configure, and deploy it.
 
-Set `console.url` in the app to the origin of your Console. `/_vitehub`, the Console links of the app, Site access visits that start on the app, and the Console segment of the Comments pill then go to your Console and not to `https://console.vitehub.dev`. Guest invites and phone links return to the Console that issued them:
+Set `console.url` in the app to the origin of your Console. `/_vitehub`, the Console links of the app, Site access visits that start on the app, the Console segment of the Comments pill, and `vitehub` CLI commands that run in the app folder then go to your Console and not to `https://console.vitehub.dev`. Guest invites and phone links return to the Console that issued them:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

@@ -673,7 +673,7 @@ The API key expires on 13 Feb 2027. Saved in /home/ada/.config/vitehub/credentia
 2. In the browser, you sign in, check the machine name and the code, choose a team, and click **Approve** or **Deny**.
 3. The CLI gets an API key for that team, valid for 90 days. The Console keeps only a SHA-256 hash of the key, and the CLI never prints it.
 
-The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. `--console` and `VITEHUB_CONSOLE_URL` name the Console. Plain `http://` works only for `localhost`.
+The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. The CLI uses the Console of `--console`, else `VITEHUB_CONSOLE_URL`, else `console.url` in the `vitehub()` options of the app in the current folder, else the only saved Console, else `https://console.vitehub.dev`. `vitehub deploy` and the other Console commands follow the same order, so an app that sets `console.url` links in that Console. Plain `http://` works only for `localhost`.
 
 - `vitehub whoami` shows the person, the team, the role, and the projects of the key.
 - `vitehub logout` revokes the key on the Console and removes it from the file.

@@ -3,7 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 
 import { checkConsoleApp, checkProblem, consoleAppUrl, linkConsoleApp, listConsoleApps, openConsole } from "../console-apps.ts"
-import { readConsoleCredential } from "../console-auth.ts"
+import { namedConsole, readConsoleCredential } from "../console-auth.ts"
 
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -43,7 +43,7 @@ export function readsConsoleKey(entries: readonly DeploymentEnvEntry[]): boolean
 }
 
 export async function openDeployConsole(context: ViteHubCliContext): Promise<DeployConsole | "unavailable" | undefined> {
-  if (!await readConsoleCredential(context.env)) return
+  if (!await readConsoleCredential(context.env, await namedConsole(context))) return
   try {
     const client = await openConsole(context)
     const apps = await listConsoleApps(client)
