@@ -31,14 +31,14 @@ const views = inject(consoleAccountViewsKey, {});
 const pageCode = {
   "team": () => import("./console-account-team.vue"),
   "team-settings": () => import("./console-account-team-settings.vue"),
-  "env": () => import("./console-account-env.vue"),
+  "env-values": () => import("./console-account-env.vue"),
   "settings": () => import("./console-account-settings.vue"),
 };
 type LazyPage = keyof typeof pageCode;
-const loadedPages = shallowReactive<Partial<Record<LazyPage, Component>>>({ "team": views.team, "team-settings": views.teamSettings, "env": views.env, "settings": views.settings });
+const loadedPages = shallowReactive<Partial<Record<LazyPage, Component>>>({ "team": views.team, "team-settings": views.teamSettings, "env-values": views.envValues, "settings": views.settings });
 const ConsoleAccountTeam = computed(() => loadedPages.team ?? defineAsyncComponent(pageCode.team));
 const ConsoleAccountTeamSettings = computed(() => loadedPages["team-settings"] ?? defineAsyncComponent(pageCode["team-settings"]));
-const ConsoleAccountEnv = computed(() => loadedPages.env ?? defineAsyncComponent(pageCode.env));
+const ConsoleAccountEnv = computed(() => loadedPages["env-values"] ?? defineAsyncComponent(pageCode["env-values"]));
 const ConsoleAccountSettings = computed(() => loadedPages.settings ?? defineAsyncComponent(pageCode.settings));
 
 /**
@@ -67,7 +67,7 @@ const currentApp = computed(() => page.value === "app" ? projects.current.value?
 const title = computed(() => {
   if (page.value === "team") return "Members";
   if (page.value === "team-settings") return "Team settings";
-  if (page.value === "env") return "Env values";
+  if (page.value === "env-values") return "Env values";
   if (page.value === "settings") return "Account settings";
   if (page.value === "home") return "Apps";
   if (gate.value.kind === "setup") return gate.value.project.publicKey === null ? appName(gate.value.project) : `Connect ${appName(gate.value.project)}`;
@@ -147,7 +147,7 @@ onMounted(() => {
   idle(() => {
     preparePage("team");
     preparePage("team-settings");
-    preparePage("env");
+    preparePage("env-values");
     preparePage("settings");
   });
 });
@@ -197,11 +197,11 @@ async function retry(): Promise<void> {
       <ConsoleSidebarItem
         label="Env values"
         icon="i-lucide-key-round"
-        :href="pagePath('env')"
-        :current="page === 'env'"
-        @pointerenter="intent('env')"
-        @focus="intent('env')"
-        @click="follow($event, () => showConsoleAccountPage('env'))"
+        :href="pagePath('env-values')"
+        :current="page === 'env-values'"
+        @pointerenter="intent('env-values')"
+        @focus="intent('env-values')"
+        @click="follow($event, () => showConsoleAccountPage('env-values'))"
       />
 
       <template #footer>
@@ -234,7 +234,7 @@ async function retry(): Promise<void> {
           <ConsoleAccountHome v-if="page === 'home'" :status="status" :checks="checks" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
           <component :is="ConsoleAccountTeamSettings" v-else-if="page === 'team-settings'" />
-          <component :is="ConsoleAccountEnv" v-else-if="page === 'env'" />
+          <component :is="ConsoleAccountEnv" v-else-if="page === 'env-values'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
           <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">

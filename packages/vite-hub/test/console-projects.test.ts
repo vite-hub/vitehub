@@ -607,7 +607,25 @@ describe("account Console", () => {
     expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
   })
 
-  describe.each(["home", "team", "team-settings", "env", "settings"] as const)("while %s is selected", (page) => {
+  it("opens the app's Env section at /env, and the team's Env values at /env-values", async () => {
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(session)))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", search: "", showPath: () => {} }
+    await module.startConsoleAccount({ ...boot, pathname: "/env" })
+    expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
+    await module.startConsoleAccount({ ...boot, pathname: "/env-values" })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "env-values" })
+  })
+
+  it("names no account page like a section of an app, so a page load opens what a click opened", async () => {
+    const { consoleAccountPages } = await import("../src/console/runtime/client/project-session.ts")
+    const { consoleBuiltinSectionIds } = await import("../src/console/runtime/sections.ts")
+    const appPaths = [...consoleBuiltinSectionIds, "app-settings", "auth", "comments", "connections", "content", "email", "forms", "queues", "rate-limits", "schedules", "served-skills", "webhooks", "workflows", "workspaces"]
+    expect(consoleAccountPages.filter(page => appPaths.includes(page))).toEqual([])
+  })
+
+  describe.each(["home", "team", "team-settings", "env-values", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)
