@@ -4,10 +4,10 @@
       <BubbleContent>The deploy failed. Can you check it?</BubbleContent>
     </Bubble>
     <BubbleGroup>
-      <Bubble variant="muted">
+      <Bubble variant="soft">
         <BubbleContent>Yes. The build stopped at pnpm install.</BubbleContent>
       </Bubble>
-      <Bubble variant="muted">
+      <Bubble variant="soft">
         <BubbleContent>
           The lockfile is out of date, so the frozen install fails. I can update it and run the build again.
         </BubbleContent>
@@ -19,7 +19,7 @@
     <Bubble align="end">
       <BubbleContent>Go ahead.</BubbleContent>
     </Bubble>
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>
         Done. I updated pnpm-lock.yaml and the build passes. The preview URL is ready.
       </BubbleContent>

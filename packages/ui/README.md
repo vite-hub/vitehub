@@ -31,7 +31,7 @@ Import components from the root. A production build keeps only the components th
 
 `vite-hub/nuxt` registers the `vitehub` Iconify collection, so `i-vitehub-kv` works in `UIcon`. The icon rail of ViteHub docs and the Console is in `@vite-hub/docs/primitive-rail`. Its styles stay in `@vite-hub/ui/styles.css`.
 
-The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui"`, when the application already has a `Message` or `Trace` component.
+The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names and `data-slot` attributes. `Message`, `Bubble`, `Attachment`, and `PromptInput` are also `@vitehub` registry items, with the props of the ViteHub contract. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui"`, when the application already has a `Message` or `Trace` component.
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
@@ -364,7 +364,7 @@ The builder reads `registry/registry.json`. An item without `files` publishes ev
 | `base` | `registry:base` | The preset for `shadcn-vue init --preset https://vitehub.dev/r/base.json`: Lucide icons, the `@vitehub` registry, `theme`, and `core` |
 | `theme` | `registry:theme` | The tokens from `@vite-hub/kit`, light and dark, into the app's CSS |
 | `core` | `registry:file` | `vitehub.css` (ui-sdk's `web.css`, the `--ui-*` and `--vh-*` aliases), the live region helper, and one `@layer components` rule in the app's CSS |
-| `status`, `copy-button` | `registry:component` | The component and its CSS in `components/vitehub/<item>/` |
+| `status`, `copy-button`, `message`, `bubble`, `attachment`, `prompt-input` | `registry:component` | The component and its CSS in `components/vitehub/<item>/` |
 | `example-<item>` | `registry:block` | One page that uses the item |
 | `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
 
@@ -394,7 +394,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 - Published builds require Node.js 24.15 or newer. The package is pre-1.0, so pin its version and review changes before upgrading.
 - The components render state supplied by the application. They do not send messages, fetch Agent Invocations, choose routes, persist sessions, or authorize access to instruction and trace data.
-- `PromptInput` submits only in the ready state after attachment conversion finishes. It preserves the draft while blocked; Stop and Retry remain separate actions. Custom submit slots receive `canSubmit` and `preparingFiles`. The application owns draft recovery and clearing after a send; unmount the prompt when switching sessions with pending file reads.
+- `PromptInput` submits only in the ready state after attachment conversion finishes. It preserves the draft while blocked; Stop and Retry remain separate actions. The default slot of `PromptInput` receives `canSubmit` and `preparing` for a custom submit button. The application owns draft recovery and clearing after a send; unmount the prompt when switching sessions with pending file reads.
 - Primary chat and trace output supports Vue server rendering. Scrolling observers, clipboard actions, and attachment conversion use browser APIs and become interactive after hydration. Upload and persist raw files yourself when data URLs are not appropriate.
 - The styled components depend on Nuxt UI components and tokens. `@vite-hub/ui/styles.css` adds ViteHub presentation but is not a replacement for the Tailwind and Nuxt UI imports.
 - The package supplies accessible defaults for its message log, prompt, scroll controls, lists, and built-in actions. The application remains responsible for accessible names on custom controls and slots, meaningful status and error copy, focus behavior around application-owned navigation, and testing the completed interface.

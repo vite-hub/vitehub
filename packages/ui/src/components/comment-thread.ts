@@ -128,7 +128,7 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
           files.map((item) =>
             h(Attachment, { key: item.key, size: "xs" }, () => [
-              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: fileIcon })),
+              h(AttachmentMedia, { kind: "icon" }, () => h(icon, { name: fileIcon })),
               h(AttachmentContent, () =>
                 h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
               ),

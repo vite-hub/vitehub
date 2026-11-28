@@ -1,6 +1,6 @@
 <template>
   <div class="flex w-full max-w-sm flex-col gap-8">
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>This bubble aligns to the start. This is the default alignment.</BubbleContent>
     </Bubble>
     <Bubble align="end">

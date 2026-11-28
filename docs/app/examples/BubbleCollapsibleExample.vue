@@ -16,10 +16,10 @@ const preview = `${text.slice(0, previewLength)}...`;
 
 <template>
   <div class="flex w-full max-w-sm flex-col gap-8">
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>How can I help you today?</BubbleContent>
     </Bubble>
-    <Bubble variant="muted" align="end">
+    <Bubble variant="soft" align="end">
       <BubbleContent class="whitespace-pre-line">
         <div :id="contentId">{{ open || !isLong ? text : preview }}</div>
         <UButton

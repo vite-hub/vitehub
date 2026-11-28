@@ -2,7 +2,7 @@
   <div class="flex w-full max-w-sm flex-col gap-8">
     <Message>
       <MessageContent>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>The install failure comes from the workspace package.</BubbleContent>
         </Bubble>
         <MessageFooter>

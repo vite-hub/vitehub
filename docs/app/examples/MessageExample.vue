@@ -15,7 +15,7 @@
         <UAvatar src="/vitehub-mark.png" alt="Reviewer" />
       </MessageAvatar>
       <MessageContent>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>It's 4:55 PM. On a Friday.</BubbleContent>
         </Bubble>
       </MessageContent>
@@ -37,10 +37,10 @@
       </MessageAvatar>
       <MessageContent>
         <BubbleGroup>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>It's always a one-line change 😭.</BubbleContent>
           </Bubble>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>Alright, let me take a look at the diff.</BubbleContent>
             <BubbleReactions role="img" aria-label="Reaction: thumbs up">
               <span>👍</span>

@@ -1,6 +1,6 @@
 <template>
   <div class="flex w-full max-w-sm flex-col gap-4 py-4">
-    <Bubble variant="secondary">
+    <Bubble variant="soft">
       <BubbleContent>Did you remove the stale route?</BubbleContent>
     </Bubble>
     <Bubble align="end">

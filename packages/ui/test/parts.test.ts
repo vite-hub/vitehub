@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { mount } from "@vue/test-utils";
 import { renderToString } from "@vue/server-renderer";
-import { createSSRApp, defineComponent, h, nextTick, ref } from "vue";
+import { createSSRApp, h, nextTick, ref } from "vue";
 import { describe, expect, it } from "vitest";
 import {
   Attachment,
@@ -55,19 +55,16 @@ function unlayeredRules(stylesheet: string): { body: string; prelude: string }[]
   return rules;
 }
 
-const ButtonStub = defineComponent({
-  setup(_props, { attrs, slots }) {
-    return () => h("button", { ...attrs, "data-stub": "UButton" }, slots.default?.());
-  },
-});
-
 describe("shadcn/ui parts", () => {
   it("renders a conversation turn with the shadcn/ui slots and variants", () => {
     const wrapper = mount(() =>
       h(Message, { align: "end", class: "max-w-sm" }, () =>
         h(MessageContent, () => [
-          h(Bubble, { variant: "secondary" }, () => [
-            h(BubbleContent, { as: "a", href: "/docs" }, () => "Read the docs"),
+          h(Bubble, { variant: "soft" }, () => [
+            h(BubbleContent, null, {
+              default: () => "Read the docs",
+              render: ({ props, children }: { props: Record<string, unknown>; children: () => unknown }) => h("a", { ...props, href: "/docs" }, children()),
+            }),
             h(BubbleReactions, { side: "top" }, () => "👍"),
           ]),
           h(MessageFooter, () => "Sent"),
@@ -77,7 +74,7 @@ describe("shadcn/ui parts", () => {
 
     const message = wrapper.get("[data-slot=message]");
     expect(message.attributes()).toMatchObject({ class: "max-w-sm", "data-align": "end" });
-    expect(wrapper.get("[data-slot=bubble]").attributes()).toMatchObject({ "data-align": "start", "data-variant": "secondary" });
+    expect(wrapper.get("[data-slot=bubble]").attributes()).toMatchObject({ "data-align": "start", "data-variant": "soft" });
     const content = wrapper.get("[data-slot=bubble-content]");
     expect(content.element.tagName).toBe("A");
     expect(content.attributes("href")).toBe("/docs");
@@ -154,29 +151,24 @@ describe("shadcn/ui parts", () => {
   it("renders an attachment with its state and a full-size native trigger", () => {
     const wrapper = mount(
       () =>
-        h(Attachment, { orientation: "vertical", size: "sm", state: "uploading" }, () => [
+        h(Attachment, { orientation: "vertical", size: "sm", status: "uploading" }, () => [
           h(AttachmentTrigger, { "aria-label": "Open report.pdf" }),
-          h(AttachmentMedia, { variant: "image" }, () => h("img", { alt: "", src: "/report.png" })),
+          h(AttachmentMedia, { kind: "image" }, () => h("img", { alt: "", src: "/report.png" })),
           h(AttachmentContent, () => h(AttachmentTitle, () => "report.pdf")),
-          h(AttachmentAction, { "aria-label": "Remove report.pdf", icon: "i-lucide-x" }),
+          h(AttachmentAction, { label: "Remove report.pdf" }),
         ]),
-      { global: { components: { UButton: ButtonStub } } },
     );
 
     expect(wrapper.get("[data-slot=attachment]").attributes()).toMatchObject({
       "data-orientation": "vertical",
       "data-size": "sm",
-      "data-state": "uploading",
+      "data-status": "uploading",
     });
     expect(wrapper.get("[data-slot=attachment-trigger]").attributes()).toMatchObject({ "aria-label": "Open report.pdf", type: "button" });
-    expect(wrapper.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("image");
-    expect(wrapper.get("[data-stub=UButton]").attributes()).toMatchObject({
-      "aria-label": "Remove report.pdf",
-      color: "neutral",
-      "data-slot": "attachment-action",
-      size: "xs",
-      variant: "ghost",
-    });
+    expect(wrapper.get("[data-slot=attachment-media]").attributes("data-kind")).toBe("image");
+    const action = wrapper.get("[data-slot=attachment-action]");
+    expect(action.element.tagName).toBe("BUTTON");
+    expect(action.attributes()).toMatchObject({ "aria-label": "Remove report.pdf", type: "button" });
   });
 
   it("renders on the server", async () => {
@@ -199,8 +191,13 @@ describe("shadcn/ui parts", () => {
     const stylesheet = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf8");
     expect(stylesheet.trimStart().split("\n")[1]).toBe("@layer theme, base, comark, components, utilities;");
     const parts = stylesheet.slice(stylesheet.indexOf("@layer components {"));
-    for (const slot of ["message", "bubble-content", "marker", "trace-line", "trace-collapsible-content-inner", "attachment"])
+    for (const slot of ["marker", "trace-line", "trace-collapsible-content-inner"])
       expect(parts, slot).toContain(`[data-slot="${slot}"]`);
+    // Registry items keep their rules in their own file, also in the components layer.
+    for (const [item, slot] of [["message", "message"], ["bubble", "bubble-content"], ["attachment", "attachment"], ["prompt-input", "prompt-input-submit"]]) {
+      const css = readFileSync(resolve(import.meta.dirname, `../registry/${item}/${item}.css`), "utf8");
+      expect(css.slice(css.indexOf("@layer components {")), item).toContain(`[data-slot="${slot}"]`);
+    }
   });
 
   it("checks every unlayered selector inside media queries", () => {
@@ -225,7 +222,7 @@ describe("shadcn/ui parts", () => {
     // Outside a layer stay only the theme tokens and the rules that restyle Nuxt UI components, whose utility classes
     // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, the rail, the
     // Remove badge of a picture in a comment box, and the Nuxt UI slots of the workspace examples menu.
-    const restylesNuxtUI = /^\.vh-ws-examples-menu \[data-slot="(group|label|item|itemWrapper|itemTrailing)"\]|^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^(\.vh-agent-session )?\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-|^\[data-slot="comment-composer"\] \[data-slot="attachment"\]:has\(> \[data-slot="attachment-media"\]\[data-variant="image"\]\) \[data-slot="attachment-actions"\] > button/;
+    const restylesNuxtUI = /^\.vh-ws-examples-menu \[data-slot="(group|label|item|itemWrapper|itemTrailing)"\]|^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^(\.vh-agent-session )?\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-|^\[data-slot="comment-composer"\] \[data-slot="attachment"\]:has\(> \[data-slot="attachment-media"\]\[data-kind="image"\]\) \[data-slot="attachment-actions"\] > button/;
     for (const { body, prelude } of unlayered) {
       if (prelude === ":root" || prelude.startsWith(":where(:root,")) continue;
       if (prelude === '[data-slot="comment-image-stack-remove"]') continue;

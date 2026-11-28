@@ -3,7 +3,7 @@
     <Message align="end">
       <MessageContent>
         <Attachment orientation="vertical" class="w-40">
-          <AttachmentMedia variant="image">
+          <AttachmentMedia kind="image">
             <img src="/examples/my-pull-requests.jpg" alt="A list of open pull requests">
           </AttachmentMedia>
         </Attachment>
@@ -14,7 +14,7 @@
     </Message>
     <Message>
       <MessageContent>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>Done. Here are the release notes with the screenshot as the cover image.</BubbleContent>
         </Bubble>
         <Attachment>
@@ -26,7 +26,7 @@
             <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
           </AttachmentContent>
           <AttachmentActions>
-            <AttachmentAction icon="i-lucide-download" aria-label="Download release-notes.pdf" />
+            <AttachmentAction label="Download release-notes.pdf"><UIcon name="i-lucide-download" /></AttachmentAction>
           </AttachmentActions>
         </Attachment>
       </MessageContent>

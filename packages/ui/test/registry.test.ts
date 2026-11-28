@@ -22,6 +22,7 @@ const items: RegistryItem[] = Object.entries(built)
   .map(([, content]) => JSON.parse(content));
 const index: { items: RegistryItem[] } = JSON.parse(built["registry.json"] ?? "");
 const item = (name: string) => items.find((entry) => entry.name === name);
+const { dependencies: pins }: { dependencies: Record<string, string> } = JSON.parse(read("package.json"));
 
 describe("@vitehub registry", () => {
   it("validates every item against the shadcn-vue item schema", () => {
@@ -64,8 +65,8 @@ describe("@vitehub registry", () => {
   it("derives the item and package dependencies from the imports", () => {
     expect(item("status")?.registryDependencies).toEqual(["@vitehub/core"]);
     expect(item("copy-button")?.registryDependencies).toEqual(["@vitehub/core"]);
-    expect(item("copy-button")?.dependencies).toEqual(["@lucide/vue", "@ui-sdk/vue@0.1.0-beta.14"]);
-    expect(item("core")?.dependencies).toEqual(["@ui-sdk/core@0.1.0-beta.14"]);
+    expect(item("copy-button")?.dependencies).toEqual(["@lucide/vue", `@ui-sdk/vue@${pins["@ui-sdk/vue"]}`]);
+    expect(item("core")?.dependencies).toEqual([`@ui-sdk/core@${pins["@ui-sdk/core"]}`]);
     expect(item("example-status")?.registryDependencies).toEqual(["@vitehub/status"]);
     expect(item("example-copy-button")?.registryDependencies).toEqual(["@vitehub/copy-button"]);
     expect(item("base")?.registryDependencies).toEqual(["@vitehub/theme", "@vitehub/core"]);
@@ -130,6 +131,6 @@ import { ref } from "vue";
 
   it("inlines every item stylesheet that styles.css imports, and the core stylesheet is not one of them", () => {
     const imports = [...read("styles.css").matchAll(/^@import "\.\/registry\/([\w-]+)\/[\w-]+\.css";$/gm)].map(([, name]) => name);
-    expect(imports).toEqual(["status", "copy-button"]);
+    expect(imports).toEqual(["status", "copy-button", "message", "bubble", "attachment", "prompt-input"]);
   });
 });

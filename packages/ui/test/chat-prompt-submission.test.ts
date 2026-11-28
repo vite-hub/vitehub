@@ -5,8 +5,8 @@ import UButton from "@nuxt/ui/components/Button.vue";
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "vue";
-import { PromptInput } from "../src/components/prompt-input.ts";
-import * as attachments from "../src/composables/attachments.ts";
+import * as attachments from "../registry/prompt-input/files.ts";
+import { PromptInput, PromptInputTextarea } from "../src/components/prompt-input.ts";
 
 const filePart: FileUIPart = {
   filename: "notes.txt",
@@ -40,9 +40,12 @@ describe("PromptInput submission with Nuxt UI", () => {
     const wrapper = mount(PromptInput, {
       // Native submit-button clicks only submit forms connected to the document.
       attachTo: document.body,
-      props: { attachments: false, modelValue: "Sending", readonly: true },
+      props: { modelValue: "Sending", readonly: true },
       slots: {
-        submit: ({ canSubmit }) => h("button", { disabled: !canSubmit, type: "submit" }, "Publish"),
+        default: ({ canSubmit }: { canSubmit: boolean }) => [
+          h(PromptInputTextarea),
+          h("button", { disabled: !canSubmit, type: "submit" }, "Publish"),
+        ],
       },
     });
 
@@ -96,7 +99,7 @@ describe("PromptInput submission with Nuxt UI", () => {
       expect(wrapper.emitted("submit")).toBeUndefined();
       expect(wrapper.get("textarea").element.value).toBe("Read these notes");
 
-      const event = status === "error" ? "reload" : "stop";
+      const event = status === "error" ? "retry" : "stop";
       const label = status === "error" ? "Retry prompt" : "Stop response";
       await wrapper.get(`button[aria-label="${label}"]`).trigger("click");
       expect(wrapper.emitted(event)).toHaveLength(1);
@@ -205,7 +208,7 @@ describe("PromptInput submission with Nuxt UI", () => {
     pending.reject(error);
     await flushPromises();
 
-    expect(wrapper.emitted("error")).toEqual([[error]]);
+    expect(wrapper.emitted("error")).toEqual([[{ error }]]);
     expect(wrapper.emitted("update:files")).toBeUndefined();
     expect(wrapper.get('button[aria-label="Send prompt"]').attributes("disabled")).toBeUndefined();
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
@@ -224,7 +227,7 @@ describe("PromptInput submission with Nuxt UI", () => {
       const button = wrapper.get(`button[aria-label="${label}"]`);
       expect(button.attributes("disabled")).toBeUndefined();
       await button.trigger("click");
-      expect(wrapper.emitted(status === "error" ? "reload" : "stop")).toHaveLength(1);
+      expect(wrapper.emitted(status === "error" ? "retry" : "stop")).toHaveLength(1);
       pending.resolve(filePart);
       await flushPromises();
       wrapper.unmount();

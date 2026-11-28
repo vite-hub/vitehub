@@ -215,12 +215,16 @@ async function restart() {
         v-model="draft"
         class="shrink-0 border-t border-default p-2"
         placeholder="Ask a question"
-        :attachments="false"
         :status="chat.status.value"
         @submit="submit"
         @stop="chat.stop()"
-        @reload="chat.regenerate(requestBody())"
-      />
+        @retry="chat.regenerate(requestBody())"
+      >
+        <PromptInputTextarea />
+        <PromptInputToolbar>
+          <PromptInputSubmit />
+        </PromptInputToolbar>
+      </PromptInput>
     </div>
   </DefineBody>
 

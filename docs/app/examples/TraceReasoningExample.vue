@@ -32,7 +32,7 @@ onBeforeUnmount(() => clearInterval(timer));
   <div class="flex min-h-72 w-full max-w-sm flex-col gap-4 text-sm">
     <Message align="end">
       <MessageContent>
-        <Bubble align="end" variant="muted">
+        <Bubble align="end" variant="soft">
           <BubbleContent>Why is the checkout deploy so slow?</BubbleContent>
         </Bubble>
       </MessageContent>

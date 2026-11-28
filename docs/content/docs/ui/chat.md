@@ -61,12 +61,12 @@ Pass the values from `useChat()`. The component never calls `sendMessage()`, `st
 ```vue [app/pages/chat.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import type { PromptInputSubmit } from "vite-hub/ui";
+import type { PromptInputSubmitEvent } from "vite-hub/ui";
 
 const { messages, status, sendMessage, stop } = useChat();
 const input = ref("");
 
-function submit({ text, files }: PromptInputSubmit) {
+function submit({ text, files }: PromptInputSubmitEvent) {
   sendMessage({ text, files: [...files] });
   input.value = "";
 }

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-message",
+  "type": "registry:block",
+  "title": "Message example",
+  "description": "A question from the user and an answer with a header and footer.",
+  "registryDependencies": [
+    "@vitehub/bubble",
+    "@vitehub/message"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-message/MessageExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Bubble, BubbleContent } from \"../bubble/index.ts\";\nimport { Message, MessageContent, MessageFooter, MessageGroup, MessageHeader } from \"../message/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-message\" style=\"display: flex; flex-direction: column; gap: 1rem; max-width: 28rem\">\n    <Message align=\"end\">\n      <MessageContent>\n        <Bubble variant=\"soft\">\n          <BubbleContent>Why did the last deploy fail?</BubbleContent>\n        </Bubble>\n      </MessageContent>\n    </Message>\n    <MessageGroup>\n      <Message>\n        <MessageContent>\n          <MessageHeader>Agent</MessageHeader>\n          <Bubble variant=\"ghost\">\n            <BubbleContent>The build ran out of memory while it bundled the docs.</BubbleContent>\n          </Bubble>\n          <MessageFooter>2 minutes ago</MessageFooter>\n        </MessageContent>\n      </Message>\n    </MessageGroup>\n  </div>\n</template>\n"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ Move the chat pane into a child component keyed by the session ID, so each sessi
 ```vue [SessionPane.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import type { PromptInputSubmit, ViteHubUISession } from "vite-hub/ui";
+import type { PromptInputSubmitEvent, ViteHubUISession } from "vite-hub/ui";
 import type { FileUIPart } from "ai";
 
 const props = defineProps<{ session: ViteHubUISession }>();
@@ -31,7 +31,7 @@ const { messages, status, sendMessage, stop } = useChat({
 const input = ref("");
 const files = ref<FileUIPart[]>([]);
 
-function submit({ text, files: attached }: PromptInputSubmit) {
+function submit({ text, files: attached }: PromptInputSubmitEvent) {
   sendMessage({ text, files: [...attached] });
   input.value = "";
   files.value = [];

@@ -32,7 +32,7 @@ import { Bubble, BubbleContent, Message, MessageAvatar, MessageContent } from "v
       <UAvatar src="/agent.png" alt="Agent" />
     </MessageAvatar>
     <MessageContent>
-      <Bubble variant="secondary">
+      <Bubble variant="soft">
         <BubbleContent>The lockfile was out of date.</BubbleContent>
       </Bubble>
     </MessageContent>

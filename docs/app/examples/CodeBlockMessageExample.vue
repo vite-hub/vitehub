@@ -21,7 +21,7 @@ const lines = useHighlightedCode(code, "ts");
   <div class="flex w-full max-w-md flex-col gap-4 text-sm">
     <Message align="end">
       <MessageContent>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>How do I stream a response from a Nitro route?</BubbleContent>
         </Bubble>
       </MessageContent>

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "message",
+  "type": "registry:component",
+  "title": "Message",
+  "description": "One turn of a conversation: avatar, header, content, and footer, aligned to the start or end.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/message/Message.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./message.css\";\nimport type { MessageProps, MessageSlots } from \"./types.ts\";\n\nconst { align = \"start\" } = defineProps<MessageProps>();\ndefineSlots<MessageSlots>();\n</script>\n\n<template>\n  <div data-slot=\"message\" :data-align=\"align\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/MessageAvatar.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"message-avatar\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/MessageContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"message-content\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/MessageFooter.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"message-footer\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/MessageGroup.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"message-group\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/MessageHeader.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"message-header\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/message/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Message } from \"./Message.vue\";\nexport { default as MessageAvatar } from \"./MessageAvatar.vue\";\nexport { default as MessageContent } from \"./MessageContent.vue\";\nexport { default as MessageFooter } from \"./MessageFooter.vue\";\nexport { default as MessageGroup } from \"./MessageGroup.vue\";\nexport { default as MessageHeader } from \"./MessageHeader.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/message/message.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Message */\n\n  [data-slot=\"message-group\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.5rem;\n    min-width: 0;\n  }\n\n  [data-slot=\"message\"][data-align] {\n    display: flex;\n    font-size: 0.875rem;\n    gap: 0.5rem;\n    line-height: 1.25rem;\n    min-width: 0;\n    position: relative;\n    width: 100%;\n  }\n\n  [data-slot=\"message\"][data-align=\"end\"] {\n    flex-direction: row-reverse;\n  }\n\n  [data-slot=\"message-avatar\"] {\n    align-items: center;\n    align-self: flex-end;\n    background: var(--vh-bg-elevated);\n    border-radius: 9999px;\n    display: flex;\n    flex-shrink: 0;\n    justify-content: center;\n    min-width: 2rem;\n    overflow: hidden;\n    width: fit-content;\n  }\n\n  [data-slot=\"message\"][data-align]:has([data-slot=\"message-footer\"]) [data-slot=\"message-avatar\"] {\n    translate: 0 -2rem;\n  }\n\n  [data-slot=\"message-content\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.625rem;\n    min-width: 0;\n    overflow-wrap: break-word;\n    width: 100%;\n  }\n\n  [data-slot=\"message\"][data-align=\"end\"] [data-slot=\"message-content\"] > [data-slot] {\n    align-self: flex-end;\n  }\n\n  :is([data-slot=\"message-header\"], [data-slot=\"message-footer\"]) {\n    align-items: center;\n    color: var(--vh-muted);\n    display: flex;\n    font-size: 0.75rem;\n    font-weight: 500;\n    line-height: 1rem;\n    max-width: 100%;\n    min-width: 0;\n    padding-inline: 0.75rem;\n  }\n\n  /* Without a framed bubble, the header and footer line up with the unframed content. */\n  [data-slot=\"message\"][data-align]:is(:has([data-variant=\"ghost\"]), :not(:has([data-slot=\"bubble\"]))) :is([data-slot=\"message-header\"], [data-slot=\"message-footer\"]) {\n    padding-inline: 0;\n  }\n\n  [data-slot=\"message\"][data-align=\"end\"] [data-slot=\"message-footer\"] {\n    justify-content: flex-end;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/message/types.ts",
+      "type": "registry:component",
+      "content": "export type MessageAlign = \"start\" | \"end\";\n\nexport interface MessageProps {\n  /** The side the message speaks from. A reply from the viewer uses `end`. */\n  align?: MessageAlign;\n}\n\nexport interface MessageSlots {\n  /** The parts of the message: `MessageAvatar` and `MessageContent`, with `MessageHeader` and `MessageFooter` in it. */\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

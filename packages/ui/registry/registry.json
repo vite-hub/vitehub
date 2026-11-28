@@ -45,6 +45,30 @@
       "description": "A button that copies text and shows a check for a moment."
     },
     {
+      "name": "message",
+      "type": "registry:component",
+      "title": "Message",
+      "description": "One turn of a conversation: avatar, header, content, and footer, aligned to the start or end."
+    },
+    {
+      "name": "bubble",
+      "type": "registry:component",
+      "title": "Bubble",
+      "description": "A frame for message text in five variants and a tone, with groups and reactions."
+    },
+    {
+      "name": "attachment",
+      "type": "registry:component",
+      "title": "Attachment",
+      "description": "A file with its upload status as a row or a tile, with media, actions, and a group that scrolls."
+    },
+    {
+      "name": "prompt-input",
+      "type": "registry:component",
+      "title": "Prompt input",
+      "description": "A chat input with file attachments and a submit button that follows the AI SDK chat status."
+    },
+    {
       "name": "example-status",
       "type": "registry:block",
       "title": "Status example",
@@ -55,6 +79,30 @@
       "type": "registry:block",
       "title": "Copy button example",
       "description": "An icon-only copy button and one with a label."
+    },
+    {
+      "name": "example-message",
+      "type": "registry:block",
+      "title": "Message example",
+      "description": "A question from the user and an answer with a header and footer."
+    },
+    {
+      "name": "example-bubble",
+      "type": "registry:block",
+      "title": "Bubble example",
+      "description": "A group of bubbles with a reaction and a button, and the outline and destructive variants."
+    },
+    {
+      "name": "example-attachment",
+      "type": "registry:block",
+      "title": "Attachment example",
+      "description": "Attachments in three sizes and statuses, and a group of chips."
+    },
+    {
+      "name": "example-prompt-input",
+      "type": "registry:block",
+      "title": "Prompt input example",
+      "description": "A prompt that takes text and files and shows what it sent."
     },
     {
       "name": "vitehub-ui-skill",

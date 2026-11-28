@@ -13,16 +13,22 @@ const sent = ref<string[]>([]);
       status="ready"
       @submit="sent.push($event.text); input = ''"
     >
-      <template #submit="{ canSubmit, preparingFiles }">
-        <UButton
-          type="submit"
-          label="Publish"
-          trailing-icon="i-lucide-arrow-up"
-          color="neutral"
-          size="sm"
-          :loading="preparingFiles"
-          :disabled="!canSubmit"
-        />
+      <template #default="{ canSubmit, preparing }">
+        <PromptInputAttachments />
+        <PromptInputTextarea />
+        <PromptInputToolbar>
+          <PromptInputAttach />
+          <UButton
+            class="ms-auto"
+            type="submit"
+            label="Publish"
+            trailing-icon="i-lucide-arrow-up"
+            color="neutral"
+            size="sm"
+            :loading="preparing"
+            :disabled="!canSubmit"
+          />
+        </PromptInputToolbar>
       </template>
     </PromptInput>
     <ul v-if="sent.length" class="space-y-1 text-xs text-muted">

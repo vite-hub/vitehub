@@ -10,7 +10,7 @@ const images = [
   <div class="flex w-full max-w-sm flex-col gap-3">
     <AttachmentGroup>
       <Attachment v-for="image in images" :key="image.name" orientation="vertical">
-        <AttachmentMedia variant="image">
+        <AttachmentMedia kind="image">
           <img :src="image.src" :alt="image.alt">
         </AttachmentMedia>
         <AttachmentContent>
@@ -19,7 +19,7 @@ const images = [
         </AttachmentContent>
       </Attachment>
     </AttachmentGroup>
-    <Attachment state="uploading" class="w-full">
+    <Attachment status="uploading" class="w-full">
       <AttachmentMedia>
         <UIcon name="i-lucide-circle-dashed" />
       </AttachmentMedia>
@@ -28,7 +28,7 @@ const images = [
         <AttachmentDescription>Uploading · 64%</AttachmentDescription>
       </AttachmentContent>
       <AttachmentActions>
-        <AttachmentAction icon="i-lucide-x" aria-label="Cancel the upload of sales-dashboard.pdf" />
+        <AttachmentAction label="Cancel the upload of sales-dashboard.pdf" />
       </AttachmentActions>
     </Attachment>
     <Attachment class="w-full">
@@ -40,7 +40,7 @@ const images = [
         <AttachmentDescription>Vue · 12 KB</AttachmentDescription>
       </AttachmentContent>
       <AttachmentActions>
-        <AttachmentAction icon="i-lucide-x" aria-label="Remove message-renderer.vue" />
+        <AttachmentAction label="Remove message-renderer.vue" />
       </AttachmentActions>
     </Attachment>
   </div>
