@@ -19,6 +19,7 @@ export interface ViteHubConfigSite {
   spread: boolean
   /** Top-level Nuxt options used to locate server discovery directories. */
   nuxt?: { keys: Readonly<Record<string, ConfigValue>>, spread: boolean }
+  viteRoot?: string | false
 }
 export type LocateResult = { ok: true, site: ViteHubConfigSite } | { ok: false, reason: ManualReason, line?: number }
 export type ConfigEdit = { op: "set", key: string, value: JsonValue } | { op: "delete", key: string }
@@ -206,7 +207,17 @@ function locateVite(code: string, program: File): Located | Failure {
   if (second) return fail("multiple-vitehub", second)
   const argument = call.arguments[0]
   if (argument && (argument.type === "SpreadElement" || argument.type === "ArgumentPlaceholder")) return fail("dynamic-options", argument)
-  return siteFor(code, "vite-call", argument, { kind: "call", node: call }, program)
+  const located = siteFor(code, "vite-call", argument, { kind: "call", node: call }, program)
+  if ("ok" in located) return located
+  const exported = unwrap(root)
+  const config = exported.type === "CallExpression" && exported.arguments[0] ? unwrap(exported.arguments[0]) : exported
+  if (config.type !== "ObjectExpression") return { ...located, site: { ...located.site, viteRoot: false } }
+  const keys = readKeys(code, config)
+  const value = "ok" in keys ? undefined : keys.keys.root
+  const viteRoot = "ok" in keys || keys.spread || (value && (value.kind !== "literal" || typeof value.value !== "string"))
+    ? false
+    : value?.value
+  return { ...located, site: { ...located.site, ...(typeof viteRoot === "string" || viteRoot === false ? { viteRoot } : {}) } }
 }
 
 function findMember(object: ObjectExpression, name: string): ObjectProperty | undefined {

@@ -7,7 +7,6 @@ import type { ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/interna
 import type { Plugin } from "vite"
 
 const databasePluginName = "@vite-hub/database/vite"
-const enableDatabase = "Set `database: true` in vitehub() to enable Database."
 const disabledWorkspaceDatabaseId = "\0vite-hub/workspace-database-disabled"
 
 interface DisabledDatabaseState {
@@ -27,11 +26,14 @@ interface DatabasePlugin {
 /**
  * Reports Database use while `vitehub({ database })` is off.
  *
- * Features stay off until the application enables them. Without this plugin, the Drizzle runtime
- * resolves to an empty registry, so a build succeeds and the first query fails at runtime.
+ * Database stays off until a Definition in `server/databases/` or the `database` option turns it on. Without this
+ * plugin, the Drizzle runtime resolves to an empty registry, so a build succeeds and the first query fails at runtime.
  * `runtimeImports` maps each import that Vite can resolve to its public specifier.
  */
 export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, string>, explicitlyDisabled = false, workspaceStoreEntry?: string): Plugin & { vitehub: { cli: () => ViteHubCliContributor | undefined } } {
+  const enableDatabase = explicitlyDisabled
+    ? "Set `database: true`, or remove `database: false` and use a Database Definition in `server/databases/`, to enable Database."
+    : "Add a Database Definition in `server/databases/`, or set `database: true` in vitehub(), to enable Database."
   let serverDirs: string[] | undefined
   let state: DisabledDatabaseState | undefined
   const runtimeImportIds = new RegExp(`^(?:${[...runtimeImports.keys()].map(id => id.replace(/[$()*+.?[\\\]^{|}]/g, "\\$&")).join("|")})$`)

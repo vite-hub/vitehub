@@ -26,6 +26,7 @@ interface ViteHubOptionObjects {
   options: ObjectExpression[]
   nuxtConfig?: ObjectExpression
   scan: ScanModule
+  viteConfig?: ObjectExpression
 }
 
 async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<ScanModule | undefined> = loadConfigScanner): Promise<ViteHubOptionObjects | undefined> {
@@ -90,7 +91,7 @@ async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<
     }))
     if (knownModules) active = literal(findProperty(config, "vitehub")?.value)
   }
-  return { active, options, scan, ...(owner === "nuxt" && config ? { nuxtConfig: config } : {}) }
+  return { active, options, scan, ...(config ? owner === "nuxt" ? { nuxtConfig: config } : { viteConfig: config } : {}) }
 }
 
 /**
@@ -174,6 +175,9 @@ export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Re
   if (findProperty(options, "dataDir")) return
   const nuxt = config.nuxtConfig
   if (nuxt && (["rootDir", "srcDir", "serverDir"].some(key => findProperty(nuxt, key)) || existsSync(join(rootDir, "layers")))) return
+  const viteRootValue = config.viteConfig && findProperty(config.viteConfig, "root")?.value
+  const viteRoot = viteRootValue && staticString(viteRootValue)
+  if (viteRootValue && viteRoot === undefined) return
   const host = findProperty(options, "host")?.value
   const configuredHost = host === undefined ? undefined : staticString(host)
   if (host !== undefined && configuredHost === undefined) return
@@ -200,15 +204,19 @@ export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Re
     if (!setting || findProperty(setting, "store") || findProperty(setting, "databaseUrl")) return
   }
   const database = findProperty(options, "database")?.value
-  if (database === undefined) return
-  const databaseOptions = staticValue(database) === true ? undefined : literalObject(database)
-  if (staticValue(database) !== true && !databaseOptions) return
+  const databaseEnabled = database !== undefined && staticValue(database) === true
+  const databaseOptions = literalObject(database)
+  if (database !== undefined && !databaseEnabled && !databaseOptions) return
   const projectRootValue = databaseOptions && findProperty(databaseOptions, "projectRoot")?.value
   const projectRoot = projectRootValue ? staticString(projectRootValue) : undefined
   if (projectRootValue && projectRoot === undefined) return
   const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config"))
   if (!owner) return
-  const root = resolve(rootDir, projectRoot ?? ".")
+  const root = resolve(rootDir, viteRoot ?? ".", projectRoot ?? ".")
+  if (database === undefined) {
+    const { hasServerDatabaseDefinitions } = await import("@vite-hub/internal/definition-catalog")
+    if (!hasServerDatabaseDefinitions(join(root, "server", "databases"))) return
+  }
   let resolved: ReturnType<typeof owner.resolveDBViteConfig>
   try {
     resolved = owner.resolveDBViteConfig(undefined, root, { implicitDefault: true, provisionState: {}, ...(projectRoot === undefined ? {} : { serverDirs: [resolve(root, "server")] }) })

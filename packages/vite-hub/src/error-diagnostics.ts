@@ -485,7 +485,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0013: {
       ...dynamicError,
-      fix: "Set `database: true` in `vitehub()`, or remove the Database import that the message names.",
+      fix: "Add a Database Definition in `server/databases/` or set `database: true` in `vitehub()`, remove `database: false` if the app sets it, or remove the Database import that the message names.",
     },
     VITE_HUB_B0015: {
       ...dynamicError,

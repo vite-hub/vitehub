@@ -1,8 +1,8 @@
-import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
+import { hasDefinitionFiles, hasServerDatabaseDefinitions } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
 import { featureIds, featurePackages, features, featureSupport, formatInstallArgument, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
 import { isRecord } from "@vite-hub/internal/object"
-import { join } from "pathe"
+import { join, resolve } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
@@ -92,9 +92,12 @@ function readEnabled(project: SetupProject, id: FeatureId, withoutDefinitions: R
   if (features[id].enabledByDefault) return { enabled: "on", reason: "default" }
   if (withoutDefinitions?.has(id)) return { enabled: "off", reason: "default" }
   const discovery = features[id].enabledByDiscovery
-  const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
+  const viteRoot = id === "database" ? config.site.viteRoot : undefined
+  const directories = viteRoot === false ? undefined : viteRoot !== undefined ? [resolve(project.root, viteRoot, "server")]
+    : project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
   if (discovery && !directories) return { enabled: "unknown", reason: "default" }
-  const discovered = discovery?.some(file => directories?.some(directory => hasDefinitionFiles(join(directory, file))))
+  const hasDefinitions = id === "database" ? hasServerDatabaseDefinitions : hasDefinitionFiles
+  const discovered = discovery?.some(file => directories?.some(directory => hasDefinitions(join(directory, file))))
   return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 

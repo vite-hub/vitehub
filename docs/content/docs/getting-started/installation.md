@@ -225,7 +225,7 @@ If another third-party dependency version falls outside the range supported by y
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and a Database Definition, Connections, or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
 | Forms | `@vite-hub/forms @vite-hub/database drizzle-orm@1.0.0-rc.5 valibot` |
 | `i18n` | `@vite-hub/i18n` |

@@ -15,8 +15,8 @@ In this tutorial, you create a `notes` table, add a note from one API route, and
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). You need no account or API key. The data goes in a SQLite file on your computer, at `.vitehub/data/database/sqlite.db`. Run every command from the app root, so the CLI and the server use the same file.
 
-::tutorial-step{title="Enable Database"}
-## Enable Database
+::tutorial-step{title="Install Database"}
+## Install Database
 
 Database is a separate package. Install it with [Drizzle](https://orm.drizzle.team) to write your tables, and Drizzle Kit to make migrations:
 
@@ -25,43 +25,7 @@ pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.6
 pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
-Then add `database: true` to your ViteHub options. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { database: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ database: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ database: true })],
-})
-```
-::::
-:::
+You do not need a `database` option. The Definition file that you create in the next step turns on Database.
 
 ::
 

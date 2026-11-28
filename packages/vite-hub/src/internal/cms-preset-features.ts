@@ -1,11 +1,13 @@
-import { resolve } from "node:path"
+import { relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { hasServerDatabaseDefinitions } from "@vite-hub/internal/definition-catalog"
 import { parseAst } from "vite"
 
+import { checkDefinitionPackages } from "./definition-features.ts"
 import { ownerModules } from "./owner-modules.ts"
 
-import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
 
 interface CmsPresetFeatureOptions {
   blob?: unknown
@@ -111,12 +113,17 @@ function pluginKey(plugin: Plugin, seen: Map<string, number>): string {
   return `${plugin.name}\u0000${index}`
 }
 
-function withApply(apply: Plugin["apply"], when: (config: CmsPresetConfig) => boolean): NonNullable<Plugin["apply"]> {
-  return (config, env) => when(config) && (apply === undefined || (apply instanceof Function ? apply(config, env) : apply === env.command))
+type SelectVariant = (config: CmsPresetConfig, env: ConfigEnv) => boolean
+
+const integratedDatabasePlugins = new WeakSet<Plugin>()
+const databasePluginName = "@vite-hub/database/vite"
+
+function withApply(apply: Plugin["apply"], when: SelectVariant): NonNullable<Plugin["apply"]> {
+  return (config, env) => when(config, env) && (apply === undefined || (apply instanceof Function ? apply(config, env) : apply === env.command))
 }
 
 /** Gives a plugin option an `apply` that also requires `when(config)`, so Vite drops it otherwise. */
-function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean): unknown {
+function applyWhen(option: unknown, when: SelectVariant): unknown {
   if (!isPluginObject(option)) {
     return Promise.resolve(option).then(resolved => Array.isArray(resolved) ? resolved.map(item => applyWhen(item, when)) : applyWhen(resolved, when))
   }
@@ -130,11 +137,26 @@ function selectsDatabaseOwner(config: CmsPresetConfig, comments: unknown): boole
   return (comments !== false && usesComments(project)) || usesForms(project) || usesSync(project)
 }
 
+function selectsDatabaseDefinition(config: CmsPresetConfig, env: ConfigEnv): boolean {
+  const directOwner = flattenPluginOptions(config.plugins, []).some(plugin =>
+    isPluginObject(plugin) && plugin.name === databasePluginName && !integratedDatabasePlugins.has(plugin)
+    && (typeof plugin.apply === "function" ? plugin.apply(config, env) : !plugin.apply || plugin.apply === env.command),
+  )
+  if (directOwner) return false
+  const root = resolve(config.root ?? process.cwd())
+  const directory = (config[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")])
+    .map(server => resolve(server, "databases"))
+    .find(hasServerDatabaseDefinitions)
+  if (directory === undefined) return false
+  checkDefinitionPackages(new Map([["database", relative(root, directory)]]))
+  return true
+}
+
 /**
  * One plugin that is the plain or the `cms` preset instance of the same plugin. Vite decides through `apply`, and
  * every other property reads from the chosen instance. Before Vite decides, it reads from the plain instance.
  */
-function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, selectsCms: (config: CmsPresetConfig) => boolean): Plugin {
+function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, selectsCms: SelectVariant): Plugin {
   const pick = () => selection.cms ? cms : plain
   // SAFETY: Every own key of both instances is defined below as an accessor, and `apply` right after the loop.
   const plugin = {} as Plugin
@@ -144,11 +166,11 @@ function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, s
       configurable: true,
       enumerable: true,
       get: () => Reflect.get(pick(), key),
-      set: value => Reflect.set(pick(), key, value),
+      set: value => { Reflect.set(pick(), key, value) },
     })
   }
   plugin.apply = (config, env) => {
-    selection.cms = selectsCms(config)
+    selection.cms = selectsCms(config, env)
     const apply = pick().apply
     return apply === undefined || (apply instanceof Function ? apply(config, env) : apply === env.command)
   }
@@ -160,7 +182,7 @@ function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, s
  * features on. Each plugin that both builds share becomes one plugin that reads from the matching instance, and plugins
  * of only one build get an `apply` that keeps them for that case.
  */
-function composeVariants(plain: unknown[], alt: unknown[], selects: (config: CmsPresetConfig) => boolean): unknown[] {
+function composeVariants(plain: unknown[], alt: unknown[], selects: SelectVariant): unknown[] {
   const selection = { cms: false }
   const plainByKey = new Map<string, Plugin>()
   const plainSeen = new Map<string, number>()
@@ -187,7 +209,7 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
   for (const option of plain) {
     const other = isPluginObject(option) ? pairs.get(option) : undefined
     if (!other || !isPluginObject(option)) {
-      merged.push(applyWhen(option, config => !selects(config)))
+      merged.push(applyWhen(option, (config, env) => !selects(config, env)))
       continue
     }
     flushAlt(other)
@@ -199,7 +221,7 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 
 /**
  * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
- * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts`, the `comments` option, or `server/forms/` turns it on.
+ * `server/content.ts` turns it on. When `database` is unset, Database Definitions, Comments, Forms, or Sync turn it on.
  * When `kv` is unset, a `github()` Source in `server/content.ts` turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.
@@ -222,12 +244,22 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const failing = (error: unknown): unknown[] => [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
   const blob = cmsUnset ? attempt(withCmsPresetFeatures(options, "blob-database")) : undefined
   const github = cmsUnset ? attempt(withCmsPresetFeatures(options, "github")) : undefined
-  const comments = databaseUnset ? attempt({ ...options, database: true }) : undefined
+  const database = databaseUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config, options.comments) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (database) {
+    const discovery = new WeakMap<ConfigEnv, boolean>()
+    merged = composeVariants(merged, "error" in database ? failing(database.error) : database, (config, env) => {
+      if (cmsUnset && selectedCmsPresetStore(config)) return false
+      if (selectsDatabaseOwner(config, options.comments)) return true
+      const selected = discovery.get(env) ?? selectsDatabaseDefinition(config, env)
+      discovery.set(env, selected)
+      return selected
+    })
+  }
   if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
   if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
+  for (const plugin of merged) if (isPluginObject(plugin) && plugin.name === databasePluginName) integratedDatabasePlugins.add(plugin)
   // SAFETY: The merged list holds the Vite plugin options of every build.
   return merged as PluginOption[]
 }

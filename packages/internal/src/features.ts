@@ -309,6 +309,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     developmentOverrides: ["deno", "netlify", "vercel"],
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
+    enabledByDiscovery: ["databases"],
     hosts: {
       cloudflare: native("cloudflare", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development. A PostgreSQL Database Definition connects through Hyperdrive or `connection.url`."),
       deno: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. No Deno-native database driver is provided."),
