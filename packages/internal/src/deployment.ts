@@ -154,15 +154,16 @@ export function hostsProviding(service: DeploymentService): ViteHubHost[] {
 }
 
 /**
- * Throws when the host cannot provide `service`. The fix names the hosts that provide it. `driverFix` is the sentence
- * that tells the app how to choose a driver on this host, when one exists, such as Vercel Sandbox on Node.
+ * Throws when the host cannot provide `service`. The fix names the hosts that provide it and how to stop using it.
+ * It also includes `driverFix` when the app can choose a driver on this host.
  */
-export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService, driverFix?: string): void {
+export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService, { driverFix, importSource }: { driverFix?: string, importSource?: string } = {}): void {
   const policy = plan.services[service]
   if (policy.supported) return
   const option = serviceOptions[service]
   const hosts = new Intl.ListFormat("en", { type: "disjunction" }).format(hostsProviding(service).map(host => JSON.stringify(host)))
-  const hostFix = `Set \`host\` in \`vitehub()\` to ${hosts}, or remove \`${option}\` from \`vitehub()\`.`
+  const stopFix = importSource ? `remove the \`${importSource}\` import` : `set \`${option}: false\``
+  const hostFix = `Build for ${hosts}, or ${stopFix}.`
   throw internalErrorDiagnostics.INTERNAL_R0002({
     message: `[vitehub] The ${JSON.stringify(plan.host)} host cannot provide \`${option}\`. ${policy.reason}`,
     fix: driverFix ? `${driverFix} Or: ${hostFix}` : hostFix,
