@@ -40,14 +40,25 @@ export function isPrivateHost(hostname: string): boolean {
   return v6 === "::" || v6 === "::1" || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith("::ffff:")
 }
 
+function privateHttpProjectUrl(value: string): string | undefined {
+  if (!URL.canParse(value)) return undefined
+  const url = new URL(value)
+  if (url.protocol !== "http:" || url.username || url.password || !isPrivateHost(url.hostname)) return undefined
+  const mount = url.pathname.search(/\/_vitehub(?=\/|$)/)
+  const base = (mount === -1 ? url.pathname : url.pathname.slice(0, mount)).replace(/\/+$/, "")
+  return `${url.origin}${base}`
+}
+
 /**
  * Read the URL of a project that a person typed: an `https://` origin, with the application mount when there is one,
- * such as `https://app.example.com/portal`. A pasted Console URL keeps only the part before `/_vitehub`.
+ * such as `https://app.example.com/portal`. A pasted Console URL keeps only the part before `/_vitehub`. A private
+ * host, such as `http://10.0.0.8:3000`, can use `http://`, as the MCP client allows.
  */
 export function parseProjectUrl(input: string, options: { allowPrivate: boolean }): { url: string } | { error: string } {
   const value = input.trim()
-  const url = normalizeConsoleProjectUrl(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`)
-  if (!url) return { error: `"${value}" is not a project URL. Use the https:// URL of the app, such as https://app.example.com.` }
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`
+  const url = normalizeConsoleProjectUrl(withScheme) ?? privateHttpProjectUrl(withScheme)
+  if (!url) return { error: `"${value}" is not a project URL. Use the https:// URL of the app, such as https://app.example.com. Plain http:// works only for private hosts.` }
   const { hostname } = new URL(url)
   if (!options.allowPrivate && isPrivateHost(hostname)) {
     return { error: `${hostname} is a private address. This Console links only public apps. Set ${allowPrivateVariable}=true on a Console that runs next to its apps.` }

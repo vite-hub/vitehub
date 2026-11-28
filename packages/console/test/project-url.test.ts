@@ -39,4 +39,19 @@ describe("project URLs", () => {
     expect(parseProjectUrl("http://localhost:3000", { allowPrivate: true })).toEqual({ url: "http://localhost:3000" })
     expect(parseProjectUrl("http://localhost:3000", { allowPrivate: false })).toEqual({ error: expect.stringContaining("private address") })
   })
+
+  it.each([
+    ["http://192.168.0.43:4777", "http://192.168.0.43:4777"],
+    ["http://10.0.0.8:3000/portal/_vitehub/kv", "http://10.0.0.8:3000/portal"],
+    ["http://app.internal/", "http://app.internal"],
+    ["http://[fd00::1]:3000", "http://[fd00::1]:3000"],
+  ])("links %s over plain HTTP on a Console that allows private hosts", (input, url) => {
+    expect(parseProjectUrl(input, { allowPrivate: true })).toEqual({ url })
+    expect(parseProjectUrl(input, { allowPrivate: false })).toEqual({ error: expect.stringContaining("VITEHUB_CONSOLE_ALLOW_PRIVATE=true") })
+  })
+
+  it("keeps https:// for public hosts and refuses credentials on a private host", () => {
+    expect(parseProjectUrl("http://app.example.com", { allowPrivate: true })).toEqual({ error: expect.stringContaining("is not a project URL") })
+    expect(parseProjectUrl("http://user:pass@10.0.0.8", { allowPrivate: true })).toEqual({ error: expect.stringContaining("is not a project URL") })
+  })
 })
