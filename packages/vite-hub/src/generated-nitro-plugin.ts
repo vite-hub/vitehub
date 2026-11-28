@@ -1,9 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, resolve, sep } from "node:path"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
+import type { Nitro } from "nitro/types"
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
 
 async function writeIfChanged(file: string, contents: string): Promise<void> {
@@ -29,6 +30,18 @@ function projectRootOf(config: ViteHubUserConfig): string {
     : resolveViteHubProjectRoot(config.root || process.cwd())
 }
 
+function registerErrorHandler(config: Record<string, unknown>, file: string, position: "first" | "before-default"): void {
+  const handler = sep === "\\" ? file.replaceAll("\\", "/") : file
+  const modules = Array.isArray(config.modules) ? config.modules : []
+  config.modules = [...modules, (nitro: Nitro) => {
+    nitro.hooks.hook("build:before", () => {
+      const handlers = [nitro.options.errorHandler].flat().filter(entry => entry !== handler)
+      handlers.splice(position === "first" ? 0 : -1, 0, handler)
+      nitro.options.errorHandler = handlers
+    })
+  }]
+}
+
 /** Write a Nitro plugin under the project's `.vitehub/nitro` folder and register it with Nitro. */
 export function generatedNitroPlugin(name: string, file: string, render: () => string, options: GeneratedNitroPluginOptions = {}): Plugin {
   return {
@@ -46,8 +59,7 @@ export function generatedNitroPlugin(name: string, file: string, render: () => s
       if (options.errorHandler) {
         const handler = plugin.replace(/\.mjs$/, "-handler.mjs")
         await writeIfChanged(handler, options.errorHandler())
-        const handlers = [kit.config.errorHandler ?? []].flat()
-        if (!handlers.includes(handler)) kit.config.errorHandler = [...handlers, handler]
+        registerErrorHandler(kit.config, handler, "before-default")
       }
       options.configure?.(kit.config, env)
       viteConfig.nitro = kit.config
@@ -55,10 +67,6 @@ export function generatedNitroPlugin(name: string, file: string, render: () => s
   }
 }
 
-/**
- * Write a Nitro error handler under the project's `.vitehub/nitro` folder and put it first in Nitro's `errorHandler` list.
- * Nitro calls the handlers in order and uses the first response, so this one runs before the handlers of the app and of Nuxt.
- */
 export function generatedNitroErrorHandler(name: string, file: string, render: () => string): Plugin {
   return {
     name,
@@ -68,7 +76,7 @@ export function generatedNitroErrorHandler(name: string, file: string, render: (
       const handler = resolve(projectRootOf(viteConfig), ".vitehub/nitro", file)
       await writeIfChanged(handler, render())
       const kit = createNitroServerKit(viteConfig.nitro)
-      kit.config.errorHandler = [handler, ...[kit.config.errorHandler ?? []].flat().filter(entry => entry !== handler)]
+      registerErrorHandler(kit.config, handler, "first")
       viteConfig.nitro = kit.config
     },
   }

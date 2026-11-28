@@ -1,8 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { defineErrors, isRuntimeDiagnostic, isViteHubError, normalizeRuntimeDiagnosticError, toResponse, ViteHubError } from "@vite-hub/runtime"
+import evlog from "evlog/nitro/v3"
+import { build, createNitro } from "nitro/builder"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { errorLogVitePlugin, renderErrorLogNitroHandler, renderErrorLogNitroPlugin, renderResultErrorNitroHandler, resultErrorVitePlugin } from "../src/error-log-vite.ts"
@@ -88,7 +91,7 @@ describe("generated error log Nitro plugin", () => {
     expect(await response.json()).toEqual({ error: true, status: 500, unhandled: true })
   })
 
-  it("adds its error handler after the error handlers of the app", async () => {
+  it("writes the logging plugin and defers installing its error handler", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-error-log-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     const plugin = errorLogVitePlugin()
@@ -96,7 +99,7 @@ describe("generated error log Nitro plugin", () => {
     if (typeof plugin.config !== "function") throw new TypeError("Expected a config hook.")
     await plugin.config.call({} as never, config, { command: "serve", mode: "development" })
     const handler = join(root, ".vitehub/nitro/error-log-handler.mjs")
-    expect(config.nitro.errorHandler).toEqual(["./server/error.ts", handler])
+    expect(config.nitro.errorHandler).toBe("./server/error.ts")
     expect(config.nitro.plugins).toEqual([join(root, ".vitehub/nitro/error-log.mjs")])
     expect(await readFile(handler, "utf8")).toBe(renderErrorLogNitroHandler())
   })
@@ -164,16 +167,75 @@ describe("generated result error Nitro handler", () => {
     expect(await handler(unhandled(errors.EXAMPLE_CONFLICT()), page)).toBeUndefined()
   })
 
-  it("puts its error handler before the error handlers of the app and of the error log", async () => {
+  it.each([
+    { dev: true, observability: false, inline: false },
+    { dev: false, observability: true, inline: false },
+    { dev: false, observability: false, inline: true },
+  ])("preserves custom handlers and error headers in Nitro dispatch (%j)", async ({ dev, observability, inline }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-result-error-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
-    const config: { root: string, nitro: Record<string, unknown> } = { root, nitro: { errorHandler: "./server/error.ts" } }
-    for (const plugin of [errorLogVitePlugin(), resultErrorVitePlugin()]) {
+    await writeFile(join(root, "entry.mjs"), `import { useNitroApp } from "nitro/app"; export const fetch = useNitroApp().fetch`)
+    await writeFile(join(root, "error.mjs"), `export default () => new Response("custom error page", { status: 503 })`)
+    if (!inline) await writeFile(join(root, "nitro.config.mjs"), `export default { errorHandler: "./error.mjs" }`)
+    await writeFile(join(root, "route.mjs"), `
+      import { defineErrors } from "vite-hub/runtime"
+      import { installStandardContext } from "@vite-hub/runtime/internal/h3"
+      const errors = defineErrors({ docs: "https://example.test", codes: {
+        EXAMPLE_CONFLICT: { why: "Conflict.", fix: "Retry.", status: 409 },
+      } })
+      export default event => {
+        if (event.url.pathname === "/boom") throw new Error("ordinary error")
+        installStandardContext(event)
+        const headers = event["~standard"].res.headers
+        headers.set("cache-control", "private, no-store")
+        headers.set("content-type", "text/plain")
+        headers.append("set-cookie", "first=; Max-Age=0")
+        headers.append("set-cookie", "second=; Max-Age=0")
+        throw errors.EXAMPLE_CONFLICT()
+      }
+    `)
+    const config: { root: string, nitro: Record<string, unknown> } = { root, nitro: {} }
+    const plugins = observability ? [resultErrorVitePlugin()] : [errorLogVitePlugin(), resultErrorVitePlugin()]
+    for (const plugin of plugins) {
       if (typeof plugin.config !== "function") throw new TypeError("Expected a config hook.")
-      await plugin.config.call({} as never, config, { command: "serve", mode: "development" })
+      await plugin.config.call({} as never, config, { command: dev ? "serve" : "build", mode: dev ? "development" : "production" })
     }
-    const handler = join(root, ".vitehub/nitro/result-error-handler.mjs")
-    expect(config.nitro.errorHandler).toEqual([handler, "./server/error.ts", join(root, ".vitehub/nitro/error-log-handler.mjs")])
-    expect(await readFile(handler, "utf8")).toBe(renderResultErrorNitroHandler())
-  })
+    const nitro = await createNitro({
+      ...config.nitro,
+      ...inline && { errorHandler: "./error.mjs" },
+      rootDir: root,
+      dev,
+      preset: "node-middleware",
+      entry: join(root, "entry.mjs"),
+      logLevel: 0,
+      alias: {
+        "vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")),
+        "@vite-hub/runtime/internal/h3": fileURLToPath(import.meta.resolve("@vite-hub/runtime/internal/h3")),
+      },
+      handlers: [{ route: "/**", handler: join(root, "route.mjs") }],
+      ...(observability && { modules: [...Array.isArray(config.nitro.modules) ? config.nitro.modules : [], evlog({ pretty: false })] }),
+    })
+    onTestFinished(() => nitro.close())
+    if (dev) {
+      const { promise, resolve, reject } = Promise.withResolvers<void>()
+      nitro.hooks.hookOnce("compiled", () => resolve())
+      nitro.hooks.hookOnce("dev:error", reject)
+      await Promise.all([build(nitro), promise])
+      await nitro.close()
+    }
+    else await build(nitro)
+    const app: { fetch(request: Request): Promise<Response> } = await import(pathToFileURL(join(nitro.options.output.serverDir, "index.mjs")).href)
+    const response = await app.fetch(json("https://app.test/api/conflict").req)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(dev ? { code: "EXAMPLE_CONFLICT", why: "Conflict.", fix: "Retry." } : { code: "EXAMPLE_CONFLICT" })
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
+    expect(response.headers.getSetCookie()).toEqual(["first=; Max-Age=0", "second=; Max-Age=0"])
+
+    for (const route of ["/boom", "/conflict"]) {
+      const page = await app.fetch(new Request(`https://app.test${route}`, { headers: { accept: "text/html" } }))
+      expect(page.status).toBe(503)
+      expect(await page.text()).toBe("custom error page")
+    }
+  }, 30_000)
 })
