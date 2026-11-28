@@ -282,10 +282,10 @@ describe("hubDatabase", () => {
       }
     })
 
-    async function buildCommand(options: { cloudflare?: string, preset?: string, serverDir?: string } = {}) {
+    async function buildCommand(options: { analytics?: string, cloudflare?: string, preset?: string, serverDir?: string } = {}) {
       const rootDir = await createTempProject()
       await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: options.cloudflare ?? "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
-      await writeDefinition(rootDir, "server/databases/analytics/index.ts", "events", { cloudflare: "databaseName: 'analytics', databaseId: 'analytics-id'," })
+      await writeDefinition(rootDir, "server/databases/analytics/index.ts", "events", { cloudflare: options.analytics ?? "databaseName: 'analytics', databaseId: 'analytics-id'," })
       const buildBefore: Array<(...args: never[]) => unknown> = []
       const commands: Record<string, unknown> = { deploy: "npx wrangler deploy --config ./server/wrangler.json" }
       const nitro = {
@@ -328,6 +328,11 @@ describe("hubDatabase", () => {
         "wrangler d1 migrations apply DB_ANALYTICS --remote --config .output/cloudflare worker/wrangler.json",
         "wrangler d1 migrations apply DB --remote --config .output/cloudflare worker/wrangler.json",
       ])
+    })
+
+    it("keeps the deploy command before provisioning creates the D1 database", async () => {
+      const build = await buildCommand({ analytics: "databaseName: 'analytics',", cloudflare: "binding: 'DB', databaseName: 'app'," })
+      expect(build()).toBe("npx wrangler deploy --config ./server/wrangler.json")
     })
 
     it("fails the build for another host or a database without a D1 binding", async () => {

@@ -574,6 +574,7 @@ The build then puts one `wrangler d1 migrations apply <binding> --remote` for ea
 npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json
 ```
 
+- **First deploy.** `migrateOnDeploy` can be on before the D1 database exists. `vitehub deploy` creates the database first, then the build adds the migration steps.
 - **Order.** `vitehub deploy` supports the generated `npx wrangler deploy --config ...` command and its migration steps, not arbitrary commands in `nitro.json`. It applies the migrations first and stops before deploying if a migration fails.
 - **Other deploy commands.** `nitro deploy --prebuilt` uses `commands.deploy` from the loaded Nitro config, which defaults to the preset's command. It does not use `commands.deploy` from `nitro.json`. Workers Builds uses the deploy command set on the Worker. For either path, put the migrate steps before the deploy, as [Workers Builds](/docs/frameworks-hosts/cloudflare#workers-builds) shows.
 - **Ledger.** Wrangler applies the migration files that the build copies into the server output, and records them in Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`). `vitehub database migrate` reads the same table, so you can still run it by hand.
