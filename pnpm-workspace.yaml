@@ -63,6 +63,7 @@ catalogs:
   auth:
     "@better-auth/api-key": 1.7.27
     "@better-auth/cimd": 1.7.27
+    "@better-auth/drizzle-adapter": 1.7.27
     "@better-auth/oauth-provider": ^1.7.27
     "@better-auth/passkey": 1.7.27
     "@better-auth/stripe": 1.7.27

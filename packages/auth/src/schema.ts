@@ -1,6 +1,6 @@
 // The Better Auth tables that Auth adds to the app Database, built with Drizzle from the specs of `table-specs.ts`. The
 // generated Database schema imports it when the server starts, and Drizzle Kit loads it to write migrations.
-import { sql } from "drizzle-orm"
+import { defineRelationsPart, isTable, sql } from "drizzle-orm"
 import { bigint as pgBigint, boolean, foreignKey as pgForeignKey, index as pgIndex, integer as pgInteger, jsonb, pgTable, text as pgText, timestamp, uniqueIndex as pgUniqueIndex } from "drizzle-orm/pg-core"
 import { foreignKey as sqliteForeignKey, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
@@ -11,7 +11,7 @@ import type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOp
 
 export { authPluginSchemas, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
 export type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
-import type { $Type, BuildColumns, HasDefault, IsPrimaryKey, NotNull } from "drizzle-orm"
+import type { $Type, AnyRelations, BuildColumns, ExtractTablesFromSchema, ExtractTablesWithRelationsParts, HasDefault, IsPrimaryKey, Many, NotNull, One, RelationsRecord, Table } from "drizzle-orm"
 import type { PgBigInt53Builder, PgBooleanBuilder, PgBuildColumns, PgColumn, PgIntegerBuilder, PgJsonbBuilder, PgTableWithColumns, PgTextBuilder, PgTimestampBuilder } from "drizzle-orm/pg-core"
 import type { SQLiteBooleanBuilder, SQLiteColumn, SQLiteIntegerBuilder, SQLiteTableWithColumns, SQLiteTextBuilder, SQLiteTextJsonBuilder, SQLiteTimestampBuilder } from "drizzle-orm/sqlite-core"
 
@@ -279,6 +279,91 @@ export type AuthPostgresSchemaFor<TOptions extends AuthSchemaOptions> =
   & { readonly [TModel in AuthTableName]: AuthPostgresTableOf<TableFields<TOptions, TModel>> }
   & { readonly [TTable in keyof PluginTables<SchemaPlugins<TOptions>>]: AuthPostgresTableOf<PluginTableFields<TOptions, TTable>> }
 
+type CoreAuthRelationConfig = {
+  user: {
+    sessions: Many<"session">
+    accounts: Many<"account">
+    oauthClients: Many<"oauthClient">
+    oauthRefreshTokens: Many<"oauthRefreshToken">
+    oauthAccessTokens: Many<"oauthAccessToken">
+    oauthConsents: Many<"oauthConsent">
+    members: Many<"member">
+    invitations: Many<"invitation">
+    passkeys: Many<"passkey">
+  }
+  session: {
+    user: One<"user", true>
+    oauthRefreshTokens: Many<"oauthRefreshToken">
+    oauthAccessTokens: Many<"oauthAccessToken">
+  }
+  account: {
+    user: One<"user", true>
+  }
+  oauthClient: {
+    user: One<"user", true>
+    oauthClientResources: Many<"oauthClientResource">
+    oauthRefreshTokens: Many<"oauthRefreshToken">
+    oauthAccessTokens: Many<"oauthAccessToken">
+    oauthConsents: Many<"oauthConsent">
+  }
+  oauthResource: {
+    oauthClientResources: Many<"oauthClientResource">
+  }
+  oauthClientResource: {
+    oauthClient: One<"oauthClient", true>
+    oauthResource: One<"oauthResource", true>
+  }
+  oauthRefreshToken: {
+    oauthClient: One<"oauthClient", true>
+    session: One<"session", true>
+    user: One<"user", true>
+    oauthAccessTokens: Many<"oauthAccessToken">
+  }
+  oauthAccessToken: {
+    oauthClient: One<"oauthClient", true>
+    session: One<"session", true>
+    user: One<"user", true>
+    oauthRefreshToken: One<"oauthRefreshToken", true>
+  }
+  oauthConsent: {
+    oauthClient: One<"oauthClient", true>
+    user: One<"user", true>
+  }
+  organization: {
+    members: Many<"member">
+    invitations: Many<"invitation">
+  }
+  member: {
+    organization: One<"organization", true>
+    user: One<"user", true>
+  }
+  invitation: {
+    organization: One<"organization", true>
+    user: One<"user", true>
+  }
+  passkey: {
+    user: One<"user", true>
+  }
+}
+
+type TwoFactorAuthRelationConfig = Omit<CoreAuthRelationConfig, "user"> & {
+  user: CoreAuthRelationConfig["user"] & { twoFactors: Many<"twoFactor"> }
+  twoFactor: { user: One<"user", true> }
+}
+
+type AuthRelationConfig<TOptions extends AuthSchemaOptions = {}> =
+  "twoFactor" extends SchemaPlugins<TOptions> ? TwoFactorAuthRelationConfig : CoreAuthRelationConfig
+
+/** The Drizzle v1 relations for `authSqliteSchema`. */
+export type AuthSqliteRelations = ExtractTablesWithRelationsParts<CoreAuthRelationConfig, ExtractTablesFromSchema<AuthSqliteSchema>>
+
+/** The Drizzle v1 relations for `authPostgresSchema`. */
+export type AuthPostgresRelations = ExtractTablesWithRelationsParts<CoreAuthRelationConfig, ExtractTablesFromSchema<AuthPostgresSchema>>
+
+/** The Drizzle v1 relations for the Auth tables of `TSchema` built with `TOptions`. */
+export type AuthRelationsFor<TSchema extends Record<string, unknown>, TOptions extends AuthSchemaOptions = {}> =
+  ExtractTablesWithRelationsParts<AuthRelationConfig<TOptions>, ExtractTablesFromSchema<TSchema>>
+
 // SAFETY: Every Drizzle column builder has the chain methods; the casts give the two dialects one builder type.
 const sqliteDialect: Dialect<SQLiteColumn, AuthSqliteTable> = {
   column(name, field) {
@@ -330,11 +415,80 @@ const postgresDialect: Dialect<PgColumn, AuthPostgresTable> = {
   table: (name, columns, extras) => pgTable(name, columns as never, table => extras(table as unknown as Record<string, PgColumn>) as never) as unknown as AuthPostgresTable,
 }
 
+function capitalize(value: string): string {
+  return value.length ? `${value[0]!.toUpperCase()}${value.slice(1)}` : value
+}
+
+function pluralizeModel(model: string): string {
+  return model.endsWith("s") ? model : `${model}s`
+}
+
+function buildAuthRelations(tables: Record<string, unknown>, specs: Readonly<Record<string, AuthTableSpec>>): AnyRelations {
+  const schemaTables: Record<string, Table> = {}
+  for (const [name, value] of Object.entries(tables)) {
+    if (isTable(value)) schemaTables[name] = value
+  }
+  return defineRelationsPart(schemaTables, (r) => {
+    const config: Record<string, RelationsRecord> = {}
+    for (const [model, spec] of Object.entries(specs)) {
+      if (!Object.hasOwn(schemaTables, model)) continue
+      const modelRelations: RelationsRecord = {}
+      const oneTargets = new Map<string, number>()
+      for (const [fieldName, field] of Object.entries(spec.fields)) {
+        const reference = field.references
+        if (!reference || !Object.hasOwn(schemaTables, reference.model)) continue
+        const target = reference.model
+        const count = oneTargets.get(target) ?? 0
+        oneTargets.set(target, count + 1)
+        const key = count > 0 ? `${capitalize(fieldName)}${capitalize(target)}` : target
+        if (key === "id" || Object.hasOwn(spec.fields, key) || Object.hasOwn(modelRelations, key)) continue
+        modelRelations[key] = r.one[target]!({
+          from: r[model]![fieldName]!,
+          to: r[target]![reference.field]!,
+        })
+      }
+      for (const [otherModel, otherSpec] of Object.entries(specs)) {
+        if (otherModel === model || !Object.hasOwn(schemaTables, otherModel)) continue
+        const pointingHere = Object.entries(otherSpec.fields).filter(([, field]) => field.references?.model === model)
+        if (!pointingHere.length) continue
+        const nonUnique = pointingHere.filter(([, field]) => !field.unique)
+        if (nonUnique.length) {
+          for (const [fkFieldName, fkField] of nonUnique) {
+            const baseKey = pluralizeModel(otherModel)
+            const key = nonUnique.length > 1 ? `${baseKey}By${capitalize(fkFieldName)}` : baseKey
+            if (key === "id" || Object.hasOwn(spec.fields, key) || Object.hasOwn(modelRelations, key)) continue
+            modelRelations[key] = r.many[otherModel]!({
+              from: r[model]![fkField.references!.field]!,
+              to: r[otherModel]![fkFieldName]!,
+            })
+          }
+        }
+        else {
+          const [fkFieldName, fkField] = pointingHere[0]!
+          if (otherModel === "id" || Object.hasOwn(spec.fields, otherModel) || Object.hasOwn(modelRelations, otherModel)) continue
+          modelRelations[otherModel] = r.one[otherModel]!({
+            from: r[model]![fkField.references!.field]!,
+            to: r[otherModel]![fkFieldName]!,
+          })
+        }
+      }
+      if (Object.keys(modelRelations).length) config[model] = modelRelations
+    }
+    return config
+  })
+}
+
 // SAFETY: `buildTables()` builds each table of `authTableSpecs` with the columns that `AuthSqliteSchema` types.
 export const authSqliteSchema: AuthSqliteSchema = buildTables(sqliteDialect, authTableSpecs) as unknown as AuthSqliteSchema
 
 // SAFETY: `buildTables()` builds each table of `authTableSpecs` with the columns that `AuthPostgresSchema` types.
 export const authPostgresSchema: AuthPostgresSchema = buildTables(postgresDialect, authTableSpecs) as unknown as AuthPostgresSchema
+
+/** Drizzle v1 relations for `authSqliteSchema`. */
+export const authSqliteRelations: AuthSqliteRelations = buildAuthRelations(authSqliteSchema, authTableSpecs) as AuthSqliteRelations
+
+/** Drizzle v1 relations for `authPostgresSchema`. */
+export const authPostgresRelations: AuthPostgresRelations = buildAuthRelations(authPostgresSchema, authTableSpecs) as AuthPostgresRelations
 
 /**
  * The Better Auth tables for SQLite, libSQL, and Cloudflare D1, with the plugins and additional fields of `options`. The
@@ -354,4 +508,9 @@ export function createAuthSqliteSchema<const TOptions extends AuthSchemaOptions,
 export function createAuthPostgresSchema<const TOptions extends AuthSchemaOptions>(options: TOptions): AuthPostgresSchemaFor<TOptions> {
   // SAFETY: `resolveAuthTableSpecs()` builds the tables and fields that `AuthPostgresSchemaFor` reads from the same options.
   return buildTables(postgresDialect, resolveAuthTableSpecs(options)) as unknown as AuthPostgresSchemaFor<TOptions>
+}
+
+/** Drizzle v1 relations for the Better Auth tables created by `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. */
+export function createAuthRelations<TSchema extends Record<string, unknown>, const TOptions extends AuthSchemaOptions = {}>(tables: TSchema, options?: TOptions): AuthRelationsFor<TSchema, TOptions> {
+  return buildAuthRelations(tables, resolveAuthTableSpecs(options)) as AuthRelationsFor<TSchema, TOptions>
 }

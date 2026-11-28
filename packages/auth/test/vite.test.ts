@@ -791,6 +791,7 @@ describe("Auth tables in the app Database", () => {
       dialect: "sqlite",
       name: "auth",
       plugin: "@vite-hub/auth/vite",
+      relations: "authSqliteRelations",
     }])
     const { discoverDatabaseDefinitions } = await import("@vite-hub/database/config")
     expect(discoverDatabaseDefinitions(root, { contributions: { tables } }).map(definition => definition.name)).toEqual(["default"])
@@ -801,7 +802,7 @@ describe("Auth tables in the app Database", () => {
     await writeAuthDatabase(root, "authDatabase('accounts')")
     await mkdir(join(root, "server", "databases", "accounts"), { recursive: true })
     await writeFile(join(root, "server", "databases", "accounts", "index.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
-    expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql" }])
+    expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql", relations: "authPostgresRelations" }])
   })
 
   it("uses the dialect of a sibling plugin's Database Definition", async () => {
@@ -854,10 +855,12 @@ describe("Auth tables in the app Database", () => {
     ].join("\n"))
     const { tables } = await contributions(root)
     const module = join(root, ".vitehub", "auth", "schema.ts")
-    expect(tables).toMatchObject([{ database: "default", definition: { export: "authSqliteSchema", module } }])
+    expect(tables).toMatchObject([{ database: "default", definition: { export: "authSqliteSchema", module }, relations: "authSqliteRelations" }])
     expect(tables[0]!.tables).toMatchObject({ apikey: "apikey", subscription: "subscription", twoFactor: "two_factor", user: "user" })
     const source = await readFile(module, "utf8")
     expect(source).toContain("from \"vite-hub/auth/schema\"")
+    expect(source).toContain("export const authSqliteRelations = createAuthRelations(authSqliteSchema,")
+    expect(source).toContain("export const authPostgresRelations = createAuthRelations(authPostgresSchema,")
     expect(source).toContain("\"plugins\":[\"apiKey\",\"stripe\",\"twoFactor\"]")
     expect(source).toContain("\"login\":{\"type\":\"string\"}")
 

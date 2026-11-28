@@ -148,6 +148,7 @@
     "test": "vp run --cache -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "catalog:auth",
     "@noble/hashes": "catalog:auth",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",

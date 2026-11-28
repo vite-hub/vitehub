@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
-import { authSqliteSchema, createAuthSqliteSchema } from "../src/auth/schema.ts"
+import { authSqliteRelations, authSqliteSchema, createAuthRelations, createAuthSqliteSchema } from "../src/auth/schema.ts"
 import { createAuthForRequest } from "../src/_internal/auth/internal/server.ts"
 import { mcpOAuth } from "../src/auth/mcp.ts"
 
@@ -28,7 +28,7 @@ beforeAll(async () => {
   // The migration that `vitehub database generate` writes for the contributed tables.
   const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
-  state.databases.default = { db: drizzle({ client: client, relations: defineRelations(authSqliteSchema) }), schema: { ...authSqliteSchema } }
+  state.databases.default = { db: drizzle({ client: client, relations: authSqliteRelations }), schema: { ...authSqliteSchema } }
 })
 
 afterAll(async () => {
@@ -177,6 +177,45 @@ describe("authDatabase()", () => {
     finally {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()
+    }
+  })
+
+  it("runs Better Auth joins with Drizzle v1 relations", async () => {
+    const schema = createAuthSqliteSchema({ plugins: ["admin"] })
+    const relations = createAuthRelations(schema, { plugins: ["admin"] })
+    const joinsClient = createClient({ url: `file:${join(directory, "joins.db")}` })
+    try {
+      for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await joinsClient.execute(statement)
+      const db = drizzle({ client: joinsClient, relations })
+      state.databases.joins = { db, schema: { ...schema } }
+      const definition = defineAuth({
+        advanced: { database: { joins: true } },
+        database: authDatabase("joins"),
+        emailAndPassword: { enabled: true },
+        plugins: [admin()],
+        session: { cookieCache: { enabled: false } },
+      })
+      const auth = createAuthForRequest(definition, new Request(app))
+      const signUp = await auth.handler(new Request(`${app}/api/auth/sign-up/email`, {
+        body: JSON.stringify({ email: "joins@example.com", name: "Joins", password: "correct-horse-battery" }),
+        headers: { "content-type": "application/json", origin: app },
+        method: "POST",
+      }))
+      expect(signUp.status, await signUp.clone().text()).toBe(200)
+      const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const findFirstSpy = vi.spyOn(db.query.session, "findFirst")
+      const sessionResponse = await auth.handler(new Request(`${app}/api/auth/get-session`, {
+        headers: { cookie, origin: app },
+      }))
+      expect(sessionResponse.status, await sessionResponse.clone().text()).toBe(200)
+      expect(findFirstSpy).toHaveBeenCalledTimes(1)
+      expect(await sessionResponse.json()).toMatchObject({
+        user: { email: "joins@example.com" },
+      })
+    }
+    finally {
+      delete state.databases.joins
+      joinsClient.close()
     }
   })
 

@@ -3,7 +3,7 @@ import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expectTypeOf, it } from "vitest"
 
-import { authPostgresSchema, authSqliteSchema, createAuthPostgresSchema, createAuthSqliteSchema } from "../src/schema.ts"
+import { authPostgresRelations, authPostgresSchema, authSqliteRelations, authSqliteSchema, createAuthPostgresSchema, createAuthRelations, createAuthSqliteSchema } from "../src/schema.ts"
 
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
@@ -103,5 +103,18 @@ describe("Auth table types", () => {
     expectTypeOf(createAuthPostgresSchema({ plugins: conditional }).user).not.toHaveProperty("twoFactorEnabled")
     expectTypeOf(createAuthSqliteSchema({ additionalFields: optionalModel }).user).not.toHaveProperty("language")
     expectTypeOf(createAuthPostgresSchema({ additionalFields: optionalField }).user).not.toHaveProperty("language")
+  })
+
+  it("types Drizzle v1 relations for core and twoFactor tables", async () => {
+    const db = {} as SQLiteAsyncDatabase<"async", unknown, typeof authSqliteRelations>
+    const session = await db.query.session.findFirst({ with: { user: true } })
+    expectTypeOf(session?.user?.email).toEqualTypeOf<string | undefined>()
+    expectTypeOf(authPostgresRelations.member.relations).toHaveProperty("organization")
+    expectTypeOf(authSqliteRelations).not.toHaveProperty("twoFactor")
+
+    const twoFactorSchema = createAuthSqliteSchema({ plugins: ["twoFactor"] })
+    const twoFactorRelations = createAuthRelations(twoFactorSchema, { plugins: ["twoFactor"] })
+    expectTypeOf(twoFactorRelations.twoFactor.relations).toHaveProperty("user")
+    expectTypeOf(twoFactorRelations.user.relations).toHaveProperty("twoFactors")
   })
 })
