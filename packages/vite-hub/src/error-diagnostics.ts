@@ -657,5 +657,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The Vite server of vite-hub/test did not start in 60 seconds.",
       fix: ({ directory }: { directory: string }) => `Delete ${directory} and run the tests again. To see the server error, run one test file with \`node --import vite-hub/test/register --test-isolation=none <file>\`.`,
     },
+    VITE_HUB_UNKNOWN_OPTION: {
+      why: ({ key, where }: { key: string, suggestion: string, where: string }) => `\`${key}\` in ${where} is not a ViteHub option. ViteHub would ignore it, and the feature that it names would stay off.`,
+      fix: ({ key, suggestion }: { key: string, suggestion: string, where: string }) => suggestion ? `Rename \`${key}\` to \`${suggestion}\`.` : `Remove \`${key}\`, or use an option from https://vitehub.dev/docs/reference/config-options.`,
+    },
   },
 })

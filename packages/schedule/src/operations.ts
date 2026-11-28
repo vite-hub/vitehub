@@ -11,8 +11,8 @@ const id = v.pipe(v.string(), v.minLength(1))
 function formatRuns({ runs }: { runs: readonly ScheduleRunSummary[] }): string {
   if (runs.length === 0) return "No runs.\n"
   return `${table([
-    ["RUN", "STATUS", "SCHEDULED AT", "ATTEMPTS", "ERROR"],
-    ...runs.map(run => [run.id, run.status, run.scheduledAt, String(run.attemptCount), run.error?.message ?? "-"]),
+    ["RUN", "SCHEDULE", "STATUS", "SCHEDULED AT", "ATTEMPTS", "ERROR"],
+    ...runs.map(run => [run.id, run.scheduleId, run.status, run.scheduledAt, String(run.attemptCount), run.error?.message ?? "-"]),
   ])}\n`
 }
 
@@ -37,10 +37,10 @@ function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefini
   return defineOperation({ ...definition, section: "schedules", user: false })
 }
 
-const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRunsResult>({
+const runs = defineScheduleOperation<{ id?: string, limit?: number }, ScheduleRunsResult>({
   cli: { command: "runs list", format: formatRuns, namespace: "schedule", positional: ["id"] },
-  description: "List the recorded runs of one Schedule Definition, newest first.",
-  input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
+  description: "List the recorded Schedule Runs, newest first. Pass `id`, a Schedule Definition name or a started Schedule id, to list the runs of one Schedule.",
+  input: v.object({ id: v.optional(id), limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
   kind: "read",
   name: "schedule.runs",
   run: async input => await (await runtime()).runScheduleRuns(input),

@@ -4,6 +4,7 @@ import type { Plugin, PluginOption } from "vite"
 
 import { nitroConfigResolvedNames, nitroRuntimeResolver, nitroRuntimeResolverNames, nitroServerTransformNames, replaysNitroConfigResolved } from "../src/internal/nitro-replay.ts"
 import { viteHubPlugins } from "../src/plugins.ts"
+import type { ViteHubOptions } from "../src/plugins.ts"
 
 type ReplayHook = "resolveId" | "load" | "transform"
 const replayHooks: readonly ReplayHook[] = ["resolveId", "load", "transform"]
@@ -55,12 +56,11 @@ const configResolvedNotReplayed: Record<string, string> = {
   "vite-hub/types": "Nuxt calls the plugin's prepareTypes API itself.",
 }
 
-const features: Record<string, unknown> = {
-  agent: true, auth: true, blob: true, browser: true, cache: true, channels: true, cms: true, comments: true, connections: true,
-  console: { auth: false }, content: true, database: true, docs: true, email: { driver: "log" }, env: {}, forms: true,
-  i18n: { locales: ["en", "es"] }, kv: true, logs: true, markdownTemplate: true, mcp: { auth: false }, observability: true,
-  queue: true, rateLimit: true, realtime: true, sandboxTask: true, schedule: true, seo: { sitemap: true }, shell: true,
-  sync: true, webhooks: true, workflow: true, workspace: true,
+const features: ViteHubOptions = {
+  agent: true, auth: true, blob: true, browser: true, cache: true, channels: true, comments: true, connections: true,
+  console: { auth: false }, database: true, email: { driver: "log" }, env: {}, i18n: { locales: ["en", "es"] }, kv: true,
+  logs: true, mcp: { auth: false }, observability: true, queue: true, rateLimit: true, realtime: true, sandboxTask: true,
+  schedule: true, seo: { sitemap: true }, workflow: true, workspace: true,
 }
 
 function flatten(options: readonly PluginOption[]): Plugin[] {
