@@ -46,6 +46,8 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
 }
 
 const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
+const island = (root: ParentNode) => root.querySelector<HTMLElement>('[data-slot="comment-page-island"]')
+const islandTrigger = (root: ParentNode) => root.querySelector<HTMLButtonElement>('[data-slot="comment-page-island-trigger"]')
 
 describe("the Comments overlay on the comment parts", () => {
   it("waits for a Hosted Comments draft before starting the app overlay", async () => {
@@ -56,8 +58,8 @@ describe("the Comments overlay on the comment parts", () => {
     const root = document.querySelector("vitehub-hosted-comments")!.shadowRoot!
     await vi.waitFor(() => expect(commentsButton(hosted.bar)).not.toBeNull())
     commentsButton(hosted.bar)!.click()
-    await vi.waitFor(() => expect(tool(hosted.bar, "Comment on the whole page")).not.toBeNull())
-    tool(hosted.bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(island(root)?.dataset.state).toBe("hint"))
+    islandTrigger(root)!.click()
     await vi.waitFor(() => expect(composer(root, "Comment")).not.toBeNull())
     const draft = composer(root, "Comment")!
     await type(draft, "Keep this hosted draft")
@@ -84,8 +86,8 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(commentsButton(bar)).not.toBeNull())
     expect(tool(bar, "Highlight the page and comment (B)")).toBeNull()
     commentsButton(bar)!.click()
-    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
-    tool(bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(island(shadow)?.dataset.state).toBe("hint"))
+    islandTrigger(shadow)!.click()
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
     expect(shadow.querySelector('input[type="file"]')).toBeNull()
     await type(composer(shadow, "Comment")!, "Text-only review")
@@ -767,14 +769,16 @@ describe("the Comments overlay on the comment parts", () => {
 })
 
 describe("the Comments segment, as in Drop", () => {
-  it("resumes a guest's Whole page action after they give their name", async () => {
+  it("asks a guest's name, then lets them comment on the whole page from the island", async () => {
     const { bar, shadow, comments } = await site(null, { authorize: () => true })
     commentsButton(bar)!.click()
-    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
-    tool(bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
+    expect(island(shadow)?.dataset.state).toBe("none")
     const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
     await type(name, "Ana García")
     name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(island(shadow)?.dataset.state).toBe("hint"))
+    islandTrigger(shadow)!.click()
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
     await type(composer(shadow, "Comment")!, "About the whole page")
     press(composer(shadow, "Comment")!, "Enter")
@@ -784,22 +788,24 @@ describe("the Comments segment, as in Drop", () => {
     expect(thread.author).toEqual({ id: `guest:${readGuest()!.id}`, name: "Ana García", guest: true })
   })
 
-  it("turns comment mode on, adds Whole page and All comments to More, and leaves it from Click anywhere", async () => {
+  it("turns comment mode on, adds All comments to More, shows the whole-page island, and leaves it from Click anywhere", async () => {
     const { bar, shadow } = await site(ada, {}, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: ada }))
     await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
     expect(commentsButton(bar)!.textContent).toBe("Comments1")
-    expect(tool(bar, "Comment on the whole page")).toBeNull()
+    expect(island(shadow)?.dataset.state).toBe("none")
 
     commentsButton(bar)!.click()
     await vi.waitFor(() => expect(commentsButton(bar)!.textContent).toBe("Click anywhere"))
     expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true")
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
     expect(tool(bar, "All comments on this page")!.textContent).toBe("All comments1")
+    expect(tool(bar, "Comment on the whole page")).toBeNull()
+    await vi.waitFor(() => expect(island(shadow)?.dataset.state).toBe("hint"))
 
-    tool(bar, "Comment on the whole page")!.click()
+    islandTrigger(shadow)!.click()
     await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
     commentsButton(bar)!.click()
-    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).toBeNull())
+    await vi.waitFor(() => expect(island(shadow)?.dataset.state).toBe("none"))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
     expect(commentsButton(bar)!.textContent).toBe("Comments1")
   })

@@ -2381,7 +2381,8 @@
     [data-slot="comment-page-island-card"],
     [data-slot="comment-page-island-label"],
     [data-slot="comment-page-island-label"] > span > span,
-    [data-slot="comment-page-island-body"] {
+    [data-slot="comment-page-island-body"],
+    [data-open] > [data-slot="comment-page-island-body"] {
       transition: none;
     }
   }

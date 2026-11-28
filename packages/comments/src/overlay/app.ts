@@ -310,7 +310,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
-  const namedMode = ref<"comment" | "mark" | "page">("comment")
+  const namedMode = ref<"comment" | "mark">("comment")
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
   const tick = ref(0)
@@ -672,8 +672,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    if (next === "page") commentOnPage()
-    else setMode(next)
+    setMode(next)
   }
 
   async function signOut(url: string) {
@@ -947,18 +946,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       h("button", { type: "button", onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
       h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", disabled: marks.value === 0, onClick: finishMarking, title: "Comment on the highlighted area (Enter)" }, "Done"),
     ])
-  }
-
-  function commentOnPage() {
-    if (!canComment.value || resolving.value) return
-    if (needsName.value) {
-      namedMode.value = "page"
-      namedQuote = undefined
-      naming.value = true
-      return
-    }
-    void edit.finish(true)
-    state.startDraft("page")
   }
 
   function toolbar(): VNode {
