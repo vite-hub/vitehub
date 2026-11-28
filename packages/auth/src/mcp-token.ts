@@ -179,13 +179,21 @@ export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">
 const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bearer\s+(\S+)$/i.exec(headers.get("authorization") ?? "")?.[1]
 
 /**
- * Check an MCP access token for any `mcpOAuth()` resource at the origin of the request, for `requireCaller()`, which
- * accepts the token on every route of the app.
+ * Check an MCP access token for `requireCaller()` on any route of the app. The token must name the `mcpOAuth()` resource
+ * of the origin whose path holds the request path, the longest one when several do. On a path outside every resource,
+ * it must name the first resource of the origin.
  */
 export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<McpTokenResult> {
   const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
-  return await verifyToken(token, auth, state, state.resources.filter(entry => new URL(entry).origin === origin), pathname)
+  return await verifyToken(token, auth, state, appResourceAt(state.resources, origin, pathname), pathname)
+}
+
+function appResourceAt(resources: readonly string[], origin: string, pathname: string): string | undefined {
+  const atOrigin = resources.filter(entry => new URL(entry).origin === origin)
+  const path = pathname.replace(/\/+$/, "")
+  const holding = atOrigin.filter(entry => path === pathOf(entry) || path.startsWith(`${pathOf(entry)}/`))
+  return holding.sort((a, b) => pathOf(b).length - pathOf(a).length)[0] ?? atOrigin[0]
 }
 
 async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<McpTokenResult> {

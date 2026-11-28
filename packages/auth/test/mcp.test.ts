@@ -57,14 +57,14 @@ type Setup = Awaited<ReturnType<typeof setup>>
 const Url = v.object({ url: v.string() })
 
 /** The browser flow of an MCP client: register, authorize with PKCE, sign in, consent, and exchange the code. */
-async function signInAgent({ call, post }: Setup, email = "ada@example.com", tokenHeaders: Record<string, string> = {}, scope = "openid profile email offline_access") {
+async function signInAgent({ call, post }: Setup, email = "ada@example.com", tokenHeaders: Record<string, string> = {}, scope = "openid profile email offline_access", audience = resource) {
   expect((await post("/sign-up/email", { email, name: "Ada", password: "test-password-123" })).status).toBe(200)
   const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: [redirect], token_endpoint_auth_method: "none" })
   expect(registration.status, await registration.clone().text()).toBe(201)
   const { client_id } = v.parse(v.object({ client_id: v.string() }), await registration.json())
   const verifier = randomBytes(32).toString("base64url")
   const challenge = createHash("sha256").update(verifier).digest("base64url")
-  const query = new URLSearchParams({ client_id, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: redirect, resource, response_type: "code", scope, state: "s" })
+  const query = new URLSearchParams({ client_id, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: redirect, resource: audience, response_type: "code", scope, state: "s" })
   const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
   expect(login.pathname).toBe("/oauth")
   const signedIn = await post("/sign-in/email", { email, oauth_query: login.search.slice(1), password: "test-password-123" })
@@ -75,7 +75,7 @@ async function signInAgent({ call, post }: Setup, email = "ada@example.com", tok
   expect(answer.status, await answer.clone().text()).toBe(200)
   const code = new URL(v.parse(Url, await answer.json()).url).searchParams.get("code") ?? ""
   const token = await call("/oauth2/token", {
-    body: new URLSearchParams({ client_id, code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: redirect, resource }),
+    body: new URLSearchParams({ client_id, code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: redirect, resource: audience }),
     headers: { "content-type": "application/x-www-form-urlencoded", ...tokenHeaders },
     method: "POST",
   })
@@ -437,6 +437,53 @@ describe("requireCaller", () => {
     // A token of another origin is not a token of this app.
     const other = new Request("https://other.example.com/api/notes", { headers: { authorization: `Bearer ${accessToken}` } })
     expect((await requireCaller(other, auth.definition))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+  })
+
+  const notes = `${app}/api/review/notes`
+  const callerAt = async (auth: Setup, path: string, token: string) => {
+    const [error] = await requireCaller(new Request(`${app}${path}`, { headers: { authorization: `Bearer ${token}` } }), auth.definition)
+    if (!error) return "agent"
+    return error.code === "AUTH_MCP_TOKEN_INVALID" ? error.data.reason : error.code
+  }
+  const signInToBoth = async (resources: string[]) => {
+    const auth = await setup({ resource: resources })
+    const mcp = await signInAgent(auth, "ada@example.com", {}, undefined, resource)
+    const notesAgent = await signInAgent(auth, "grace@example.com", {}, undefined, notes)
+    return { auth, mcpToken: mcp.accessToken, notesToken: notesAgent.accessToken }
+  }
+
+  it("with several resources, accepts on a resource path only the tokens of that resource", async () => {
+    const { auth, mcpToken, notesToken } = await signInToBoth([resource, notes])
+
+    for (const path of ["/api/review/notes", "/api/review/notes/", "/api/review/notes/n1/replies"]) {
+      expect(await callerAt(auth, path, notesToken)).toBe("agent")
+      expect(await callerAt(auth, path, mcpToken)).toBe("wrong_resource")
+    }
+    for (const path of ["/mcp", "/mcp/sessions"]) {
+      expect(await callerAt(auth, path, mcpToken)).toBe("agent")
+      expect(await callerAt(auth, path, notesToken)).toBe("wrong_resource")
+    }
+  })
+
+  it("with several resources, accepts on a path outside every resource only the tokens of the first resource", async () => {
+    const { auth, mcpToken, notesToken } = await signInToBoth([resource, notes])
+
+    // A resource path matches whole path segments, so `/api/review/notesx` and `/mcpx` are outside every resource.
+    for (const path of ["/api/drops", "/api/review", "/api/review/notesx", "/mcpx"]) {
+      expect(await callerAt(auth, path, mcpToken)).toBe("agent")
+      expect(await callerAt(auth, path, notesToken)).toBe("wrong_resource")
+    }
+
+    const reversed = await signInToBoth([notes, resource])
+    expect(await callerAt(reversed.auth, "/api/drops", reversed.notesToken)).toBe("agent")
+    expect(await callerAt(reversed.auth, "/api/drops", reversed.mcpToken)).toBe("wrong_resource")
+  })
+
+  it("with one resource, accepts its token on every path of the origin", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+
+    for (const path of ["/mcp", "/mcp/sessions", "/api/drops", "/api/review/notes", "/"]) expect(await callerAt(auth, path, accessToken)).toBe("agent")
   })
 
   it("reads each request once", async () => {

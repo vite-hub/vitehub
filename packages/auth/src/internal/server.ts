@@ -1109,7 +1109,8 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthCall
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
- * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin. Like
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()`. The token must name the `mcpOAuth()` resource whose
+ * path holds the request path, or the first resource of the origin on a path outside every resource. Like
  * `verifyMcpRequest()`, it accepts `jwt()` and an `oauthProvider()` with `resources` that the app adds without
  * `mcpOAuth()`. A bearer token that is not a JWT, such as a session token of `bearer()`, is read as a session.
  * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a JWT bearer token that fails a check.
