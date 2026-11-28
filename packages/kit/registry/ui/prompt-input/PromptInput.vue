@@ -24,17 +24,13 @@ const canSubmit = computed(() => !props.disabled && (text.value.trim() !== "" ||
 const textarea = () => form.value?.querySelector("textarea") ?? null;
 
 function onSubmit() {
-  if (props.pending) {
-    emit("stop");
-    return;
-  }
-  if (!canSubmit.value) return;
+  if (props.pending || !canSubmit.value) return;
   emit("submit", { text: text.value, files: [...files.value] });
   text.value = "";
   files.value = [];
 }
 
-provide(promptInputKey, { text, files, pending, canSubmit, submit: () => form.value?.requestSubmit(), textarea });
+provide(promptInputKey, { text, files, pending, canSubmit, submit: () => form.value?.requestSubmit(), stop: () => emit("stop"), textarea });
 </script>
 
 <template>

@@ -12,6 +12,7 @@ export interface PromptInputContext {
   pending: ComputedRef<boolean>;
   canSubmit: ComputedRef<boolean>;
   submit: () => void;
+  stop: () => void;
   textarea: () => HTMLTextAreaElement | null;
 }
 

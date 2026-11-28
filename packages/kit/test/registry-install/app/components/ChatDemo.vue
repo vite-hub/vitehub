@@ -14,7 +14,7 @@ interface DemoMessage {
   from: "user" | "assistant";
   text: string;
   files?: string[];
-  tools?: { name: string; state: ToolCallState; input?: unknown; output?: unknown; errorText?: string }[];
+  tools?: { name: string; state: ToolCallState; input?: unknown; output?: unknown; errorText?: string; defaultOpen?: boolean }[];
 }
 
 const reply = `Here is the deploy plan for **acme-web**:
@@ -42,7 +42,10 @@ const messages = ref<DemoMessage[]>([
     text: reply,
     tools: [
       { name: "readProject", state: "output-available", input: { project: "acme-web" }, output: { framework: "nuxt", host: "cloudflare" } },
-      { name: "listDeployments", state: "output-error", input: { limit: 5 }, errorText: "The token cannot read deployments." },
+      { name: "listDeployments", state: "output-error", input: { limit: 5 }, errorText: "The token cannot read deployments.", defaultOpen: true },
+      { name: "publishPreview", state: "approval-responded" },
+      { name: "updateDomain", state: "approval-requested", input: { domain: "acme.example" } },
+      { name: "updateProject", state: "approval-requested", defaultOpen: false },
     ],
   },
   { id: 3, from: "user", text: "Run it now and attach the log.", files: ["build.log"] },
@@ -72,7 +75,7 @@ function send(message: PromptInputMessage) {
           :input="tool.input"
           :output="tool.output"
           :error-text="tool.errorText"
-          :default-open="tool.state === 'output-error'"
+          :default-open="tool.defaultOpen"
         />
         <MessageContent>
           <MessageMarkdown v-if="message.from === 'assistant'" :value="message.text" :streaming="streaming && message.id === 4" />

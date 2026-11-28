@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { ToolCallState } from "./states";
 import { toolCallStates } from "./states";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   name: string;
   state: ToolCallState;
   input?: unknown;
@@ -16,7 +16,7 @@ const props = defineProps<{
   errorText?: string;
   defaultOpen?: boolean;
   class?: HTMLAttributes["class"];
-}>();
+}>(), { defaultOpen: undefined });
 
 const status = computed(() => toolCallStates[props.state]);
 const working = computed(() => props.state === "input-streaming" || props.state === "input-available");

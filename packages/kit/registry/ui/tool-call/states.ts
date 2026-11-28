@@ -11,7 +11,7 @@ export const toolCallStates: Record<ToolCallState, { label: string; tone: "defau
   "input-streaming": { label: "Preparing", tone: "default" },
   "input-available": { label: "Running", tone: "info" },
   "approval-requested": { label: "Needs approval", tone: "warning" },
-  "approval-responded": { label: "Approved", tone: "info" },
+  "approval-responded": { label: "Decision received", tone: "info" },
   "output-available": { label: "Done", tone: "success" },
   "output-error": { label: "Failed", tone: "error" },
   "output-denied": { label: "Denied", tone: "error" },

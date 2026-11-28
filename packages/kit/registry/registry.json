@@ -722,7 +722,7 @@
       "name": "prompt-input",
       "type": "registry:ui",
       "title": "Prompt input",
-      "description": "A chat composer on the ui-sdk Textarea and FileInput parts: Enter sends, Shift+Enter adds a line, and files attach by drop, paste or picker.",
+      "description": "A chat composer on the ui-sdk Textarea and FileInput parts. Enter sends on desktop when ready and adds a line on touch-only devices or while pending. Files attach by drop, paste, or the picker.",
       "dependencies": [
         "@ui-sdk/vue",
         "@ui-sdk/core",

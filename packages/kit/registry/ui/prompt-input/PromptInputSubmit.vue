@@ -9,17 +9,18 @@ const props = withDefaults(defineProps<{ label?: string; stopLabel?: string; cla
   label: "Send",
   stopLabel: "Stop",
 });
-const { pending, canSubmit } = usePromptInput();
+const { pending, canSubmit, stop } = usePromptInput();
 </script>
 
 <template>
   <button
-    type="submit"
+    :type="pending ? 'button' : 'submit'"
     data-slot="prompt-input-submit"
     :data-pending="pending ? '' : undefined"
     :aria-label="pending ? props.stopLabel : props.label"
     :disabled="!pending && !canSubmit"
     :class="cn(buttonVariants({ size: 'icon-sm' }), 'ms-auto', props.class)"
+    @click="pending && stop()"
   >
     <SquareIcon v-if="pending" aria-hidden="true" class="size-3 fill-current" />
     <ArrowUpIcon v-else aria-hidden="true" />

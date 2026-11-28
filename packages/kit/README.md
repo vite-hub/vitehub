@@ -333,7 +333,7 @@ The group takes ui-sdk `Avatar`s from `@ui-sdk/vue/avatar`, round and 24px (20px
 | `skeleton`, `empty` | `registry:ui` | A loading placeholder and an empty state |
 | `message-list` | `registry:ui` | `MessageList`, a chat log that stays at the newest message while it grows, and `MessageListScrollButton`. Call `scrollToBottom()` on its ref when the user sends a message |
 | `message` | `registry:ui` | `Message`, `MessageContent`, `MessageActions`, and `MessageMarkdown`, which renders streamed Markdown with `@comark/vue` |
-| `prompt-input` | `registry:ui` | `PromptInput` with a textarea, attachments, an attach button, and a send button that turns into stop while `pending`. Enter sends, Shift + Enter adds a line, and files attach by drop, paste, or the picker |
+| `prompt-input` | `registry:ui` | `PromptInput` with a textarea, attachments, and buttons to attach and send. On desktop, Enter sends and Shift + Enter adds a line. On touch-only devices or while `pending`, Enter adds a line. Only the Stop button stops a reply. Files attach by drop, paste, or the picker |
 | `tool-call` | `registry:ui` | `ToolCall`, a collapsible row with the state, input, and output or error of one Agent tool call |
 | `app-shell` | `registry:block` | `components/app-shell/AppShell.vue`, a page frame with the sidebar, collapsible nav groups, and a top bar |
 
