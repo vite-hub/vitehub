@@ -51,7 +51,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Restart the dev server. In development the Workflow Vite plugin installs the registry with the Nitro plugin .vitehub/nitro/workflow/dev-plugin.mjs.",
     },
     WORKFLOW_RUNS_UNAVAILABLE: {
-      why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
+      why: "This runtime keeps no Workflow run history that ViteHub can read. OpenWorkflow stores its runs, and `vite dev` records inline runs.",
       fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow runs get <runId> --workflow <name>`, or use the provider dashboard.",
     },
     WORKFLOW_RUN_AMBIGUOUS: {

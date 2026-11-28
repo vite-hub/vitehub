@@ -7,11 +7,12 @@ import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveWorkflowOperationSupport } from "../results.ts"
 import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./client.ts"
 import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
+import { findOpenWorkflowRunWorkflows, listOpenWorkflowRuns } from "./openworkflow.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
-import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
-import type { WorkflowRun, WorkflowRunStatus } from "../types.ts"
+import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsListStatus, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
+import type { WorkflowRun } from "../types.ts"
 import type { WorkflowDevRecorder, WorkflowDevRunRecord } from "./dev-recorder.ts"
 
 export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult }
@@ -236,7 +237,7 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
   }
   const [record] = recorded
   if (record) return { run: { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) } }
-  const workflow = named ?? startedRuns.get(runId)
+  const workflow = named ?? startedRuns.get(runId) ?? await storedRunWorkflow(runId)
   if (!workflow) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId }))
   }
@@ -245,9 +246,19 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
   return { run: await toWorkflowRunView(found, workflow) }
 }
 
+async function storedRunWorkflow(runId: string): Promise<string | undefined> {
+  const config = getWorkflowRuntimeConfig()
+  if (!config || config.driver !== "openworkflow") return
+  const workflows = await findOpenWorkflowRunWorkflows(config, runId)
+  if (workflows.length > 1) {
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: runId, workflows: workflows.join(", ") }))
+  }
+  return workflows[0]
+}
+
 export interface WorkflowRunsListInput {
   limit?: number
-  status?: WorkflowRunStatus
+  status?: WorkflowRunsListStatus
   workflow?: string
 }
 
@@ -287,12 +298,35 @@ function stepView(step: WorkflowDevRunRecord["steps"][number]): WorkflowRunStepV
   }
 }
 
-/** Lists the runs that `vite dev` recorded, newest first. */
-export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<WorkflowRunsListResult> {
-  const records = devRecorder().list()
+type WorkflowRunListView = WorkflowRunsListResult["runs"][number]
+
+async function recordedRunViews(recorder: WorkflowDevRecorder, input: WorkflowRunsListInput, limit: number): Promise<WorkflowRunListView[]> {
+  const records = recorder.list()
     .filter(record => (input.workflow === undefined || record.workflow === input.workflow) && (input.status === undefined || record.status === input.status))
-    .slice(0, input.limit ?? workflowDevRunLimit)
-  return { runs: await Promise.all(records.map(async record => ({ ...await toWorkflowRunView(devRunView(record), record.workflow), stepCount: record.steps.length }))) }
+    .slice(0, limit)
+  return await Promise.all(records.map(async record => ({ ...await toWorkflowRunView(devRunView(record), record.workflow), stepCount: record.steps.length })))
+}
+
+/**
+ * Lists Workflow runs, newest first: the runs that OpenWorkflow stores, and the inline runs that `vite dev` recorded.
+ * Other providers keep no history that ViteHub can read, so only `vite dev` lists their inline runs.
+ */
+export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<WorkflowRunsListResult> {
+  const config = getWorkflowRuntimeConfig()
+  const limit = input.limit ?? workflowDevRunLimit
+  if (!config || config.driver !== "openworkflow") {
+    return { runs: await recordedRunViews(devRecorder(), input, limit) }
+  }
+  const recorder = getWorkflowDevRecorder()
+  const [stored, recorded] = await Promise.all([
+    listOpenWorkflowRuns(config, { limit, ...(input.status ? { status: input.status } : {}), ...(input.workflow ? { workflow: input.workflow } : {}) }),
+    recorder ? recordedRunViews(recorder, input, limit) : [],
+  ])
+  const storedViews = await Promise.all(stored.map(async ({ run, stepCount, workflow }) => ({ ...await toWorkflowRunView(run, workflow), stepCount })))
+  const runs = [...storedViews, ...recorded]
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""))
+    .slice(0, limit)
+  return { runs }
 }
 
 /** Removes the runs that `vite dev` recorded. A run that is still active finishes but is not listed again. */
