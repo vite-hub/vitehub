@@ -179,7 +179,7 @@ import { sendQueue } from 'vite-hub/queue'
 
 const [error, result] = await sendQueue('welcome-email', { email: 'ava@example.com' }, { delay: '1m' })
 if (error) {
-  error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION'
+  error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION' | 'RUNTIME_DURATION_INVALID'
 }
 ```
 
