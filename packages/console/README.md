@@ -205,7 +205,11 @@ Other paths answer with the Console page, built by `pnpm --filter vite-hub build
 
 Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or arm64) of the `node:24-slim` image on the server. The output contains the build machine's native libSQL module. Output built on macOS, Windows, or Linux with musl (such as Alpine) is incompatible with this image.
 
+First build the Console page from the `vite-hub` package. Without it, the build only warns and the Console shows a placeholder page. Compose publishes the Console on `127.0.0.1:3000`; set `VITEHUB_CONSOLE_PORT` to use another port. Inside the container, `localhost` is the container itself, so link apps on the same machine by its network address, such as `http://192.168.1.20:3000`.
+
 ```sh
+pnpm install
+pnpm --filter vite-hub build:console-account
 VITEHUB_CONSOLE_PUBLIC_URL=https://console.example.com VITEHUB_DATA_DIR=/data vp build
 export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32)
 docker compose up -d --build
