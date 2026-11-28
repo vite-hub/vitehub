@@ -301,6 +301,16 @@ describe("Console MCP client", () => {
     expect(otherOriginRequests).toBe(0)
   })
 
+  it("calls the scope fetch as a plain function, as the Workers fetch requires", async () => {
+    const { db } = await database()
+    function workersFetch(this: unknown, ...args: Parameters<typeof fetch>): Promise<Response> {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation: function called with incorrect `this` reference.")
+      return fetch(...args)
+    }
+    const connected = valueOf(await call(scopeOf(db, { fetch: workersFetch }), "mcp-client.connect", { server: "/mcp" }))
+    expect(connected.connection).toMatchObject({ status: "connected" })
+  })
+
   it("refuses a private address when it connects, not only by host name", async () => {
     const metadata = `http://localhost:${new URL(origin).port}/.well-known/oauth-protected-resource`
     await expect(consoleOutboundFetch(false)(metadata)).rejects.toMatchObject({ cause: { message: expect.stringContaining("private address") } })

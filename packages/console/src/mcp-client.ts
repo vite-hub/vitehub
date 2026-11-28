@@ -100,13 +100,14 @@ function hasCredentials(request: Request): boolean {
 }
 
 function withTimeout(timeoutMs: number, policy: UrlPolicy): typeof fetch {
+  const send = policy.fetch
   return async (input, init) => {
     let request = new Request(input, init)
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)])
     for (let redirects = 0; ; redirects++) {
       signal.throwIfAborted()
       consoleMcpServerUrl(request.url, policy)
-      const response = await policy.fetch(request.clone(), { redirect: "manual", signal })
+      const response = await send(request.clone(), { redirect: "manual", signal })
       const location = response.headers.get("location")
       if (!redirectStatuses.has(response.status) || location === null || request.redirect === "manual") return response
       await response.body?.cancel()
