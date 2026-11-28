@@ -36,7 +36,7 @@ Use the web platform before JavaScript, and JavaScript before a dependency.
 
 **Clipboard.** Copy with `navigator.clipboard` or CopyButton. `document.execCommand("copy")` stays only in CopyButton's fallback for pages that are not a secure context.
 
-**Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use Nuxt UI, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
+**Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use ui-sdk, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
 
 **Known exceptions.** Remove each one when its reason goes away.
 

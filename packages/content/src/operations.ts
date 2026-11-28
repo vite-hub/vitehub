@@ -50,13 +50,17 @@ type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collectio
 
 const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
-const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
+const contentModuleKey = Symbol.for("vitehub.content.module")
+
+type ContentModuleLoader = () => Promise<Record<string, unknown>>
 
 /**
- * The `server/content.ts` module loaders that the Console installs, by section. Content operations read the default
- * export through it, so they run in a deployed app and in `vite dev` with the same file.
+ * Installs the loader of the app's `server/content.ts`. The generated operations module of Content calls it, so the
+ * operations read the same file in a deployed app and in `vite dev`, with or without a Console Content section.
  */
-type SectionModules = Record<string, (() => Promise<Record<string, unknown>>) | undefined>
+export function installContentModule(load: ContentModuleLoader): void {
+  Reflect.set(globalThis, contentModuleKey, load)
+}
 
 function isRuntime(value: unknown): value is ContentOperationsRuntime {
   return value !== null && Object(value) === value && runtimeMembers.every(member => Reflect.get(Object(value), member) instanceof Function)
@@ -110,8 +114,7 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function contentRuntime(): Promise<ContentOperationsRuntime> {
-  const modules = Reflect.get(globalThis, sectionModulesKey) as SectionModules | undefined
-  const load = modules?.content
+  const load = Reflect.get(globalThis, contentModuleKey) as ContentModuleLoader | undefined
   if (!load) {
     throw withStatus(new ViteHubError("CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on."), 409, "Create server/content.ts with `export default defineContent({ ... })`.")
   }

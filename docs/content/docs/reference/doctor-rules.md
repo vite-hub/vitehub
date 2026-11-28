@@ -997,6 +997,7 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `contentImportBase` was removed.
 
 A build that sets `preset`, `sandbox`, `devtools`, `observability.logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
+- A top-level key is not a ViteHub option, such as `rate-limit` or `kvv`. The build fails with `VITE_HUB_UNKNOWN_OPTION`, and the fix names the closest option, such as `rateLimit` or `kv`. Without it, the feature would stay off with no message.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
 The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.

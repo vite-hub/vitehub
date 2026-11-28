@@ -2864,6 +2864,7 @@ describe("defineAgent workspace option", () => {
     }), { workspace: "support" })
 
     expect(createAgentInspectionMetadata(agent)).toEqual({
+      capabilities: [{ id: "workspace-shell" }],
       config: {
         driver: {
           executionAuthority: noExecutionAuthority,
@@ -3021,6 +3022,20 @@ describe("defineAgent workspace option", () => {
     ])
     expect((await materializeAgentInspectionSourceMetadata(workspaceAgent)).capabilities).toEqual([
       { id: "inspectable", metadata: { status: "ready" } },
+    ])
+  })
+
+  it("lists every Capability id in inspection, with metadata only where a Capability sets it", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { createAgentInspectionMetadata } = await import("../src/workspace-agent.ts")
+    const agent = defineAgent({
+      capabilities: [defineCapability({ id: "plain" }), defineCapability({ id: "inspectable", metadata: { status: "ready" } })],
+      driver: { run: () => "ok" },
+    })
+
+    expect(createAgentInspectionMetadata(agent).capabilities).toEqual([
+      { id: "inspectable", metadata: { status: "ready" } },
+      { id: "plain" },
     ])
   })
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { rm } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
+import MagicString from "magic-string"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
@@ -22,7 +23,7 @@ import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDe
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 import { cronWithWeekdayNames } from "./runtime/due.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -56,6 +57,7 @@ export async function readScheduleDefinitionCrons(
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
+const scheduleRegistryImport = /\/\* @vite-ignore \*\/\s*\/\* @vitehub-schedule-registry \*\/\s*[\w$]+/g
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
@@ -65,17 +67,6 @@ const defaultCatchUpMs = 60 * 60 * 1000
 const generatedNitroScheduleModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroNetlifyEntry = ".vitehub/nitro/schedule/netlify-entry.mjs"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
-
-function invalidateScheduleRegistry(server: ViteDevServer): void {
-  const registry = server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
-  if (registry) server.moduleGraph.invalidateModule(registry)
-  for (const environment of Object.values(server.environments ?? {})) {
-    const module = environment.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
-    if (!module) continue
-    environment.moduleGraph.invalidateModule(module)
-    if (environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
-  }
-}
 
 export interface ScheduleProcessRuntimeOptions {
   catchUpMs?: number
@@ -967,7 +958,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    async handleHotUpdate(context) {
+    hotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
       const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory, "schedules").replace(/\\/g, "/")}/`)
@@ -979,7 +970,11 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         return
       }
 
-      invalidateScheduleRegistry(context.server)
+      const environment = this.environment
+      const registry = environment.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
+      if (!registry) return
+      environment.moduleGraph.invalidateModule(registry)
+      if (environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
     },
     resolveId: {
       filter: { id: /^#vitehub\/schedule\/registry$/ },
@@ -992,7 +987,10 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
     transform: {
       filter: { code: /\/\* @vitehub-schedule-registry \*\// },
       handler(code) {
-        return code.replace(/\/\* @vite-ignore \*\/\s*\/\* @vitehub-schedule-registry \*\/\s*[\w$]+/g, JSON.stringify(SCHEDULE_REGISTRY_ID))
+        const output = new MagicString(code)
+        for (const match of code.matchAll(scheduleRegistryImport)) output.overwrite(match.index, match.index + match[0].length, JSON.stringify(SCHEDULE_REGISTRY_ID))
+        if (!output.hasChanged()) return
+        return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       },
     },
     load: {

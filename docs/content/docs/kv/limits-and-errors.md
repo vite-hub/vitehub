@@ -131,7 +131,7 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 ### KV_INVALID_CONFIG
 
-`kv` or `kv.stores` is not a plain object.
+In `vitehub()`, set `kv: true` for the default store, `kv: { driver: 'redis' }` to choose a driver, or `kv: false` to turn KV off. In a standalone app, call `hubKV()` for the default store, or pass an options object or `false`. When you configure named stores, `stores` must be an object.
 
 ### KV_INVALID_DRIVER
 

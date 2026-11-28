@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { dirname, relative, resolve } from "pathe"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
@@ -22,6 +22,5 @@ function createQueueTypes(file: string, definitions: DiscoveredQueueDefinition[]
 
 export async function writeQueueTypes(root: string, definitions: DiscoveredQueueDefinition[], importBase = "@vite-hub/queue"): Promise<void> {
   const file = resolve(root, ".vitehub/queue.d.ts")
-  await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, createQueueTypes(file, definitions, importBase), "utf8")
+  await writeFileIfChanged(file, createQueueTypes(file, definitions, importBase))
 }

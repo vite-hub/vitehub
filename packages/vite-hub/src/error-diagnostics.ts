@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: VITE_HUB_B0002, VITE_HUB_B0003, VITE_HUB_B0006, VITE_HUB_B0007, VITE_HUB_B0008, VITE_HUB_B0010, VITE_HUB_B0014, VITE_HUB_B0017, VITE_HUB_R0002 to VITE_HUB_R0039, VITE_HUB_R0048, VITE_HUB_R0055 to VITE_HUB_R0057, VITE_HUB_R0064 to VITE_HUB_R0069, VITE_HUB_R0086, VITE_HUB_R0099, VITE_HUB_R0100, VITE_HUB_R0105, VITE_HUB_R0110 to VITE_HUB_R0112, VITE_HUB_R0119, VITE_HUB_R0122, and VITE_HUB_R0134.
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -68,6 +66,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     TASK_RUNTIME_UNAVAILABLE: {
       why: "Nitro tasks are not enabled in this runtime.",
       fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
+    },
+    VITE_HUB_AGENT_JOURNAL_IN_WORKER_MEMORY: {
+      why: "The default Agent Invocation journal has no D1 binding or libSQL URL. It keeps records in Worker memory and loses its records when the isolate stops.",
+      fix: "Configure a D1 binding on the `default` or only Database Definition, or set `agent.invocations.databaseUrl` to a remote libSQL URL.",
     },
     VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
       why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
@@ -379,7 +381,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0063: {
       ...dynamicError,
-      fix: "Turn the Console on with `console: true` in `vitehub()`, or in the `vitehub` key of `nuxt.config.ts`, and add an Agent Definition, such as `server/agents/support/agent.ts`. Without the Console, read the journal file with `vitehub agent invocations list --database .vitehub/data/agent-invocations.sqlite`.",
+      fix: "If you turned off the `agents` Console section, enable it. If the app has no Agent Definition, add one in `server/agents/support.ts` and set `agent` in `vitehub()` or in the `vitehub` key of `nuxt.config.ts`. To read a journal file without a server, run `vitehub agent invocations list --database .vitehub/data/agent-invocations.sqlite`.",
     },
     VITE_HUB_R0070: {
       ...dynamicError,
@@ -652,6 +654,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_TEST_SERVER_TIMEOUT: {
       why: "The Vite server of vite-hub/test did not start in 60 seconds.",
       fix: ({ directory }: { directory: string }) => `Delete ${directory} and run the tests again. To see the server error, run one test file with \`node --import vite-hub/test/register --test-isolation=none <file>\`.`,
+    },
+    VITE_HUB_UNKNOWN_OPTION: {
+      why: ({ key, where }: { key: string, suggestion: string, where: string }) => `\`${key}\` in ${where} is not a ViteHub option. ViteHub would ignore it, and the feature that it names would stay off.`,
+      fix: ({ key, suggestion }: { key: string, suggestion: string, where: string }) => suggestion ? `Rename \`${key}\` to \`${suggestion}\`.` : `Remove \`${key}\`, or use an option from https://vitehub.dev/docs/reference/config-options.`,
     },
   },
 })

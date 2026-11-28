@@ -61,12 +61,13 @@ const setupCodes = [
   "VITE_HUB_R0141",
   "VITE_HUB_R0142",
   "VITE_HUB_R0144",
+  "VITE_HUB_UNKNOWN_OPTION",
 ] as const
 
 describe("vitehub() setup errors", () => {
   it("give each setup code a fix and its own docs page", () => {
     for (const code of setupCodes) {
-      const error = viteHubErrorDiagnostics[code]({ binding: "CACHE", detected: "vercel", driver: "fs-lite", existing: "a", host: "cloudflare", message: "m", requested: "b", required: "node", value: "\"x\"", variable: "VERCEL" })
+      const error = viteHubErrorDiagnostics[code]({ binding: "CACHE", detected: "vercel", driver: "fs-lite", existing: "a", host: "cloudflare", key: "k", message: "m", requested: "b", required: "node", suggestion: "", where: "w", value: "\"x\"", variable: "VERCEL" })
       expect(error.fix, code).toMatch(/\S/)
       expect(error.docs, code).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
     }

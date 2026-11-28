@@ -53,7 +53,6 @@ export interface ConsoleDocumentEditorInstall {
 }
 
 const actionFailureKey = Symbol.for("vitehub.console.action-failure")
-const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
 
 interface ConsoleActionFailure {
   code: string
@@ -86,11 +85,7 @@ export function consoleActionError(failure: ConsoleActionFailure): Error {
 /** Install the document editor sections of one project. Generated Console output calls this. */
 export function installConsoleDocuments(projectRoot: string, editors: Readonly<Record<string, ConsoleDocumentEditorInstall>>): ConsoleDocumentEditors {
   const loaders: Record<string, () => Promise<ConsoleDocumentActions>> = {}
-  // Operations of the same section, such as the Content operations, read the application module through this slot.
-  const modules: Record<string, () => Promise<Record<string, unknown>>> = {}
-  Reflect.set(globalThis, sectionModulesKey, modules)
   for (const [section, editor] of Object.entries(editors)) {
-    modules[section] = editor.load
     let loading: Promise<ConsoleDocumentActions> | undefined
     loaders[section] = () => {
       loading ??= editor.load().then(module => editor.actions(module))
