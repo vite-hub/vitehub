@@ -1366,6 +1366,29 @@ export default function (_options, nuxt) {
     })
   })
 
+  it("names the Provision State file under the config root, such as the Nuxt srcDir", async () => {
+    const projectDir = await createTempDir()
+    const rootDir = join(projectDir, "app")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({ cloudflare: { d1: { default: "database-id" } } }))
+    const env = { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "secret-token" }
+    const loadConfig = async () => ({ plugins: [provisionPlugin(async () => ({ ids: { cloudflare: { test: { demo: "id" } } } }))], root: rootDir })
+
+    const status = stream()
+    await expect(runViteHubCli({ runHostCli: noHostCli, args: ["provision", "status", "--host", "cloudflare"], cwd: projectDir, env, loadConfig, stdout: status })).resolves.toBe(0)
+    expect(status.output()).toContain("recorded cloudflare ids (app/.vitehub/provision.json):\n")
+    expect(status.output()).toContain("then remove the entry from app/.vitehub/provision.json.\n")
+
+    const statusJson = stream()
+    await expect(runViteHubCli({ runHostCli: noHostCli, args: ["provision", "status", "--host", "cloudflare", "--json"], cwd: projectDir, env, loadConfig, stdout: statusJson })).resolves.toBe(0)
+    expect(JSON.parse(statusJson.output())).toMatchObject({ stateFile: "app/.vitehub/provision.json" })
+
+    const run = stream()
+    await expect(runViteHubCli({ runHostCli: noHostCli, args: ["provision", "run", "--host", "cloudflare"], cwd: projectDir, env, loadConfig, stdout: run })).resolves.toBe(0)
+    expect(run.output()).toContain("provision: wrote ids to app/.vitehub/provision.json\n")
+    expect(JSON.parse(await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8"))).toMatchObject({ cloudflare: { test: { demo: "id" } } })
+  })
+
   it("shows recorded ids and pending actions without applying", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })

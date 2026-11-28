@@ -103,6 +103,7 @@ export const noHostCli: HostCliRun = async () => ({ exitCode: 1, stdout: "" })
 
 interface SetupRunOptions {
   fetch?: typeof fetch
+  provisionRoot?: string
   provisionSteps?: () => readonly ProvisionStep[]
   runHostCli?: HostCliRun
   spawn?: ViteHubCliSpawn
@@ -122,7 +123,7 @@ export async function runSetup<T = Record<string, unknown>>(args: string[], cwd:
       throw new Error(`unexpected request to ${String(input)}`)
     }),
     loadConfig,
-    loadProvision: async () => ({ rootDir: cwd, steps: options.provisionSteps?.() ?? [] }),
+    loadProvision: async () => ({ rootDir: options.provisionRoot ?? cwd, steps: options.provisionSteps?.() ?? [] }),
     runHostCli: options.runHostCli ?? noHostCli,
     spawn: options.spawn ?? noSpawn,
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },

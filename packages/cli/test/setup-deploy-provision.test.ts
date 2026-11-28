@@ -125,6 +125,16 @@ describe("vitehub deploy provisions the host", () => {
     expect(result.stdout).toContain("Provisioned 1 resource on cloudflare. Ids are in .vitehub/provision.json.\n")
   })
 
+  it("prints the path of the Provision State file under the config root of a Nuxt app", async () => {
+    const root = await builtProject("cloudflare")
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await runSetup(["deploy", "--yes"], root, hosts.env, { provisionRoot: join(root, "app"), provisionSteps: () => [fakeD1().step], spawn: fakeBuild(root, []) })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stdout).toContain("Provisioned 1 resource on cloudflare. Ids are in app/.vitehub/provision.json.\n")
+    expect(JSON.parse(await readFile(join(root, "app/.vitehub/provision.json"), "utf8"))).toEqual({ cloudflare: { d1: { DB: "d1-1" } } })
+  })
+
   it("skips provision with --no-provision", async () => {
     const root = await builtProject("cloudflare")
     const hosts = await fakeHosts(cloudflareEnv)
