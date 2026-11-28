@@ -19,16 +19,16 @@ export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePath
   const parts = normalized.split("/").filter(Boolean)
   if (!options.allowEmpty && !normalized) throw workspacePathError(path)
   if (raw.startsWith("/") || /^[a-z]:/i.test(raw) || raw.includes("\0")) throw workspacePathError(path)
-  if (parts.some((part, index) => {
-    const name = part.toLowerCase()
-    const classification = classifyWindowsComponent(part)
+  const components = parts.map((part, index) => ({ classification: classifyWindowsComponent(part), index, name: part.toLowerCase() }))
+  if (components.some(({ classification }) => classification.isTraversal)) throw workspacePathError(path)
+  if (components.some(({ classification, index, name }) => {
     const reserved = classification.normalized === ".git"
       || /^git~\d+$/.test(classification.normalized)
       || (index === 0 && classification.normalized === ".vitehub")
       || (index === 0 && /^vitehu~\d+$/.test(classification.normalized))
     const canonical = (classification.normalized === ".git" || (index === 0 && classification.normalized === ".vitehub"))
       && name === classification.normalized
-    return classification.isTraversal || (reserved && (!options.allowReserved || !canonical))
-  })) throw workspacePathError(path)
+    return reserved && (!options.allowReserved || !canonical)
+  })) throw workspacePathError(path, "reserved")
   return normalized
 }

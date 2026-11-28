@@ -69,7 +69,10 @@ it.each(["sidecar", "tree"])("keeps cached Source paths read-only after losing t
     const view = createWorkspaceSourceView(definition, restarted)
     await expect(view.writeFile("docs/file.txt", "overwrite")).rejects.toThrow("read-only")
     await expect(view.rm("docs/file.txt")).rejects.toThrow("read-only")
-    await expect(view.rm("docs", { recursive: true })).rejects.toThrow("read-only")
+    await expect(view.rm("docs", { recursive: true })).rejects.toMatchObject({
+      code: "WORKSPACE_SOURCE_READ_ONLY",
+      details: { path: "docs", source: "docs" },
+    })
     await expect(view.mkdir("docs/file.txt")).rejects.toThrow("read-only")
     await expect(view.writeFile("docs/generated.txt", "allowed")).resolves.toBe("docs/generated.txt")
     await expect(restarted.readFile("docs/file.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original") })
