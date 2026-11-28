@@ -233,6 +233,14 @@ A required secret Server Env declaration that reads exactly one variable name go
 
 With the default `VITEHUB_` prefix, a declaration reads two names: `env({ secret: true, source: env.source('EXECUTOR_API_KEY') })` reads `VITEHUB_EXECUTOR_API_KEY`, then `EXECUTOR_API_KEY`. Either one works at runtime, so Wrangler cannot require one of them, and the build leaves it out. To get `secrets.required`, set `env: { prefix: false }`, or use a source equal to the canonical name. See [Variable names](/docs/env/configure#variable-names).
 
+### Secrets in a local preview
+
+`wrangler dev` reads `.dev.vars` or `.env` from the folder of its config file. With the generated `.output/server/wrangler.json`, that folder is `.output/server`, not the app root, so the Worker does not get the values in the root `.env`, and a required secret fails with `ENV_REQUIRED_MISSING`. Copy the file after each build, because the build replaces `.output`:
+
+```bash [Terminal]
+cp .env .output/server/.dev.vars
+```
+
 ### Worker vars from Server Env
 
 Set `cloudflare: { vars: true }` to write the non-secret Server Env values that are set when you build to `vars` in `.output/server/wrangler.json`:
