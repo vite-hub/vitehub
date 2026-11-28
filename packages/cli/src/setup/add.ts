@@ -11,14 +11,16 @@ import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { declinedBuilds, installPackages, planPnpmBuilds, writePnpmBuilds } from "./install.ts"
 import { readSetupProject } from "./project.ts"
-import { formatInstallCommand, installArgs, installCommand, missingProviderOption, setupStatus, shellQuote } from "./status.ts"
+import { installCommand, missingProviderOption, setupStatus, shellQuote } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
+import type { PnpmBuildsChange } from "./install.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
 
@@ -263,6 +265,10 @@ export interface SetupAddPlanned {
   restartRequired: boolean
   files: { path: string, content: string }[]
   install: { prod: string[], dev: string[] }
+  /** The features that are on after the change. */
+  enabled: FeatureId[]
+  /** The pnpm build policy that the install needs. It is written before the install. */
+  workspace?: PnpmBuildsChange
 }
 
 /** Plans `vitehub add` without writing anything. Throws `SetupFailure` when the change needs input or is not possible. */
@@ -514,6 +520,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   install.prod = installSpecifiers(install.prod)
   install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
+  const workspace = command ? planPnpmBuilds(project, declinedBuilds(project, host, [...enabled])) : undefined
+  if (workspace) changes.unshift({ after: workspace.after, diff: setupDiff(workspace.path, workspace.before ?? "", workspace.after), kind: workspace.before === undefined ? "create" : "patch", path: workspace.path, ...(workspace.before === undefined ? {} : { before: workspace.before }) })
 
   const restartRequired = addsDiscovery && !configFile
   const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
@@ -561,20 +569,19 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     root: project.root,
     status: changes.length || (command && args.install) ? "planned" : "unchanged",
   }
-  return { files, install, plan, restartRequired, ...(configFile ? { configFile } : {}) }
+  return { enabled: [...enabled], files, install, plan, restartRequired, ...(configFile ? { configFile } : {}), ...(workspace ? { workspace } : {}) }
 }
 
-/** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */
-export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
+/**
+ * Applies a `vitehub add` plan: writes the pnpm build policy, installs the packages, writes the starter Definitions,
+ * and writes the config last.
+ */
+export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn"> & Partial<Pick<ViteHubCliContext, "stderr">>): Promise<void> {
   const { dev, prod } = planned.install
+  if (planned.workspace) await writePnpmBuilds(planned.workspace)
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
-      if (!packages.length) continue
-      const commandArgs = installArgs(project.packageManager, packages, isDev)
-      const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
-      if (result.exitCode !== 0) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(project.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
-      }
+      if (packages.length) await installPackages(context, project.packageManager, packages, isDev, { filesWritten: false, root: project.root })
     }
   }
   if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
