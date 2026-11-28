@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { parseArgs } from "node:util"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { consoleOrigin, consoleUrlVariable, defaultConsoleUrl, readConsoleCredential } from "./console-auth.ts"
+import { consoleOrigin, defaultConsoleUrl, namedConsole, readConsoleCredential } from "./console-auth.ts"
 import { writeSetupError, writeSetupJson } from "./envelope.ts"
 
 import type { ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -103,8 +103,9 @@ export const envPullFeature: ViteHubCliFeature = {
       const target = join(context.cwd, file)
       await checkIgnored(context.cwd, file)
 
-      const credential = await readConsoleCredential(context.env, values.console)
-      if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(values.console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl) })
+      const named = await namedConsole(context, values.console)
+      const credential = await readConsoleCredential(context.env, named)
+      if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(named ?? defaultConsoleUrl) })
       const request = async (path: string, init: RequestInit = {}) => {
         const response = await (context.fetch ?? fetch)(`${credential.origin}${path}`, { ...init, headers: { accept: "application/json", authorization: `Bearer ${credential.token}`, ...(init.body ? { "content-type": "application/json" } : {}) } })
         if (response.status === 401) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: credential.origin })

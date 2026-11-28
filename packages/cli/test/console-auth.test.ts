@@ -1,9 +1,9 @@
-import { readFile, stat } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { createProject, runSetup } from "./setup-helpers.ts"
+import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
 const consoleUrl = "https://console.example.com"
 const token = `vhk_${"S".repeat(43)}`
@@ -111,5 +111,33 @@ describe("vitehub login, whoami, and logout", () => {
     const insecure = await runSetup(["login", "--console", "http://console.example.com"], home, { XDG_CONFIG_HOME: home })
     expect(insecure.exitCode).toBe(1)
     expect(insecure.stderr).toContain("https://")
+  })
+
+  it("uses the console.url of the app config before the saved logins, after --console and VITEHUB_CONSOLE_URL", async () => {
+    const selfHosted = "https://console.self.example"
+    const keys: Record<string, string> = { [consoleUrl]: `vhk_${"H".repeat(43)}`, [selfHosted]: `vhk_${"O".repeat(43)}` }
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ console: { url: "${selfHosted}" } }`) })
+    await mkdir(join(root, "xdg", "vitehub"), { recursive: true })
+    const credential = (key: string) => ({ expiresAt: Date.UTC(2027, 1, 13), keyId: "key-1", team: { id: "t1", name: "Ada's team" }, token: key, user: { email: "ada@example.com", id: "u1", name: "Ada" } })
+    await writeFile(join(root, "xdg", "vitehub", "credentials.json"), JSON.stringify({ consoles: { [consoleUrl]: credential(keys[consoleUrl]!), [selfHosted]: credential(keys[selfHosted]!) }, version: 1 }))
+    const calls: string[] = []
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      calls.push(url.origin)
+      if (new Headers(init?.headers).get("authorization") !== `Bearer ${keys[url.origin]}`) return Response.json({ code: "CONSOLE_API_KEY_INVALID" }, { status: 401 })
+      return Response.json({ key: { expiresAt: Date.UTC(2027, 1, 13), id: "key-1" }, projectIds: null, roles: ["owner"], team: { id: "t1", name: "Ada's team" }, user: { email: "ada@example.com", id: "u1", name: "Ada" } })
+    }) as typeof globalThis.fetch
+    const env = { XDG_CONFIG_HOME: join(root, "xdg") }
+
+    const fromConfig = await runSetup<{ console: string }>(["whoami", "--json"], root, env, { fetch })
+    expect(fromConfig.exitCode).toBe(0)
+    expect(fromConfig.json.console).toBe(selfHosted)
+
+    const fromEnv = await runSetup<{ console: string }>(["whoami", "--json"], root, { ...env, VITEHUB_CONSOLE_URL: consoleUrl }, { fetch })
+    expect(fromEnv.json.console).toBe(consoleUrl)
+
+    const fromFlag = await runSetup<{ console: string }>(["whoami", "--json", "--console", consoleUrl], root, env, { fetch })
+    expect(fromFlag.json.console).toBe(consoleUrl)
+    expect(calls).toEqual([selfHosted, consoleUrl, consoleUrl])
   })
 })

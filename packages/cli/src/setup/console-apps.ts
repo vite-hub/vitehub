@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { consoleOrigin, consoleUrlVariable, defaultConsoleUrl, readConsoleCredential } from "./console-auth.ts"
+import { consoleOrigin, defaultConsoleUrl, namedConsole, readConsoleCredential } from "./console-auth.ts"
 import { setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { shellQuote } from "./status.ts"
 
@@ -27,10 +27,14 @@ export interface ConsoleClient {
   request: (path: string, init?: { body?: unknown, method?: string }) => Promise<{ status: number, body: Record<string, unknown> }>
 }
 
-/** The Console of `--console`, else `VITEHUB_CONSOLE_URL`, else the only saved Console, else console.vitehub.dev. */
-export async function openConsole(context: Pick<ViteHubCliContext, "env" | "fetch">, console?: string): Promise<ConsoleClient> {
-  const credential = await readConsoleCredential(context.env, console)
-  if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl) })
+/**
+ * The Console of `--console`, else `VITEHUB_CONSOLE_URL`, else `console.url` in the app config, else the only saved
+ * Console, else console.vitehub.dev.
+ */
+export async function openConsole(context: Pick<ViteHubCliContext, "env" | "fetch" | "rootDir">, console?: string): Promise<ConsoleClient> {
+  const named = await namedConsole(context, console)
+  const credential = await readConsoleCredential(context.env, named)
+  if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(named ?? defaultConsoleUrl) })
   return consoleClient(context, credential)
 }
 
