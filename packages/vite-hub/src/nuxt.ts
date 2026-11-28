@@ -1009,7 +1009,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   await writeNuxtAgentJournal(options.database, journalDatabaseRoot)
   const nitro = (nuxt.options.nitro ??= {})
   const nitroPreset = plan.host === "deno" ? "deno-server" : plan.nitroPreset
-  if (typeof nitro.preset === "string" && normalizeNitroPreset(nitro.preset) !== nitroPreset) {
+  const configuredPreset = typeof nitro.preset === "string" ? normalizeNitroPreset(nitro.preset) : undefined
+  if (configuredPreset && configuredPreset !== nitroPreset) {
+    const presetVariable = (["NITRO_PRESET", "SERVER_PRESET"] as const).find(name => normalizeNitroPreset(process.env[name] ?? "") === configuredPreset)
+    if (presetVariable) throw viteHubErrorDiagnostics.VITE_HUB_R0082({ message: "[vitehub] vitehub host " + JSON.stringify(plan.host) + " conflicts with " + presetVariable + "=" + JSON.stringify(process.env[presetVariable]) + "." })
     throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub host " + JSON.stringify(plan.host) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
   nitro.preset = nitroPreset
