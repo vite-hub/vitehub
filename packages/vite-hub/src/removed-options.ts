@@ -1,4 +1,5 @@
-import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
+import { type ViteHubOptionValueForm, viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ViteHubOptions } from "./plugins.ts"
 
 /**
@@ -36,54 +37,65 @@ export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: 
   },
 }
 
-const viteHubOptionKeys: Readonly<Record<keyof ViteHubOptions, true>> = {
-  agent: true,
-  auth: true,
-  blob: true,
-  browser: true,
-  bundle: true,
-  cache: true,
-  channels: true,
-  cloudflare: true,
-  comments: true,
-  connections: true,
-  console: true,
-  dataDir: true,
-  database: true,
-  deploy: true,
-  device: true,
-  docker: true,
-  email: true,
-  env: true,
-  health: true,
-  host: true,
-  i18n: true,
-  kv: true,
-  logs: true,
-  mcp: true,
-  name: true,
-  node: true,
-  observability: true,
-  publicUrl: true,
-  queue: true,
-  rateLimit: true,
-  realtime: true,
-  redirects: true,
-  sameOriginWrites: true,
-  sandboxTask: true,
-  schedule: true,
-  security: true,
-  seo: true,
-  systemd: true,
-  trustProxy: true,
-  webContainer: true,
-  workflow: true,
-  workspace: true,
+type ViteHubOptionForm = ViteHubOptionValueForm | "checked-by-owner"
+
+const viteHubOptionForms: Readonly<Record<keyof ViteHubOptions, ViteHubOptionForm>> = {
+  agent: "feature",
+  auth: "checked-by-owner",
+  blob: "feature",
+  browser: "feature",
+  bundle: "boolean",
+  cache: "feature",
+  channels: "feature",
+  cloudflare: "object",
+  comments: "feature",
+  connections: "checked-by-owner",
+  console: "checked-by-owner",
+  dataDir: "checked-by-owner",
+  database: "feature",
+  deploy: "object",
+  device: "off-or-object",
+  docker: "boolean",
+  email: "feature",
+  env: "off-or-object",
+  health: "feature",
+  host: "checked-by-owner",
+  i18n: "object",
+  kv: "checked-by-owner",
+  logs: "feature",
+  mcp: "feature",
+  name: "string",
+  node: "object",
+  observability: "feature",
+  publicUrl: "string-or-function",
+  queue: "checked-by-owner",
+  rateLimit: "feature",
+  realtime: "feature",
+  redirects: "object",
+  sameOriginWrites: "feature",
+  sandboxTask: "feature",
+  schedule: "feature",
+  security: "object",
+  seo: "object",
+  systemd: "feature",
+  trustProxy: "boolean",
+  webContainer: "object",
+  workflow: "feature",
+  workspace: "feature",
+}
+
+const acceptsForm: Readonly<Record<ViteHubOptionValueForm, (value: unknown) => boolean>> = {
+  "boolean": value => typeof value === "boolean",
+  "feature": value => typeof value === "boolean" || isRecord(value),
+  "object": isRecord,
+  "off-or-object": value => value === false || isRecord(value),
+  "string": value => typeof value === "string",
+  "string-or-function": value => typeof value === "string" || typeof value === "function",
 }
 
 /** Whether `key` is a top-level `vitehub()` option. */
 export function isViteHubOptionKey(key: string): boolean {
-  return Object.hasOwn(viteHubOptionKeys, key)
+  return Object.hasOwn(viteHubOptionForms, key)
 }
 
 function editDistance(left: string, right: string): number {
@@ -102,7 +114,7 @@ function editDistance(left: string, right: string): number {
 /** The `vitehub()` option that `key` most likely means, such as `rateLimit` for `rate-limit`, or undefined. */
 export function closestViteHubOptionKey(key: string): string | undefined {
   const normalize = (value: string) => value.toLowerCase().replace(/[-_\s]/g, "")
-  const keys = Object.keys(viteHubOptionKeys)
+  const keys = Object.keys(viteHubOptionForms)
   const same = keys.find(candidate => normalize(candidate) === normalize(key))
   if (same) return same
   let best: { key: string, distance: number } | undefined
@@ -114,17 +126,29 @@ export function closestViteHubOptionKey(key: string): string | undefined {
 }
 
 /**
- * Fails with `VITE_HUB_B0024` when `options` set a removed or renamed option, and with `VITE_HUB_UNKNOWN_OPTION` when a
- * top-level key is not a ViteHub option. ViteHub would otherwise ignore both.
+ * Fails with `VITE_HUB_B0024` when `options` set a removed or renamed option, with `VITE_HUB_UNKNOWN_OPTION` when a
+ * top-level key is not a ViteHub option, and with `VITE_HUB_INVALID_OPTION` when an option has a value of the wrong
+ * type, such as `blob: 1`. ViteHub would otherwise ignore them, or fail later with an error that does not name the option.
  */
-export function assertViteHubOptionKeys(options: object, where: string): void {
+export function assertViteHubOptions(options: object, where: string): void {
   for (const [key, { why, fix }] of Object.entries(removedViteHubOptions)) {
     const value = key.split(".").reduce<unknown>((value, part) => value !== null && typeof value === "object" ? Reflect.get(value, part) : undefined, options)
     if (value === undefined) continue
     throw viteHubErrorDiagnostics.VITE_HUB_B0024({ message: `[vitehub] \`${key}\` in ${where} is no longer a ViteHub option. ${why} ${fix}` })
   }
-  const unknown = Object.keys(options).filter(key => !isViteHubOptionKey(key) && Reflect.get(options, key) !== undefined)
-  if (unknown.length === 0) return
-  const key = unknown[0]!
-  throw viteHubErrorDiagnostics.VITE_HUB_UNKNOWN_OPTION({ key, suggestion: closestViteHubOptionKey(key) ?? "", where })
+  const unknown = Object.keys(options).find(key => !isViteHubOptionKey(key) && Reflect.get(options, key) !== undefined)
+  if (unknown) throw viteHubErrorDiagnostics.VITE_HUB_UNKNOWN_OPTION({ key: unknown, suggestion: closestViteHubOptionKey(unknown) ?? "", where })
+  for (const [key, form] of Object.entries(viteHubOptionForms)) {
+    const value: unknown = Reflect.get(options, key)
+    if (value === undefined || form === "checked-by-owner" || acceptsForm[form](value)) continue
+    throw viteHubErrorDiagnostics.VITE_HUB_INVALID_OPTION({ form, key, value: describeValue(value), where })
+  }
+}
+
+function describeValue(value: unknown): string {
+  if (Array.isArray(value)) return "an array"
+  if (value === null) return "`null`"
+  if (typeof value === "function") return "a function"
+  if (isRecord(value)) return "an object"
+  return `\`${JSON.stringify(value)}\``
 }

@@ -1,5 +1,8 @@
 import { defineDiagnostics } from "nostics"
 
+/** The values that a top-level `vitehub()` option accepts, for `VITE_HUB_INVALID_OPTION`. */
+export type ViteHubOptionValueForm = "boolean" | "feature" | "object" | "off-or-object" | "string" | "string-or-function"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
@@ -562,6 +565,27 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_CONSOLE_NUMBER_REQUIRED: {
       why: "Enter a number.",
       fix: "Enter a number in the field before you save it.",
+    },
+    VITE_HUB_INVALID_OPTION: {
+      why: ({ form, key, value, where }: { form: ViteHubOptionValueForm, key: string, value: string, where: string }) => `\`${key}\` in ${where} is ${value}, but it must be ${
+        form === "feature" ? "`true`, `false`, or an object of options"
+        : form === "off-or-object" ? "`false` or an object of options"
+        : form === "boolean" ? "`true` or `false`"
+        : form === "object" ? "an object of options"
+        : form === "string" ? "a string"
+        : "a URL string or a function that returns one"
+      }.`,
+      fix: ({ form, key }: { form: ViteHubOptionValueForm, key: string, value: string, where: string }) => form === "feature"
+        ? `Set \`${key}: true\` to turn it on with the defaults of the host, pass an object to set its options, or set \`${key}: false\` to turn it off. The options of each key are listed in https://vitehub.dev/docs/reference/config-options#vite-integration-options.`
+        : form === "off-or-object"
+          ? `Pass an object to set the options of \`${key}\`, or set \`${key}: false\` to turn it off. The options of each key are listed in https://vitehub.dev/docs/reference/config-options#vite-integration-options.`
+          : form === "boolean"
+            ? `Set \`${key}: true\` or \`${key}: false\`.`
+            : form === "object"
+              ? `Pass an object to set the options of \`${key}\`, or remove \`${key}\`. The options of each key are listed in https://vitehub.dev/docs/reference/config-options#vite-integration-options.`
+              : form === "string"
+                ? `Set \`${key}\` to a string, such as \`${key}: "shop"\`, or remove it.`
+                : `Set \`${key}\` to the public URL of the app, such as \`${key}: "https://shop.example.com"\`, to a function that returns it, or remove it.`,
     },
     VITE_HUB_LOGS_FILTER_UNSUPPORTED: {
       why: ({ filter }: { filter: "level" | "service" | "text" }) => `The source does not support ${filter} filters.`,
