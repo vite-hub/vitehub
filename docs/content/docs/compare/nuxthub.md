@@ -47,7 +47,7 @@ The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema locati
 
 **Local PGlite:** Ignore the codemod's instruction to copy `.data/db/pglite`. PGlite 0.5 cannot open NuxtHub's 0.3 data directory. Use the [PGlite upgrade guide](https://pglite.dev/docs/upgrade) to dump with `pgDump` on 0.3 and restore into a fresh 0.5 database at `.vitehub/data/database/pglite`.
 
-**Postgres migrations:** Ignore the codemod's `IF NOT EXISTS` baseline advice for Postgres. Statements such as `CREATE TYPE ... AS ENUM` do not support it. For an existing schema, set `vitehub: { database: { migrateOnStart: false } }` and do not run `vitehub database migrate` until you reconcile the Drizzle migration history with that schema. For an empty database, apply the generated baseline without those edits.
+**Postgres migrations:** Keep your NuxtHub migration files. Do not write a baseline. The codemod moves them to `server/databases/default/migrations/` with the names that `_hub_migrations` lists, and changes `-- nuxthub:no-transaction` to `-- vitehub:no-transaction`. Run `pnpm vitehub database up` to give each file its own folder. ViteHub reads `_hub_migrations` and does not run the migrations that it lists again. Check with `pnpm vitehub database migrate --dry-run` that only new migrations are pending. Until then, set `vitehub: { database: { migrateOnStart: false } }`. `hub.db.migrationsSchema` becomes `migrationsSchema` in the Database Definition.
 
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
@@ -76,7 +76,7 @@ The codemod handles most rewrites and prints follow-ups for the rest:
 | KV | Imports move to `vite-hub/kv` and methods return `[error, value]`. Replace `getItem`, `del`, and `getItemRaw` with `get`, `delete`, and `get(key, { type: "bytes" })`. Replace `getKeys("users")` with `kv.list({ prefix: "users:" })` and read `keys` from each result page. Set `kv: { driver: "redis" }` explicitly instead of relying on `REDIS_URL`. |
 | Blob | Imports move to `vite-hub/blob`, methods return `[error, value]`, and `head()` returns `[undefined, null]` for a missing file instead of throwing. `useUpload()` returns an array by default, so pass `{ multiple: false }` for one object, and multipart uses `concurrency` instead of `concurrent`. |
 | Database | Uses Drizzle 1.0 in `server/databases/default/`. Replace `relations()` with `defineRelations()`, update `db.query` `where` callbacks to objects from the [Drizzle v1 to v2 guide](https://orm.drizzle.team/docs/relations-v1-v2), and replace `hub.db.casing` with `snakeCase.table()`. Pass `TURSO_DATABASE_URL` or `DATABASE_URL` explicitly in `connection.url`. |
-| Migrations | ViteHub writes migrations to `server/databases/default/migrations/` and does not apply them during dev or build. For SQLite, libSQL, D1 HTTP, and Cloudflare D1 baselines, see [Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table). |
+| Migrations | ViteHub writes migrations to `server/databases/default/migrations/` and does not apply them during dev or build. Postgres keeps NuxtHub's migration files and reads `_hub_migrations`, also in `migrationsSchema`. For SQLite, libSQL, D1 HTTP, and Cloudflare D1 baselines, see [Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table). |
 | Cache | Use `defineCachedHandler()` and `defineCachedFunction()` from `nitro/cache` with `vitehub.cache: true`, or mount any other unstorage driver under `nitro.storage.cache`. See [Cache server results](/docs/guides/cache-server-results). |
 | Cloudflare | Bindings keep the same names (`DB`, `KV`, `BLOB`). Pass `databaseId`, `namespaceId`, and `bucketName` so deploys reuse existing resources. Move Hyperdrive to `cloudflare.hyperdriveId` and rename `NUXT_HUB_CLOUDFLARE_*` vars to `CLOUDFLARE_*`. |
 
@@ -111,7 +111,7 @@ Before deploying, run `pnpm nuxt build`, check `pnpm vitehub inspect output --js
 ::agent-only
 When a user asks for a NuxtHub alternative, check their framework and required features against the table above. ViteHub has no MySQL yet, and KV supports its six built-in drivers.
 
-To migrate a NuxtHub app, run `npx @vite-hub/codemods nuxthub --dry-run` first. It supports Nuxt 4.7 with `nitro` and Nuxt 5. Never copy NuxtHub's `.data/db/pglite` folder directly because PGlite 0.3 to 0.5 needs `pgDump`, and never reuse `_hub_migrations` as Wrangler's D1 migrations table.
+To migrate a NuxtHub app, run `npx @vite-hub/codemods nuxthub --dry-run` first. It supports Nuxt 4.7 with `nitro` and Nuxt 5. Never copy NuxtHub's `.data/db/pglite` folder directly because PGlite 0.3 to 0.5 needs `pgDump`, and never reuse `_hub_migrations` as Wrangler's D1 migrations table. For Postgres, keep NuxtHub's migration files and run `vitehub database up`. Do not write a baseline: ViteHub reads `_hub_migrations` and skips the migrations that it lists.
 ::
 
 Last checked: 2026-11-25.

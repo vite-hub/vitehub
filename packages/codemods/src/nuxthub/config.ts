@@ -70,6 +70,8 @@ export interface HubDatabaseOptions {
   casing?: string
   /** NuxtHub applied migrations during the build, the `applyMigrationsDuringBuild` default. */
   migrationsDuringBuild: boolean
+  /** NuxtHub's Postgres `migrationsSchema`, the schema that holds `_hub_migrations`. */
+  migrationsSchema?: StaticValue
 }
 
 function staticValue(node: Node): StaticValue | undefined {
@@ -97,6 +99,12 @@ function readDatabaseObject(object: ObjectExpression, dialect: Dialect): { optio
   if (migrations && typeof literalValue(migrations.value) === "boolean") {
     options.migrationsDuringBuild = literalValue(migrations.value) === true
     consumed.add(migrations)
+  }
+  const migrationsSchema = dialect === "postgresql" ? property("migrationsSchema") : undefined
+  const schema = migrationsSchema && staticValue(migrationsSchema.value)
+  if (migrationsSchema && schema) {
+    options.migrationsSchema = schema
+    consumed.add(migrationsSchema)
   }
   const driver = property("driver")
   const d1Http = dialect === "sqlite" && driver !== undefined && literalValue(driver.value) === "d1-http"
