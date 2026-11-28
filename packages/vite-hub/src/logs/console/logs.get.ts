@@ -53,7 +53,7 @@ export async function consoleLogsHandler(
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {
     if (isLogCursorExpiredError(error)) throw consoleHttpError(409, error as Error);
-    throw consoleHttpError(502, isLogsDiagnostic(error) ? error : new Error("Could not read the log source."));
+    throw consoleHttpError(502, isLogsDiagnostic(error) ? error : viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_FAILED({ source: source.info.label }));
   }
 }
 /** The log page, for the `logs.list` operation. */

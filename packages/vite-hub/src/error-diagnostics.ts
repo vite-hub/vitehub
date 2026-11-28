@@ -573,6 +573,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "logs.maxEntryBytes must be an integer from 256 to 262144.",
       fix: "Set `maxEntryBytes` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 256 to 262144.",
     },
+    VITE_HUB_LOGS_SOURCE_FAILED: {
+      why: ({ source }: { source: string }) => `The log source "${source}" failed while it read a page.`,
+      fix: "Read the server logs of this request for the error. Check the credentials of the log source and the code of its `query()`. Return the entries as `{ entries }`.",
+    },
     VITE_HUB_LOGS_SOURCE_MISSING: {
       why: "[vitehub] Production Logs needs an existing source. Set logs: { source: \"./server/logs.ts\" }. The local buffer is per process and has no durable history.",
       fix: "Set `vitehub({ logs: { source: \"./server/logs.ts\" } })` to a server file that default-exports a `LogSource`, or remove `logs` from the production build.",
