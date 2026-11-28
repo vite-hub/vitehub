@@ -20,6 +20,7 @@ export interface AppShellGroup {
 </script>
 
 <script setup lang="ts">
+import { reactive } from "vue";
 import { ChevronRightIcon } from "@lucide/vue";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/vue/collapsible";
 import {
@@ -53,13 +54,30 @@ const props = withDefaults(
   { link: "a" },
 );
 const open = defineModel<boolean>("open", { default: true });
+const openGroups = reactive(new WeakMap<AppShellItem, boolean>());
 
 const isCurrent = (href?: string) => href !== undefined && href === props.current;
 const hasCurrent = (item: AppShellItem) => item.children?.some((child) => isCurrent(child.href)) ?? false;
+
+function setGroupOpen(item: AppShellItem, groupOpen: boolean, isMobile: boolean) {
+  if (!isMobile && !open.value) {
+    open.value = true;
+    openGroups.set(item, true);
+    return;
+  }
+  openGroups.set(item, groupOpen);
+}
+
+function closeOnNavigation(event: MouseEvent, href: string | undefined, closeMobile: () => void) {
+  if (href === undefined || event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const link = event.currentTarget;
+  if (link instanceof HTMLAnchorElement && (link.hasAttribute("download") || (link.target && link.target.toLowerCase() !== "_self"))) return;
+  closeMobile();
+}
 </script>
 
 <template>
-  <SidebarProvider v-model:open="open">
+  <SidebarProvider v-slot="{ isMobile, closeMobile }" v-model:open="open">
     <Sidebar>
       <SidebarHeader>
         <div class="flex h-8 min-w-0 items-center gap-2 px-2">
@@ -72,7 +90,12 @@ const hasCurrent = (item: AppShellItem) => item.children?.some((child) => isCurr
           <SidebarGroupLabel v-if="group.label">{{ group.label }}</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in group.items" :key="item.title">
-              <Collapsible v-if="item.children" class="group/collapsible" :default-open="hasCurrent(item)">
+              <Collapsible
+                v-if="item.children"
+                class="group/collapsible"
+                :open="openGroups.get(item) ?? hasCurrent(item)"
+                @update:open="setGroupOpen(item, $event, isMobile)"
+              >
                 <CollapsibleTrigger :class="sidebarMenuButtonVariants()" data-focus-inset="">
                   <component :is="item.icon" v-if="item.icon" aria-hidden="true" />
                   <span>{{ item.title }}</span>
@@ -84,7 +107,7 @@ const hasCurrent = (item: AppShellItem) => item.children?.some((child) => isCurr
                 <CollapsiblePanel>
                   <SidebarMenuSub>
                     <SidebarMenuSubItem v-for="child in item.children" :key="child.href">
-                      <SidebarMenuSubButton :as="props.link" :href="child.href" :is-active="isCurrent(child.href)">
+                      <SidebarMenuSubButton :as="props.link" :href="child.href" :is-active="isCurrent(child.href)" @click.capture="isMobile && closeOnNavigation($event, child.href, closeMobile)">
                         <span>{{ child.title }}</span>
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
@@ -92,7 +115,7 @@ const hasCurrent = (item: AppShellItem) => item.children?.some((child) => isCurr
                 </CollapsiblePanel>
               </Collapsible>
               <template v-else>
-                <SidebarMenuButton :as="props.link" :href="item.href" :is-active="isCurrent(item.href)" :title="item.title">
+                <SidebarMenuButton :as="props.link" :href="item.href" :is-active="isCurrent(item.href)" :title="item.title" @click.capture="isMobile && closeOnNavigation($event, item.href, closeMobile)">
                   <component :is="item.icon" v-if="item.icon" aria-hidden="true" />
                   <span>{{ item.title }}</span>
                 </SidebarMenuButton>

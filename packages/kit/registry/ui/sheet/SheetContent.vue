@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{ class?: HTMLAttributes["class"]; showCl
   <DrawerContent
     v-bind="$attrs"
     :class="cn(
-      'relative flex flex-col gap-4 bg-background p-5 text-sm text-foreground shadow-dialog outline-none',
+      'relative flex flex-col gap-4 overflow-y-auto overscroll-contain bg-background p-5 text-sm text-foreground shadow-dialog outline-none',
       'data-[side=left]:h-full data-[side=left]:w-80 data-[side=left]:max-w-[85vw] data-[side=right]:h-full data-[side=right]:w-80 data-[side=right]:max-w-[85vw]',
       'data-[side=bottom]:mx-auto data-[side=bottom]:max-h-[85dvh] data-[side=bottom]:w-full data-[side=bottom]:max-w-lg data-[side=bottom]:rounded-t-xl data-[side=bottom]:pb-[max(1.25rem,env(safe-area-inset-bottom))]',
       'data-[side=top]:mx-auto data-[side=top]:max-h-[85dvh] data-[side=top]:w-full data-[side=top]:max-w-lg data-[side=top]:rounded-b-xl',

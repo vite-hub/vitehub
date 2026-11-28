@@ -15,6 +15,10 @@ function toggle() {
   else open.value = !open.value;
 }
 
+function closeMobile() {
+  openMobile.value = false;
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key.toLowerCase() === "b" && (event.metaKey || event.ctrlKey) && !event.altKey) {
     event.preventDefault();
@@ -48,6 +52,6 @@ provide(sidebarKey, { open, openMobile, isMobile, state, toggle });
     :style="{ '--sidebar-width': '16rem', '--sidebar-width-icon': '3rem' }"
     :class="cn('group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar', props.class)"
   >
-    <slot />
+    <slot :is-mobile="isMobile" :close-mobile="closeMobile" />
   </div>
 </template>

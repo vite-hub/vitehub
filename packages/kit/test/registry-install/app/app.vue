@@ -162,6 +162,13 @@ function save() {
             <Label for="notes">Notes</Label>
             <Textarea id="notes" v-model:value="notes" placeholder="Anything we should know?" />
           </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="status">Status</Label>
+            <select id="status" class="rounded-md border border-input bg-background p-2">
+              <option>Open</option>
+              <option>Closed</option>
+            </select>
+          </div>
         </CardContent>
         <CardFooter class="justify-end gap-2">
           <Button variant="outline">Cancel</Button>
