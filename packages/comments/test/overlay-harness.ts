@@ -57,7 +57,7 @@ export function pageTools(options: { open?: boolean, linked?: boolean } = {}) {
     createWindow: vi.fn(() => {
       windowBody = document.createElement("div")
       document.body.append(windowBody)
-      return { body: windowBody, show: vi.fn(), hide: vi.fn(), destroy: vi.fn() }
+      return { body: windowBody, show: vi.fn(), hide: vi.fn(), destroy: vi.fn(), syncColorScheme: vi.fn() }
     }),
   }
   return {
@@ -97,6 +97,12 @@ export async function openList(bar: HTMLElement) {
   if (!tool(bar, "All comments on this page")) tool(bar, "Comment on the page (C)")!.click()
   await vi.waitFor(() => expect(tool(bar, "All comments on this page")).not.toBeNull())
   tool(bar, "All comments on this page")!.click()
+}
+
+export async function wholePage(bar: HTMLElement) {
+  if (!tool(bar, "Comment on the whole page")) tool(bar, "Comment on the page (C)")!.click()
+  await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
+  tool(bar, "Comment on the whole page")!.click()
 }
 
 /** Types into a composer textarea the way a person does: the value, the caret, then `input`. Vue renders before the next key. */

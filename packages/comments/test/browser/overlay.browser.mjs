@@ -726,7 +726,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await eye.getAttribute("aria-label"), "Hide comments")
     await eye.click()
     assert.equal(await eye.getAttribute("aria-label"), "Show comments")
-    assert.equal(await eye.getAttribute("title"), "Show comments")
+    assert.equal(await eye.getAttribute("title"), "Show comments (Shift+C)")
     await page.waitForFunction(() => document.querySelectorAll("vitehub-comments").length && !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']"), undefined, { timeout: 5000 })
     assert.equal(await areas(), 0)
     assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)

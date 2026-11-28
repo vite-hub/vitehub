@@ -124,29 +124,37 @@ describe("Open in T3 Code and Copy on a thread", () => {
   })
 })
 
-describe("Copy open in the panel header", () => {
-  it("copies the open threads of the page, without the resolved thread with a later reply", async () => {
+describe("Copy prompt in the panel header", () => {
+  it("copies the pill's prompt, and opens T3 Code with the open threads, without the resolved thread with a later reply", async () => {
     const writeText = clipboard()
     const tools = await site(member, 2, { resolvedThreads: 1 })
     const panel = await listed(tools)
-    await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-actions"] button[data-action="copy-open-prompt"]')).toBeTruthy())
-    const open = panel.querySelector<HTMLAnchorElement>('[data-slot="comment-panel-actions"] a[data-action="open-in-t3-code"]')!
-    panel.querySelector<HTMLButtonElement>('[data-slot="comment-panel-actions"] button[data-action="copy-open-prompt"]')!.click()
+    const actions = panel.querySelector('[data-slot="comment-panel-actions"]')!
+    await vi.waitFor(() => expect(actions.querySelector('button[data-action="copy-page-prompt"]')?.textContent).toBe("Copy prompt"))
+    expect([...actions.children].map(child => child.getAttribute("data-action"))).toEqual(["copy-page-prompt", "open-in-t3-code"])
+    const open = actions.querySelector<HTMLAnchorElement>('a[data-action="open-in-t3-code"]')!
+    actions.querySelector<HTMLButtonElement>('button[data-action="copy-page-prompt"]')!.click()
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
-    const prompt = writeText.mock.calls[0]![0]
-    expect(promptOf(open.href)).toBe(prompt)
-    expect(prompt).toContain(`Fix these 2 comments on ${location.origin}/pricing`)
+    tools.bar.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="copy-page-prompt"]')!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+    const [[prompt], [pillPrompt]] = writeText.mock.calls
+    expect(prompt).toBe(pillPrompt)
     const [firstOpen, secondOpen, resolved] = tools.ids
-    for (const value of [firstOpen, secondOpen, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(prompt).toContain(value)
+    for (const value of [firstOpen, secondOpen, "comments.resolve"]) expect(prompt).toContain(value)
     expect(prompt).not.toContain(resolved)
-    expect(prompt).not.toContain("Still needs work")
+    await vi.waitFor(() => expect(actions.querySelector('button[data-action="copy-page-prompt"]')?.textContent).toBe("Copied"))
+    const linked = promptOf(open.href)
+    expect(linked).toContain(`Fix these 2 comments on ${location.origin}/pricing`)
+    for (const value of [firstOpen, secondOpen, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(linked).toContain(value)
+    expect(linked).not.toContain(resolved)
+    expect(linked).not.toContain("Still needs work")
   })
 
   it("is not there while the page has no open threads", async () => {
     const tools = await site(member, 0)
     await openList(tools.bar)
     await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
-    expect(tools.panel()!.querySelector('[data-action="copy-open-prompt"]')).toBeNull()
+    expect(tools.panel()!.querySelector('[data-action="copy-page-prompt"]')).toBeNull()
   })
 
   it("hides panel and pill prompts while the next page is loading", async () => {
@@ -154,10 +162,10 @@ describe("Copy open in the panel header", () => {
     const tools = await site(member, 1)
     await listed(tools)
     const actions = () => tools.panel()?.querySelector('[data-slot="comment-panel-actions"]')
-    await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-open-prompt"]')).toBeTruthy())
+    await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-page-prompt"]')).toBeTruthy())
     expect(actions()?.querySelector('[data-action="open-in-t3-code"]')).toBeTruthy()
     const pillPrompt = () => tools.bar.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="copy-page-prompt"]')
-    tool(tools.bar, "Stop commenting (C)")!.click()
+    await vi.waitFor(() => expect(tool(tools.bar, "Stop commenting (C)")).not.toBeNull())
     await vi.waitFor(() => expect(pillPrompt()).not.toBeNull())
     const previous = pillPrompt()!
     const fetchComments = tools.server.fetch.getMockImplementation()!
@@ -183,11 +191,11 @@ describe("Copy open in the panel header", () => {
       endSession()
     }
     await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
-    expect(actions()?.querySelector('[data-action="copy-open-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
+    expect(actions()?.querySelector('[data-action="copy-page-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
     expect(pillPrompt()).toBeNull()
   })
 
-  it("offers the full copy instead of an oversized T3 Code link", async () => {
+  it("offers Copy prompt instead of an oversized T3 Code link", async () => {
     const writeText = clipboard()
     const url = `${project.url}/${"x".repeat(t3CodeLinkLimit)}`
     const tools = await site({ ...member, commentsAgent: { project: { ...project, url }, resolve: true } }, 3)
@@ -195,10 +203,10 @@ describe("Copy open in the panel header", () => {
     const actions = panel.querySelector('[data-slot="comment-panel-actions"]')!
     expect(actions.querySelector('[data-action="open-in-t3-code"]')).toBeNull()
     expect(actions.textContent).toContain("Copy the prompt instead.")
-    actions.querySelector<HTMLButtonElement>('[data-action="copy-open-prompt"]')!.click()
+    actions.querySelector<HTMLButtonElement>('[data-action="copy-page-prompt"]')!.click()
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
     const prompt = writeText.mock.calls[0]![0]
-    for (const value of [url, ...tools.ids, "comments.resolve"]) expect(prompt).toContain(value)
+    for (const value of [...tools.ids, "comments.resolve"]) expect(prompt).toContain(value)
   })
 })
 

@@ -7,6 +7,8 @@ export interface ViteHubPageWindow {
   show(): void
   hide(): void
   destroy(): void
+  /** Reads `colorScheme` again, such as after the page switches its theme while the window is open. */
+  syncColorScheme(): void
 }
 
 export interface ViteHubPageWindowOptions {
@@ -26,6 +28,8 @@ export interface ViteHubPageWindowOptions {
    * follows navigation inside the window. Without it, or while it returns `undefined`, the header has no link.
    */
   href?: () => string | undefined
+  /** Whether the header has an **Expand window** button. Defaults to `true`. Set `false` for a short list that does not need the full screen. */
+  expand?: boolean
 }
 
 /** The screen edge that the pill docks to. */
@@ -162,7 +166,7 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   // Before a hover shows the URL, a click opens it, or a context menu copies it.
   for (const type of ["pointerenter", "pointerdown", "focus", "click", "contextmenu"]) tab.addEventListener(type, updateTab)
   updateTab()
-  header.append(title, ...options.href ? [tab] : [], expand, hideButton)
+  header.append(title, ...options.href ? [tab] : [], ...options.expand === false ? [] : [expand], hideButton)
   const frame = document.createElement("div")
   frame.className = "frame"
   frame.append(header, body)
@@ -223,7 +227,8 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   })
   hideButton.addEventListener("click", hide)
   // The content may change its appearance while the window is open; same-origin pages report it as a storage change.
-  if (options.colorScheme) addEventListener("storage", () => { host.style.colorScheme = options.colorScheme?.() ?? "" }, { signal: options.signal })
+  const syncColorScheme = () => { host.style.colorScheme = options.colorScheme?.() ?? "" }
+  if (options.colorScheme) addEventListener("storage", syncColorScheme, { signal: options.signal })
   shadow.addEventListener("keydown", event => {
     if (event instanceof KeyboardEvent && event.key === "Escape" && !event.defaultPrevented) {
       event.preventDefault()
@@ -249,7 +254,7 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
     body,
     show() {
       if (options.signal.aborted) return
-      host.style.colorScheme = options.colorScheme?.() ?? ""
+      syncColorScheme()
       updateTab()
       host.hidden = false
       options.trigger.setAttribute("aria-expanded", "true")
@@ -258,5 +263,6 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
     },
     hide,
     destroy,
+    syncColorScheme,
   }
 }

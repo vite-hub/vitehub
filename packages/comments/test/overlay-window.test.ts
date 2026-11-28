@@ -72,20 +72,27 @@ describe("the Comments list in the pill's window", () => {
     await vi.waitFor(() => expect(shadow.querySelector(`[data-slot="comment-thread"][aria-label="Comment ${thread!.n}"]`)?.textContent).toContain("Client navigation link"))
   })
 
-  it("shows CommentPanel with the page as its title, and follows navigation", async () => {
+  it("names CommentPanel after the page without a heading or composer, and follows navigation", async () => {
     await site()
     const { panel } = await openPanel()
-    await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-title"]')!.textContent).toBe("/"))
+    const section = () => panel.querySelector('[data-slot="comment-panel"]')
+    await vi.waitFor(() => expect(section()!.getAttribute("aria-label")).toBe("/"))
     expect(panel.querySelector('[data-slot="comment-panel-empty"]')!.textContent).toBe("No open comments.")
+    expect(panel.querySelector('[data-slot="comment-panel-title"]')).toBeNull()
+    expect(panel.querySelector('[data-slot="comment-panel-composer"]')).toBeNull()
     history.pushState(null, "", "/next")
-    await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-title"]')!.textContent).toBe("/next"))
+    await vi.waitFor(() => expect(section()!.getAttribute("aria-label")).toBe("/next"))
   })
 
-  it("is dark like the pill on light and dark pages", async () => {
+  it("follows the page theme, and the window follows it too", async () => {
     await site()
-    const { panel } = await openPanel()
-    expect(panel.querySelector("style")!.textContent).toContain("color-scheme: dark")
-    expect(panel.querySelector("style")!.textContent).toContain("--ui-bg: #0a0a0a")
+    const { window: pageWindow, panel } = await openPanel()
+    const panelHost = panel.host as HTMLElement
+    expect(panel.querySelector("style")!.textContent).toContain("color-scheme: light")
+    expect([panelHost.classList.contains("dark"), pageWindow.style.colorScheme]).toEqual([false, "light"])
+    document.querySelector("vitehub-comments")!.classList.add("dark")
+    await vi.waitFor(() => expect([panelHost.classList.contains("dark"), pageWindow.style.colorScheme]).toEqual([true, "dark"]))
+    expect(pageWindow.shadowRoot!.querySelector(".expand")).toBeNull()
   })
 
   it("keeps an open thread and its reply draft while the window is hidden", async () => {
