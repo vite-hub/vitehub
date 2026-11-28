@@ -24,7 +24,7 @@ Nuxt runs Nitro for you, so do not add `nitro()`.
 On Nuxt 4.7, use ViteHub 0.5.1 or newer. ViteHub 0.5.0 rejects Nuxt 4.7 even with Nitro 3. Use this package specifier anywhere a Nuxt 4.7 setup command installs `vite-hub`:
 
 ```bash [Terminal]
-pnpm add vite-hub@^0.5.1
+pnpm add vite-hub@latest
 ```
 
 On Nuxt 5, install `vite-hub` from npm:
