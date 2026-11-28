@@ -21,6 +21,12 @@ export async function prepareWorkspaceSource(
         })()
     revisionResolutionByContext.set(ctx, revisionResolution)
   }
-  await revisionResolution
+  try {
+    await revisionResolution
+  }
+  catch (error) {
+    if (revisionResolutionByContext.get(ctx) === revisionResolution) revisionResolutionByContext.delete(ctx)
+    throw error
+  }
   await source.prepare?.(ctx)
 }

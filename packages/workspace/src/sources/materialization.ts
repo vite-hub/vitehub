@@ -370,6 +370,19 @@ function materializationCacheStatus(source: ResolvedWorkspaceSource, complete: b
   return hit ? "hit" as const : "miss" as const
 }
 
+function publicMaterializationStatus(snapshot: SourceSnapshotMetadata): WorkspaceSourceMaterializationStatus {
+  return {
+    bytes: snapshot.bytes,
+    error: snapshot.error,
+    files: snapshot.files,
+    materializedAt: snapshot.materializedAt,
+    mountPath: snapshot.mountPath,
+    revision: snapshot.revision,
+    source: snapshot.source,
+    status: snapshot.status,
+  }
+}
+
 function materializationPaths(options: WorkspaceMaterializeSourcesOptions | undefined, paths: WorkspaceSourceMaterializationPathResult[]) {
   return options?.details === "paths"
     ? paths.slice().sort((left, right) => left.path.localeCompare(right.path) || left.status.localeCompare(right.status))
@@ -986,16 +999,31 @@ async function materializeWorkspaceSourcesInternal(
       }
       const paths = materializationPaths(options, cachedPaths.map(path => ({ path, status: "unchanged" as const })))
       if (paths) ready.paths = paths
-      resultSources.push(ready)
-      files += cachedFiles
-      bytes += existing?.bytes || 0
-      await reportMaterializationProgress(options, source, {
-        bytes: existing?.bytes || 0,
-        cacheStatus, counts, durationMs,
-        files: cachedFiles,
-        revision: existing?.revision,
-        status: "completed",
-      })
+      try {
+        await reportMaterializationProgress(options, source, {
+          bytes: existing?.bytes || 0,
+          cacheStatus, counts, durationMs,
+          files: cachedFiles,
+          revision: existing?.revision,
+          status: "completed",
+        })
+        resultSources.push(ready)
+        files += cachedFiles
+        bytes += existing?.bytes || 0
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        resultSources.push({ ...ready, error: message, status: "error" })
+        await reportMaterializationProgress(options, source, {
+          bytes: existing?.bytes || 0,
+          cacheStatus, counts, durationMs,
+          error: message,
+          files: cachedFiles,
+          revision: existing?.revision,
+          status: "failed",
+        })
+        if (options.abortSignal?.aborted) throw error
+      }
       continue
     }
 
@@ -1035,8 +1063,10 @@ async function materializeWorkspaceSourcesInternal(
     let lastProgressAt = 0
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
+    let preparedContext: SourceContext | undefined
     try {
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
+      preparedContext = ctx
       throwIfAborted(options.abortSignal)
       await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
@@ -1333,14 +1363,10 @@ async function materializeWorkspaceSourcesInternal(
       }
       const durationMs = Date.now() - sourceStarted
       const resultSource: WorkspaceSourceMaterializationStatus = {
-        ...ready, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
+        ...publicMaterializationStatus(ready), cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
       }
       const reportedPaths = materializationPaths(options, paths)
       if (reportedPaths) resultSource.paths = reportedPaths
-      resultSources.push(resultSource)
-      files += sourceFiles
-      bytes += sourceBytes
-      directories += directorySet.size
       await reportMaterializationProgress(options, source, {
         bytes: sourceBytes,
         cacheStatus,
@@ -1351,8 +1377,13 @@ async function materializeWorkspaceSourcesInternal(
         revision,
         status: "completed",
       })
+      resultSources.push(resultSource)
+      files += sourceFiles
+      bytes += sourceBytes
+      directories += directorySet.size
     }
     catch (error) {
+      revision = preparedContext?.revision ?? revision
       const checkpointItemsMetadata = checkpointItems(itemMetadata)
       const resumesExistingSnapshot = existing?.configHash === configHash
       const failed: SourceSnapshotMetadata = {
@@ -1380,7 +1411,7 @@ async function materializeWorkspaceSourcesInternal(
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, checkpoint))
       const durationMs = Date.now() - sourceStarted
       const failedSource: WorkspaceSourceMaterializationStatus = {
-        ...failed, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
+        ...publicMaterializationStatus(failed), cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
       }
       const reportedPaths = materializationPaths(options, paths)
       if (reportedPaths) failedSource.paths = reportedPaths

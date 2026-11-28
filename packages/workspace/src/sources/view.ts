@@ -1,3 +1,5 @@
+import type { AsyncLocalStorage } from "node:async_hooks"
+
 import { workspaceError } from "../core/errors.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
@@ -24,6 +26,7 @@ import {
 import { resolveWorkspacePath } from "./resolver.ts"
 import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
+import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 
 import type {
   GlobOptions,
@@ -38,6 +41,7 @@ import type {
   WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceMaterializeSourcesProgressEvent,
   WorkspaceMaterializeSourcesResult,
   WorkspaceRebaseOptions,
   WorkspaceSourceItem,
@@ -115,7 +119,67 @@ interface MaterializationState {
   pendingBySource: Map<string, PendingMaterialization>
 }
 
+interface MaterializationProgressScope {
+  materialize(sourceKey: string): Promise<void>
+  state: MaterializationState
+  selected: ReadonlySet<string>
+  started: ReadonlySet<string>
+  active: boolean
+  preview?: WorkspaceStore
+}
+
+function createMaterializationPreview(base: WorkspaceStore): WorkspaceStore {
+  const memory = createMemoryWorkspaceStore()
+  const removed = new Set<string>()
+  const metadataKeys = new Set<string>()
+  const isRemoved = (path: string) => [...removed].some(parent => path === parent || path.startsWith(`${parent}/`))
+  function merge(baseEntries: WorkspaceEntry[], previewEntries: WorkspaceEntry[]) {
+    const entries = new Map(baseEntries.filter(entry => !isRemoved(entry.path)).map(entry => [entry.path, entry]))
+    for (const entry of previewEntries) entries.set(entry.path, entry)
+    return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+  }
+
+  return {
+    async readFile(path) {
+      return await memory.readFile(path) ?? (isRemoved(path) ? undefined : await base.readFile(path))
+    },
+    writeFile: memory.writeFile.bind(memory),
+    async list(path, options) {
+      return merge(await base.list(path, options), await memory.list(path, options))
+    },
+    async glob(pattern, options) {
+      return merge(await base.glob(pattern, options), await memory.glob(pattern, options))
+    },
+    async stat(path) {
+      return await memory.stat(path) ?? (isRemoved(path) ? undefined : await base.stat(path))
+    },
+    mkdir: memory.mkdir.bind(memory),
+    async rm(path, options) {
+      await memory.rm(path, options)
+      removed.add(path)
+    },
+    snapshot: memory.snapshot.bind(memory),
+    diff: memory.diff.bind(memory),
+    async getMeta(key) {
+      return await (metadataKeys.has(key) ? memory.getMeta?.(key) : base.getMeta?.(key))
+    },
+    async setMeta(key, value, capability) {
+      await memory.setMeta?.(key, value, capability)
+      metadataKeys.add(key)
+    },
+  }
+}
+
 const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
+let materializationProgressScopes: AsyncLocalStorage<MaterializationProgressScope> | undefined
+
+function materializationProgressStorage() {
+  if (materializationProgressScopes) return materializationProgressScopes
+  const Storage = globalThis.process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage
+  if (!Storage) return
+  materializationProgressScopes = new Storage<MaterializationProgressScope>()
+  return materializationProgressScopes
+}
 
 export async function invalidateWorkspaceSourceMaterialization(definition: WorkspaceDefinition, store: WorkspaceStore, sourceKeys: Iterable<string>): Promise<void> {
   const state = materializationByStore.get(store)?.get(definition)
@@ -133,7 +197,10 @@ export async function invalidateWorkspaceSourceMaterialization(definition: Works
 
 async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await pending
-  signal.throwIfAborted()
+  if (signal.aborted) {
+    pending.catch(() => {})
+    throw signal.reason
+  }
   let removeAbortListener = () => {}
   const aborted = new Promise<never>((_resolve, reject) => {
     const onAbort = () => reject(signal.reason)
@@ -175,6 +242,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
   const reusedStartupSources = new Set<string>()
   const uncachedMaterializedSources = new Set<string>()
+
+  function activeProgressScope() {
+    const scope = materializationProgressStorage()?.getStore()
+    if (scope?.active && scope.state === materializationState) return scope
+  }
+
+  function readStore() {
+    return activeProgressScope()?.preview ?? store
+  }
 
   function getSourceContext(source: { key: string, mountPath: string }) {
     let context = sourceContexts.get(source.key)
@@ -296,7 +372,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
+      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined, (error) => {
+        prepareBySource.delete(sourceKey)
+        throw error
+      })
       prepareBySource.set(sourceKey, pending)
     }
     await pending
@@ -344,18 +423,59 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           reusedStartupSources.delete(source.key)
         }
       }
+      const control = {
+        isCurrent,
+        async mutate<T>(mutation: () => Promise<T>) {
+          options.abortSignal?.throwIfAborted()
+          return await trackMutation(mutation)
+        },
+        async checkpoint<T>(mutation: () => Promise<T>) {
+          return await trackMutation(mutation)
+        },
+      }
+      const onProgress = options.onProgress
+      const progressStorage = onProgress ? materializationProgressStorage() : undefined
+      const startedSources = new Set<string>()
+      const selectedKeys = new Set(selectedSources.map(source => source.key))
+      const operationOptions = onProgress && progressStorage
+        ? {
+            ...options,
+            async onProgress(event: WorkspaceMaterializeSourcesProgressEvent) {
+              startedSources.add(event.source)
+              const nestedBySource = new Map<string, Promise<WorkspaceMaterializeSourcesResult>>()
+              const progressScope: MaterializationProgressScope = {
+                active: true,
+                state: materializationState,
+                selected: selectedKeys,
+                started: startedSources,
+                async materialize(sourceKey) {
+                  const preview = progressScope.preview ??= createMaterializationPreview(store)
+                  let nested = nestedBySource.get(sourceKey)
+                  if (!nested) {
+                    nested = materializeWorkspaceSources(definition, preview, { abortSignal: options.abortSignal, sources: [sourceKey] })
+                    nestedBySource.set(sourceKey, nested)
+                  }
+                  try {
+                    if ((await nested).sources.some(source => source.status !== "ready")) nestedBySource.delete(sourceKey)
+                  }
+                  catch (error) {
+                    nestedBySource.delete(sourceKey)
+                    throw error
+                  }
+                },
+              }
+              try {
+                await progressStorage.run(progressScope, async () => await onProgress(event))
+              }
+              finally {
+                progressScope.active = false
+              }
+            },
+          }
+        : options
       let result: WorkspaceMaterializeSourcesResult
       try {
-        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, options, {
-          isCurrent,
-          async mutate(operation) {
-            options.abortSignal?.throwIfAborted()
-            return await trackMutation(operation)
-          },
-          async checkpoint(operation) {
-            return await trackMutation(operation)
-          },
-        }), options.abortSignal)
+        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, operationOptions, control), options.abortSignal)
       }
       catch (error) {
         if (options.abortSignal?.aborted && mutations.size) await Promise.allSettled(mutations)
@@ -404,6 +524,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       : verifyRootOwnership || source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
     const pending = pendingBySource.get(sourceKey)
+    const progress = activeProgressScope()
+    if (progress && (progress.selected.has(sourceKey) || pending)) {
+      if (!progress.started.has(sourceKey)) await progress.materialize(sourceKey)
+      return
+    }
     if (pending?.fullSource) {
       try {
         await pending.promise
@@ -449,7 +574,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!usesLiveProvider(source)) await ensureMaterialized(source.key, true, { directory: normalized })
       }
     }
-    const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
+    const storeEntries = isDescriptorPath(normalized) ? [] : await readStore().list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
     for (const entry of descriptorPathEntries(path, options)) {
       if (!isExcludedWorkspacePath(entry.path, options.exclude)) result.set(entry.path, entry)
@@ -485,7 +610,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       else if (sourceMountContainsPath(source, path) || !source.mountPath && normalized) {
         await ensureMaterialized(source.key)
-        for (const entry of await store.list(path, options)) result.set(entry.path, entry)
+        for (const entry of await readStore().list(path, options)) result.set(entry.path, entry)
       }
       else if (!normalized && !result.has(source.mountPath)) {
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
@@ -521,7 +646,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await ensureMaterialized(source.key)
     }
 
-    const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
+    const results: WorkspaceSearchHit[] = await searchMaterializedStore(readStore(), {
       ...query,
       paths: storePaths.filter(Boolean).length ? storePaths.filter(Boolean) : undefined,
       limit,
@@ -561,7 +686,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         continue
       }
       await ensureMaterialized(source.key)
-      results.push(...await searchMaterializedStore(store, {
+      results.push(...await searchMaterializedStore(readStore(), {
         ...query,
         paths,
         limit: limit - results.length,
@@ -592,16 +717,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function readOwnedRootStartupFile(path: string, sourceKey?: string) {
     // Only a root startup Source can own the file. Check the owner record before any content read.
     if (!sources.some(source => !source.mountPath && source.materialize === "startup")) return
-    const owner = await readWorkspaceFileOwner(store, path)
+    const sourceStore = readStore()
+    const owner = await readWorkspaceFileOwner(sourceStore, path)
     if (owner?.workspace !== definition.name || !owner.digest) return
     if (sourceKey && owner.source !== sourceKey) return
     const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === owner.source)
     if (!source) return
-    if ((await store.stat(path))?.type !== "file") return
-    const file = await store.readFile(path)
+    if ((await sourceStore.stat(path))?.type !== "file") return
+    const file = await sourceStore.readFile(path)
     if (!file) return
     if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
-    const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
+    const snapshot = await readCurrentSourceSnapshot(sourceStore, definition.name, source)
     if (snapshot?.status !== "ready" || !Object.hasOwn(snapshot.items || {}, path)) return
     if (await sha256(file.content) === owner.digest) return file
   }
@@ -614,7 +740,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (await readOwnedRootStartupFile(path, source.key)) return source
       }
       else {
-        const file = await store.stat(path)
+        const file = await readStore().stat(path)
         if (file?.metadata?.source === source.key) return source
       }
     }
@@ -838,10 +964,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (shouldRefreshCachedLazy) {
           await ensureMaterialized(resolution.sourceKey)
         }
-        const file = await store.readFile(resolution.workspacePath)
+        const file = await readStore().readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
         await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath)
-        return await readResolvedSourceFile(resolution, store, sourceContext, options)
+        return await readResolvedSourceFile(resolution, readStore(), sourceContext, options)
       }
       await materializeRootStartupSources(false)
       const startupFile = await readOwnedRootStartupFile(resolution.workspacePath)
@@ -852,7 +978,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           await ensureMaterialized(source.key, true)
         }
       }
-      const file = await store.readFile(resolution.workspacePath)
+      const file = await readStore().readFile(resolution.workspacePath)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
@@ -898,7 +1024,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const result = new Map<string, WorkspaceEntry>()
       // The descriptor directory is virtual and reserved by backing Stores.
       if (cwd !== ".vitehub/sources") {
-        for (const entry of await store.glob(patterns, options)) {
+        for (const entry of await readStore().glob(patterns, options)) {
           if (matches(entry.path)) result.set(entry.path, entry)
         }
       }
@@ -930,24 +1056,24 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return result
         }
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
-        const stored = await store.stat(resolution.workspacePath)
+        const stored = await readStore().stat(resolution.workspacePath)
         if (stored) return stored
         if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) {
           throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         }
         await ensureMaterialized(resolution.sourceKey)
-        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
+        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, readStore(), getSourceContext(resolution.source))
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
       await materializeRootStartupSources()
-      let result = await store.stat(resolution.workspacePath)
+      let result = await readStore().stat(resolution.workspacePath)
       if (!result) {
         if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) {
           return { path: "", type: "directory" }
         }
         await materializeRootSourceForPath(resolution.workspacePath)
-        result = await store.stat(resolution.workspacePath)
+        result = await readStore().stat(resolution.workspacePath)
       }
       if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       return result
@@ -965,16 +1091,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
-        if (await store.stat(resolution.workspacePath)) return true
+        if (await readStore().stat(resolution.workspacePath)) return true
         if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) return false
         await ensureMaterialized(resolution.sourceKey)
-        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
+        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, readStore(), getSourceContext(resolution.source)))
       }
       await materializeRootStartupSources()
-      if (await store.stat(resolution.workspacePath)) return true
+      if (await readStore().stat(resolution.workspacePath)) return true
       if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) return true
       await materializeRootSourceForPath(resolution.workspacePath)
-      return Boolean(await store.stat(resolution.workspacePath))
+      return Boolean(await readStore().stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
       const requested = await grantWritablePath(path)
