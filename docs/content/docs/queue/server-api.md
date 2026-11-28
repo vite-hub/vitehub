@@ -124,7 +124,7 @@ The result confirms that the provider accepted the job, not that it ran. ViteHub
 
 ## Queue enqueue options
 
-An option that the provider does not support returns `QUEUE_UNSUPPORTED_OPTION`, and the job is not sent. A `delay` or `retention` that is not a [duration](/docs/runtime/helpers#write-a-time-as-a-duration) returns [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid), and the job is not sent either.
+If the provider does not support an option, it returns `QUEUE_UNSUPPORTED_OPTION` without sending the job. `delay` must be a valid [duration string](/docs/runtime/helpers#write-a-time-as-a-duration). Where the provider supports `retention`, it accepts a valid duration string or a finite, non-negative number of seconds. An invalid value for either supported option returns [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid) without sending the job.
 
 ### Shared options
 
@@ -179,7 +179,7 @@ import { sendQueue } from 'vite-hub/queue'
 
 const [error, result] = await sendQueue('welcome-email', { email: 'ava@example.com' }, { delay: '1m' })
 if (error) {
-  error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION'
+  error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION' | 'RUNTIME_DURATION_INVALID'
 }
 ```
 
@@ -222,10 +222,10 @@ if (error) throw error
 
 | Method | Returns | `error.code` |
 | --- | --- | --- |
-| `send()` on Cloudflare | `Result<QueueSendResult, CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION` |
-| `sendBatch()` on Cloudflare | `Result<QueueSendResult[], CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION` |
-| `send()` on Vercel | `Result<QueueSendResult, VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION` |
-| `sendBatch()` on Vercel | `Result<QueueSendResult[], VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE` |
+| `send()` on Cloudflare | `Result<QueueSendResult, CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION`, `RUNTIME_DURATION_INVALID` |
+| `sendBatch()` on Cloudflare | `Result<QueueSendResult[], CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION`, `RUNTIME_DURATION_INVALID` |
+| `send()` on Vercel | `Result<QueueSendResult, VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION`, `RUNTIME_DURATION_INVALID` |
+| `sendBatch()` on Vercel | `Result<QueueSendResult[], VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION`, `RUNTIME_DURATION_INVALID` |
 
 For Vercel batch retries, give each job the same `idempotencyKey` from the first attempt. Without one, each call makes a new key, so retries are not deduplicated, also after a request failure.
 

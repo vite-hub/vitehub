@@ -33,7 +33,7 @@ import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPack
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { featureOptionsResolved, withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { definitionFeaturesRootPlugin, resolveDefinitionFeatures } from "./internal/definition-features.ts"
-import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { assertViteHubOptionKeys } from "./removed-options.ts"
 import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
@@ -2135,7 +2135,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
 export function viteHubPlugins(options: ViteHubOptions, reportVersionError = true): PluginOption[] {
-  assertNoRemovedViteHubOptions(options, "`vitehub()`")
+  assertViteHubOptionKeys(options, "`vitehub()`")
   // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
   const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant, reportVersionError)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.
