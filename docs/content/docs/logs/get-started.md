@@ -91,7 +91,7 @@ Create `server/api/status.get.ts` to add a message and environment name to the r
 
 ```ts [server/api/status.get.ts]
 import { useLogger } from 'evlog/nitro/v3'
-import { defineHandler } from 'nitro/h3'
+import { defineHandler } from 'h3'
 
 export default defineHandler((event) => {
   useLogger(event).set({ message: 'Status checked', deployment: { environment: 'development' } })

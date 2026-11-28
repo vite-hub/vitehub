@@ -71,7 +71,7 @@ export const getPost = defineCachedFunction(
 Call `invalidateTag()` after the data changes:
 
 ```ts [server/api/posts/[id].put.ts]
-import { defineHandler, getRouterParam } from "nitro/h3"
+import { defineHandler, getRouterParam } from "h3"
 import { invalidateTag } from "vite-hub/cache"
 
 export default defineHandler(async (event) => {

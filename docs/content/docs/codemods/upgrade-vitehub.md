@@ -688,7 +688,7 @@ npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
 ```
 
 ```diff [server/api/welcome.post.ts]
- import { createError, defineEventHandler, readBody } from 'nitro/h3'
+ import { createError, defineEventHandler, readBody } from 'h3'
 +import { kv } from 'vite-hub/kv'
 +import { sendQueue } from 'vite-hub/queue'
 

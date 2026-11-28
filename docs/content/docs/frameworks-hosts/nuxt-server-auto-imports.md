@@ -15,7 +15,7 @@ helpers. On Nuxt 4.7, they are on by default. See
 ```ts [server/api/welcome.post.ts] fragment
 import { kv } from 'vite-hub/kv'
 import { sendQueue } from 'vite-hub/queue'
-import { createError, defineEventHandler, readBody } from 'nitro/h3'
+import { createError, defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)

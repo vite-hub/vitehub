@@ -604,7 +604,7 @@ npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
 On Nuxt 5, `vite-hub/nuxt` auto-imports its server helpers only when the app sets `experimental.nitroAutoImports: true` or `nitroLegacy`. This codemod adds an explicit import to each Nuxt server file that uses a helper without one:
 
 ```diff [server/api/welcome.post.ts]
- import { defineEventHandler, readBody } from "nitro/h3"
+ import { defineEventHandler, readBody } from "h3"
 +import { kv } from "vite-hub/kv"
 +import { sendQueue } from "vite-hub/queue"
 
