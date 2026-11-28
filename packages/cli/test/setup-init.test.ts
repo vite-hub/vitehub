@@ -291,7 +291,7 @@ describe("vitehub init", () => {
   it.each(["vite", "nuxt"] as const)("does not create a config for a config-less %s app when feature planning fails", async (framework) => {
     const root = await createProject({ "package.json": JSON.stringify({ dependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" } }) })
     const before = await snapshot(root)
-    const result = await init([".", "--host", "node", "--features", "browser", "--no-install", "--yes"], root)
+    const result = await init([".", "--host", "vercel", "--features", "rate-limit", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
     expect(await snapshot(root)).toEqual(before)

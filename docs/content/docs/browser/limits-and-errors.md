@@ -20,15 +20,7 @@ icon: i-lucide-circle-alert
 
 The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response, and `runBrowserContent()` returns `BROWSER_CONTENT_FAILED`. `runBrowser()` and `browser.open()` in a Definition throw it, because it is a config error. `error.details` has the `host`, the `reason`, and the `fix`. On Cloudflare, Node, and Vercel, set `browser: true` in `vitehub()`. Netlify and Deno have no Browser driver, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
 
-### Driver errors
-
-| Code | Cause | Fix |
-| --- | --- | --- |
-| `BROWSER_R0012` | `BROWSER_CDP_URL` is not a `ws`, `wss`, `http`, or `https` URL. | Set it to the browser WebSocket or the DevTools HTTP endpoint. |
-| `BROWSER_R0013` | Local Chromium found no browser. | Install Chromium, or set `BROWSER_EXECUTABLE_PATH` or `BROWSER_CDP_URL`. |
-| `BROWSER_R0014` | A Vercel build has no `BROWSER_CDP_URL`. | Set it to a Browserless or Browserbase URL. |
-| `BROWSER_R0015` | A quick action other than `content` ran off Cloudflare. | Use `runBrowserContent()` or `browser.open()`. |
-| `BROWSER_R0016` | The host blocks the Chromium sandbox. | On a trusted host, set `BROWSER_SANDBOX=false`. |
+See [Browser diagnostics](/docs/browser/diagnostics) for driver errors and fixes.
 
 ## Production checks
 

@@ -386,7 +386,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     if (options.ifDigest !== undefined) {
-      throw workspaceConflict(`[vitehub] Vercel Blob does not support atomic conditional removal for: ${path}.`)
+      throw workspaceConflict(`[vitehub] Vercel Blob does not support atomic conditional removal for: ${path}.`, { conditionalRemovalUnsupported: true })
     }
     const client = await this.#client()
     const targets = new Map<string, string>()

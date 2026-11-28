@@ -91,6 +91,14 @@ describe("CDP page", () => {
     expect(fake.send).toHaveBeenCalledWith("Runtime.evaluate", { expression: "document.title", returnByValue: true }, "page-session")
   })
 
+  it("rejects a non-string result for page text", async () => {
+    const fake = fakeClient()
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.title()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+    await expect(page.content()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+  })
+
   it("bounds page setup", async () => {
     vi.useFakeTimers()
     try {

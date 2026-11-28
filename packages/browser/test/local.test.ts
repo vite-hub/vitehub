@@ -70,7 +70,7 @@ describe("localBrowser", () => {
     await chmod(executablePath, 0o755)
 
     await expect(localBrowser({ executablePath }).open()).rejects.toMatchObject({
-      cause: { code: "BROWSER_R0016", fix: expect.stringContaining("BROWSER_SANDBOX=false") },
+      cause: { code: "BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE", fix: expect.stringContaining("BROWSER_SANDBOX=false") },
       code: "BROWSER_PROVIDER_ERROR",
     })
   })
@@ -106,7 +106,7 @@ describe("findChromiumExecutable", () => {
     const provider = localBrowser({ env: { BROWSER_EXECUTABLE_PATH: "/vitehub/does-not-exist/chromium" } })
 
     await expect(provider.open()).rejects.toMatchObject({
-      code: "BROWSER_R0013",
+      code: "BROWSER_CHROMIUM_NOT_FOUND",
       fix: expect.stringContaining("BROWSER_EXECUTABLE_PATH"),
       message: expect.stringContaining("/vitehub/does-not-exist/chromium"),
     })

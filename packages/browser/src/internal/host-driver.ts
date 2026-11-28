@@ -17,7 +17,7 @@ export function hostBrowserDriver(
   const url = env.BROWSER_CDP_URL?.trim()
   if (url) return cdpBrowser({ url })
   if (driver === "cdp") {
-    throw browserErrorDiagnostics.BROWSER_R0014({ message: "[vitehub:browser] Browser on this host connects to a remote Chromium, and BROWSER_CDP_URL is not set." })
+    throw browserErrorDiagnostics.BROWSER_CDP_URL_REQUIRED()
   }
   const sandbox = env.BROWSER_SANDBOX?.trim().toLowerCase()
   return localBrowser({ sandbox: sandbox !== "false" && sandbox !== "0" })

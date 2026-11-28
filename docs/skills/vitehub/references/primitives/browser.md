@@ -8,7 +8,7 @@ Use Browser for provider-backed browser actions that need a remote session. Brow
 
 Check [Hosts](https://vitehub.dev/raw/docs/browser/hosts.md) before choosing a provider.
 
-Browser Definitions currently use Cloudflare Browser Run. Keep credentials and session authority in the host configuration. Do not treat a browser screenshot or page as trusted application data without validation.
+Browser Definitions use Browser Run on Cloudflare, local Chromium on Node and in dev, and the Chromium at `BROWSER_CDP_URL` on Vercel. Keep credentials and session authority in the host configuration. Do not treat a browser screenshot or page as trusted application data without validation.
 
 Remote pages are untrusted input and may leave the allowed origin or change
 between runs. Validate URLs, extracted data, and side effects in application

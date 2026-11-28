@@ -37,9 +37,9 @@ Netlify and Deno have no driver, and `browser: true` fails the build there.
 
 On Node, `BROWSER_CDP_URL` wins over the local Chromium. A `ws://` or `wss://` URL is the browser WebSocket. An `http://` or `https://` URL is a Chromium with `--remote-debugging-port`, and each session opens and closes its own page there. The URL can hold a token, so keep it in a secret.
 
-Local Chromium checks `BROWSER_EXECUTABLE_PATH`, then the newest Chromium that `npx playwright install chromium` downloaded, then a system Chromium such as `/usr/bin/chromium`. When it finds none, the call fails with `BROWSER_R0013` and the fix. In a Docker image, run `apt-get install -y chromium`. A root process runs Chromium without its sandbox, because Chromium refuses it as root. When the host blocks the sandbox, the call fails with `BROWSER_R0016`; on a trusted host, set `BROWSER_SANDBOX=false`.
+Local Chromium checks `BROWSER_EXECUTABLE_PATH`, then the newest Chromium that `npx playwright install chromium` downloaded, then a system Chromium such as `/usr/bin/chromium`. When it finds none, the call fails with `BROWSER_CHROMIUM_NOT_FOUND` and the fix. In a Docker image, run `apt-get install -y chromium`. A root process runs Chromium without its sandbox, because Chromium refuses it as root. When the host blocks the sandbox, the call fails with `BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE`; on a trusted host, set `BROWSER_SANDBOX=false`.
 
-Off Cloudflare, `runBrowserContent()` opens the URL in a page and returns its HTML. The other quick actions need Browser Run and fail with `BROWSER_R0015`.
+Off Cloudflare, `runBrowserContent()` opens the URL in a page and returns its HTML. The other quick actions need Browser Run and fail with `BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN`.
 
 ## Get rendered HTML
 

@@ -111,10 +111,10 @@ export function findChromiumExecutable(env: Record<string, string | undefined> =
 function resolveExecutable(options: LocalBrowserOptions): string {
   const executablePath = options.executablePath ?? findChromiumExecutable({ ...process.env, ...options.env })
   if (!executablePath) {
-    throw browserErrorDiagnostics.BROWSER_R0013({ message: "[vitehub:browser] Browser found no Chromium on this host. BROWSER_EXECUTABLE_PATH is not set, and no Playwright or system Chromium is installed." })
+    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: "[vitehub:browser] Browser found no Chromium on this host. BROWSER_EXECUTABLE_PATH is not set, and no Playwright or system Chromium is installed." })
   }
   if (!existsSync(executablePath)) {
-    throw browserErrorDiagnostics.BROWSER_R0013({ message: `[vitehub:browser] The Chromium at ${JSON.stringify(executablePath)} does not exist.` })
+    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: `[vitehub:browser] The Chromium at ${JSON.stringify(executablePath)} does not exist.` })
   }
   return executablePath
 }
@@ -173,7 +173,7 @@ function readStartupStderr(child: ChildProcess): { stop: () => void, text: () =>
 
 function exitError(child: ChildProcess, output: string) {
   if (output.includes("No usable sandbox")) {
-    return browserErrorDiagnostics.BROWSER_R0016({ message: "Chromium found no usable sandbox on this host." })
+    return browserErrorDiagnostics.BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE()
   }
   return browserErrorDiagnostics.BROWSER_R0006({ message: `Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).` })
 }

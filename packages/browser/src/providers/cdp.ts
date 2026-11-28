@@ -19,9 +19,7 @@ function readUrl(value: unknown): URL {
   const text = typeof value === "string" ? value.trim() : ""
   const url = URL.canParse(text) ? new URL(text) : undefined
   if (!url || !["http:", "https:", "ws:", "wss:"].includes(url.protocol)) {
-    throw browserErrorDiagnostics.BROWSER_R0012({
-      message: "[vitehub:browser] The CDP URL is not a ws://, wss://, http://, or https:// URL.",
-    })
+    throw browserErrorDiagnostics.BROWSER_CDP_URL_INVALID()
   }
   return url
 }

@@ -26,17 +26,17 @@ Local Chromium checks these paths in order:
 2. The newest Chromium that `npx playwright install chromium` downloaded.
 3. A system Chromium or Google Chrome, such as `/usr/bin/chromium`.
 
-When it finds none, the call fails with `BROWSER_R0013` and the fix. For a Docker image, install Chromium in the image:
+When it finds none, the call fails with `BROWSER_CHROMIUM_NOT_FOUND` and the fix. For a Docker image, install Chromium in the image:
 
 ```dockerfile [Dockerfile]
 RUN apt-get update && apt-get install -y chromium
 ```
 
-Chromium runs in its own sandbox. A root process, the default in Docker, runs without it, because Chromium refuses it. Ubuntu 23.10 and newer can block the sandbox for a downloaded Chromium, and the call fails with `BROWSER_R0016`. On a trusted host, set `BROWSER_SANDBOX=false`.
+Chromium runs in its own sandbox. A root process, the default in Docker, runs without it, because Chromium refuses it. Ubuntu 23.10 and newer can block the sandbox for a downloaded Chromium, and the call fails with `BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE`. On a trusted host, set `BROWSER_SANDBOX=false`.
 
 `BROWSER_CDP_URL` takes two forms. A `ws://` or `wss://` URL is the browser WebSocket, with its token if the service needs one. An `http://` or `https://` URL is a Chromium that runs with `--remote-debugging-port`. ViteHub opens one page per session there and closes it at the end. The URL can hold a token, so keep it in a secret.
 
-Off Cloudflare, `runBrowserContent()` opens the URL in a page and returns its HTML. The other Browser Run quick actions, such as `runBrowserAction("screenshot")`, fail with `BROWSER_R0015`. Open a session with `browser.open()` for that work.
+Off Cloudflare, `runBrowserContent()` opens the URL in a page and returns its HTML. The other Browser Run quick actions, such as `runBrowserAction("screenshot")`, fail with `BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN`. Open a session with `browser.open()` for that work.
 
 ## Cloudflare
 

@@ -566,7 +566,7 @@ Startup and build Source cleanup track ownership by Workspace name. When definit
 
 Source Sync and runtime Source materialization change files only inside the mount of the Source that they process. A Source with an empty mount owns the Workspace root. Source Sync with `stale: "remove"` removes only stale paths inside the current mount. If you move a Source mount, the files in the old mount stay. Remove them yourself if you do not need them. When mounts for the same Source key share an output path, sync retains their claims separately. Each mount can update the file, and every claim tracks the digest of the latest Source write to that shared path. Stale cleanup removes the file only after the other mounts release their claims and its content still matches that digest. Releasing a claim preserves this digest without adopting current file content, including user edits that restore an older Source version.
 
-`history.rebase({ takeRemote })` replaces local content at each listed path, so each path must be writable. A Source-backed path fails with a read-only error before the Store rebases.
+`history.rebase({ takeRemote })` replaces local content at each listed path, so each path must be writable. A Source-backed path fails with `WORKSPACE_SOURCE_READ_ONLY` before the Store rebases.
 
 Workspace internals keep Source Sync state, Source snapshots, startup and build indexes, and file owner records in Store metadata. Cleanup uses these records to decide which files to remove. Metadata keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:` are reserved for this, and public `setMeta` rejects them. Use your own prefix for application metadata.
 

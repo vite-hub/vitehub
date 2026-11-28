@@ -1,4 +1,4 @@
-import { workspaceError } from "../core/errors.ts"
+import { workspaceError, workspaceSourceReadOnlyError } from "../core/errors.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
@@ -152,7 +152,8 @@ async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSign
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore, options: { reuseStartupSnapshots?: boolean } = {}): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
-  const sources = allSources.filter(source => !source.requestOnly && (source.materialize === "lazy" || source.materialize === "startup"))
+  const mountSources = allSources.filter(source => source.materialize === "lazy" || source.materialize === "startup")
+  const sources = mountSources.filter(source => !source.requestOnly)
   const syncSources = allSources.filter(source => source.sync)
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
@@ -183,14 +184,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourceContexts.set(source.key, context)
     }
     return context
-  }
-
-  function isLazySourcePath(path: string) {
-    return sources.some(source => sourceMountContainsPath(source, path))
-  }
-
-  function isSyncSourceMountPath(path: string) {
-    return syncSources.some(source => source.mountPath && sourceMountContainsPath(source, path))
   }
 
   function descriptorSourceForPath(path: string) {
@@ -572,12 +565,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return dedupeHits(results).slice(0, limit)
   }
 
-  function assertWritableStorePath(path: string, workspacePath: string, type: "source" | "store") {
-    if (type === "source" || isLazySourcePath(workspacePath)) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
-  }
-
   async function previousStat(path: string) {
     return await store.stat(path)
   }
@@ -594,13 +581,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!sources.some(source => !source.mountPath && source.materialize === "startup")) return
     const owner = await readWorkspaceFileOwner(store, path)
     if (owner?.workspace !== definition.name || !owner.digest) return
-    if (sourceKey && owner.source !== sourceKey) return
+    if (sourceKey !== undefined && owner.source !== sourceKey) return
     const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === owner.source)
     if (!source) return
     if ((await store.stat(path))?.type !== "file") return
     const file = await store.readFile(path)
     if (!file) return
-    if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
+    if (typeof file.metadata?.source === "string" && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
     const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
     if (snapshot?.status !== "ready" || !Object.hasOwn(snapshot.items || {}, path)) return
     if (await sha256(file.content) === owner.digest) return file
@@ -620,71 +607,64 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
-  async function isSourceBackedStorePath(path: string) {
-    if (!allSources.length) return false
-    // A missing sidecar must not release ownership recorded by the current Source.
+  async function assertNoSourceClaims(path: string, workspacePath: string, claims: Set<string>) {
+    if (!allSources.length) return
+    const fileOwner = (file: WorkspaceFile | null | undefined) => allSources.find(source => source.key === file?.metadata?.source)
+    const current = await store.stat(workspacePath)
+    const owner = current?.type === "file" ? fileOwner(await store.readFile(workspacePath)) : undefined
+    if (owner) throw workspaceSourceReadOnlyError(path, owner.key)
+    if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
+
+    const matches = (item: string) => !workspacePath || item === workspacePath || item.startsWith(`${workspacePath}/`)
     for (const source of allSources) {
+      if (claims.has(source.key)) continue
       const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
-      if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return true
+      if (Object.keys(snapshot?.items ?? {}).some(matches)) claims.add(source.key)
+      else if (source.sync && store.getMeta) {
+        const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key, definition.name)))
+        if (Object.keys(state?.paths ?? {}).some(matches)) claims.add(source.key)
+      }
+      if (claims.size > 1) throw workspaceSourceReadOnlyError(path)
     }
-    const file = await store.readFile(path)
-    if (typeof file?.metadata?.source === "string" && allSources.some(source => source.key === file.metadata?.source)) return true
-    const stat = await store.stat(path)
-    if (stat?.type !== "directory") return false
-    const entries = await store.list(path, { recursive: true })
-    for (const entry of entries) {
-      if (entry.type !== "file") continue
-      const child = await store.readFile(entry.path)
-      if (typeof child?.metadata?.source === "string" && allSources.some(source => source.key === child.metadata?.source)) return true
+
+    if (current?.type === "directory") {
+      for (const entry of await store.list(workspacePath, { recursive: true })) {
+        if (entry.type !== "file") continue
+        const childOwner = fileOwner(await store.readFile(entry.path))
+        if (childOwner) claims.add(childOwner.key)
+        if (claims.size > 1) break
+      }
     }
-    return false
+    if (claims.size) throw workspaceSourceReadOnlyError(path, claims.size === 1 ? [...claims][0] : undefined)
   }
 
-  async function isSyncedStatePath(path: string) {
-    if (!store.getMeta) return false
+  function assertWritableDescriptorPath(path: string, workspacePath: string) {
+    if (isDescriptorPath(workspacePath)) throw workspaceSourceReadOnlyError(path, descriptorSourceForPath(workspacePath)?.key)
+  }
+
+  function sourceMountClaims(workspacePath: string, includeRequestOnly: boolean) {
+    const claims = new Set((includeRequestOnly ? mountSources : sources)
+      .filter(source => sourceMountContainsPath(source, workspacePath) || !source.requestOnly && typeof source.livePaths?.[workspacePath] === "string")
+      .map(source => source.key))
     for (const source of syncSources) {
-      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key, definition.name)))
-      if (!state) continue
-      if (state.paths[path]) return true
-      if (Object.keys(state.paths).some(item => item.startsWith(`${path}/`))) return true
+      if (source.mountPath && sourceMountContainsPath(source, workspacePath)) claims.add(source.key)
     }
-    return false
+    return claims
   }
 
-  // This check runs inside the Store mutation queue. It must not materialize
-  // Sources because materialization uses the same queue.
   async function assertWritableCurrentPath(path: string) {
-    if (isDescriptorPath(path)) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
-    const resolution = resolveWorkspacePath(definition, path)
-    if (resolution.type === "source" || isLazySourcePath(resolution.workspacePath)
-      || isSyncSourceMountPath(resolution.workspacePath)
-      || await isSyncedStatePath(resolution.workspacePath)
-      || await isSourceBackedStorePath(resolution.workspacePath)) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
-  }
-
-  async function assertWritableResolvedStorePath(path: string, workspacePath: string, type: "source" | "store") {
-    assertWritableStorePath(path, workspacePath, type)
-    await materializeRootSourceForPath(workspacePath)
-    if (isSyncSourceMountPath(workspacePath) || await isSyncedStatePath(workspacePath) || await isSourceBackedStorePath(workspacePath)) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
+    assertWritableDescriptorPath(path, path)
+    const { workspacePath } = resolveWorkspacePath(definition, path)
+    await assertNoSourceClaims(path, workspacePath, sourceMountClaims(workspacePath, false))
   }
 
   async function assertWritablePath(path: string) {
-    if (isDescriptorPath(normalizeWorkspacePath(path))) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
+    assertWritableDescriptorPath(path, normalizeWorkspacePath(path))
     const resolution = resolveWorkspacePath(definition, path)
-    if (isDescriptorPath(resolution.workspacePath)
-      || allSources.some(source => (source.materialize === "lazy" || source.materialize === "startup")
-        && sourceMountContainsPath(source, resolution.workspacePath))) {
-      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-    }
-    await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
+    assertWritableDescriptorPath(path, resolution.workspacePath)
+    const claims = sourceMountClaims(resolution.workspacePath, true)
+    if (!claims.size) await materializeRootSourceForPath(resolution.workspacePath)
+    await assertNoSourceClaims(path, resolution.workspacePath, claims)
     return resolution
   }
 
@@ -729,10 +709,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!grant || writeGrants.get(grant) !== normalizedPath) {
           throw workspaceError(`[vitehub] Workspace rebase to take remote ${path} requires a Source write grant for that path.`)
         }
-        if (allSources.some(source => (source.materialize === "lazy" || source.materialize === "startup")
-          && sourceMountIntersectsPath(source, normalizedPath))) {
-          throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-        }
+        const claims = new Set(mountSources.filter(source => sourceMountIntersectsPath(source, normalizedPath)).map(source => source.key))
+        if (claims.size) await assertNoSourceClaims(path, normalizedPath, claims)
       }
       await withWorkspaceStoreMutation(store, async () => {
         for (const grant of grants) await assertWritableCurrentPath(grant.path)

@@ -53,9 +53,8 @@ With `publish: 'pr'`, each instance reserves the selected documents on GitHub be
 | `CONTENT_B0002` | The app lacks something the preset needs: Workspace, Database, or Blob (not with `store: 'github'`) is `false`, several Databases match and none is `default`, or the named Database or Blob store does not exist. | The message names the `vitehub()` setting or preset option to set. |
 | `CONTENT_R0016` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
 | `CONTENT_R0017` | `publish()` with `publish: 'pr'` named a document that an open publish pull request already covers. | Merge or close the pull request in the message, then publish again. |
-| `WORKSPACE_CONFLICT` | On the GitHub store, `publish()` named a document that the draft and `branch` both changed (`details.ref` is `published`). | Review the published version, then save with `ifPublishedDigest` ([Changed on both sides](#changed-on-both-sides)). |
 | `WORKSPACE_R0072` | The GitHub store has no repository or no token at its first request. | Set `repo` or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, and `VITEHUB_GITHUB_TOKEN`. |
 | `WORKSPACE_B0003` | Another Workspace already uses the preset's Workspace name. | Rename one, or pass `[cms, { workspace }]`. |
 | `DATABASE_DUPLICATE_TABLE` | The Database Definition already lists the history tables. | Remove them from the Definition ([Migrate from manual wiring](/docs/cms/configure#migrate-from-manual-wiring)). |
 
-[Content errors](/docs/content/limits-and-errors#errors) lists the other codes, such as `CONTENT_INVALID` and `CONTENT_LEASE_HELD`.
+[Content errors](/docs/content/limits-and-errors#errors) lists the other codes, such as `CONTENT_INVALID` and `CONTENT_LEASE_HELD`. For a publish conflict, see [Workspace conflicts](/docs/workspace/diagnostics/workspace_conflict#content-and-cms).

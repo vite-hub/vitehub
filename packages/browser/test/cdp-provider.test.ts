@@ -62,7 +62,7 @@ describe("cdpBrowser", () => {
 
   it("names the fix for a URL that is not a CDP endpoint, without the URL", () => {
     expect(() => cdpBrowser({ url: "ftp://token@host" })).toThrow(expect.objectContaining({
-      code: "BROWSER_R0012",
+      code: "BROWSER_CDP_URL_INVALID",
       message: expect.not.stringContaining("token"),
     }))
   })
@@ -84,7 +84,7 @@ describe("hostBrowserDriver", () => {
 
   it("names BROWSER_CDP_URL when a remote-only host has none", () => {
     expect(() => hostBrowserDriver("cdp", {})).toThrow(expect.objectContaining({
-      code: "BROWSER_R0014",
+      code: "BROWSER_CDP_URL_REQUIRED",
       fix: expect.stringContaining("BROWSER_CDP_URL"),
     }))
   })

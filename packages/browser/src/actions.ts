@@ -137,7 +137,7 @@ async function runQuickAction(
 async function readPageContent(input: Record<string, unknown>): Promise<string> {
   const url = input.url
   if (typeof url !== "string" || !url) {
-    throw browserErrorDiagnostics.BROWSER_R0015({ message: "[vitehub:browser] The content action on this host reads a page from `url`. Pass a URL." })
+    throw browserErrorDiagnostics.BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN({ message: "[vitehub:browser] The content action on this host reads a page from `url`. Pass a URL." })
   }
   const timeoutMs = actionTimeoutMs(input)
   const session = await (await resolveHostClient()).open()
@@ -159,7 +159,7 @@ async function readPageContent(input: Record<string, unknown>): Promise<string> 
 
 async function runPageAction(action: BrowserAction, input: Record<string, unknown>): Promise<Response> {
   if (action !== "content") {
-    throw browserErrorDiagnostics.BROWSER_R0015({ message: `[vitehub:browser] The ${action} quick action needs Cloudflare Browser Run. This host runs Chromium over CDP.` })
+    throw browserErrorDiagnostics.BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN({ message: `[vitehub:browser] The ${action} quick action needs Cloudflare Browser Run. This host runs Chromium over CDP.` })
   }
   return new Response(await readPageContent(input), { headers: { "content-type": "text/html; charset=utf-8" } })
 }

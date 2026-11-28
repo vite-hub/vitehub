@@ -314,7 +314,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     )
   }
 
-  const evaluatePage = async <TResult>(expression: string, operation: string): Promise<TResult> => {
+  const evaluatePageText = async (expression: string, operation: string) => {
     assertPageUsable()
     let expired = false
     let started = false
@@ -322,7 +322,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       if (expired) throw browserProviderError("cdp", operation)
       assertPageUsable()
       started = true
-      return await send<{ exceptionDetails?: unknown, result?: { value?: TResult } }>("Runtime.evaluate", {
+      return await send<{ exceptionDetails?: unknown, result?: { value?: unknown } }>("Runtime.evaluate", {
         expression,
         returnByValue: true,
       })
@@ -335,16 +335,18 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         if (started) invalidatePage(error)
       },
     })
-    return evaluateResult(result, operation)
+    const value = evaluateResult(result, operation)
+    if (typeof value !== "string") throw browserProviderError("cdp", operation)
+    return value
   }
 
   const page: BrowserPage = {
     async content() {
       const doctype = "document.doctype ? new XMLSerializer().serializeToString(document.doctype) : \"\""
-      return await evaluatePage<string>(`(${doctype}) + (document.documentElement?.outerHTML ?? "")`, "read the page HTML")
+      return await evaluatePageText(`(${doctype}) + (document.documentElement?.outerHTML ?? "")`, "read the page HTML")
     },
     async title() {
-      return await evaluatePage<string>("document.title", "read the page title")
+      return await evaluatePageText("document.title", "read the page title")
     },
     async goto(url, options = {}) {
       assertPageUsable()

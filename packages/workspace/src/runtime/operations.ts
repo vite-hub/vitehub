@@ -45,6 +45,7 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKSPACE_FORBIDDEN: 403,
   WORKSPACE_HISTORY_INVALID: 400,
   WORKSPACE_NOT_FOUND: 404,
+  WORKSPACE_SOURCE_READ_ONLY: 403,
 } satisfies Partial<Record<WorkspaceCode, number>>
 
 /** Reads the code of a ViteHub error or a Workspace diagnostic. */

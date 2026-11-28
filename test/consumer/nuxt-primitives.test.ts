@@ -6,7 +6,6 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseAllDocuments } from "yaml"
 
-import { featureIds } from "../../packages/internal/src/features.ts"
 import { agents } from "./nuxt-primitives/agents.ts"
 import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
@@ -22,8 +21,8 @@ import {
   repoRoot,
   run,
   stopProcessGroup,
+  viteHubPrimitiveIds,
   workspaceConfig,
-  type PackageManifest,
 } from "./packed-app.ts"
 
 const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
@@ -48,7 +47,6 @@ async function lockedNuxtPrimitiveOverrides() {
   }
 }
 
-const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
   cli: "The `vitehub` command, which the Database row runs.",
   docs: "A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.",
@@ -61,14 +59,6 @@ const notPrimitives: Record<string, string> = {
 export const nuxtSupport = {
   rows,
   notPrimitives,
-}
-
-async function viteHubFeatureKeys() {
-  const manifest = JSON.parse(await readFile(join(repoRoot, "packages/vite-hub/package.json"), "utf8")) as PackageManifest
-  const owners = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })
-    .filter(name => name.startsWith("@vite-hub/"))
-    .map(name => name.slice("@vite-hub/".length))
-  return [...new Set([...featureIds.map(id => featurePackages[id] ?? id), ...owners])].sort()
 }
 
 function nuxtConfig(target: Target, origin: string, active: PrimitiveRow[]) {
@@ -150,7 +140,7 @@ describe("Nuxt primitives", () => {
   it("cover every vite-hub/nuxt feature with a row or a written exemption", async () => {
     const ids = rows.map(row => row.id)
     expect(ids.filter((id, index) => ids.indexOf(id) !== index), "primitives listed twice").toEqual([])
-    const missing = (await viteHubFeatureKeys()).filter(key => !ids.includes(key) && !(key in notPrimitives))
+    const missing = (await viteHubPrimitiveIds()).filter(key => !ids.includes(key) && !(key in notPrimitives))
     expect(missing, "vite-hub/nuxt features without a row or an exemption in test/consumer/nuxt-primitives/").toEqual([])
     for (const row of rows) {
       for (const [mode, reason] of Object.entries(row.exempt ?? {})) {
