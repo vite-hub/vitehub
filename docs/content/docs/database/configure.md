@@ -78,7 +78,7 @@ export default defineConfig({
 | `database.binding` | `string` | `DB` | D1 binding of the default database. Named databases get their own binding names. |
 | `database.databaseId` | `DatabaseConfigValue` | Provision State | Cloudflare D1 database id. |
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
-| `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
+| `database.databaseName` | `DatabaseConfigValue` | `<app name>-db` on Cloudflare | Cloudflare D1 database name. On the Cloudflare host, a SQLite app that sets no `databaseName`, `databaseId`, or `cloudflare.http` gets the D1 database `<app name>-db`. The app name is `vitehub({ name })`, else the `package.json` name. Provisioning, the build, and the Wrangler config use the same name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
 | `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files and D1 over HTTP. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |

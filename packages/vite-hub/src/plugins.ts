@@ -1,4 +1,4 @@
-import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, usesOnlyPostgresDatabases, withCloudflareD1Default, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { invariant } from "@vite-hub/internal/invariant"
@@ -22,7 +22,7 @@ import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentP
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNativePackageLoading, createNoExternalAddition, generatedViteHubWatchIgnoredAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { cloudflareResourceScope, createNativePackageLoading, createNoExternalAddition, generatedViteHubWatchIgnoredAddition, getDeploymentHost, getResolvedFeatureOptions, isProductionBuild, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { formatDiagnostic } from "nostics"
@@ -765,10 +765,6 @@ function normalizeDeploymentName(value: string | undefined): string | undefined 
     .replace(/^-|-$/g, "") || undefined
 }
 
-function cloudflareResourceScope(name: string): string {
-  return name.slice(0, 48).replace(/-+$/g, "")
-}
-
 function cloudflareR2BucketName(name: string): string {
   const scoped = cloudflareResourceScope(name)
   return scoped.length >= 3 ? scoped : `${scoped || "app"}-blob`
@@ -1201,6 +1197,13 @@ function deploymentPlugins(
             plan.host === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
           )
           const name = identity.name
+          const resolvedDatabase = getResolvedFeatureOptions<Exclude<DatabaseOptions, false> & { nuxtHostResource?: true, nuxtServerDirs?: string[] }>(config, "database")
+          const nuxtHostBinding = resolvedDatabase?.nuxtHostResource && resolvedDatabase.binding !== undefined
+          if (plan.host === "cloudflare" && options.database && !nuxtHostBinding) {
+            const database = resolvedDatabase ?? (options.database === true ? {} : options.database)
+            const databaseRoot = resolve(config.root ?? process.cwd(), database.projectRoot ?? ".")
+            setResolvedFeatureOptions(config, "database", withCloudflareD1Default(database, name, () => usesOnlyPostgresDatabases(databaseRoot, resolvedDatabase?.nuxtServerDirs)))
+          }
           const configuredQueue = queueConfigObject(options.queue)
           if (requestedServices.includes("queue") && plan.services.queue.supported && (options.queue === true || configuredQueue)) {
             const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)

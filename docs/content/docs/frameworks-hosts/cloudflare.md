@@ -114,7 +114,7 @@ In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` o
 
 workerd does not get the variables of your shell. It reads the Wrangler `vars` and the `.dev.vars` or `.env` files. ViteHub adds each `VITEHUB_*` shell variable, such as `VITEHUB_AGENT_STATE_URL`, to the Wrangler `vars` in development, so the server reads it in `process.env` and `env`. If Nitro selects an environment defined in inline Wrangler config, ViteHub adds the values to that environment's `vars`. A value in `.dev.vars` or `.env` wins. Put other variables in those files.
 
-D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
+A Database Definition that names no D1 database uses the D1 database `<app name>-db`. `vitehub deploy` creates it before the first build. To use another D1 database, set it in the Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment
 import { defineDatabase } from 'vite-hub/database'

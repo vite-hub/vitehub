@@ -283,6 +283,11 @@ export function getDeploymentHost(config: object): string | undefined {
   const host: unknown = Reflect.get(config, VITEHUB_DEPLOYMENT_HOST)
   return typeof host === "string" ? host : undefined
 }
+
+/** The prefix of the Cloudflare resources of a deployment, such as its Worker name. */
+export function cloudflareResourceScope(deploymentName: string): string {
+  return deploymentName.slice(0, 48).replace(/-+$/g, "")
+}
 /**
  * Set by `vite-hub/nuxt` when it replays Vite config hooks for `nuxt prepare`. Prepare uses `command: "build"` to write
  * the same types as the build, but it builds nothing.

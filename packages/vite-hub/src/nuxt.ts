@@ -1,4 +1,4 @@
-import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, usesOnlyPostgresDatabases, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, cloudflareAgentJournalHint, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_STORE, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { invariant } from "@vite-hub/internal/invariant"
@@ -1747,8 +1747,3 @@ function resolveNuxtBuildHost(host: ViteHubNuxtOptions["host"], nitro: Record<st
 
 export default viteHubNuxtModule
 
-function usesOnlyPostgresDatabases(rootDir: string, serverDirs: string[] | undefined) {
-  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = requireOptionalOwner(ownerModules.databaseConfig, "database")
-  const definitions = discoverDatabaseDefinitions(rootDir, { serverDirs })
-  return definitions.length > 0 && definitions.every(definition => readDatabaseDefinitionDialect(definition.handler) === "postgresql")
-}
