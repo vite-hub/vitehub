@@ -23,7 +23,7 @@ Install the Schedule and KV packages:
 pnpm add @vite-hub/schedule @vite-hub/kv
 ```
 
-Add `kv: true` to your ViteHub options so you can read saved runs in the last step, keeping your other app options.
+Add `kv: true` to your ViteHub options, keeping your other app options. Without KV, the server keeps the runs in memory, and they are gone after a restart. With KV, the runs that you read in the last step stay.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
