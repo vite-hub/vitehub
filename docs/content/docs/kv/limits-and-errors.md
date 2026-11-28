@@ -105,8 +105,6 @@ The key is longer than 512 UTF-8 bytes, the Cloudflare KV limit. ViteHub measure
 
 The provider failed. `error.why` names the operation and the store. `error.cause` has the provider error. A retry can help when the provider is back.
 
-An invalid key also returns this code, before any provider call: an empty key such as `''` or `':'`, or a `.` or `..` segment such as `'a/../b'`. `error.cause.message` is `[unstorage] Invalid key: ""` with the key. Use another key; a retry cannot help.
-
 ### KV_UNSUPPORTED_OPERATION
 
 `deleteIfEquals()`, `getAndDelete()`, `increment()`, and `lock()` need atomic operations. The `redis`, `database`, and `upstash` drivers support them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).

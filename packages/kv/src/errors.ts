@@ -1,4 +1,5 @@
 import { isRuntimeDiagnostic, toResultError } from "@vite-hub/runtime"
+import { normalizeKey } from "unstorage"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
@@ -12,6 +13,19 @@ export function kvClearOptionsError(options: unknown): ResultError<"KV_INVALID_C
     || Object.keys(options).some(key => key !== "prefix")
     || ("prefix" in options && options.prefix !== undefined && typeof options.prefix !== "string")) {
     return kvErrorDiagnostics.KV_INVALID_CLEAR_OPTIONS()
+  }
+}
+
+/**
+ * `KV_INVALID_KEY` for the first string key that is empty or has a `.` or `..` segment, which every store rejects.
+ * A value that is not a list of keys passes, so the store reports its own batch error.
+ */
+export function kvInvalidKeyError(keys: unknown): ResultError<"KV_INVALID_KEY"> | undefined {
+  if (!Array.isArray(keys)) return
+  for (const key of keys) {
+    if (typeof key !== "string") continue
+    const normalized = normalizeKey(key)
+    if (!normalized || normalized.split(":").some(segment => segment === "." || segment === "..")) return kvErrorDiagnostics.KV_INVALID_KEY({ key })
   }
 }
 

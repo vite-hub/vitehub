@@ -22,13 +22,17 @@ export function withNitroReadiness(mode: Mode, fetch: ProbeContext["fetch"], { r
   return async (path, init) => {
     const method = init?.method?.toUpperCase() ?? "GET"
     if (!replaySafe && method !== "GET" && method !== "HEAD") return fetch(path, init)
-    const deadline = Date.now() + 30_000
-    for (;;) {
-      const response = await fetch(path, init)
-      if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) return response
-      await response.body?.cancel()
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
+    return retryUnavailableNitroWorker(mode, () => fetch(path, init))
+  }
+}
+
+export async function retryUnavailableNitroWorker(mode: Mode, request: () => Promise<Response>): Promise<Response> {
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    const response = await request()
+    if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) return response
+    await response.body?.cancel()
+    await new Promise(resolve => setTimeout(resolve, 500))
   }
 }
 
