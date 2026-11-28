@@ -7,7 +7,7 @@ The app answers `404` with `CONSOLE_FEATURE_DISABLED` when it knows the operatio
 
 ## Why it happens
 
-The CLI and the Console know every operation, but an app serves only the operations of the features that it has. A feature is off when the app has no Definition for it and no key for it in the ViteHub configuration.
+ViteHub recognizes the operation, but the app does not serve it. A feature can be off because its Definition is missing or because its configuration does not turn it on.
 
 ## Fix it
 

@@ -222,10 +222,6 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   return (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext)
 }
 
-/**
- * The failure for a call that names no registered operation. A name from a Console operation module belongs to a
- * feature that this app does not have. Any other name comes from another ViteHub version, so reloading does not help.
- */
 function unknownConsoleOperation(name: string): ConsoleHttpError {
   if (isHeldBackConsoleOperation(name)) {
     return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_NOT_FOUND", `\`${name}\` runs app code, so the app has it only when \`console.invoke\` is on.`), { fix: "Set `console: { invoke: true }` in `vitehub()`, then build and deploy the app again." }))

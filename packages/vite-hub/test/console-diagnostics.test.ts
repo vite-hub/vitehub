@@ -93,7 +93,6 @@ describe("Console diagnostic catalog", () => {
   it("rejects unknown codes", () => {
     expect(isConsoleDiagnosticCode("CONNECTION_FORBIDDEN")).toBe(false)
     expect(isConsoleDiagnosticCode(undefined)).toBe(false)
-    // The registry's own `is` guard is not a code.
     expect(isConsoleDiagnosticCode("is")).toBe(false)
   })
 })
@@ -162,6 +161,15 @@ describe("Console problems", () => {
 })
 
 describe("Console request diagnostics", () => {
+  it("shows the app's recovery advice for a disabled feature", async () => {
+    const fix = "Add an Agent Definition."
+    vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
+      code: "CONSOLE_FEATURE_DISABLED", fix, message: "Agents are off.", ok: false, status: 404,
+    }, { status: 404 }))))
+    const error = await requestConsole("/_vitehub/api/sections").catch((cause: unknown) => cause)
+    expect(consoleProblem(error)).toMatchObject({ action: "docs", code: "CONSOLE_FEATURE_DISABLED", fix })
+  })
+
   it.each([200, 422])("preserves field validation recovery through HTTP %i", async (status) => {
     const issues = [{ field: "title", message: "Required", path: [] }]
     vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
@@ -191,7 +199,6 @@ describe("Console request diagnostics", () => {
     }, { status: 409 }))))
     const error = await requestConsole("/_vitehub/api/documents").catch((cause: unknown) => cause)
     expect(consolePublishedConflicts(error)).toEqual(documents)
-    // Reloading the draft cannot fix it, so the newer-draft recovery must not run.
     expect(consolePublishMismatches(error)).toBeUndefined()
   })
 
