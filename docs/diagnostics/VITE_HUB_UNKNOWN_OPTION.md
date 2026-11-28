@@ -1,3 +1,7 @@
+---
+description: Fix an unknown ViteHub option in Vite or Nuxt by renaming it to a supported option or removing it from the configuration.
+---
+
 ViteHub stops the build when `vitehub()` or the Nuxt module options set a top-level key that ViteHub does not recognize. The error names the key. A key whose value is `undefined` does not trigger this error.
 
 ## Fix it
