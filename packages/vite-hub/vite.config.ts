@@ -100,6 +100,7 @@ const runtimeEntries = [
   "src/console/runtime/client/account.ts",
   "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
+  "src/console/runtime/client/chunk-recovery.ts",
   "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/comment-on-site.ts",
   "src/console/runtime/client/invocation.ts",
