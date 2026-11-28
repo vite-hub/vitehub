@@ -1,9 +1,10 @@
 import { resolve } from "node:path"
 
 import { browserTarget } from "@vite-hub/internal/package-exports"
+import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
 
-import { overlayAliases, standaloneStyles, standaloneUI } from "./overlay.aliases.ts"
+import { overlayAliases, registrySourceStyles, standaloneStyles, standaloneUI } from "./overlay.aliases.ts"
 
 const root = import.meta.dirname
 
@@ -19,7 +20,8 @@ export default defineConfig({
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: "false",
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  plugins: [standaloneUI(), standaloneStyles()],
+  // Some parts are registry items: Vue SFCs whose CSS imports are in `styles.css`.
+  plugins: [standaloneUI(), standaloneStyles(), registrySourceStyles(), vue()],
   resolve: { alias: overlayAliases, dedupe: ["vue"] },
   build: {
     emptyOutDir: true,
