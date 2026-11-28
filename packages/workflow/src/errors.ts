@@ -27,6 +27,7 @@ const workflowOperationNames = [
   "get",
   "get-run",
   "import",
+  "list-runs",
   "list-steps",
   "resume-signal",
   "run",

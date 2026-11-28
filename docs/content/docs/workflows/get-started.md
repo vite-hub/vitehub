@@ -120,7 +120,7 @@ The response returns a unique run `id` and status:
 
 `"status":"queued"` means the run is stored. The OpenWorkflow worker in your dev server runs it a moment later. To see the status, result, or error of the run later, pass the run `id` to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). Do not start a new run to check it.
 
-`getWorkflowRun()` includes `steps` for OpenWorkflow and native Vercel runs. `vitehub workflow runs get` shows steps only for inline runs that `vite dev` recorded, not OpenWorkflow runs.
+`getWorkflowRun()` includes `steps` for OpenWorkflow and native Vercel runs. `vitehub workflow runs get` shows steps only for inline runs that `vite dev` recorded. `vitehub workflow runs list` shows the step count of an OpenWorkflow run.
 
 ## Start a run from the CLI or the Console
 
@@ -157,9 +157,9 @@ pnpm vitehub workflow runs get <run-id> --json
 }
 ```
 
-For a run started from a route, add `--workflow onboard-user` to `get`. Or open the Workflows page in the [Console](/docs/console) and click **Start**.
+On OpenWorkflow, `get` finds the Workflow of the run from its id. On other providers, add `--workflow onboard-user` to `get` for a run started from a route. Or open the Workflows page in the [Console](/docs/console) and click **Start**.
 
-With `vitehub()`, `pnpm vitehub workflow runs list` lists runs that the dev server ran inline, such as on the `vercel` host. `pnpm vitehub workflow runs get <runId>` shows the steps, result, and error of an inline run. `pnpm vitehub workflow runs clear --yes` clears that history. Inline history does not include OpenWorkflow runs yet, so on `node` `runs list` prints `No runs.`. Use the same `runs get` command to read an OpenWorkflow run by ID.
+With `vitehub()`, `pnpm vitehub workflow runs list` lists runs newest first. On `node`, it lists the runs that OpenWorkflow stores. It also lists the runs that the dev server ran inline, such as on the `vercel` host. `pnpm vitehub workflow runs get <runId>` shows the result and error of a run, and the steps of an inline run. `pnpm vitehub workflow runs clear --yes` clears the inline history. It does not remove OpenWorkflow runs.
 
 :::details{summary="When the Start button and the commands are available"}
 These commands call the Console RPC of the running app. They read a run with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is enabled, and the Console hides Start and Resume when they are off. `workflow.cancel` stays available. See [Run Workflows in development](/docs/cli/primitives#run-workflows-in-development).
