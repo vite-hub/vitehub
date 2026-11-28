@@ -55,6 +55,7 @@ const teamItems = computed<DropdownMenuItem[]>(() => [
   ...(account.value?.teams ?? []).map((item): DropdownMenuItem => ({
     type: "checkbox",
     label: item.name,
+    description: item.owner,
     checked: item.id === account.value?.teamId,
     onSelect: () => {
       if (item.id !== account.value?.teamId) void switchConsoleTeam(item.id).then(reloadConsoleAccount, error => toast.show({ title: error instanceof Error ? error.message : "Try again." }));

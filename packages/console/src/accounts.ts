@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
 import { listConsoleProjects } from "./projects.ts"
@@ -6,7 +6,7 @@ import { listConsoleProjects } from "./projects.ts"
 import type { GenericEndpointContext } from "better-auth"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 
-const { member, organization } = authSqliteSchema
+const { member, organization, user: authUser } = authSqliteSchema
 
 /**
  * People who sign up with only a passkey have no email address. Better Auth needs one, so the Console gives them an
@@ -23,8 +23,11 @@ export interface ConsoleAccountAnswer {
   user: { id: string, name: string, email: string, image: string | null }
   /** `false` for an account that signed up with a passkey and has no email address. */
   hasEmail: boolean
-  /** The teams of the person, the oldest membership first. */
-  teams: { id: string, name: string, slug: string }[]
+  /**
+   * The teams of the person, the oldest membership first. Every personal team is called "Personal", so a personal team
+   * of another person has `owner`, the name of that person.
+   */
+  teams: { id: string, name: string, slug: string, owner?: string }[]
   /** The team that the session opens. Not set when the session has no team, or the person left it. */
   teamId?: string
   /** The roles of the person in that team, such as `owner`. */
@@ -53,15 +56,25 @@ export async function readConsoleAccount(
   ])
   const teams = memberships.map(team => ({ id: String(team.id), name: String(team.name), slug: String(team.slug), role: String(team.role) }))
   const active = teams.find(team => team.id === sessionTeam)
+  const owners = await personalTeamOwners(db, teams.filter(team => team.slug.startsWith("personal-") && team.slug !== personalTeam(user.id).slug).map(team => team.id))
   const email = String(user.email ?? "")
   return {
     user: { id: user.id, name: String(user.name ?? ""), email, image: typeof user.image === "string" ? user.image : null },
     hasEmail: !isPasskeyEmail(email),
-    teams: teams.map(({ id, name, slug }) => ({ id, name, slug })),
+    teams: teams.map(({ id, name, slug }) => ({ id, name, slug, ...(owners.has(id) ? { owner: owners.get(id) } : {}) })),
     ...(active ? { teamId: active.id } : {}),
     roles: active ? active.role.split(",").map(role => role.trim()).filter(Boolean) : [],
     projects: active ? projects : [],
   }
+}
+
+async function personalTeamOwners(db: ConsoleDatabase, teamIds: string[]): Promise<Map<string, string>> {
+  if (!teamIds.length) return new Map()
+  const owners = await db.select({ team: member.organizationId, name: authUser.name })
+    .from(member)
+    .innerJoin(authUser, eq(authUser.id, member.userId))
+    .where(and(inArray(member.organizationId, teamIds), eq(member.role, "owner")))
+  return new Map(owners.map(owner => [String(owner.team), String(owner.name)]))
 }
 
 /** The name of a new account, from the `context` that the sign-up page sends. Empty names get a default. */

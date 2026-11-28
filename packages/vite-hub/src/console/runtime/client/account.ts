@@ -27,6 +27,8 @@ export interface ConsoleAccountTeam {
   id: string
   name: string
   slug: string
+  /** The name of the person whose personal team this is, for a personal team of another person. */
+  owner?: string
 }
 
 export interface ConsoleAccount {
