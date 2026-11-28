@@ -104,7 +104,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {
-      fix: ({ fix }: { fix?: string }) => fix ?? "Run the `rerun` command, or pass the missing values with --option.",
+      fix: ({ fix, rerun }: { fix?: string, rerun?: string }) => fix ?? (rerun ? "Run the `rerun` command, or pass the missing values with --option." : "Pass the missing values, then run the command again."),
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     SETUP_INSTALL_FAILED: {
