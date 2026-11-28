@@ -490,7 +490,7 @@ subscribeConsoleNavigation(sectionsBase, (navigation) => {
   if (isConsoleSectionRevoked(router.currentRoute.value.meta.consoleSection, navigation)) void router.replace({ name: "vitehub-console" });
 });
 
-const pageCodeHost = browserConsoleChunkHost(path => void router.push(path), path => router.resolve(path).href);
+const pageCodeHost = browserConsoleChunkHost(window, path => void router.push(path), path => router.resolve(path).href);
 const recoverPageCode = createConsoleChunkRecovery(pageCodeHost);
 router.onError((error, to) => {
   if (isConsoleChunkError(error)) recoverPageCode(to.fullPath);

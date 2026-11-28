@@ -37,7 +37,7 @@ const pageCode = {
 };
 type LazyPage = keyof typeof pageCode;
 const loadedPages = shallowReactive<Partial<Record<LazyPage, Component>>>({ "team": views.team, "team-settings": views.teamSettings, "env": views.env, "settings": views.settings });
-const pageCodeHost = browserConsoleChunkHost(path => window.location.assign(path));
+const pageCodeHost = browserConsoleChunkHost(window, path => window.location.assign(path));
 const recoverPageCode = createConsoleChunkRecovery(pageCodeHost);
 function lazyPage(target: LazyPage): Component {
   return defineAsyncComponent({

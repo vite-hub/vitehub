@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { consoleChunkFailedTitle, consoleChunkOfflineTitle, createConsoleChunkRecovery, forgetConsoleChunkReload, isConsoleChunkError } from "../src/console/runtime/client/chunk-recovery"
+import { browserConsoleChunkHost, consoleChunkFailedTitle, consoleChunkOfflineTitle, createConsoleChunkRecovery, forgetConsoleChunkReload, isConsoleChunkError } from "../src/console/runtime/client/chunk-recovery"
 
 function memoryStorage() {
   const values = new Map<string, string>()
@@ -87,5 +87,36 @@ describe("Console page code recovery", () => {
     recover("/kv")
     expect(state.load).not.toHaveBeenCalled()
     expect(state.notify).toHaveBeenCalledExactlyOnceWith(consoleChunkFailedTitle)
+  })
+
+  it("reads the browser window it is given, and loads the URL of a path", () => {
+    const listeners: (() => void)[] = []
+    const browser = {
+      navigator: { onLine: false },
+      location: { assign: vi.fn<(url: string) => void>() },
+      sessionStorage: memoryStorage(),
+      addEventListener: (_type: "online", listener: () => void) => void listeners.push(listener),
+    }
+    const open = vi.fn<(path: string) => void>()
+    const pageHost = browserConsoleChunkHost(browser, open, path => `/console${path}`)
+    expect(pageHost.online()).toBe(false)
+    pageHost.onceOnline(() => pageHost.open("/kv"))
+    for (const listener of listeners) listener()
+    expect(open).toHaveBeenCalledExactlyOnceWith("/kv")
+    pageHost.load("/kv")
+    expect(browser.location.assign).toHaveBeenCalledExactlyOnceWith("/console/kv")
+    expect(pageHost.storage).toBe(browser.sessionStorage)
+  })
+
+  it("keeps no session storage when the browser blocks it", () => {
+    const browser = {
+      navigator: { onLine: true },
+      location: { assign: () => {} },
+      get sessionStorage(): never {
+        throw new DOMException("The operation is insecure.", "SecurityError")
+      },
+      addEventListener: () => {},
+    }
+    expect(browserConsoleChunkHost(browser, () => {}).storage).toBeUndefined()
   })
 })

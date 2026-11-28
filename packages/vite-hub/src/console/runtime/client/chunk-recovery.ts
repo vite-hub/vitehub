@@ -52,21 +52,29 @@ export function createConsoleChunkRecovery(host: ConsoleChunkRecoveryHost): (pat
   }
 }
 
-/** The host of a Console page in a browser. `open` opens a path in place, and `href` gives the URL of a path. */
-export function browserConsoleChunkHost(open: (path: string) => void, href: (path: string) => string = path => path): ConsoleChunkRecoveryHost {
+/** The browser window that a Console page runs in. */
+export interface ConsoleChunkBrowser {
+  navigator: { onLine: boolean }
+  location: { assign: (url: string) => void }
+  readonly sessionStorage: ConsoleChunkRecoveryHost["storage"]
+  addEventListener: (type: "online", listener: () => void, options: { once: true }) => void
+}
+
+/** The host of a Console page in `browser`. `open` opens a path in place, and `href` gives the URL of a path. */
+export function browserConsoleChunkHost(browser: ConsoleChunkBrowser, open: (path: string) => void, href: (path: string) => string = path => path): ConsoleChunkRecoveryHost {
   return {
-    online: () => navigator.onLine,
-    onceOnline: listener => window.addEventListener("online", listener, { once: true }),
-    load: path => window.location.assign(href(path)),
+    online: () => browser.navigator.onLine,
+    onceOnline: listener => browser.addEventListener("online", listener, { once: true }),
+    load: path => browser.location.assign(href(path)),
     open,
     notify: title => useConsoleToast().error(title),
-    storage: sessionStorageOrUndefined(),
+    storage: sessionStorageOf(browser),
   }
 }
 
-function sessionStorageOrUndefined(): Storage | undefined {
+function sessionStorageOf(browser: ConsoleChunkBrowser): ConsoleChunkRecoveryHost["storage"] {
   try {
-    return window.sessionStorage
+    return browser.sessionStorage
   }
   catch {
     return undefined
