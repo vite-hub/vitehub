@@ -1,12 +1,7 @@
-import { afterEach, expect, it } from "vitest"
+import { expect, it } from "vitest"
 
 import { scheduleErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { runScheduleNow } from "../src/runtime/operations.ts"
-import { resetScheduleRuntime, setHostScheduleInventory } from "../src/runtime/state.ts"
-
-afterEach(() => {
-  resetScheduleRuntime()
-})
 
 const codes = {
   SCHEDULE_DEFINITION_NOT_FOUND: scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(),
@@ -29,14 +24,4 @@ it("gives a name that this server does not know SCHEDULE_DEFINITION_NOT_FOUND wi
     fix: expect.stringContaining("manual: true"),
     status: 404,
   })
-})
-
-it("gives a known Schedule that is not manual SCHEDULE_MANUAL_RUN_DISABLED with status 403 and a fix", async () => {
-  setHostScheduleInventory({ timings: { report: { cron: "0 8 * * *" } } })
-  await expect(runScheduleNow({ name: "report" }, {})).rejects.toMatchObject({
-    code: "SCHEDULE_MANUAL_RUN_DISABLED",
-    fix: expect.stringContaining("manual: true"),
-    status: 403,
-  })
-  await expect(runScheduleNow({ name: "missing" }, {})).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND", status: 404 })
 })

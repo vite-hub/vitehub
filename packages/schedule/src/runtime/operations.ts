@@ -2,6 +2,7 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { createScheduleError } from "../errors.ts"
+import { loadScheduleRegistry } from "../run.ts"
 import { loadStaticScheduleDefinition, runScheduleFrom } from "./execute.ts"
 import { startedSchedulesTickName } from "./started-name.ts"
 import { getHostScheduleInventory, getProcessScheduleDefinitions, getScheduleRunStore, getStartedScheduleRuntime } from "./state.ts"
@@ -201,22 +202,22 @@ export async function runScheduleAttempts(input: { id: string }): Promise<Schedu
 
 const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
 
-function isStaticScheduleName(name: string): boolean {
-  if (name === startedSchedulesTickName) return false
-  const inventory = getHostScheduleInventory()
-  return Object.hasOwn(inventory?.timings ?? {}, name) || Object.hasOwn(inventory?.registry ?? {}, name) || getProcessScheduleDefinitions()?.has(name) === true
-}
-
 /**
- * Runs a Static Schedule Definition that sets `manual: true`, as if its cron fired at `at` (default: now). The registry holds only those definitions, and it is empty
- * unless Console invocation is enabled. A known Definition without `manual: true` fails with `SCHEDULE_MANUAL_RUN_DISABLED`, and any other name with `SCHEDULE_DEFINITION_NOT_FOUND`.
+ * Runs a Static Schedule as if its cron fired at `at` (default: now) when its Definition is in the Console registry.
+ * A known Definition without `manual: true` fails with `SCHEDULE_MANUAL_RUN_DISABLED`. Other unavailable names fail with `SCHEDULE_DEFINITION_NOT_FOUND`.
  */
 export async function runScheduleNow(input: { at?: string, name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
-  if (!Object.hasOwn(registry, input.name)) {
-    if (isStaticScheduleName(input.name)) throw withStatus(createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED"), 403, errorFix.SCHEDULE_MANUAL_RUN_DISABLED)
-    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(), 404)
-  }
-  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }))
+  return await attempt(async () => {
+    if (!Object.hasOwn(registry, input.name)) {
+      const definitions = await loadScheduleRegistry().catch((cause: unknown) => {
+        throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND({ cause })
+      })
+      const definition = await loadStaticScheduleDefinition(input.name, definitions)
+      if (definition && definition.options?.manual !== true) throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
+      throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND()
+    }
+    return { run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }
+  })
 }
 
 /** Serializable view of one started Schedule, as `vitehub schedule list` prints it. */
