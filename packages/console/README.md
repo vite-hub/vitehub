@@ -126,6 +126,7 @@ The contract with an app's page tools loader:
 | Variable | Use |
 | --- | --- |
 | `BETTER_AUTH_SECRET` | The key that signs sessions, at least 32 characters. |
+| `BETTER_AUTH_URL` | The public URL that people open, such as `https://console.example.com`. Better Auth reads it for sign-in. Required on Node, with or without Docker, and on Vercel. |
 | `VITEHUB_CONSOLE_PUBLIC_URL` | Build-time public URL of this Console, such as `https://console.example.com`. Required on Node (including Docker) to accept signed calls through a Console link. Rebuild and redeploy when it changes. `BETTER_AUTH_URL` alone does not configure this origin. |
 | `VITEHUB_CONSOLE_SECRET` | The key that encrypts the private keys of the project links, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the keys, and teams must link their projects again. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional. GitHub sign-in. |
@@ -135,6 +136,7 @@ The contract with an app's page tools loader:
 | `VITEHUB_CONSOLE_ENV_KEY` | The 32-byte key that encrypts env values, as base64 or 64 hex digits. Required when `VITEHUB_CONSOLE_ENV_VALUES` is `1`, unless `VITEHUB_CONSOLE_ENV_KEYS` is set. |
 | `VITEHUB_CONSOLE_ENV_KEYS` | Optional. In place of `VITEHUB_CONSOLE_ENV_KEY` during a rotation: comma-separated keys, the current key first. See [Rotate the env key](#rotate-the-env-key). |
 | `VITEHUB_CONSOLE_KEY_<NAME>` | Optional. The public key of a link to this Console from a Console, such as itself. See [Link the Console to itself](#link-the-console-to-itself). |
+| `PORT`, `HOST` | Optional, Node only. The port and the address that `node .output/server/index.mjs` listens on. The defaults are `3000` and all addresses. The Docker image sets `PORT=3000` and `HOST=0.0.0.0`. |
 
 ## Link the Console to itself
 
@@ -211,7 +213,19 @@ export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl 
 docker compose up -d --build
 ```
 
-Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the private keys of the project links. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
+Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the private keys of the project links. The `console-data` volume holds the database. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
+
+### VPS without Docker
+
+Build with the `VITEHUB_DATA_DIR` that the server uses, then start it. Set `BETTER_AUTH_URL` to the URL that people open: when it is missing or different, sign-in fails. `PORT` and `HOST` set where the server listens. Put TLS in front, such as Caddy, and send it to that port.
+
+```sh
+VITEHUB_CONSOLE_PUBLIC_URL=https://console.example.com VITEHUB_DATA_DIR=/var/lib/vitehub-console vp build
+BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=<secret> VITEHUB_CONSOLE_SECRET=<secret> \
+PORT=3000 HOST=127.0.0.1 node .output/server/index.mjs
+```
+
+The server runs the migrations when it starts. To try it on your computer, use `http://localhost:4795` for both URLs, `PORT=4795`, and `VITEHUB_CONSOLE_ALLOW_PRIVATE=true` to link apps that run on your computer.
 
 ### Cloudflare
 
