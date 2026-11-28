@@ -869,7 +869,7 @@ describe("the Comments segment, as in Drop", () => {
     await vi.waitFor(() => expect(labels()).toEqual(["Comments, 1 open", "Hide comments", "copy-page-prompt", "Highlight"]))
 
     commentsButton(bar)!.click()
-    await vi.waitFor(() => expect(labels()).toEqual(["Comments: click anywhere on the page", "Hide comments", "All comments1", "copy-page-prompt", "more-tools"]))
+    await vi.waitFor(() => expect(labels()).toEqual(["Comments: click anywhere on the page", "Hide comments", "All comments1", "copy-page-prompt", "Highlight"]))
   })
 
   it("opens the list from Comments for a person who may only read", async () => {

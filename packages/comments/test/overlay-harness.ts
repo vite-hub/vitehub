@@ -99,10 +99,12 @@ export async function openList(bar: HTMLElement) {
   tool(bar, "All comments on this page")!.click()
 }
 
-export async function wholePage(bar: HTMLElement) {
-  if (!tool(bar, "Comment on the whole page")) tool(bar, "Comment on the page (C)")!.click()
-  await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
-  tool(bar, "Comment on the whole page")!.click()
+/** Opens the whole-page composer from the island at the top, turning comment mode on first. */
+export async function wholePage(bar: HTMLElement, root: ParentNode = document.querySelector("vitehub-comments")!.shadowRoot!) {
+  const trigger = () => root.querySelector<HTMLButtonElement>('[data-slot="comment-page-island-trigger"]')
+  if (!tool(bar, "Stop commenting (C)")) tool(bar, "Comment on the page (C)")!.click()
+  await vi.waitFor(() => expect(trigger()).not.toBeNull())
+  trigger()!.click()
 }
 
 /** Types into a composer textarea the way a person does: the value, the caret, then `input`. Vue renders before the next key. */
