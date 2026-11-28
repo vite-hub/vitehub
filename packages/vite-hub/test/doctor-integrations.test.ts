@@ -219,6 +219,18 @@ describe("vitehub/valid-vitehub-options", () => {
     })).toEqual(Array(7).fill("VHUB0031"))
   })
 
+  it("reports keys that are not ViteHub options, in Vite and in Nuxt", async () => {
+    expect(await codes(validViteHubOptions, {
+      "vite.config.ts": lines(
+        "import { vitehub } from \"vite-hub\"",
+        "export default { plugins: [vitehub({ kv: true, \"rate-limit\": true, kvv: true })] }",
+      ),
+    })).toEqual(Array(2).fill("VHUB0031"))
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { databse: true }]], vitehub: { kv: true, ratelimit: true } })",
+    }, "nuxt")).toEqual(Array(2).fill("VHUB0031"))
+  })
+
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
     expect(await codes(validViteHubOptions, {
       "nuxt.config.ts": lines(

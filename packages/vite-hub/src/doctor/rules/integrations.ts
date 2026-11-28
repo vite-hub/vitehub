@@ -5,7 +5,7 @@ import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleS
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
-import { removedViteHubOptions } from "../../removed-options.ts"
+import { closestViteHubOptionKey, isViteHubOptionKey, removedViteHubOptions } from "../../removed-options.ts"
 
 // Local helpers.
 
@@ -329,6 +329,13 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, 
     const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
+    }
+    else if (parent === undefined && name !== undefined && !isViteHubOptionKey(name)) {
+      const suggestion = closestViteHubOptionKey(name)
+      report = {
+        why: `\`${name}\` is not a ViteHub option. The build fails on this key.`,
+        fix: suggestion ? `Rename \`${name}\` to \`${suggestion}\`.` : `Remove \`${name}\`, or use an option from https://vitehub.dev/docs/reference/config-options.`,
+      }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }
