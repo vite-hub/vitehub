@@ -338,6 +338,15 @@ describe("Vite schedule integration", () => {
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
   })
 
+  it("points the registry import at the Schedule registry and returns its source map", () => {
+    const transform = hookHandler<(code: string) => { code: string, map: { mappings: string } } | undefined>(hubSchedule({ providerOutput: false }).transform)
+    const code = "const registryModule = './registry.js'\nexport const load = () => import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule)\n"
+    const result = transform(code)
+    expect(result?.code).toBe("const registryModule = './registry.js'\nexport const load = () => import(\"#vitehub/schedule/registry\")\n")
+    expect(result?.map.mappings).toMatch(/^[A-Za-z0-9+/,]+;[A-Za-z0-9+/,]+/)
+    expect(transform("/* @vitehub-schedule-registry */ export {}\n")).toBeUndefined()
+  })
+
   it("filters the resolveId and load hooks to the Schedule registry", () => {
     const plugin = hubSchedule({ providerOutput: false })
     const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
