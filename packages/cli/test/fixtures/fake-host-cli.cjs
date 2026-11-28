@@ -119,6 +119,21 @@ function wranglerTargets(config, url) {
 }
 
 function vercel() {
+  // Projects that exist live in `state.vercelProjects`. `project inspect` exits 1 for another name, as Vercel CLI does.
+  if (argv[0] === "project" && argv[1] === "inspect") {
+    if (!(state.vercelProjects ?? []).includes(argv[2])) {
+      process.stderr.write(`Error: There is no project for "${argv[2]}"\n`)
+      process.exit(1)
+    }
+    process.stdout.write(`Found Project ${argv[2]}\n`)
+    return
+  }
+  if (argv[0] === "project" && argv[1] === "add") {
+    state.vercelProjects = [...state.vercelProjects ?? [], argv[2]]
+    save()
+    process.stderr.write(`Success! Project ${argv[2]} added\n`)
+    return
+  }
   // Variables live in `state.vercel[environment]`, as Vercel keeps one value for each environment.
   if (argv[0] === "env" && argv[1] === "add") {
     const environment = flag("--environment")

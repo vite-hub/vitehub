@@ -1,0 +1,20 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.11.0
+▲ vercel project inspect [name] [options]
+Displays information related to a project
+
+Options:
+  --json     Output as JSON
+  -y, --yes  Accept default value for all prompts
+
+Global Options: See `vercel --help`
+
+Examples:
+  Inspect the linked project from the current directory
+    vercel project inspect
+
+  Inspect the project named "my-project"
+    vercel project inspect my-project
+
+  Inspect a project as JSON
+    vercel project inspect my-project --json

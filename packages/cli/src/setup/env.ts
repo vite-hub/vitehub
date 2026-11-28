@@ -17,7 +17,7 @@ import { denoEnv } from "./deploy/deno.ts"
 import { githubEnv, isGitHubSecretName, resolveGitHubRepository, resolveGitHubToken } from "./deploy/github.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { netlifyEnv } from "./deploy/netlify.ts"
-import { vercelEnv } from "./deploy/vercel.ts"
+import { vercelEnv, vercelProject } from "./deploy/vercel.ts"
 import { isSetupFailure, setupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
@@ -598,6 +598,11 @@ export interface DeployEnvOptions {
    */
   consoleKeys?: Readonly<Record<string, string>>
   deferConsoleKey?: boolean
+  /**
+   * The project name of a deploy without `link`. On Vercel, the gate reads the names of that project when it exists,
+   * and `apply()` creates it when it does not, so deploy can set values before the first deploy.
+   */
+  projectName?: string
 }
 
 export interface DeployEnvPlan {
@@ -638,8 +643,13 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   if (!entries.length) return { apply: async () => {}, onHost: new Set(), output, upload: {} }
 
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
-  const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
-  const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
+  const firstVercel: SetupLink | undefined = !link && host === "vercel" && options.projectName ? { host, linkedAt: "", project: { name: options.projectName }, verified: false } : undefined
+  const hostLink = link ?? firstVercel
+  const hostContext = hostLink ? { env: context.env, fetch: context.fetch ?? globalThis.fetch, link: hostLink, root: options.root, run: options.run, secrets: options.secrets, target } : undefined
+  const hostEnv = hostContext ? hostEnvs[host](hostContext) : undefined
+  const uncheckedVercel = host === "vercel" && hostContext && !hostContext.link.project.id ? vercelProject(hostContext) : undefined
+  const newProject = uncheckedVercel && !await uncheckedVercel.exists() ? uncheckedVercel : undefined
+  const onHost = new Set(hostEnv && !newProject ? await hostEnv.listSecretNames() : [])
   const values = await readLocalEnvValues(options.root, options.envDir, stage, context.env)
   for (const [name, value] of Object.entries(host === "cloudflare" ? options.consoleKeys ?? {} : {})) {
     if (onHost.has(name) && !values.has(name)) values.set(name, { encrypted: false, files: [], source: "console", value })
@@ -694,6 +704,10 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   if (host === "cloudflare" || !hostEnv) return { apply: async () => {}, onHost: deployedNames, output, upload: host === "cloudflare" ? Object.fromEntries(planned.map(item => [item.name, item.value])) : {} }
   return {
     apply: async () => {
+      if (newProject && planned.length) {
+        context.stderr.write(`Creating the ${newProject.name} project on ${host}, so deploy can set its variables.\n`)
+        await newProject.create()
+      }
       for (const item of planned) await hostEnv.setSecret(item.name, item.value, { secret: item.secret })
     },
     onHost: deployedNames,

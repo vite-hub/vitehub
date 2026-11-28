@@ -314,6 +314,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     link: args.temporary ? undefined : link,
     outputDir: output.outputDir,
     preview: args.preview,
+    ...(link || args.temporary ? {} : { projectName }),
     pushEnv: args.pushEnv,
     root: project.root,
     run,
