@@ -81,7 +81,6 @@
   "packages/database/test/idempotency.test.ts": 4,
   "packages/database/test/ignored-url-variable.test.ts": 2,
   "packages/database/test/leases.test.ts": 6,
-  "packages/database/test/libsql-cloudflare-build.test.ts": 2,
   "packages/database/test/libsql-drizzle.test.ts": 1,
   "packages/database/test/libsql-startup.test.ts": 1,
   "packages/database/test/local-sqlite-processes.test.ts": 3,
