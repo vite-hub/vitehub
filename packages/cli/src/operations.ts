@@ -11,7 +11,7 @@ import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 import { consoleClient } from "./setup/console-apps.ts"
 import { readConsoleCredential } from "./setup/console-auth.ts"
 
-import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommandNamespace, ViteHubCliConsoleRoute, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
@@ -315,7 +315,8 @@ function acceptedRoots(rootDir: string): string[] {
   return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
-async function throughConsole(url: string, context: ViteHubCliContext, signal: AbortSignal): Promise<{ target: string, authorization: string } | undefined> {
+/** The Console route for a call on `url` after `vitehub login`, or nothing when the CLI calls the app directly. Never throws. */
+export async function throughConsole(url: string, context: Pick<ViteHubCliContext, "env" | "fetch" | "stderr">, signal: AbortSignal): Promise<ViteHubCliConsoleRoute | undefined> {
   if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
   const warnDiscoveryFailed = () => {
     context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")

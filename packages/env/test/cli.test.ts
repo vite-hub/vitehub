@@ -514,6 +514,21 @@ describe("vitehub env list --url", () => {
     expect(output.stdout).toContain("1 of 1 variables would make loadServerEnv() fail.")
   })
 
+  it("asks the app through the Console after vitehub login", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-env-list-url-"))
+    roots.push(rootDir)
+    const calls: string[] = []
+    const { context } = captureContext(rootDir)
+    context.consoleRoute = async () => ({ authorization: "Bearer vhk_secret", target: "https://console.example.com/p/a1" })
+    context.fetch = async (url, init) => {
+      const call = readOperationRpcCall(JSON.parse(String(init?.body)))!
+      calls.push(`${String(url)} ${call.m} ${new Headers(init?.headers).get("authorization")}`)
+      return Response.json({ i: call.i, r: { entries: [], ok: true }, t: "s" })
+    }
+    expect(await feature("list").run(["--url", "https://app.example.com"], context)).toBe(0)
+    expect(calls).toEqual(["https://console.example.com/p/a1/_vitehub/rpc env.inspect Bearer vhk_secret"])
+  })
+
   it("refuses --stage with --url", async () => {
     const { context, output } = captureContext(process.cwd())
     expect(await feature("list").run(["--url", "https://app.example.com", "--stage", "production"], context)).toBe(1)

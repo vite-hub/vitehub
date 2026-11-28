@@ -156,6 +156,18 @@ describe("Email outbox failure output", () => {
 })
 
 describe("vitehub email outbox", () => {
+  it("sends a call on --url through the Console after vitehub login", async () => {
+    const output = context()
+    const fetch = devServer(listResult)
+    const consoleRoute = vi.fn(async () => ({ authorization: "Bearer vhk_secret", target: "https://console.example.com/p/a1" }))
+
+    await expect(runEmailOutboxCli(["list", "--url", "https://app.example.com"], { ...output.context, consoleRoute }, { fetch })).resolves.toBe(0)
+
+    expect(consoleRoute).toHaveBeenCalledWith("https://app.example.com", expect.any(AbortSignal))
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(["https://console.example.com/p/a1/_vitehub/rpc"])
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer vhk_secret")
+  })
+
   it("lists captured messages as a table and as JSON", async () => {
     const human = context()
     const fetch = devServer(listResult)

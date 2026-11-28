@@ -1,7 +1,7 @@
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { requireViteHubDevServerUrl, type ViteHubCliContext } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { formatRuntimeDiagnosticError, isExecutionAuthority, isRuntimeDiagnostic, type ExecutionAuthority } from "@vite-hub/runtime"
 
@@ -12,6 +12,7 @@ import type { AgentInspectionMetadata } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface AgentInfoCliContext {
+  consoleRoute?: ViteHubCliContext["consoleRoute"]
   env: NodeJS.ProcessEnv
   rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
@@ -229,6 +230,7 @@ async function fetchAgentInfo(url: string, rootDir: string, fetchImpl: typeof fe
 
 async function readDeployedAgent(parsed: ParsedInfoArgs, context: AgentInfoCliContext, options: AgentInfoCliOptions): Promise<number> {
   const result = await callOperationFromCli({
+    consoleRoute: context.consoleRoute,
     env: context.env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     rootDir: context.rootDir,

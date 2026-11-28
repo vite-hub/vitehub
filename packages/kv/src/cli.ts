@@ -15,7 +15,7 @@ import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliSeed, ViteHubC
 import type { KVDevOperation } from "./results.ts"
 import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./runtime/operations.ts"
 
-export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
+export type KVCliContext = Pick<ViteHubCliContext, "consoleRoute" | "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface KVCliOptions {
   /** Asks whether `delete` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
@@ -357,6 +357,7 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   if (command.value) input.value = value
   const called = await callOperationFromCli({
     ...(command.name === "delete" ? { confirmed: true } : {}),
+    consoleRoute: context.consoleRoute,
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

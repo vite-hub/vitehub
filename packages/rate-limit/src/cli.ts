@@ -11,7 +11,7 @@ import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteH
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
 import type { Duration } from "@vite-hub/runtime"
 
-export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
+export type RateLimitCliContext = Pick<ViteHubCliContext, "consoleRoute" | "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface RateLimitCliOptions {
   /** Asks whether `reset` may delete a counter. Defaults to a prompt on a terminal, and refuses without one. */
@@ -204,6 +204,7 @@ async function runRateLimitCommand(
     }
   }
   const called = await callOperationFromCli({
+    consoleRoute: context.consoleRoute,
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

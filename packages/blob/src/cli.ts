@@ -21,7 +21,7 @@ import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteH
 import type { BlobDevOperation } from "./results.ts"
 import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/operations.ts"
 
-export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
+export type BlobCliContext = Pick<ViteHubCliContext, "consoleRoute" | "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface BlobCliOptions {
   /** Asks whether `delete` may delete a blob. Defaults to a prompt on a terminal, and refuses without one. */
@@ -424,6 +424,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   if (command.name === "list") input.showVitehub = true
   const called = await callOperationFromCli({
     ...(command.name === "delete" ? { confirmed: true } : {}),
+    consoleRoute: context.consoleRoute,
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

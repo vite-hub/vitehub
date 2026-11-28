@@ -122,6 +122,18 @@ describe("Blob delete confirmation", () => {
 })
 
 describe("vitehub blob", () => {
+  it("sends a call on --url through the Console after vitehub login", async () => {
+    const output = context()
+    const fetch = devServer({ blobs: [], hasMore: false, limit: 100, prefix: "", store: "default", stores: ["default"] })
+    const consoleRoute = vi.fn(async () => ({ authorization: "Bearer vhk_secret", target: "https://console.example.com/p/a1" }))
+
+    await expect(runBlobCli(["list", "--url", "https://app.example.com"], { ...output.context, consoleRoute }, { fetch })).resolves.toBe(0)
+
+    expect(consoleRoute).toHaveBeenCalledWith("https://app.example.com", expect.any(AbortSignal))
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(["https://console.example.com/p/a1/_vitehub/rpc"])
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer vhk_secret")
+  })
+
   it("sends the operation to the dev server of the project", async () => {
     const output = context()
     const fetch = devServer({ blobs: [], hasMore: false, limit: 100, prefix: "", store: "default", stores: ["default"] })

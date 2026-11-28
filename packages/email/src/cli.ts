@@ -18,7 +18,7 @@ import type { EmailTemplate } from "./templates.ts"
 import type { RenderedEmail } from "./types.ts"
 import type { EmailVueBuildOptions } from "./vue-compile.ts"
 
-export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
+export type EmailCliContext = Pick<ViteHubCliContext, "consoleRoute" | "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface EmailCliOptions {
   /** Asks whether `outbox clear` may remove every message. Defaults to a prompt on a terminal, and refuses without one. */
@@ -278,6 +278,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
   }
   const called = await callOperationFromCli({
     ...(command.name === "clear" ? { confirmed: true } : {}),
+    consoleRoute: context.consoleRoute,
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
