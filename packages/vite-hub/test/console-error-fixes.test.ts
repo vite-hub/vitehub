@@ -88,13 +88,13 @@ describe("Console error fixes", () => {
     }))
   })
 
-  it("tells a CLI call to a runtime without the Console journal how to turn the Console on", async () => {
+  it("tells a CLI call to a runtime without an Agent Invocation journal how to add an Agent", async () => {
     vi.resetModules()
     const { getConsoleInvocations } = await import("../src/console/runtime/server/invocations.ts")
     expect(() => getConsoleInvocations()).toThrow(expect.objectContaining({
       code: "VITE_HUB_R0063",
-      fix: expect.stringContaining("`console: true`"),
-      message: expect.stringContaining("The Console is off"),
+      fix: expect.stringContaining("server/agents/support.ts"),
+      message: expect.stringContaining("because it has no Agent Definition"),
     }))
   })
 

@@ -36,7 +36,7 @@ export async function readConsoleJournalUsage(invocations: AgentInvocations, que
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
   if (!invocations) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] This app has no Agent Invocation journal for the Console to read. The Console is off, or the app has no Agent Definition." })
+    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] This app has no Agent Invocation journal to read, because it has no Agent Definition." })
   }
   return invocations
 }

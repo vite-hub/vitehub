@@ -1,0 +1,44 @@
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { promisify } from "node:util"
+
+import { describe, expect, it } from "vitest"
+
+const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+const execFileAsync = promisify(execFile)
+
+const probe = `
+const { resolveConfig } = await import(process.argv[3])
+const { vitehub } = await import(process.argv[2])
+await resolveConfig({
+  configFile: false,
+  logLevel: "silent",
+  root: process.cwd(),
+  plugins: [vitehub({ host: "node", agent: true })],
+}, "serve")
+process.exit(0)
+`
+
+describe("dev RPC without the Console", () => {
+  it("installs the Agent Definitions and their journal, so `vitehub agent` commands work", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-dev-rpc-agents-"))
+    try {
+      await writeFile(join(root, "probe.mjs"), probe)
+      await writeFile(join(root, "package.json"), '{"type":"module"}\n')
+      await mkdir(join(root, "server/agents"), { recursive: true })
+      await writeFile(join(root, "server/agents/greeter.ts"), "export default {}\n")
+      const entry = pathToFileURL(join(packageRoot, "dist/index.js")).href
+      await execFileAsync(process.execPath, [join(root, "probe.mjs"), entry, import.meta.resolve("vite")], { cwd: root, timeout: 60_000 })
+      const appModule = await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
+      expect(appModule).toContain("installConsoleAgentDefinitions([")
+      expect(appModule).toContain("server/agents/greeter.ts")
+      expect(appModule).toMatch(/installConsoleSections\([^)]*"agents"/)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 90_000)
+})
