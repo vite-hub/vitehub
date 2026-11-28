@@ -2147,10 +2147,11 @@ export function viteHubPlugins(options: ViteHubOptions, reportVersionError = tru
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.
   if (featureOptionsResolved(options)) return create(options)
   const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()), viteRoot: process.cwd() }
-  const rootPlugin = (validate?: () => void) => withPrintedDiagnostics(definitionFeaturesRootPlugin(options, project, validate))
+  const earlyOptions = { ...options, database: false as const }
+  const rootPlugin = (validate?: () => void) => withPrintedDiagnostics(definitionFeaturesRootPlugin(earlyOptions, project, validate))
   try {
-    const resolved = resolveDefinitionFeatures(options, project)
-    if (resolved !== options) return [...create(resolved), rootPlugin()]
+    const resolved = resolveDefinitionFeatures(earlyOptions, project)
+    if (resolved !== earlyOptions) return [...create({ ...resolved, database: options.database }), rootPlugin()]
   }
   catch (error) {
     return [rootPlugin(() => { throw error })]

@@ -191,7 +191,7 @@ describe("editViteHubConfig", () => {
     const aliased = "import { vitehub as hub } from \"vite-hub\"\nexport default defineConfig(() => ({ plugins: [hub({ kv: true })] }))\n"
     expect(locateViteHubConfig("vite.config.ts", aliased)).toEqual({
       ok: true,
-      site: { form: "vite-call", options: { start: aliased.indexOf("{ kv"), end: aliased.indexOf("})") + 1 }, keys: { kv: { kind: "literal", value: true } }, spread: false },
+      site: { form: "vite-call", options: { start: aliased.indexOf("{ kv"), end: aliased.indexOf("})") + 1 }, keys: { kv: { kind: "literal", value: true } }, spread: false, viteRoot: false },
     })
     const fallback = "import hub from \"vite-hub\"\nconst config = { plugins: [hub()] }\nexport default config\n"
     expect(locateViteHubConfig("vite.config.ts", fallback)).toMatchObject({ ok: true, site: { form: "vite-call", keys: {} } })

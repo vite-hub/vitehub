@@ -1,7 +1,7 @@
 import { relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
+import { hasDefinitionFiles, hasServerDatabaseDefinitions } from "@vite-hub/internal/definition-catalog"
 import { features } from "@vite-hub/internal/features"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -36,7 +36,7 @@ function discoverDefinitionFeatures(options: DefinitionFeatureOptions, project: 
   for (const id of definitionFeatureIds) {
     if (options[id] !== undefined) continue
     const file = serverDirs.flatMap(directory => (features[id].enabledByDiscovery ?? []).map(name => resolve(project.projectRoot, directory, name)))
-      .find(candidate => hasDefinitionFiles(candidate))
+      .find(id === "database" ? hasServerDatabaseDefinitions : hasDefinitionFiles)
     if (file) found.set(id, relative(project.projectRoot, file))
   }
   // The Agent package serves the route of a Channel that receives webhooks, so that Channel file turns Agents on too.
@@ -63,6 +63,11 @@ function missingPackages(id: DefinitionFeature): string[] {
 export function resolveDefinitionFeatures<T extends DefinitionFeatureOptions>(options: T, project: DefinitionProject): T {
   const found = discoverDefinitionFeatures(options, project)
   if (!found.size) return options
+  checkDefinitionPackages(found)
+  return { ...options, ...Object.fromEntries([...found.keys()].map(id => [id, true])) }
+}
+
+export function checkDefinitionPackages(found: ReadonlyMap<DefinitionFeature, string>) {
   let missing = [...found.keys()].filter(id => missingPackages(id).length)
   if (missing.length) {
     // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
@@ -78,7 +83,6 @@ export function resolveDefinitionFeatures<T extends DefinitionFeatureOptions>(op
       packages: packages.join(", "),
     })
   }
-  return { ...options, ...Object.fromEntries([...found.keys()].map(id => [id, true])) }
 }
 
 /**

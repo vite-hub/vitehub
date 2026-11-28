@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "pathe"
+import { basename, dirname, relative, resolve } from "pathe"
 
 import {
   createDirectoryDefinitionSource,
@@ -8,6 +8,7 @@ import {
   discoverDefinitions,
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
+  serverDatabaseDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
 import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -49,12 +50,6 @@ export function serializeGeneratedRegistry(value: unknown): string {
 }
 
 const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
-const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
-const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
-const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
-/** The seed file of `vitehub seed`, in the folder of a Database. */
-const seedFilePattern = /^seed\.m?[jt]s$/i
-const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 /** The options object of `defineDatabase({ ... })`. With `exact`, the object cannot have a type assertion. */
@@ -677,31 +672,17 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
   }
 }
 
-function hasIndexFile(directory: string): boolean {
-  return indexFileNames.some(name => existsSync(join(directory, name)))
-}
-
 /**
  * The Database name of a file in `server/databases/`: `<name>.ts` or `<name>/index.ts`. A folder with an `index.ts` is
  * one Database, so its other files, such as schema modules and migrations, are not Definitions. Returns undefined for
  * those files. Throws for the `config.ts` files of the former layout.
  */
 export function serverDatabaseName(directory: string, file: string): string | undefined {
-  const path = relative(directory, file).replace(/\\/g, "/")
-  if (!databaseSourcePattern.test(path) || declarationFilePattern.test(path)) return
-  const parts = path.split("/")
-  const fileName = parts.at(-1)!
-  for (let depth = 1; depth < parts.length; depth++) {
-    if (!hasIndexFile(resolve(directory, ...parts.slice(0, depth)))) continue
-    return depth === parts.length - 1 && indexFilePattern.test(fileName) ? parts.slice(0, depth).join("/") : undefined
+  const name = serverDatabaseDefinitionName(directory, file)
+  if (name && legacyConfigFilePattern.test(basename(file))) {
+    throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "default" })
   }
-  if (parts.includes("migrations")) return
-  if (parts.length > 1 && seedFilePattern.test(fileName)) return
-  if (legacyConfigFilePattern.test(fileName)) {
-    const folder = parts.slice(0, -1).join("/")
-    throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: folder || "default" })
-  }
-  return path.replace(databaseSourcePattern, "")
+  return name
 }
 
 function discoverServerDatabases(serverDir: string) {

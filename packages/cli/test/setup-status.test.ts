@@ -14,6 +14,21 @@ function feature(status: SetupStatus, id: SetupFeatureStatus["id"]): SetupFeatur
 
 describe("vitehub status", () => {
   it.each([
+    ["app/server/databases/default/index.ts", "on"],
+    ["app/server/databases/default/seed.ts", "off"],
+    ["app/server/databases/default/migrations/old.ts", "off"],
+  ])("uses the configured Vite root and ignores Database helper files: %s", async (file, enabled) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": 'import { vitehub } from "vite-hub"; export default { root: "app", plugins: [vitehub()] }',
+      "server/databases/default.ts": "export {}",
+      [file]: "export {}",
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "database").enabled).toBe(enabled)
+  })
+
+  it.each([
     '{ sqlite: { runMigrations: true } }',
     '{ postgres: { schema: "custom" } }',
     '{ sqlite: { path: "   " } }',

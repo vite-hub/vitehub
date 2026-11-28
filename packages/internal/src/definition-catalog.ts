@@ -145,6 +145,27 @@ export function hasDefinitionFiles(path: string): boolean {
   return statSync(path).isFile() || listSourceFiles(path).length > 0
 }
 
+const databaseExtension = /\.(?:c|m)?[jt]s$/i
+const databaseIndexFiles = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
+
+export function serverDatabaseDefinitionName(directory: string, file: string): string | undefined {
+  const path = relative(directory, file).replace(/\\/g, "/")
+  if (!databaseExtension.test(path) || declarationFilePattern.test(path)) return
+  const parts = path.split("/")
+  const fileName = parts.at(-1)!
+  for (let depth = 1; depth < parts.length; depth++) {
+    const folder = resolve(directory, ...parts.slice(0, depth))
+    if (!databaseIndexFiles.some(name => existsSync(resolve(folder, name)))) continue
+    return depth === parts.length - 1 && /^index\.(?:c|m)?[jt]s$/i.test(fileName) ? parts.slice(0, depth).join("/") : undefined
+  }
+  if (parts.includes("migrations") || (parts.length > 1 && /^seed\.m?[jt]s$/i.test(fileName))) return
+  return path.replace(databaseExtension, "")
+}
+
+export function hasServerDatabaseDefinitions(directory: string): boolean {
+  return listSourceFiles(directory).some(file => serverDatabaseDefinitionName(directory, file) !== undefined)
+}
+
 export function normalizePathDefinitionName(rootDir: string, file: string): string {
   const relativePath = relative(rootDir, file)
   return relativePath.replace(sourceFilePattern, "").replace(/\/index$/i, "")

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { vitehub } from "../src/index.ts"
 
 const roots: string[] = []
+const enableExplicitly = "Set `database: true`, or remove `database: false` and use a Database Definition in `server/databases/`, to enable Database."
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -16,7 +17,6 @@ afterEach(async () => {
 })
 
 async function createProject(files: Record<string, string>): Promise<string> {
-  // Inside the package so the server entry resolves the workspace Database package.
   const root = await mkdtemp(join(import.meta.dirname, ".database-disabled-"))
   roots.push(root)
   for (const [file, content] of Object.entries(files)) {
@@ -76,12 +76,42 @@ describe("vitehub() and the database option", () => {
       "server/databases/default.ts": databaseDefinition,
       "src/server.ts": `import { useDatabase } from "vite-hub/database"\nexport const notes = useDatabase("default")\n`,
     })
-    vi.spyOn(process, "cwd").mockReturnValue(root)
     const plugins = vitehub({ host: "node", env: false })
 
     await expect(build(serverBuild(root, plugins))).resolves.toBeDefined()
     expect((await runDb(root, plugins, ["database", "--help"])).stdout).toContain("generate")
   }, 30_000)
+
+  it("uses the Vite root and ignores seeds and migration sources", async () => {
+    const root = await createProject({
+      "package.json": "{}\n",
+      "server/databases/default.ts": databaseDefinition,
+      "app/server/databases/default/seed.ts": "export {}\n",
+      "app/server/databases/default/migrations/old.ts": "export {}\n",
+    })
+    vi.spyOn(process, "cwd").mockReturnValue(root)
+    const app = join(root, "app")
+    const options = serverBuild(app, vitehub({ host: "node", env: false }))
+    const owners = async () => (await resolveConfig(options, "build")).plugins.filter(plugin => plugin.name === "@vite-hub/database/vite")
+    expect(await owners()).toHaveLength(0)
+    await writeFile(join(app, "server/databases/default.ts"), databaseDefinition)
+    const [owner] = await owners()
+    const api = owner?.api as ReturnType<typeof hubDatabase>["api"] | undefined
+    expect(api?.getConfig()?.definitions).toContainEqual(expect.objectContaining({ handler: join(app, "server/databases/default.ts"), tableNames: ["notes"] }))
+  })
+
+  it("keeps a directly composed owner's connection and CLI options with a Definition", async () => {
+    const root = await createProject({ "server/databases/default.ts": databaseDefinition })
+    vi.spyOn(process, "cwd").mockReturnValue(root)
+    const owner = hubDatabase({ connection: { url: "file:custom.sqlite" }, cli: { generate: false } })
+    const plugins = [vitehub({ host: "node", env: false }), owner as unknown as Plugin]
+    const config = await resolveConfig(serverBuild(root, plugins), "build")
+    expect(config.plugins.filter(plugin => plugin.name === owner.name)).toEqual([owner])
+    expect(owner.api.getConfig()?.databases.default?.connection?.url).toBe("file:custom.sqlite")
+    const help = await runDb(root, plugins, ["database", "--help"])
+    expect(help.stdout).toContain("migrate")
+    expect(help.stdout).not.toContain("generate")
+  })
 
   it("keeps Database off with `database: false` and a Database Definition", async () => {
     const root = await createProject({
@@ -92,7 +122,7 @@ describe("vitehub() and the database option", () => {
     vi.spyOn(process, "cwd").mockReturnValue(root)
 
     await expect(build(serverBuild(root, vitehub({ host: "node", database: false, env: false }))))
-      .rejects.toThrow(`Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". Remove \`database: false\` from vitehub() to enable Database.`)
+      .rejects.toThrow(`Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". ${enableExplicitly}`)
   })
 
   it("builds the same import when Database is enabled", async () => {
@@ -140,7 +170,7 @@ describe("vitehub() and the database option", () => {
     const databasePlugin = hubDatabase() as unknown as Plugin
     const plugins = [vitehub({ host: "node", database: false, env: false }), databasePlugin]
     await expect(build(serverBuild(root, plugins))).rejects.toThrow(
-      `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". Remove \`database: false\` from vitehub() to enable Database.`,
+      `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". ${enableExplicitly}`,
     )
   })
 
@@ -151,11 +181,11 @@ describe("vitehub() and the database option", () => {
 
     const help = await runDb(root, plugins, ["database", "--help"])
     expect(help.exitCode).toBe(0)
-    expect(help.stdout).toContain("Database is disabled. Remove `database: false` from vitehub() to enable Database.")
+    expect(help.stdout).toContain(`Database is disabled. ${enableExplicitly}`)
 
     const generate = await runDb(root, plugins, ["database", "generate"])
     expect(generate.exitCode).toBe(1)
-    expect(generate.stderr).toBe("[vitehub] Database is disabled, so ViteHub ignores the discovered Database Definitions. Remove `database: false` from vitehub() to enable Database.\n")
+    expect(generate.stderr).toBe(`[vitehub] Database is disabled, so ViteHub ignores the discovered Database Definitions. ${enableExplicitly}\n`)
   })
 
   it("adds no database commands when the project defines no Database", async () => {

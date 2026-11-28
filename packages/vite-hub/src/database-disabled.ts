@@ -32,7 +32,7 @@ interface DatabasePlugin {
  */
 export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, string>, explicitlyDisabled = false, workspaceStoreEntry?: string): Plugin & { vitehub: { cli: () => ViteHubCliContributor | undefined } } {
   const enableDatabase = explicitlyDisabled
-    ? "Remove `database: false` from vitehub() to enable Database."
+    ? "Set `database: true`, or remove `database: false` and use a Database Definition in `server/databases/`, to enable Database."
     : "Add a Database Definition in `server/databases/`, or set `database: true` in vitehub(), to enable Database."
   let serverDirs: string[] | undefined
   let state: DisabledDatabaseState | undefined

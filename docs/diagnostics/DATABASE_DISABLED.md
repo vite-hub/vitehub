@@ -37,7 +37,7 @@ Use the name of the Named Database that has the tables. For an Agent, set `db({ 
  })
 ```
 
-Remove `false` when you register `hubDatabase()` directly. With `vitehub()`, add a Default Database in `server/databases/default.ts`, or remove `database: false`.
+Remove `false` when you register `hubDatabase()` directly. With `vitehub()`, set `database: true`, or leave `database` unset and add a Definition in `server/databases/`.
 
 ## Check the fix
 
