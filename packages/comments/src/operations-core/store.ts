@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm"
-import type { SQL } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, is, isNotNull, lt, lte, or, sql } from "drizzle-orm"
+import { PgTable } from "drizzle-orm/pg-core"
+import type { SQL, SQLWrapper } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
 import { guestIdPrefix } from "../identity.ts"
@@ -144,23 +145,6 @@ function escapeLike(value: string): string {
   return value.replaceAll(/[%_\\]/g, "\\$&")
 }
 
-const maximumLikeBytes = 50
-const encoder = new TextEncoder()
-
-/**
- * A LIKE pattern for text that contains `value`. D1 refuses a pattern over 50 bytes, so a longer value matches only
- * by its end, and the caller checks the whole value.
- */
-function containsPattern(value: string): string {
-  let end = ""
-  for (const character of [...value].reverse()) {
-    const next = `${escapeLike(character)}${end}`
-    if (encoder.encode(`%${next}%`).byteLength > maximumLikeBytes) break
-    end = next
-  }
-  return `%${end}%`
-}
-
 export interface NewMessage {
   actor?: CommentActor
   attachments: string[]
@@ -233,6 +217,12 @@ export interface CommentsStore {
 export function createCommentsStore(database: CommentsDatabase, tables: CommentsTables = { commentCounters, commentMessages, commentThreads }): CommentsStore {
   const { commentCounters: counters, commentMessages: messages, commentThreads: threads } = tables
   const db = database
+  const postgres = is(messages, PgTable)
+
+  function containsQuotedString(column: SQLWrapper, value: string) {
+    const quoted = JSON.stringify(value)
+    return postgres ? sql`strpos(${column}, ${quoted}) > 0` : sql`instr(${column}, ${quoted}) > 0`
+  }
 
   async function attach(rows: ThreadRow[]): Promise<CommentThread[]> {
     const ids = rows.map(row => row.id)
@@ -431,9 +421,8 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       return row ? find(row.threadId) : null
     },
     async getByAttachment(key, cursor) {
-      const pattern = containsPattern(JSON.stringify(key))
       const rows = await db.select({ id: messages.id, threadId: messages.threadId, attachments: messages.attachments }).from(messages)
-        .where(and(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`, cursor === undefined ? undefined : gt(messages.id, cursor)))
+        .where(and(containsQuotedString(messages.attachments, key), cursor === undefined ? undefined : gt(messages.id, cursor)))
         .orderBy(asc(messages.id)).limit(candidateLimit)
       const ids = [...new Set(rows.filter(row => parseJson<string[]>(row.attachments, []).includes(key)).map(row => row.threadId))]
       const found = await Promise.all(ids.map(id => find(id)))
@@ -576,9 +565,8 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       // A thread that keeps replies keeps the id of the person who started it, but not their name and image.
       const started = await db.select({ id: threads.id }).from(threads)
         .where(and(eq(threads.authorId, userId), or(isNotNull(threads.authorName), isNotNull(threads.authorImage))))
-      // `resolvedBy` holds the JSON of the person, so the pattern finds candidates and the parsed id decides.
       const candidates = await db.select({ id: threads.id, resolvedBy: threads.resolvedBy }).from(threads)
-        .where(sql`${threads.resolvedBy} like ${containsPattern(JSON.stringify(userId))} escape '\\'`)
+        .where(containsQuotedString(threads.resolvedBy, userId))
       const resolved = candidates.flatMap(({ id, resolvedBy }) => resolvedBy !== null && parseJson<CommentUser | undefined>(resolvedBy, undefined)?.id === userId
         ? [{ id, resolvedBy }]
         : [])

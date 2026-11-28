@@ -160,6 +160,20 @@ describe("on a Database with the D1 limit of 50 bytes per LIKE pattern", () => {
     expect((await store.getByAttachment(key)).threads.map(entry => entry.id)).toEqual([wanted.id])
   })
 
+  it("finds a long attachment on the first page despite other uploads with the same filename", async () => {
+    const store = createCommentsStore(createD1LimitedDatabase())
+    const filename = "monthly-design-review-desktop-dark-mode-screenshot.png"
+    const key = `comments/page/wanted/${filename}`
+    for (let index = 0; index < 200; index++) {
+      await store.createThread({ ...thread("Other"), id: `other-${index}`, attachments: [`comments/page/${index}/${filename}`] })
+    }
+    const wanted = await store.createThread({ ...thread("Look"), id: "wanted", attachments: [key] })
+
+    const page = await store.getByAttachment(key)
+    expect(page.threads.map(entry => entry.id)).toEqual([wanted.id])
+    expect(page.cursor).toBeUndefined()
+  })
+
   it("deletes a person with a long id who resolved a thread", async () => {
     const store = createCommentsStore(createD1LimitedDatabase())
     const person = { id: `github:${end}`, name: "Ada" }
