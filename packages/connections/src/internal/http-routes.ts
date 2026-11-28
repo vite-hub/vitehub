@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { chatgptTransfers } from "./chatgpt-transfer.ts";
 
-import { resolvePublicUrl } from "@vite-hub/runtime";
+import { getViteHubErrorShape, resolvePublicUrl } from "@vite-hub/runtime";
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
 import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
@@ -86,6 +86,8 @@ export function errorStatus(error: unknown): number {
 export function errorResponse(error: unknown): Response {
   if (isConnectionError(error))
     return json({ error: managementErrorBody(error.code, error.why, undefined, undefined, error.fix) }, errorStatus(error));
+  const shape = getViteHubErrorShape(error);
+  if (shape) return json({ error: managementErrorBody(shape.code, shape.message) }, 500);
   return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 
@@ -147,7 +149,7 @@ export interface ConnectionsRoute {
   readonly id: "action" | "callback" | "connect";
   readonly method: "GET" | "POST";
   readonly matches: (path: string, base: string) => boolean;
-  readonly handle: (access: ConnectionsAccess, base: string) => Promise<Response>;
+  readonly handle: (access: ConnectionsAccess, base: string, onAction: (action: v.InferOutput<typeof actionSchema>["action"]) => void) => Promise<Response>;
 }
 
 const connect: ConnectionsRoute = {
@@ -271,7 +273,7 @@ const action: ConnectionsRoute = {
   id: "action",
   method: "POST",
   matches: (path, base) => path === base,
-  async handle(access) {
+  async handle(access, _base, onAction) {
     const runtime = connectionsRuntimeFor(access);
     const { actor, request } = access;
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -289,6 +291,7 @@ const action: ConnectionsRoute = {
         400,
       );
     const input = parsed.output;
+    onAction(input.action);
     const connections = runtime();
     switch (input.action) {
       case "list":

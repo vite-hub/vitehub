@@ -289,6 +289,28 @@ describe("vitehub connections", () => {
     expect(output.stderr).toContain("Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts.")
   })
 
+  it.each([
+    ["Nitro JSON", () => Response.json({ error: true, message: "Cannot find any route matching [POST] https://app.example.com/_vitehub/connections", status: 404 }, { status: 404 }), "Cannot find any route matching"],
+    ["actor JSON", () => Response.json({ message: "Not Found" }, { status: 404 }), "Not Found"],
+    ["plain text", () => new Response("Not Found", { status: 404 }), "Request failed with 404"],
+  ])("shows a conditional management hint for an uncoded %s 404", async (_name, response, message) => {
+    const output = { stderr: "", stdout: "" }
+    const context = { env: { ...devServerEnv }, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
+    const fetch = (async () => response()) as typeof globalThis.fetch
+    expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
+    expect(output.stderr).toContain(message)
+    expect(output.stderr).toContain("If the management route is not mounted")
+    expect(output.stderr).toContain("`connections: { management: { actor } }`")
+  })
+
+  it("shows the code and message of a ViteHub error from the app, such as a missing Env value", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = { env: { ...devServerEnv }, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
+    const fetch = (async () => Response.json({ error: { code: "ENV_REQUIRED_MISSING", message: "[vitehub] Required Env value google.clientId is missing. Set GOOGLE_CLIENT_ID." } }, { status: 500 })) as typeof globalThis.fetch
+    expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
+    expect(output.stderr).toContain("Set GOOGLE_CLIENT_ID. (ENV_REQUIRED_MISSING)")
+  })
+
   it("lists, approves, and revokes", async () => {
     const harness = cli()
     await connect(harness.test)

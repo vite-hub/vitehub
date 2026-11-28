@@ -156,6 +156,12 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
 })) })
 
+function statusFix(status: number, code: string | undefined): string | undefined {
+  if (status === 401 || status === 403) return "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts."
+  if (status === 404 && !code) return "If the management route is not mounted, configure `connections: { management: { actor } }` in the production build. See https://vitehub.dev/docs/connections/server-api#management-routes."
+  return undefined
+}
+
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect: RequestInit["redirect"] = "manual"): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
@@ -188,13 +194,13 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     value = JSON.parse(text)
   }
   catch {
-    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.` })
+    if (response.status !== 404) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.` })
   }
   if (!response.ok) {
     const parsedError = v.safeParse(v.object({ error: errorBody }), value)
     const topLevel = v.safeParse(errorBody, value)
     const error = parsedError.success ? parsedError.output.error : topLevel.success ? topLevel.output : undefined
-    const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts." : undefined)
+    const fix = error?.fix ?? statusFix(response.status, error?.code)
     throw connectionsErrorDiagnostics.CONNECTIONS_CLI_REQUEST_FAILED({ problem: `${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}` })
   }
   const result = v.safeParse(schema, value)

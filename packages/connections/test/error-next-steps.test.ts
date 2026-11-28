@@ -1,3 +1,4 @@
+import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
 import { connectionsErrorDiagnostics } from "../src/error-diagnostics.ts"
@@ -38,5 +39,17 @@ describe("Connection errors that need a person", () => {
       docs: "https://vitehub.dev/docs/connections/diagnostics/connections_needs_reconnect",
       fix: expect.stringContaining("vitehub connections connect t3:alice"),
     })
+  })
+
+  it("shows the code and message of a ViteHub error from another package, such as a missing Env value", async () => {
+    const response = errorResponse(new ViteHubError("ENV_REQUIRED_MISSING", "[vitehub] Required Env value google.clientId is missing. Set GOOGLE_CLIENT_ID."))
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: { code: "ENV_REQUIRED_MISSING", message: "[vitehub] Required Env value google.clientId is missing. Set GOOGLE_CLIENT_ID." } })
+  })
+
+  it("hides the message of an error that is not a ViteHub error", async () => {
+    const response = errorResponse(new Error("/home/app/secret path"))
+    const body = await response.json() as { error: { code: string, message: string } }
+    expect(body.error).toMatchObject({ code: "CONNECTIONS_REQUEST_FAILED", message: "The Connections request failed." })
   })
 })
