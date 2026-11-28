@@ -12,7 +12,7 @@ import postgresJs from "postgres"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
-import { authPluginSchemas, authPostgresSchema, authSqliteSchema, authTableSpecs, createAuthPostgresSchema, createAuthSqliteSchema, resolveAuthTableSpecs } from "../src/schema.ts"
+import { authPluginSchemas, authPostgresRelations, authPostgresSchema, authSqliteRelations, authSqliteSchema, authTableSpecs, createAuthPostgresSchema, createAuthRelations, createAuthSqliteSchema, resolveAuthTableSpecs } from "../src/schema.ts"
 import { authTableNames } from "../src/table-names.ts"
 import { assertAuthDatabaseNames } from "../src/database-schema-options.ts"
 
@@ -182,6 +182,60 @@ describe("Auth tables", () => {
     for (const schema of [authSqliteSchema, authPostgresSchema]) {
       expect(Object.fromEntries(Object.entries(schema).map(([key, table]) => [key, getTableName(table)]))).toEqual(authTableNames)
     }
+  })
+
+  it("builds Drizzle v1 relations for core, plugin, and additional reference fields", () => {
+    for (const [schema, relations] of [[authSqliteSchema, authSqliteRelations], [authPostgresSchema, authPostgresRelations]] as const) {
+      expect(relations.session.table).toBe(schema.session)
+      expect(Object.keys(relations.session.relations).sort()).toEqual(["oauthAccessTokens", "oauthRefreshTokens", "user"])
+      expect(Object.keys(relations.user.relations).sort()).toEqual([
+        "accounts",
+        "invitations",
+        "members",
+        "oauthAccessTokens",
+        "oauthClients",
+        "oauthConsents",
+        "oauthRefreshTokens",
+        "passkeys",
+        "sessions",
+      ])
+      expect(Object.keys(relations.member.relations).sort()).toEqual(["organization", "user"])
+      expect(Object.keys(relations.oauthClientResource.relations).sort()).toEqual(["oauthClient", "oauthResource"])
+    }
+
+    const options = {
+      plugins: ["twoFactor"] as const satisfies AuthSchemaPlugin[],
+      additionalFields: {
+        session: {
+          invitedBy: { type: "string", references: { model: "user", field: "id" } },
+        },
+      } as const,
+    }
+    const extendedSchema = createAuthSqliteSchema(options)
+    const extendedRelations = createAuthRelations(extendedSchema, options)
+    expect(extendedRelations.twoFactor.table).toBe(extendedSchema.twoFactor)
+    expect(Object.keys(extendedRelations.twoFactor.relations)).toEqual(["user"])
+    expect(Object.keys(extendedRelations.user.relations)).toContain("twoFactors")
+    expect(Object.keys(extendedRelations.session.relations)).toEqual(expect.arrayContaining(["user", "invitedByUser"]))
+    expect(Object.keys(extendedRelations.user.relations)).toEqual(expect.arrayContaining(["sessions", "sessionsByInvitedBy"]))
+
+    const collidingOptions = { additionalFields: { user: { accounts: { type: "string" } } } } as const
+    const collidingSchema = createAuthSqliteSchema(collidingOptions)
+    const collidingRelations = createAuthRelations(collidingSchema, collidingOptions)
+    expect(Object.keys(collidingRelations.user.relations)).not.toContain("accounts")
+    expect(Object.keys(collidingRelations.user.relations)).toContain("sessions")
+  })
+
+  it("decodes both legacy double-encoded and fresh SQLite JSON and array values", () => {
+    const redirectUris = authSqliteSchema.oauthClient.redirectUris
+    const metadata = authSqliteSchema.oauthClient.metadata
+    expect(redirectUris.mapFromDriverValue(JSON.stringify(JSON.stringify(["http://localhost/cb"])))).toEqual(["http://localhost/cb"])
+    expect(redirectUris.mapFromDriverValue(JSON.stringify(["http://localhost/cb"]))).toEqual(["http://localhost/cb"])
+    expect(redirectUris.mapToDriverValue(["http://localhost/cb"])).toBe(JSON.stringify(["http://localhost/cb"]))
+    expect(metadata.mapFromDriverValue(JSON.stringify(JSON.stringify({ plan: "pro" })))).toEqual({ plan: "pro" })
+    expect(metadata.mapFromDriverValue(JSON.stringify({ plan: "pro" }))).toEqual({ plan: "pro" })
+    expect(metadata.mapFromDriverValue(JSON.stringify("null"))).toBeNull()
+    expect(metadata.mapFromDriverValue(JSON.stringify("plain-text"))).toBe("plain-text")
   })
 })
 

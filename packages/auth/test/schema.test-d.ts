@@ -3,7 +3,7 @@ import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expectTypeOf, it } from "vitest"
 
-import { authPostgresSchema, authSqliteSchema, createAuthPostgresSchema, createAuthSqliteSchema } from "../src/schema.ts"
+import { authPostgresRelations, authPostgresSchema, authSqliteRelations, authSqliteSchema, createAuthPostgresSchema, createAuthRelations, createAuthSqliteSchema } from "../src/schema.ts"
 
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
@@ -103,5 +103,42 @@ describe("Auth table types", () => {
     expectTypeOf(createAuthPostgresSchema({ plugins: conditional }).user).not.toHaveProperty("twoFactorEnabled")
     expectTypeOf(createAuthSqliteSchema({ additionalFields: optionalModel }).user).not.toHaveProperty("language")
     expectTypeOf(createAuthPostgresSchema({ additionalFields: optionalField }).user).not.toHaveProperty("language")
+  })
+
+  it("types Drizzle v1 relations for core, twoFactor, and additional fields", async () => {
+    const db = {} as SQLiteAsyncDatabase<"async", unknown, typeof authSqliteRelations>
+    const session = await db.query.session.findFirst({ with: { user: true } })
+    expectTypeOf(session?.user?.email).toEqualTypeOf<string | undefined>()
+    expectTypeOf(authPostgresRelations.member.relations).toHaveProperty("organization")
+    expectTypeOf(authSqliteRelations).not.toHaveProperty("twoFactor")
+
+    const extendedOptions = {
+      plugins: ["twoFactor"],
+      additionalFields: {
+        session: {
+          invitedBy: { type: "string", references: { model: "user", field: "id" } },
+        },
+      },
+    } as const
+    const extendedSchema = createAuthSqliteSchema(extendedOptions)
+    const extendedRelations = createAuthRelations(extendedSchema, extendedOptions)
+    expectTypeOf(extendedRelations.twoFactor.relations).toHaveProperty("user")
+    expectTypeOf(extendedRelations.user.relations).toHaveProperty("twoFactors")
+    const extendedDb = {} as SQLiteAsyncDatabase<"async", unknown, typeof extendedRelations>
+    const userRow = await extendedDb.query.user.findFirst({ with: { sessions: true, sessionsByInvitedBy: true, twoFactors: true } })
+    expectTypeOf(userRow?.sessions[0]?.token).toEqualTypeOf<string | undefined>()
+    expectTypeOf(userRow?.sessionsByInvitedBy[0]?.invitedBy).toEqualTypeOf<string | null | undefined>()
+    const sessionRow = await extendedDb.query.session.findFirst({ with: { user: true, invitedByUser: true } })
+    expectTypeOf(sessionRow?.user?.email).toEqualTypeOf<string | undefined>()
+    expectTypeOf(sessionRow?.invitedByUser?.email).toEqualTypeOf<string | undefined>()
+
+    const collidingOptions = { additionalFields: { user: { accounts: { type: "string" } } } } as const
+    const collidingSchema = createAuthSqliteSchema(collidingOptions)
+    const collidingRelations = createAuthRelations(collidingSchema, collidingOptions)
+    expectTypeOf(collidingRelations.user.relations).not.toHaveProperty("accounts")
+    expectTypeOf(collidingRelations.user.relations).toHaveProperty("sessions")
+    const collidingDb = {} as SQLiteAsyncDatabase<"async", unknown, typeof collidingRelations>
+    // @ts-expect-error user.accounts is a column, so the accounts relation is omitted
+    await collidingDb.query.user.findFirst({ with: { accounts: true } })
   })
 })

@@ -1,6 +1,6 @@
 // `authDatabase()` connects Better Auth to a ViteHub Database. The Auth Vite plugin finds the call in the Auth
 // Definition and adds the Better Auth tables to that Database, so `vitehub database generate` writes their migration.
-import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2"
 import { databases } from "@vite-hub/database/runtime/registry"
 import { getAuthTables } from "better-auth/db"
 import { getTableColumns, is, isTable } from "drizzle-orm"
@@ -31,6 +31,54 @@ function assertAuthDatabaseSchema(options: BetterAuthOptions, schema: Readonly<R
   }
 }
 
+function readOwnRecord(value: unknown, key: string): object | undefined {
+  if (typeof value !== "object" || value === null || !Object.hasOwn(value, key)) return undefined
+  const entry: unknown = Reflect.get(value, key)
+  return typeof entry === "object" && entry !== null ? entry : undefined
+}
+
+function assertAuthDatabaseJoinRelations(options: BetterAuthOptions, db: unknown, schema: Readonly<Record<string, unknown>>, database: string): void {
+  if (!options.advanced?.database?.joins) return
+  const internal = readOwnRecord(db, "_")
+  const relationMap = readOwnRecord(internal, "relations")
+  const tables = getAuthTables(options)
+  const hasRelation = (model: string, key: string): boolean => {
+    const modelEntry = readOwnRecord(relationMap, model)
+    const modelRelations = readOwnRecord(modelEntry, "relations")
+    return Boolean(modelRelations && Object.hasOwn(modelRelations, key))
+  }
+  const missingRelationError = (model: string, key: string): Error => {
+    const drizzleTable = Object.hasOwn(schema, model) ? schema[model] : undefined
+    const columns = isTable(drizzleTable) ? getTableColumns(drizzleTable) : undefined
+    if (columns && Object.hasOwn(columns, key)) {
+      return authDatabaseSchemaError(`the \`${model}\` table of the ${JSON.stringify(database)} Database has no \`${key}\` relation for \`advanced.database.joins\`, because its \`${key}\` column collides with that relation name. Rename the column or turn off \`advanced.database.joins\``)
+    }
+    return authDatabaseSchemaError(`the \`${model}\` table of the ${JSON.stringify(database)} Database has no \`${key}\` relation for \`advanced.database.joins\`. Contribute the Auth relations to the Database or turn off \`advanced.database.joins\``)
+  }
+  const additionalFieldNames = (model: string): object | undefined => {
+    const modelOptions = readOwnRecord(options, model)
+    return readOwnRecord(modelOptions, "additionalFields")
+  }
+  for (const [model, table] of Object.entries(tables)) {
+    const additional = additionalFieldNames(model)
+    const targets = new Map<string, Array<{ unique: boolean }>>()
+    for (const [fieldName, field] of Object.entries(table.fields)) {
+      if (additional && Object.hasOwn(additional, fieldName)) continue
+      const target = field.references?.model
+      if (!target || !Object.hasOwn(tables, target)) continue
+      const entries = targets.get(target) ?? []
+      entries.push({ unique: Boolean(field.unique) })
+      targets.set(target, entries)
+    }
+    for (const [target, references] of targets) {
+      if (references.length !== 1) continue
+      if (!hasRelation(model, target)) throw missingRelationError(model, target)
+      const reverseKey = references[0]!.unique ? model : model.endsWith("s") ? model : `${model}s`
+      if (!hasRelation(target, reverseKey)) throw missingRelationError(target, reverseKey)
+    }
+  }
+}
+
 /**
  * The Better Auth `database` adapter for the app Database `name` (default `"default"`). Pass it inline as the
  * `database` of `defineAuth()`. Auth then adds the Better Auth tables, the fields of `admin()` when the Definition calls it, the
@@ -47,6 +95,7 @@ export function authDatabase(name: string = "default"): AuthAppDatabase {
       throw authErrorDiagnostics.AUTH_R0019({ message: `[vitehub] \`authDatabase(${JSON.stringify(name)})\` found no Better Auth tables in the ${JSON.stringify(name)} Database. Pass \`authDatabase()\` inline as the \`database\` of \`defineAuth()\` so that Auth adds them, enable the Database integration, and run \`vitehub database generate\`. \`vitehub inspect definitions --kind database\` lists the tables of each Database.` })
     }
     assertAuthDatabaseSchema(options, entry.schema, name)
+    assertAuthDatabaseJoinRelations(options, entry.db, entry.schema, name)
     return drizzleAdapter(entry.db, { provider: is(entry.db, PgAsyncDatabase) ? "pg" : "sqlite", schema: entry.schema })(options)
   }
   return Object.assign(adapter, { vitehubDatabase: name })
