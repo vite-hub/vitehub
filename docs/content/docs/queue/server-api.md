@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or on a Node server, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on a Node server, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the `welcome-email` queue used below.
 
 ## Public imports
 
