@@ -15,7 +15,7 @@ ViteHub UI has three layers. Each change goes to one of them:
 
 ## Use a part
 
-1. Import the part from its own entry: `import { Dialog, DialogTrigger, DialogContent } from "@vite-hub/kit/dialog"`. There is no root entry. In Nuxt, add `@vite-hub/kit/nuxt` to `modules` and the parts auto-import.
+1. Import the part from its ui-sdk entry: `import { Dialog, DialogTrigger, DialogContent } from "@ui-sdk/vue/dialog"`. `@vite-hub/kit` adds only the parts ui-sdk lacks, such as `@vite-hub/kit/tags-input`. In Nuxt, add `@vite-hub/kit/nuxt` to `modules` and the parts auto-import.
 2. Compose the parts the way the ui-sdk docs show (https://ui-sdk.dev). Props, events, and slots are ui-sdk's.
 3. Check the result in a browser, with the keyboard: Tab, Enter, Escape, and the arrow keys.
 
@@ -37,3 +37,11 @@ The `@vitehub` registry speaks the shadcn-vue format. Add it to `components.json
 Then run `npx shadcn-vue@latest add @vitehub/<item>`, or pass the item URL. Install `@vitehub` items only: a stock shadcn-vue item brings Reka UI back into the app.
 
 - `@vitehub/vitehub`: the style. It writes the tokens into the app's CSS and copies the family CSS to `styles/vitehub.css`, which the app's main stylesheet imports after `@layer ui-sdk;`.
+- `@vitehub/<component>`: Tailwind components on ui-sdk, in the shadcn shape: `button`, `input`, `textarea`, `label`, `card`, `badge`, `avatar`, `dialog`, `sheet`, `dropdown-menu`, `tabs`, `table`, `sidebar`, `command`, `toast`, `skeleton`, `empty`, and the `app-shell` block. They bring `@vitehub/utils` (`cn()`) and `@vitehub/theme` (the tokens as Tailwind variables). Import them from `@/components/ui/<item>`.
+
+Before you add the Tailwind components:
+
+- Start the main stylesheet with `@layer ui-sdk;` and then `@import "tailwindcss";`. Without the first line, ui-sdk's CSS wins over the utility classes.
+- In Nuxt, run `nuxi prepare` first, and scan only `.vue` files: `components: [{ path: "~/components", extensions: [".vue"] }]`.
+
+Change your copy in `components/ui/<item>`. Style a trigger or a link as a button with `buttonVariants({ variant: "outline" })` on its `class`. Status colors come from `text-vh-text-<tone>` and `bg-ui-<tone>/10`, never from a color literal.

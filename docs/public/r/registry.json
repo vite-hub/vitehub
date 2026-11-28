@@ -32,6 +32,738 @@
           "target": "~/.agents/skills/vitehub-ui/SKILL.md"
         }
       ]
+    },
+    {
+      "name": "utils",
+      "type": "registry:lib",
+      "title": "cn()",
+      "description": "The cn() helper that every ViteHub UI item uses to join Vue class values and merge Tailwind classes.",
+      "dependencies": [
+        "tailwind-merge"
+      ],
+      "files": [
+        {
+          "path": "registry/lib/utils.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "theme",
+      "type": "registry:theme",
+      "title": "ViteHub theme",
+      "description": "The ViteHub tokens as Tailwind theme variables, light and dark, with the ViteHub radius scale, the blue focus ring, and the base styles the UI items expect.",
+      "dependencies": [
+        "tw-animate-css"
+      ],
+      "cssVars": {
+        "theme": {
+          "radius-xs": "calc(var(--radius) * 0.5)",
+          "radius-sm": "var(--radius)",
+          "radius-md": "calc(var(--radius) * 1.5)",
+          "radius-lg": "calc(var(--radius) * 2)",
+          "radius-xl": "calc(var(--radius) * 3)",
+          "radius-2xl": "calc(var(--radius) * 4)",
+          "radius-3xl": "calc(var(--radius) * 6)",
+          "radius-4xl": "calc(var(--radius) * 8)"
+        }
+      },
+      "css": {
+        "@layer base": {
+          "body": {
+            "font-family": "var(--font-sans)",
+            "-webkit-font-smoothing": "antialiased",
+            "-moz-osx-font-smoothing": "grayscale"
+          },
+          ":focus-visible": {
+            "outline": "2px solid var(--ring)",
+            "outline-offset": "2px"
+          },
+          ":where([role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], [role='tab'], tr, [data-focus-inset]):focus-visible": {
+            "outline-offset": "-2px"
+          },
+          ":where(input, textarea, select, [tabindex='-1']):focus-visible": {
+            "outline": "none"
+          },
+          "::selection": {
+            "background-color": "color-mix(in oklab, var(--ring) 25%, transparent)"
+          }
+        }
+      }
+    },
+    {
+      "name": "button",
+      "type": "registry:ui",
+      "title": "Button",
+      "description": "A button on the ui-sdk Button part, with default, outline, secondary, ghost, destructive and link variants. An async @click keeps it pending.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/button/Button.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/button/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "input",
+      "type": "registry:ui",
+      "title": "Input",
+      "description": "A text field on the ui-sdk Input part. Its frame turns blue on focus and red when invalid, and it is 16px on touch screens.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/input/Input.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/input/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "textarea",
+      "type": "registry:ui",
+      "title": "Textarea",
+      "description": "A multi-line field on the ui-sdk Textarea part that grows with its text.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/textarea/Textarea.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/textarea/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "label",
+      "type": "registry:ui",
+      "title": "Label",
+      "description": "A field label on the ui-sdk Label part.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/label/Label.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/label/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "card",
+      "type": "registry:ui",
+      "title": "Card",
+      "description": "A framed group of related content with a header, an action, a body and a footer.",
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/card/Card.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardAction.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardDescription.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardFooter.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/CardTitle.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/card/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "badge",
+      "type": "registry:ui",
+      "title": "Badge",
+      "description": "A short label beside a name: neutral by default, or a status tone.",
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/badge/Badge.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/badge/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "avatar",
+      "type": "registry:ui",
+      "title": "Avatar",
+      "description": "An image of a person or a team, with initials while it loads or when it fails, on the ui-sdk Avatar part.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/avatar/Avatar.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/avatar/AvatarFallback.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/avatar/AvatarImage.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/avatar/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "dialog",
+      "type": "registry:ui",
+      "title": "Dialog",
+      "description": "A 448px task over the page on the ui-sdk Dialog part. It opens at once, traps focus and returns it.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/dialog/DialogContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dialog/DialogDescription.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dialog/DialogFooter.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dialog/DialogHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dialog/DialogTitle.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dialog/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "sheet",
+      "type": "registry:ui",
+      "title": "Sheet",
+      "description": "A panel from an edge of the screen on the ui-sdk Drawer part. You can drag it closed.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/sheet/Sheet.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/SheetContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/SheetDescription.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/SheetFooter.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/SheetHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/SheetTitle.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sheet/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "dropdown-menu",
+      "type": "registry:ui",
+      "title": "Dropdown menu",
+      "description": "Actions and settings in a menu on the ui-sdk Menu part, with checkbox, radio and submenu items.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuCheckboxItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuLabel.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuRadioItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuSeparator.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuShortcut.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuSubContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/DropdownMenuSubTrigger.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/dropdown-menu/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "tabs",
+      "type": "registry:ui",
+      "title": "Tabs",
+      "description": "Underline tabs on the ui-sdk Tabs part. The line follows the selected tab.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/tabs/TabsContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/tabs/TabsList.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/tabs/TabsTrigger.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/tabs/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "table",
+      "type": "registry:ui",
+      "title": "Table",
+      "description": "A data table with a header, rows, a footer, a caption and an empty row.",
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/table/Table.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableBody.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableCaption.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableCell.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableEmpty.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableFooter.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableHead.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/TableRow.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/table/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "skeleton",
+      "type": "registry:ui",
+      "title": "Skeleton",
+      "description": "A placeholder block in the shape of content that is loading.",
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/skeleton/Skeleton.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/skeleton/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "type": "registry:ui",
+      "title": "Empty state",
+      "description": "What a list, panel or search shows when it has nothing: a title, one line on how to add something, and the action.",
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/empty/Empty.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/EmptyContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/EmptyDescription.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/EmptyHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/EmptyMedia.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/EmptyTitle.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/empty/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "toast",
+      "type": "registry:ui",
+      "title": "Toast",
+      "description": "A stack of notifications on the ui-sdk Toast part. Call toast() from anywhere and place <Toaster /> once.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/toast/Toaster.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/toast/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "command",
+      "type": "registry:ui",
+      "title": "Command palette",
+      "description": "A searchable list of commands on the ui-sdk Command part, inline or in a dialog that opens with a shortcut.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/command/Command.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandDialog.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandEmpty.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandGroup.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandInput.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandList.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandSeparator.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/CommandShortcut.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/command/index.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "sidebar",
+      "type": "registry:ui",
+      "title": "Sidebar",
+      "description": "A sidebar that folds to icons on desktop and opens as a sheet below 768px. Ctrl+B or Cmd+B toggles it.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/utils",
+        "@vitehub/theme"
+      ],
+      "files": [
+        {
+          "path": "registry/ui/sidebar/Sidebar.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarContent.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarFooter.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarGroup.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarGroupLabel.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarHeader.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarInset.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenu.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuBadge.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuButton.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuSub.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuSubButton.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarMenuSubItem.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarProvider.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarSeparator.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/SidebarTrigger.vue",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/index.ts",
+          "type": "registry:ui"
+        },
+        {
+          "path": "registry/ui/sidebar/utils.ts",
+          "type": "registry:ui"
+        }
+      ]
+    },
+    {
+      "name": "app-shell",
+      "type": "registry:block",
+      "title": "App shell",
+      "description": "An app layout with a collapsible sidebar, sections that open and close, a top bar and the page.",
+      "dependencies": [
+        "@ui-sdk/vue",
+        "@ui-sdk/core",
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/sidebar"
+      ],
+      "files": [
+        {
+          "path": "registry/blocks/app-shell/AppShell.vue",
+          "type": "registry:component"
+        }
+      ]
     }
   ]
 }

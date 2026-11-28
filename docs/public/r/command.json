@@ -1,0 +1,68 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "command",
+  "type": "registry:ui",
+  "title": "Command palette",
+  "description": "A searchable list of commands on the ui-sdk Command part, inline or in a dialog that opens with a shortcut.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/command/Command.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Command as CommandPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandPart :class=\"cn('flex size-full flex-col overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground', props.class)\">\n    <slot />\n  </CommandPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandDialog.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Command } from \"@ui-sdk/vue/command\";\nimport { Dialog, DialogBackdrop, DialogContent, DialogDescription, DialogTitle } from \"@ui-sdk/vue/dialog\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = withDefaults(defineProps<{ title?: string; description?: string; class?: HTMLAttributes[\"class\"] }>(), {\n  title: \"Command palette\",\n  description: \"Search for a command to run.\",\n});\nconst open = defineModel<boolean>(\"open\", { default: false });\nconst emit = defineEmits<{ action: [value: string] }>();\n\nfunction run(value: string) {\n  emit(\"action\", value);\n  open.value = false;\n}\n</script>\n\n<template>\n  <Dialog v-model:open=\"open\">\n    <slot name=\"trigger\" />\n    <DialogBackdrop class=\"fixed inset-0 z-50 bg-overlay\" />\n    <DialogContent\n      :class=\"cn('fixed inset-x-0 top-[12dvh] z-50 mx-auto flex h-fit max-h-[min(28rem,76dvh)] w-[min(32rem,calc(100%-2rem))] flex-col overflow-hidden rounded-xl border-0 bg-popover p-0 text-sm text-popover-foreground shadow-dialog outline-none backdrop-blur-xl', props.class)\"\n    >\n      <DialogTitle class=\"sr-only\">{{ props.title }}</DialogTitle>\n      <DialogDescription class=\"sr-only\">{{ props.description }}</DialogDescription>\n      <Command class=\"flex min-h-0 flex-1 flex-col\" @action=\"run\">\n        <slot />\n      </Command>\n    </DialogContent>\n  </Dialog>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandEmpty.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandEmpty as CommandEmptyPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandEmptyPart :class=\"cn('py-6 text-center text-sm text-muted-foreground empty:hidden', props.class)\">\n    <slot />\n  </CommandEmptyPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandGroup.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandGroup as CommandGroupPart, CommandGroupLabel } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ heading?: string; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandGroupPart :class=\"cn('overflow-hidden py-1 text-foreground', props.class)\">\n    <CommandGroupLabel v-if=\"props.heading\" class=\"px-2 py-1.5 text-xs font-medium text-muted-foreground\">{{ props.heading }}</CommandGroupLabel>\n    <slot />\n  </CommandGroupPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandInput.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { SearchIcon } from \"@lucide/vue\";\nimport { CommandInput as CommandInputPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\ndefineOptions({ inheritAttrs: false });\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"command-input-wrapper\" class=\"flex h-11 items-center gap-2 border-b px-3\">\n    <SearchIcon class=\"size-4 shrink-0 text-muted-foreground\" aria-hidden=\"true\" />\n    <CommandInputPart\n      v-bind=\"$attrs\"\n      :class=\"cn('h-full w-full min-w-0 border-0 bg-transparent p-0 text-base outline-none pointer-fine:text-sm placeholder:text-ui-text-dimmed disabled:cursor-not-allowed disabled:opacity-50', props.class)\"\n    />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandItem as CommandItemPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandItemPart :class=\"cn('relative flex min-h-9 cursor-default items-center gap-2 rounded-md px-2 text-sm outline-none select-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4 [&_svg:not([class*=text-])]:text-muted-foreground', props.class)\">\n    <slot />\n  </CommandItemPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandList.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandList as CommandListPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandListPart :class=\"cn('max-h-80 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1', props.class)\">\n    <slot />\n  </CommandListPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandSeparator.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandSeparator as CommandSeparatorPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandSeparatorPart :class=\"cn('-mx-1 my-1 h-px bg-border', props.class)\" />\n</template>\n"
+    },
+    {
+      "path": "ui/command/CommandShortcut.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CommandShortcut as CommandShortcutPart } from \"@ui-sdk/vue/command\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <CommandShortcutPart :class=\"cn('ms-auto text-xs tracking-widest text-muted-foreground', props.class)\">\n    <slot />\n  </CommandShortcutPart>\n</template>\n"
+    },
+    {
+      "path": "ui/command/index.ts",
+      "type": "registry:ui",
+      "content": "export { CommandItemIcon, CommandItemText, CommandStatus } from \"@ui-sdk/vue/command\";\nexport { default as Command } from \"./Command.vue\";\nexport { default as CommandDialog } from \"./CommandDialog.vue\";\nexport { default as CommandEmpty } from \"./CommandEmpty.vue\";\nexport { default as CommandGroup } from \"./CommandGroup.vue\";\nexport { default as CommandInput } from \"./CommandInput.vue\";\nexport { default as CommandItem } from \"./CommandItem.vue\";\nexport { default as CommandList } from \"./CommandList.vue\";\nexport { default as CommandSeparator } from \"./CommandSeparator.vue\";\nexport { default as CommandShortcut } from \"./CommandShortcut.vue\";\n"
+    }
+  ]
+}

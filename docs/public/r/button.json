@@ -1,0 +1,27 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "button",
+  "type": "registry:ui",
+  "title": "Button",
+  "description": "A button on the ui-sdk Button part, with default, outline, secondary, ghost, destructive and link variants. An async @click keeps it pending.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/button/Button.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Button as ButtonPart } from \"@ui-sdk/vue/button\";\nimport { cn } from \"@/lib/utils\";\nimport { buttonVariants } from \".\";\nimport type { ButtonSize, ButtonVariant } from \".\";\n\nconst props = defineProps<{ variant?: ButtonVariant; size?: ButtonSize; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <ButtonPart :data-variant=\"props.variant ?? 'default'\" :class=\"cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)\">\n    <slot />\n  </ButtonPart>\n</template>\n"
+    },
+    {
+      "path": "ui/button/index.ts",
+      "type": "registry:ui",
+      "content": "import { cn } from \"@/lib/utils\";\n\nexport { default as Button } from \"./Button.vue\";\n\nconst variants = {\n  default: \"bg-primary text-primary-foreground hover:bg-primary/90\",\n  destructive: \"bg-destructive text-primary-foreground hover:bg-destructive/90\",\n  outline: \"border border-input bg-background hover:bg-accent\",\n  secondary: \"bg-secondary text-secondary-foreground hover:bg-ui-bg-accented\",\n  ghost: \"hover:bg-accent hover:text-accent-foreground\",\n  link: \"h-auto px-0 underline underline-offset-4 decoration-ui-border-accented hover:decoration-current active:scale-100\",\n};\n\nconst sizes = {\n  default: \"h-8 px-3\",\n  xs: \"h-6 gap-1 px-2 text-xs [&_svg:not([class*=size-])]:size-3.5\",\n  sm: \"h-7 gap-1.5 px-2.5\",\n  lg: \"h-9 px-4\",\n  icon: \"size-8\",\n  \"icon-sm\": \"size-7\",\n  \"icon-xs\": \"size-6 [&_svg:not([class*=size-])]:size-3.5\",\n};\n\nexport type ButtonVariant = keyof typeof variants;\nexport type ButtonSize = keyof typeof sizes;\n\nexport function buttonVariants({ variant = \"default\", size = \"default\" }: { variant?: ButtonVariant; size?: ButtonSize } = {}): string {\n  return cn(\n    \"inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap select-none transition-[color,background-color,scale] duration-150 active:scale-97 motion-reduce:transition-colors motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4\",\n    variants[variant],\n    sizes[size],\n  );\n}\n"
+    }
+  ]
+}

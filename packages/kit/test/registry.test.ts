@@ -74,4 +74,27 @@ describe("@vitehub registry", () => {
     const skill = items.find((item) => item.name === "vitehub-ui-skill");
     expect(skill?.dependencies ?? []).toContain("tw-animate-css");
   });
+
+  it("pins ui-sdk to the version the kit tests against", () => {
+    const kitPackage = JSON.parse(read("package.json")) as { dependencies: Record<string, string> };
+    const button = items.find((item) => item.name === "button");
+    expect(button?.dependencies).toEqual([
+      `@ui-sdk/vue@${kitPackage.dependencies["@ui-sdk/vue"]}`,
+      `@ui-sdk/core@${kitPackage.dependencies["@ui-sdk/core"]}`,
+    ]);
+  });
+
+  it("gives every component item the utils and theme items", () => {
+    for (const item of items.filter((entry) => entry.type === "registry:ui")) {
+      expect(item.registryDependencies, item.name).toEqual(expect.arrayContaining(["@vitehub/utils", "@vitehub/theme"]));
+      for (const file of item.files ?? []) expect(file.path, item.name).toMatch(new RegExp(`^ui/${item.name}/`));
+    }
+  });
+
+  it("ships the theme with its radius scale and the animation package shadcn-vue imports", () => {
+    const theme = items.find((item) => item.type === "registry:theme");
+    expect(theme?.dependencies).toContain("tw-animate-css");
+    expect(theme?.cssVars?.theme).toMatchObject({ "radius-md": "calc(var(--radius) * 1.5)", "radius-xl": "calc(var(--radius) * 3)" });
+    expect(theme?.cssVars?.light).toMatchObject({ ring: expect.any(String), background: expect.any(String) });
+  });
 });

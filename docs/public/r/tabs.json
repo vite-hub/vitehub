@@ -1,0 +1,37 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "tabs",
+  "type": "registry:ui",
+  "title": "Tabs",
+  "description": "Underline tabs on the ui-sdk Tabs part. The line follows the selected tab.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/tabs/TabsContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { TabsPanel as TabsPanelPart } from \"@ui-sdk/vue/tabs\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ value: string; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <TabsPanelPart :value=\"props.value\" :class=\"cn('flex-1 pt-4 text-sm data-[orientation=vertical]:pt-0 data-[orientation=vertical]:ps-4', props.class)\">\n    <slot />\n  </TabsPanelPart>\n</template>\n"
+    },
+    {
+      "path": "ui/tabs/TabsList.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { TabsIndicator, TabsList as TabsListPart } from \"@ui-sdk/vue/tabs\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <TabsListPart :class=\"cn('relative flex w-full items-center gap-1 overflow-x-auto border-b data-[orientation=vertical]:w-fit data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch data-[orientation=vertical]:border-e data-[orientation=vertical]:border-b-0', props.class)\">\n    <slot />\n    <TabsIndicator\n      class=\"pointer-events-none absolute bottom-0 left-(--active-tab-left) h-px w-(--active-tab-width) bg-foreground transition-[left,width] duration-200 ease-out data-[activation-direction=none]:transition-none motion-reduce:transition-none data-[orientation=vertical]:top-(--active-tab-top) data-[orientation=vertical]:right-0 data-[orientation=vertical]:bottom-auto data-[orientation=vertical]:left-auto data-[orientation=vertical]:h-(--active-tab-height) data-[orientation=vertical]:w-px data-[orientation=vertical]:transition-[top,height]\"\n    />\n  </TabsListPart>\n</template>\n"
+    },
+    {
+      "path": "ui/tabs/TabsTrigger.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { TabsTab as TabsTabPart } from \"@ui-sdk/vue/tabs\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ value: string; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <TabsTabPart :value=\"props.value\" :class=\"cn('relative inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 border-0 bg-transparent px-2 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground data-selected:text-foreground data-disabled:pointer-events-none data-disabled:opacity-50 data-[orientation=vertical]:justify-start [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4', props.class)\">\n    <slot />\n  </TabsTabPart>\n</template>\n"
+    },
+    {
+      "path": "ui/tabs/index.ts",
+      "type": "registry:ui",
+      "content": "export { Tabs, TabsTabIcon as TabsTriggerIcon } from \"@ui-sdk/vue/tabs\";\nexport { default as TabsContent } from \"./TabsContent.vue\";\nexport { default as TabsList } from \"./TabsList.vue\";\nexport { default as TabsTrigger } from \"./TabsTrigger.vue\";\n"
+    }
+  ]
+}

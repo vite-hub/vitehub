@@ -1,0 +1,113 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "sidebar",
+  "type": "registry:ui",
+  "title": "Sidebar",
+  "description": "A sidebar that folds to icons on desktop and opens as a sheet below 768px. Ctrl+B or Cmd+B toggles it.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/sidebar/Sidebar.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { Drawer, DrawerBackdrop, DrawerContent, DrawerTitle } from \"@ui-sdk/vue/drawer\";\nimport { cn } from \"@/lib/utils\";\nimport { useSidebar } from \"./utils\";\n\nconst props = withDefaults(defineProps<{ side?: \"left\" | \"right\"; collapsible?: \"icon\" | \"offcanvas\" | \"none\"; label?: string; class?: HTMLAttributes[\"class\"] }>(), {\n  side: \"left\",\n  collapsible: \"icon\",\n  label: \"Navigation\",\n});\nconst { isMobile, openMobile, state } = useSidebar();\n</script>\n\n<template>\n  <div\n    v-if=\"props.collapsible === 'none'\"\n    data-slot=\"sidebar\"\n    :class=\"cn('flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground', props.class)\"\n  >\n    <slot />\n  </div>\n\n  <Drawer v-else-if=\"isMobile\" v-model:open=\"openMobile\" :side=\"props.side\">\n    <DrawerBackdrop class=\"fixed inset-0 z-50 bg-overlay\" />\n    <DrawerContent\n      data-sidebar=\"sidebar\"\n      data-mobile=\"\"\n      class=\"flex h-full w-(--sidebar-width) max-w-[85vw] flex-col bg-sidebar p-0 text-sidebar-foreground shadow-dialog outline-none\"\n    >\n      <DrawerTitle class=\"sr-only\">{{ props.label }}</DrawerTitle>\n      <slot />\n    </DrawerContent>\n  </Drawer>\n\n  <div\n    v-else\n    data-slot=\"sidebar\"\n    class=\"group peer hidden text-sidebar-foreground md:block\"\n    :data-state=\"state\"\n    :data-collapsible=\"state === 'collapsed' ? props.collapsible : ''\"\n    :data-side=\"props.side\"\n  >\n    <div\n      data-slot=\"sidebar-gap\"\n      class=\"relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-out group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[collapsible=offcanvas]:w-0 motion-reduce:transition-none\"\n    />\n    <nav\n      data-slot=\"sidebar-container\"\n      :aria-label=\"props.label\"\n      :class=\"cn(\n        'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-out md:flex motion-reduce:transition-none group-data-[collapsible=icon]:w-(--sidebar-width-icon)',\n        props.side === 'left'\n          ? 'left-0 border-e group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'\n          : 'right-0 border-s group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',\n        props.class,\n      )\"\n    >\n      <div data-slot=\"sidebar-inner\" class=\"flex size-full flex-col overflow-hidden bg-sidebar\">\n        <slot />\n      </div>\n    </nav>\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-content\" :class=\"cn('flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-1 group-data-[collapsible=icon]:overflow-hidden', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarFooter.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-footer\" :class=\"cn('mt-auto flex flex-col gap-2 p-2', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarGroup.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-group\" :class=\"cn('relative flex w-full min-w-0 flex-col p-1', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarGroupLabel.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-group-label\" :class=\"cn('flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-ui-text-dimmed transition-[margin,opacity] duration-200 ease-out group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 motion-reduce:transition-none', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarHeader.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-header\" :class=\"cn('flex flex-col gap-2 p-2', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarInset.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <main data-slot=\"sidebar-inset\" :class=\"cn('relative flex min-w-0 w-full flex-1 flex-col bg-background', props.class)\">\n    <slot />\n  </main>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenu.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <ul data-slot=\"sidebar-menu\" :class=\"cn('flex w-full min-w-0 flex-col gap-0.5', props.class)\">\n    <slot />\n  </ul>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuBadge.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sidebar-menu-badge\" :class=\"cn('pointer-events-none absolute end-1.5 top-1.5 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium text-muted-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuButton.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { Component, HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\nimport { sidebarMenuButtonVariants } from \".\";\n\nconst props = withDefaults(defineProps<{ as?: string | Component; isActive?: boolean; class?: HTMLAttributes[\"class\"] }>(), { as: \"a\" });\n</script>\n\n<template>\n  <component\n    :is=\"props.as\"\n    data-slot=\"sidebar-menu-button\"\n    data-focus-inset=\"\"\n    :data-active=\"props.isActive ? '' : undefined\"\n    :aria-current=\"props.isActive ? 'page' : undefined\"\n    :type=\"props.as === 'button' ? 'button' : undefined\"\n    :class=\"cn(sidebarMenuButtonVariants(), props.class)\"\n  >\n    <slot />\n  </component>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <li data-slot=\"sidebar-menu-item\" :class=\"cn('group/menu-item relative', props.class)\">\n    <slot />\n  </li>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuSub.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <ul data-slot=\"sidebar-menu-sub\" :class=\"cn('ms-3.5 flex min-w-0 flex-col gap-0.5 border-s px-2 py-0.5 group-data-[collapsible=icon]:hidden', props.class)\">\n    <slot />\n  </ul>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuSubButton.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { Component, HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\nimport { sidebarMenuSubButtonVariants } from \".\";\n\nconst props = withDefaults(defineProps<{ as?: string | Component; isActive?: boolean; class?: HTMLAttributes[\"class\"] }>(), { as: \"a\" });\n</script>\n\n<template>\n  <component\n    :is=\"props.as\"\n    data-slot=\"sidebar-menu-sub-button\"\n    data-focus-inset=\"\"\n    :data-active=\"props.isActive ? '' : undefined\"\n    :aria-current=\"props.isActive ? 'page' : undefined\"\n    :type=\"props.as === 'button' ? 'button' : undefined\"\n    :class=\"cn(sidebarMenuSubButtonVariants(), props.class)\"\n  >\n    <slot />\n  </component>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarMenuSubItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <li data-slot=\"sidebar-menu-sub-item\" :class=\"cn('group/menu-sub-item relative', props.class)\">\n    <slot />\n  </li>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarProvider.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { computed, onBeforeUnmount, onMounted, provide, ref } from \"vue\";\nimport { cn } from \"@/lib/utils\";\nimport { sidebarKey } from \"./utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\nconst open = defineModel<boolean>(\"open\", { default: true });\nconst openMobile = ref(false);\nconst isMobile = ref(false);\nconst state = computed(() => (open.value ? \"expanded\" : \"collapsed\"));\n\nfunction toggle() {\n  if (isMobile.value) openMobile.value = !openMobile.value;\n  else open.value = !open.value;\n}\n\nfunction onKeydown(event: KeyboardEvent) {\n  if (event.key.toLowerCase() === \"b\" && (event.metaKey || event.ctrlKey) && !event.altKey) {\n    event.preventDefault();\n    toggle();\n  }\n}\n\nlet query: MediaQueryList | undefined;\nconst onQuery = () => {\n  isMobile.value = query?.matches ?? false;\n};\n\nonMounted(() => {\n  query = window.matchMedia(\"(max-width: 767px)\");\n  onQuery();\n  query.addEventListener(\"change\", onQuery);\n  window.addEventListener(\"keydown\", onKeydown);\n});\n\nonBeforeUnmount(() => {\n  query?.removeEventListener(\"change\", onQuery);\n  window.removeEventListener(\"keydown\", onKeydown);\n});\n\nprovide(sidebarKey, { open, openMobile, isMobile, state, toggle });\n</script>\n\n<template>\n  <div\n    data-slot=\"sidebar-wrapper\"\n    :style=\"{ '--sidebar-width': '16rem', '--sidebar-width-icon': '3rem' }\"\n    :class=\"cn('group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar', props.class)\"\n  >\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarSeparator.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <hr data-slot=\"sidebar-separator\" :class=\"cn('mx-2 my-0 border-0 border-t border-sidebar-border', props.class)\">\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/SidebarTrigger.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { PanelLeftIcon } from \"@lucide/vue\";\nimport { cn } from \"@/lib/utils\";\nimport { useSidebar } from \"./utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\nconst { isMobile, open, openMobile, toggle } = useSidebar();\n</script>\n\n<template>\n  <button\n    type=\"button\"\n    data-slot=\"sidebar-trigger\"\n    aria-label=\"Toggle sidebar\"\n    aria-keyshortcuts=\"Control+B Meta+B\"\n    :aria-expanded=\"isMobile ? openMobile : open\"\n    :class=\"cn('inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-accent hover:text-foreground active:scale-97 motion-reduce:active:scale-100 [&_svg]:size-4', props.class)\"\n    @click=\"toggle\"\n  >\n    <PanelLeftIcon aria-hidden=\"true\" class=\"rtl:rotate-180\" />\n  </button>\n</template>\n"
+    },
+    {
+      "path": "ui/sidebar/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as Sidebar } from \"./Sidebar.vue\";\nexport { default as SidebarContent } from \"./SidebarContent.vue\";\nexport { default as SidebarFooter } from \"./SidebarFooter.vue\";\nexport { default as SidebarGroup } from \"./SidebarGroup.vue\";\nexport { default as SidebarGroupLabel } from \"./SidebarGroupLabel.vue\";\nexport { default as SidebarHeader } from \"./SidebarHeader.vue\";\nexport { default as SidebarInset } from \"./SidebarInset.vue\";\nexport { default as SidebarMenu } from \"./SidebarMenu.vue\";\nexport { default as SidebarMenuBadge } from \"./SidebarMenuBadge.vue\";\nexport { default as SidebarMenuButton } from \"./SidebarMenuButton.vue\";\nexport { default as SidebarMenuItem } from \"./SidebarMenuItem.vue\";\nexport { default as SidebarMenuSub } from \"./SidebarMenuSub.vue\";\nexport { default as SidebarMenuSubButton } from \"./SidebarMenuSubButton.vue\";\nexport { default as SidebarMenuSubItem } from \"./SidebarMenuSubItem.vue\";\nexport { default as SidebarProvider } from \"./SidebarProvider.vue\";\nexport { default as SidebarSeparator } from \"./SidebarSeparator.vue\";\nexport { default as SidebarTrigger } from \"./SidebarTrigger.vue\";\nexport { sidebarKey, useSidebar } from \"./utils\";\nexport type { SidebarContext } from \"./utils\";\n\nconst row = \"flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-md border-0 bg-transparent px-2 text-start text-sm text-sidebar-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50 disabled:pointer-events-none disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0\";\n\nexport function sidebarMenuButtonVariants(): string {\n  return `${row} h-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>svg:first-child]:text-muted-foreground data-active:[&>svg:first-child]:text-sidebar-accent-foreground`;\n}\n\nexport function sidebarMenuSubButtonVariants(): string {\n  return `${row} h-7 text-muted-foreground`;\n}\n"
+    },
+    {
+      "path": "ui/sidebar/utils.ts",
+      "type": "registry:ui",
+      "content": "import { inject } from \"vue\";\nimport type { InjectionKey, Ref } from \"vue\";\n\nexport interface SidebarContext {\n  open: Ref<boolean>;\n  openMobile: Ref<boolean>;\n  isMobile: Ref<boolean>;\n  state: Readonly<Ref<\"expanded\" | \"collapsed\">>;\n  toggle: () => void;\n}\n\nexport const sidebarKey: InjectionKey<SidebarContext> = Symbol(\"sidebar\");\n\nexport function useSidebar(): SidebarContext {\n  const context = inject(sidebarKey);\n  if (!context) throw new Error(\"useSidebar() needs a <SidebarProvider> above it.\");\n  return context;\n}\n"
+    }
+  ]
+}

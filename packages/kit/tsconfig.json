@@ -5,5 +5,5 @@
     "lib": ["ES2023", "DOM"]
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
-  "exclude": ["dist", "node_modules", "test/browser"]
+  "exclude": ["dist", "node_modules", "test/browser", "test/registry-install"]
 }

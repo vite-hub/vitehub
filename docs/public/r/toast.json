@@ -1,0 +1,28 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "toast",
+  "type": "registry:ui",
+  "title": "Toast",
+  "description": "A stack of notifications on the ui-sdk Toast part. Call toast() from anywhere and place <Toaster /> once.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/toast/Toaster.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { XIcon } from \"@lucide/vue\";\nimport { Toast, ToastAction, ToastClose, ToastDescription, ToastRegion, ToastTitle } from \"@ui-sdk/vue/toast\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <ToastRegion\n    :class=\"cn(\n      'group/toaster m-4 h-(--toast-front-height) w-88 max-w-[calc(100vw-2rem)] overflow-visible border-0 bg-transparent p-0',\n      'data-expanded:h-[calc(var(--toast-stack-height)+(var(--toast-count)-1)*0.5rem)]',\n      props.class,\n    )\"\n  >\n    <Toast\n      :class=\"cn(\n        'group/toast flex items-start gap-3 rounded-xl bg-popover p-3 ps-4 text-sm text-popover-foreground shadow-popover backdrop-blur-xl select-none',\n        'absolute inset-x-0 bottom-0 z-[calc(100-var(--toast-index))] h-(--toast-height) overflow-hidden [--gap:0.5rem] [--y:calc(var(--toast-index)*-0.5rem)]',\n        '[translate:var(--toast-swipe-x,0px)_calc(var(--y)+var(--toast-swipe-y,0px))] [scale:calc(1-var(--toast-index)*0.05)]',\n        'transition-[translate,scale,opacity,height] duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-opacity',\n        'not-data-front:not-data-expanded:h-(--toast-front-height)',\n        'data-expanded:[scale:1] data-expanded:[--y:calc(-1*(var(--toast-offset)+var(--toast-index)*var(--gap)))]',\n        'group-data-[side=top]/toaster:top-0 group-data-[side=top]/toaster:bottom-auto group-data-[side=top]/toaster:[--y:calc(var(--toast-index)*0.5rem)]',\n        'group-data-[side=top]/toaster:data-expanded:[--y:calc(var(--toast-offset)+var(--toast-index)*var(--gap))]',\n        'data-starting-style:transition-none data-swiping:transition-none',\n        'data-starting-style:data-front:[--y:100%] group-data-[side=top]/toaster:data-starting-style:data-front:[--y:-100%]',\n        'data-starting-style:not-data-front:opacity-0 data-ending-style:opacity-0',\n      )\"\n    >\n      <div class=\"flex min-w-0 flex-1 flex-col gap-0.5 py-0.5\">\n        <ToastTitle class=\"m-0 font-medium group-data-[type=error]/toast:text-vh-text-error group-data-[type=success]/toast:text-vh-text-success group-data-[type=warning]/toast:text-vh-text-warning\" />\n        <ToastDescription class=\"m-0 text-muted-foreground empty:hidden\" />\n      </div>\n      <ToastAction class=\"inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 empty:hidden\" />\n      <ToastClose aria-label=\"Dismiss\" class=\"inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-3.5\">\n        <XIcon aria-hidden=\"true\" />\n      </ToastClose>\n    </Toast>\n  </ToastRegion>\n</template>\n"
+    },
+    {
+      "path": "ui/toast/index.ts",
+      "type": "registry:ui",
+      "content": "export { createToaster, toast } from \"@ui-sdk/vue/toast\";\nexport { default as Toaster } from \"./Toaster.vue\";\n"
+    }
+  ]
+}

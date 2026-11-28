@@ -55,7 +55,8 @@
     "typecheck": "vp run --cache -t @vite-hub/kit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run --cache -t @vite-hub/kit#build && vp test",
     "test:styles": "node --test test/browser/styles.browser.mjs",
-    "build:registry": "node registry/build.ts"
+    "build:registry": "node registry/build.ts",
+    "test:registry-install": "node --test test/registry-install.mjs"
   },
   "dependencies": {
     "@ui-sdk/core": "0.1.0-beta.14",

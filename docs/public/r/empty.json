@@ -1,0 +1,48 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "empty",
+  "type": "registry:ui",
+  "title": "Empty state",
+  "description": "What a list, panel or search shows when it has nothing: a title, one line on how to add something, and the action.",
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/empty/Empty.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"empty\" :class=\"cn('flex min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-lg border-dashed p-6 text-center text-balance md:p-10', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/EmptyContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"empty-content\" :class=\"cn('flex w-full max-w-sm min-w-0 flex-col items-center gap-3 text-sm', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/EmptyDescription.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <p data-slot=\"empty-description\" :class=\"cn('text-sm text-muted-foreground [&>a]:underline [&>a]:underline-offset-4', props.class)\">\n    <slot />\n  </p>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/EmptyHeader.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"empty-header\" :class=\"cn('flex max-w-sm flex-col items-center gap-2', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/EmptyMedia.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"empty-media\" :class=\"cn('mb-1 flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*=size-])]:size-5', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/EmptyTitle.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <h3 data-slot=\"empty-title\" :class=\"cn('text-sm font-semibold', props.class)\">\n    <slot />\n  </h3>\n</template>\n"
+    },
+    {
+      "path": "ui/empty/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as Empty } from \"./Empty.vue\";\nexport { default as EmptyContent } from \"./EmptyContent.vue\";\nexport { default as EmptyDescription } from \"./EmptyDescription.vue\";\nexport { default as EmptyHeader } from \"./EmptyHeader.vue\";\nexport { default as EmptyMedia } from \"./EmptyMedia.vue\";\nexport { default as EmptyTitle } from \"./EmptyTitle.vue\";\n"
+    }
+  ]
+}

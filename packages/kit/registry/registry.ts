@@ -59,18 +59,37 @@ export function tokensToCssVars(css: string): CssVars {
   return { theme: pick(root, true), light: pick(root, false), dark: pick(dark, false) };
 }
 
+function withTokens(tokens: CssVars, own: Partial<CssVars> = {}): CssVars {
+  return {
+    theme: { ...tokens.theme, ...own.theme },
+    light: { ...tokens.light, ...own.light },
+    dark: { ...tokens.dark, ...own.dark },
+  };
+}
+
+function pin(versions: Record<string, string>): (name: string) => string {
+  return (name) => {
+    const version = versions[name];
+    return version && /^\d/.test(version) ? `${name}@${version}` : name;
+  };
+}
+
 export function buildRegistry(read: (path: string) => string): Record<string, string> {
   const registry: unknown = JSON.parse(read("registry/registry.json"));
   if (!isRegistry(registry)) throw new Error("registry/registry.json does not match the shadcn-vue registry schema.");
-  const tokens = read("src/styles/tokens.css");
+  const tokens = tokensToCssVars(read("src/styles/tokens.css"));
+  const kit: { dependencies?: Record<string, string> } = JSON.parse(read("package.json"));
+  const version = pin(kit.dependencies ?? {});
   const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
   const out: Record<string, string> = {};
   for (const item of registry.items) {
+    const dependencies = Array.isArray(item.dependencies) ? item.dependencies.filter((name) => typeof name === "string").map(version) : undefined;
     const built: RegistryItem = {
       $schema: itemSchema,
       ...item,
-      ...(item.type === "registry:style" ? { cssVars: tokensToCssVars(tokens) } : {}),
-      files: item.files?.map((file) => ({ ...file, content: read(file.path) })),
+      ...(dependencies ? { dependencies } : {}),
+      ...(item.type === "registry:style" || item.type === "registry:theme" ? { cssVars: withTokens(tokens, item.cssVars) } : {}),
+      files: item.files?.map((file) => ({ ...file, path: file.path.replace(/^registry\//, ""), content: read(file.path) })),
     };
     out[`${item.name}.json`] = json(built);
   }

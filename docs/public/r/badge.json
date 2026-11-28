@@ -1,0 +1,23 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "badge",
+  "type": "registry:ui",
+  "title": "Badge",
+  "description": "A short label beside a name: neutral by default, or a status tone.",
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/badge/Badge.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\nimport { badgeVariants } from \".\";\nimport type { BadgeVariant } from \".\";\n\nconst props = defineProps<{ variant?: BadgeVariant; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <span data-slot=\"badge\" :data-variant=\"props.variant ?? 'default'\" :class=\"cn(badgeVariants({ variant: props.variant }), props.class)\">\n    <slot />\n  </span>\n</template>\n"
+    },
+    {
+      "path": "ui/badge/index.ts",
+      "type": "registry:ui",
+      "content": "import { cn } from \"@/lib/utils\";\n\nexport { default as Badge } from \"./Badge.vue\";\n\nconst variants = {\n  default: \"bg-muted text-foreground\",\n  outline: \"border border-ui-border-accented text-foreground\",\n  solid: \"bg-primary text-primary-foreground\",\n  success: \"bg-ui-success/10 text-vh-text-success\",\n  warning: \"bg-ui-warning/10 text-vh-text-warning\",\n  error: \"bg-ui-error/10 text-vh-text-error\",\n  info: \"bg-ui-info/10 text-vh-text-info\",\n};\n\nexport type BadgeVariant = keyof typeof variants;\n\nexport function badgeVariants({ variant = \"default\" }: { variant?: BadgeVariant } = {}): string {\n  return cn(\n    \"inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-md px-1.5 text-xs font-medium whitespace-nowrap tabular-nums [&>svg]:pointer-events-none [&>svg]:size-3\",\n    variants[variant],\n  );\n}\n"
+    }
+  ]
+}

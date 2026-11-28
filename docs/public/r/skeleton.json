@@ -1,0 +1,23 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "skeleton",
+  "type": "registry:ui",
+  "title": "Skeleton",
+  "description": "A placeholder block in the shape of content that is loading.",
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/skeleton/Skeleton.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"skeleton\" aria-hidden=\"true\" :class=\"cn('animate-pulse rounded-md bg-ui-bg-accented motion-reduce:animate-none', props.class)\" />\n</template>\n"
+    },
+    {
+      "path": "ui/skeleton/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as Skeleton } from \"./Skeleton.vue\";\n"
+    }
+  ]
+}

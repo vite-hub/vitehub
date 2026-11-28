@@ -1,0 +1,53 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "sheet",
+  "type": "registry:ui",
+  "title": "Sheet",
+  "description": "A panel from an edge of the screen on the ui-sdk Drawer part. You can drag it closed.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/sheet/Sheet.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport { Drawer } from \"@ui-sdk/vue/drawer\";\n\nconst props = withDefaults(defineProps<{ side?: \"top\" | \"right\" | \"bottom\" | \"left\" }>(), { side: \"right\" });\n</script>\n\n<template>\n  <Drawer :side=\"props.side\">\n    <slot />\n  </Drawer>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/SheetContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { XIcon } from \"@lucide/vue\";\nimport { DrawerBackdrop, DrawerClose, DrawerContent } from \"@ui-sdk/vue/drawer\";\nimport { cn } from \"@/lib/utils\";\n\ndefineOptions({ inheritAttrs: false });\nconst props = withDefaults(defineProps<{ class?: HTMLAttributes[\"class\"]; showClose?: boolean }>(), { showClose: true });\n</script>\n\n<template>\n  <DrawerBackdrop class=\"fixed inset-0 z-50 bg-overlay\" />\n  <DrawerContent\n    v-bind=\"$attrs\"\n    :class=\"cn(\n      'relative flex flex-col gap-4 bg-background p-5 text-sm text-foreground shadow-dialog outline-none',\n      'data-[side=left]:h-full data-[side=left]:w-80 data-[side=left]:max-w-[85vw] data-[side=right]:h-full data-[side=right]:w-80 data-[side=right]:max-w-[85vw]',\n      'data-[side=bottom]:mx-auto data-[side=bottom]:max-h-[85dvh] data-[side=bottom]:w-full data-[side=bottom]:max-w-lg data-[side=bottom]:rounded-t-xl data-[side=bottom]:pb-[max(1.25rem,env(safe-area-inset-bottom))]',\n      'data-[side=top]:mx-auto data-[side=top]:max-h-[85dvh] data-[side=top]:w-full data-[side=top]:max-w-lg data-[side=top]:rounded-b-xl',\n      props.class,\n    )\"\n  >\n    <slot />\n    <DrawerClose\n      v-if=\"props.showClose\"\n      aria-label=\"Close\"\n      class=\"absolute end-3 top-3 inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4\"\n    >\n      <XIcon aria-hidden=\"true\" />\n    </DrawerClose>\n  </DrawerContent>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/SheetDescription.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { DrawerDescription as DrawerDescriptionPart } from \"@ui-sdk/vue/drawer\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <DrawerDescriptionPart :class=\"cn('m-0 text-sm text-muted-foreground', props.class)\">\n    <slot />\n  </DrawerDescriptionPart>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/SheetFooter.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sheet-footer\" :class=\"cn('mt-auto flex flex-col gap-2', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/SheetHeader.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"sheet-header\" :class=\"cn('flex flex-col gap-1.5 pe-8', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/SheetTitle.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { DrawerTitle as DrawerTitlePart } from \"@ui-sdk/vue/drawer\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <DrawerTitlePart :class=\"cn('m-0 text-base leading-tight font-semibold', props.class)\">\n    <slot />\n  </DrawerTitlePart>\n</template>\n"
+    },
+    {
+      "path": "ui/sheet/index.ts",
+      "type": "registry:ui",
+      "content": "export { DrawerClose as SheetClose, DrawerTrigger as SheetTrigger } from \"@ui-sdk/vue/drawer\";\nexport { default as Sheet } from \"./Sheet.vue\";\nexport { default as SheetContent } from \"./SheetContent.vue\";\nexport { default as SheetDescription } from \"./SheetDescription.vue\";\nexport { default as SheetFooter } from \"./SheetFooter.vue\";\nexport { default as SheetHeader } from \"./SheetHeader.vue\";\nexport { default as SheetTitle } from \"./SheetTitle.vue\";\n"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "dialog",
+  "type": "registry:ui",
+  "title": "Dialog",
+  "description": "A 448px task over the page on the ui-sdk Dialog part. It opens at once, traps focus and returns it.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/dialog/DialogContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { XIcon } from \"@lucide/vue\";\nimport { DialogBackdrop, DialogClose, DialogContent as DialogContentPart } from \"@ui-sdk/vue/dialog\";\nimport { cn } from \"@/lib/utils\";\n\ndefineOptions({ inheritAttrs: false });\nconst props = withDefaults(defineProps<{ class?: HTMLAttributes[\"class\"]; showClose?: boolean }>(), { showClose: true });\n</script>\n\n<template>\n  <DialogBackdrop class=\"fixed inset-0 z-50 bg-overlay\" />\n  <DialogContentPart\n    v-bind=\"$attrs\"\n    :class=\"cn('fixed inset-0 z-50 m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100%-2rem))] flex-col gap-4 overflow-y-auto overscroll-contain rounded-xl border-0 bg-popover p-5 text-sm text-popover-foreground shadow-dialog outline-none backdrop-blur-xl', props.class)\"\n  >\n    <slot />\n    <DialogClose\n      v-if=\"props.showClose\"\n      aria-label=\"Close\"\n      class=\"absolute end-3 top-3 inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4\"\n    >\n      <XIcon aria-hidden=\"true\" />\n    </DialogClose>\n  </DialogContentPart>\n</template>\n"
+    },
+    {
+      "path": "ui/dialog/DialogDescription.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { DialogDescription as DialogDescriptionPart } from \"@ui-sdk/vue/dialog\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <DialogDescriptionPart :class=\"cn('m-0 text-sm text-muted-foreground', props.class)\">\n    <slot />\n  </DialogDescriptionPart>\n</template>\n"
+    },
+    {
+      "path": "ui/dialog/DialogFooter.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"dialog-footer\" :class=\"cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/dialog/DialogHeader.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"dialog-header\" :class=\"cn('flex flex-col gap-1.5 pe-8 text-start', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/dialog/DialogTitle.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { DialogTitle as DialogTitlePart } from \"@ui-sdk/vue/dialog\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <DialogTitlePart :class=\"cn('m-0 text-base leading-tight font-semibold', props.class)\">\n    <slot />\n  </DialogTitlePart>\n</template>\n"
+    },
+    {
+      "path": "ui/dialog/index.ts",
+      "type": "registry:ui",
+      "content": "export { Dialog, DialogClose, DialogShortcut, DialogTrigger } from \"@ui-sdk/vue/dialog\";\nexport { default as DialogContent } from \"./DialogContent.vue\";\nexport { default as DialogDescription } from \"./DialogDescription.vue\";\nexport { default as DialogFooter } from \"./DialogFooter.vue\";\nexport { default as DialogHeader } from \"./DialogHeader.vue\";\nexport { default as DialogTitle } from \"./DialogTitle.vue\";\n"
+    }
+  ]
+}

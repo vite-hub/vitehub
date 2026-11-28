@@ -1,0 +1,68 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "dropdown-menu",
+  "type": "registry:ui",
+  "title": "Dropdown menu",
+  "description": "Actions and settings in a menu on the ui-sdk Menu part, with checkbox, radio and submenu items.",
+  "dependencies": [
+    "@ui-sdk/vue@0.1.0-beta.14",
+    "@ui-sdk/core@0.1.0-beta.14",
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/dropdown-menu/DropdownMenuCheckboxItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { CheckIcon } from \"@lucide/vue\";\nimport { MenuCheckboxItem, MenuItemIndicator } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ value: string; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuCheckboxItem :value=\"props.value\" :class=\"cn('relative flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-sm outline-none select-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4 ps-8', props.class)\">\n    <span class=\"pointer-events-none absolute start-2 flex size-4 items-center justify-center\">\n      <MenuItemIndicator>\n        <CheckIcon aria-hidden=\"true\" />\n      </MenuItemIndicator>\n    </span>\n    <slot />\n  </MenuCheckboxItem>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { MenuContent as MenuContentPart } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuContentPart :class=\"cn('z-50 m-0 max-h-(--available-height) min-w-40 overflow-y-auto overscroll-contain rounded-xl border-0 bg-popover p-1 text-sm text-popover-foreground shadow-popover outline-none backdrop-blur-xl origin-(--transform-origin) data-[presentation=sheet]:w-full data-[presentation=sheet]:max-w-none data-[presentation=sheet]:rounded-b-none data-[presentation=sheet]:pb-[max(0.25rem,env(safe-area-inset-bottom))]', props.class)\">\n    <slot />\n  </MenuContentPart>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { MenuItem } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ variant?: \"default\" | \"destructive\"; inset?: boolean; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuItem\n    :data-variant=\"props.variant ?? 'default'\"\n    :data-inset=\"props.inset ? '' : undefined\"\n    :class=\"cn('relative flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-sm outline-none select-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4 data-inset:ps-8 data-[variant=destructive]:text-vh-text-error', props.class)\"\n  >\n    <slot />\n  </MenuItem>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuLabel.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"dropdown-menu-label\" :class=\"cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuRadioItem.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { DotIcon } from \"@lucide/vue\";\nimport { MenuRadioItem, MenuItemIndicator } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ value: string; class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuRadioItem :value=\"props.value\" :class=\"cn('relative flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-sm outline-none select-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4 ps-8', props.class)\">\n    <span class=\"pointer-events-none absolute start-2 flex size-4 items-center justify-center\">\n      <MenuItemIndicator>\n        <DotIcon class=\"size-5 fill-current\" aria-hidden=\"true\" />\n      </MenuItemIndicator>\n    </span>\n    <slot />\n  </MenuRadioItem>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuSeparator.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { MenuSeparator as MenuSeparatorPart } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuSeparatorPart :class=\"cn('-mx-1 my-1 h-px bg-border', props.class)\" />\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuShortcut.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { MenuShortcut as MenuShortcutPart } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuShortcutPart :class=\"cn('ms-auto text-xs tracking-widest text-muted-foreground', props.class)\">\n    <slot />\n  </MenuShortcutPart>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuSubContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { MenuSubContent as MenuSubContentPart } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuSubContentPart :class=\"cn('z-50 m-0 max-h-(--available-height) min-w-40 overflow-y-auto overscroll-contain rounded-xl border-0 bg-popover p-1 text-sm text-popover-foreground shadow-popover outline-none backdrop-blur-xl origin-(--transform-origin) data-[presentation=sheet]:w-full data-[presentation=sheet]:max-w-none data-[presentation=sheet]:rounded-b-none data-[presentation=sheet]:pb-[max(0.25rem,env(safe-area-inset-bottom))]', props.class)\">\n    <slot />\n  </MenuSubContentPart>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/DropdownMenuSubTrigger.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { ChevronRightIcon } from \"@lucide/vue\";\nimport { MenuSubTrigger } from \"@ui-sdk/vue/menu\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <MenuSubTrigger :class=\"cn('relative flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-sm outline-none select-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50 data-pending:cursor-progress data-pending:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4 w-full border-0 bg-transparent font-normal data-open:bg-accent', props.class)\">\n    <slot />\n    <ChevronRightIcon class=\"ms-auto text-muted-foreground rtl:rotate-180\" aria-hidden=\"true\" />\n  </MenuSubTrigger>\n</template>\n"
+    },
+    {
+      "path": "ui/dropdown-menu/index.ts",
+      "type": "registry:ui",
+      "content": "export {\n  Menu as DropdownMenu,\n  MenuGroup as DropdownMenuGroup,\n  MenuItemIcon as DropdownMenuItemIcon,\n  MenuRadioGroup as DropdownMenuRadioGroup,\n  MenuSub as DropdownMenuSub,\n  MenuTrigger as DropdownMenuTrigger,\n} from \"@ui-sdk/vue/menu\";\nexport { default as DropdownMenuCheckboxItem } from \"./DropdownMenuCheckboxItem.vue\";\nexport { default as DropdownMenuContent } from \"./DropdownMenuContent.vue\";\nexport { default as DropdownMenuItem } from \"./DropdownMenuItem.vue\";\nexport { default as DropdownMenuLabel } from \"./DropdownMenuLabel.vue\";\nexport { default as DropdownMenuRadioItem } from \"./DropdownMenuRadioItem.vue\";\nexport { default as DropdownMenuSeparator } from \"./DropdownMenuSeparator.vue\";\nexport { default as DropdownMenuShortcut } from \"./DropdownMenuShortcut.vue\";\nexport { default as DropdownMenuSubContent } from \"./DropdownMenuSubContent.vue\";\nexport { default as DropdownMenuSubTrigger } from \"./DropdownMenuSubTrigger.vue\";\n"
+    }
+  ]
+}

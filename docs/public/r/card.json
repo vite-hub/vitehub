@@ -1,0 +1,53 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "card",
+  "type": "registry:ui",
+  "title": "Card",
+  "description": "A framed group of related content with a header, an action, a body and a footer.",
+  "registryDependencies": [
+    "@vitehub/utils",
+    "@vitehub/theme"
+  ],
+  "files": [
+    {
+      "path": "ui/card/Card.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"card\" :class=\"cn('flex flex-col gap-4 rounded-lg border bg-card py-4 text-sm text-card-foreground', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardAction.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"card-action\" :class=\"cn('col-start-2 row-span-2 row-start-1 self-start justify-self-end', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardContent.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"card-content\" :class=\"cn('px-4', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardDescription.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <p data-slot=\"card-description\" :class=\"cn('text-sm text-muted-foreground', props.class)\">\n    <slot />\n  </p>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardFooter.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"card-footer\" :class=\"cn('flex items-center gap-2 px-4 [.border-t]:pt-4', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardHeader.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <div data-slot=\"card-header\" :class=\"cn('grid auto-rows-min grid-rows-[auto_auto] items-start gap-1 px-4 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-4', props.class)\">\n    <slot />\n  </div>\n</template>\n"
+    },
+    {
+      "path": "ui/card/CardTitle.vue",
+      "type": "registry:ui",
+      "content": "<script setup lang=\"ts\">\nimport type { HTMLAttributes } from \"vue\";\nimport { cn } from \"@/lib/utils\";\n\nconst props = defineProps<{ class?: HTMLAttributes[\"class\"] }>();\n</script>\n\n<template>\n  <h3 data-slot=\"card-title\" :class=\"cn('text-sm leading-tight font-semibold', props.class)\">\n    <slot />\n  </h3>\n</template>\n"
+    },
+    {
+      "path": "ui/card/index.ts",
+      "type": "registry:ui",
+      "content": "export { default as Card } from \"./Card.vue\";\nexport { default as CardAction } from \"./CardAction.vue\";\nexport { default as CardContent } from \"./CardContent.vue\";\nexport { default as CardDescription } from \"./CardDescription.vue\";\nexport { default as CardFooter } from \"./CardFooter.vue\";\nexport { default as CardHeader } from \"./CardHeader.vue\";\nexport { default as CardTitle } from \"./CardTitle.vue\";\n"
+    }
+  ]
+}

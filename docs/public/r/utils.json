@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "utils",
+  "type": "registry:lib",
+  "title": "cn()",
+  "description": "The cn() helper that every ViteHub UI item uses to join Vue class values and merge Tailwind classes.",
+  "dependencies": [
+    "tailwind-merge"
+  ],
+  "files": [
+    {
+      "path": "lib/utils.ts",
+      "type": "registry:lib",
+      "content": "import { normalizeClass } from \"vue\";\nimport { twMerge } from \"tailwind-merge\";\n\nexport function cn(...inputs: unknown[]): string {\n  return twMerge(normalizeClass(inputs));\n}\n"
+    }
+  ]
+}

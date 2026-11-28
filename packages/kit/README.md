@@ -316,6 +316,33 @@ The group takes ui-sdk `Avatar`s from `@ui-sdk/vue/avatar`, round and 24px (20px
 | --- | --- | --- |
 | `vitehub` | `registry:style` | The tokens into the app's CSS, and the family to `styles/vitehub.css` |
 | `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
+| `utils` | `registry:lib` | `lib/utils.ts` with `cn()`, which merges Tailwind classes |
+| `theme` | `registry:theme` | The tokens as Tailwind theme variables, the ViteHub radius scale, the focus ring, and the base styles |
+| `button` | `registry:ui` | `Button` and `buttonVariants()`, which styles a trigger or a link as a button |
+| `input`, `textarea`, `label` | `registry:ui` | Text fields with 16px text on touch screens, and their label |
+| `card` | `registry:ui` | `Card` with a header, title, description, action, content, and footer |
+| `badge` | `registry:ui` | `Badge` and `badgeVariants()`, with status tones |
+| `avatar` | `registry:ui` | `Avatar` with an image and a fallback |
+| `dialog`, `sheet` | `registry:ui` | A centered dialog, and a sheet that comes from one edge (ui-sdk Drawer) |
+| `dropdown-menu` | `registry:ui` | A menu with items, checkbox and radio items, labels, separators, and submenus. It opens as a sheet on small touch screens |
+| `tabs` | `registry:ui` | Tabs with a moving underline |
+| `table` | `registry:ui` | A table with tabular numbers and a `TableEmpty` row |
+| `sidebar` | `registry:ui` | `SidebarProvider`, a sidebar that collapses to icons on desktop and opens as a drawer on phones, and its menu parts. Ctrl or Cmd + B toggles it |
+| `command` | `registry:ui` | `Command` and `CommandDialog`, a command palette |
+| `toast` | `registry:ui` | `Toaster` and `toast()` |
+| `skeleton`, `empty` | `registry:ui` | A loading placeholder and an empty state |
+| `app-shell` | `registry:block` | `components/app-shell/AppShell.vue`, a page frame with the sidebar, collapsible nav groups, and a top bar |
+
+The UI items are Vue components on ui-sdk, styled with Tailwind 4 and the ViteHub tokens. They follow the shadcn conventions: a `data-slot` on each element, a `class` prop merged with `cn()`, and variants in a small class map. Each item depends on `utils` and `theme`, and pins `@ui-sdk/vue` and `@ui-sdk/core` to the version this package uses.
+
+To install them in a Nuxt 4.7 app with Tailwind 4:
+
+1. Start the main stylesheet with `@layer ui-sdk;`, above `@import "tailwindcss";`. ui-sdk puts its own CSS in that layer, and the line keeps the layer below Tailwind's. shadcn-vue adds the layer at the end of the file when it is missing, which is too late.
+2. Add `"registries": { "@vitehub": "https://vitehub.dev/r/{name}.json" }` to `components.json`, and run `nuxi prepare` once so shadcn-vue finds the aliases.
+3. Run `npx shadcn-vue@latest add @vitehub/app-shell @vitehub/button @vitehub/dialog` (or the item URLs, such as `https://vitehub.dev/r/button.json`).
+4. Scan only `.vue` files for components: `components: [{ path: "~/components", extensions: [".vue"] }]`. Each item keeps an `index.ts` beside its files, and Nuxt warns about duplicate names when it scans both. Or import the parts from `@/components/ui/<item>`.
+
+`pnpm --filter @vite-hub/kit test:registry-install` checks this end to end. It serves `docs/public/r` on port 4841, installs every item into a new Nuxt 4.7 app, typechecks and builds the app, and fails when `reka-ui` or `@nuxt/ui` is in the app or its build. With `REGISTRY_SCREENSHOTS=<dir>`, it also renders a page with every item in Chromium, light and dark, at 390px and 1280px.
 
 In an app with Tailwind 4 and a font set in `components.json`, shadcn-vue 2.9.0 can also add its base CSS when it installs the skill. The skill item declares `tw-animate-css` so the base CSS import resolves.
 
