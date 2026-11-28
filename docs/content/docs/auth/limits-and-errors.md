@@ -31,7 +31,6 @@ console.log(error.toJSON())
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
 | `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is a refusal instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
-| `AUTH_SECRET_MISSING` | A production build or server has no secret: no `VITEHUB_SECRET`, no `secret` or `secrets` in the Definition, and no `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`. Set `VITEHUB_SECRET`, for example from `pnpm vitehub secret generate`. Without it, Better Auth would sign sessions with its public default secret. |
 | `AUTH_C0039` | The Definition, or the object that its callback returns, sets the removed `runtime` option. Pass one callback that returns all the options, such as `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. |
 | `AUTH_C0041` | `session.onRefresh` is not a function. |
 | `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |

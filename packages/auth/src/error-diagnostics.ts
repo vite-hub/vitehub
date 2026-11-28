@@ -34,9 +34,8 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Move the options to `deleteAccount`, without `enabled`: `user: { deleteUser: { enabled: true, beforeDelete } }` becomes `deleteAccount: { beforeDelete }`.",
     },
 
-    // Event, password, secret, and sign-out errors. The event store, the events route, the password verifier, the
-    // Better Auth instance of a request, and `signOut()` throw them. `listAuthEvents()` and `aggregateAuthEvents()`
-    // return the event read errors as `[error, undefined]`.
+    // Event, password, secret, and sign-out errors. The event store, the events route, the password verifier, Auth, and
+    // `signOut()` throw them. `listAuthEvents()` and `aggregateAuthEvents()` return the event read errors as `[error, undefined]`.
     AUTH_EVENT_CALLBACK_FAILED: {
       why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
       fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
