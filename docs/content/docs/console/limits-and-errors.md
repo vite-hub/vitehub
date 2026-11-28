@@ -18,7 +18,7 @@ Find the symptom first, then the `code` that the failed call returned.
 | KV or Blob inspection returns a provider error | Give the deployed app credentials that can read the store. |
 | Agents has no sessions | Invoke a discovered Agent, and check that it uses the default or the app-wide `agent.invocations` journal. |
 | Agent Console startup fails on a deployment host | The default SQLite journal needs a writable, persistent file system. Set `agent.invocations: 'database'`, or give every Agent one durable journal. |
-| The Console cannot reach the app | Link it with the URL that serves it, on a public server. The Console cannot reach `vite dev` on your machine. |
+| The Console cannot reach the app | Link it with the URL that serves it, on a public server. The Console cannot reach `vite dev` on your machine or a server on a private network. Use an HTTPS tunnel, or [self-host the Console](/docs/console/get-started#self-host-the-console) on that network. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from earlier releases](/docs/console/migrate). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |
 | The server warns that the Console endpoint takes unsigned calls | Remove `console.auth`, and set a `VITEHUB_CONSOLE_KEY_<NAME>` variable. |
@@ -38,7 +38,7 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Call from the app origin, or send `x-vitehub-console: 1` with no `Origin`. |
 | `CONSOLE_SIGNATURE_MISSING` | `401` | Open the app from the ViteHub Console, or set `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` for the CLI. See [Signed requests](/docs/console/signed-requests). |
 | `CONSOLE_SIGNATURE_STALE` | `401` | Sync the clock of the machine that signs. |
-| `CONSOLE_SIGNATURE_ORIGIN` | `401` | Link the app with the URL that serves it. Behind a proxy that ends TLS, set `vitehub({ publicUrl })`. |
+| `CONSOLE_SIGNATURE_ORIGIN` | `401` | Link the app with the URL that serves it. On Node.js, or behind a proxy that ends TLS, set `vitehub({ publicUrl })` to that URL and build again. |
 | `CONSOLE_SIGNATURE_INVALID` | `401` | Sign with the private key whose public key is in the `VITEHUB_CONSOLE_KEY_<NAME>` that the signature names. |
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers, through a proxy that does not change it. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |

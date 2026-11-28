@@ -89,6 +89,10 @@ The Console names each app by the **Name** that you give it when you link it. Wi
 
 The Console keeps the private key of each link encrypted and [signs](/docs/console/signed-requests) every call with it. Your app and the browser never see it. Each link has its own variable, so the app can keep other keys beside it, such as the key of the CLI. To unlink, unlink the app in the Console and remove its variable.
 
+On the Node.js host, set `vitehub({ publicUrl })` to the URL that you link, and build again. Without it, calls fail with `CONSOLE_SIGNATURE_ORIGIN`. See [Link the server in the Console](/docs/frameworks-hosts/node-self-hosted#link-the-server-in-the-console).
+
+console.vitehub.dev calls your app over HTTPS from the internet, and it refuses private addresses, such as `localhost` and `10.0.0.8`. To link an app on your computer or network, put it behind an HTTPS tunnel and link the tunnel URL, or run a [self-hosted Console](#self-host-the-console) on the same network with `VITEHUB_CONSOLE_ALLOW_PRIVATE=true`.
+
 When your app uses a base path from Nuxt `app.baseURL` or a root-relative Vite `base`, every Console route moves under it. With `base: '/portal/'`, the endpoint is `/portal/_vitehub/rpc` and you link `https://app.example.com/portal`.
 
 ::note

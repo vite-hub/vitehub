@@ -359,6 +359,20 @@ CMD ["node",".output/server/index.mjs"]
   command when you replace a container. Do not mount over `/app` or
   `/app/.output`; the server files there must come from the new image.
 - The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
+- A new container does not migrate a local SQLite Database, so the first
+  query fails with `no such table`. Set `database.migrateOnStart` and build
+  again. The server then applies the migrations to the file in the volume when
+  it starts:
+
+  ```diff
+   database: {
+  +  migrateOnStart: true,
+   },
+  ```
+
+- The image serves one `publicUrl`, because the build writes it into the
+  server. To run the same app on another URL, build a new image. See
+  [Link the server in the Console](#link-the-server-in-the-console).
 - Docker sends `SIGTERM` on stop, and ViteHub
   [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
   A Dockerfile cannot set the stop timeout, so the comment at the top of the file
@@ -391,6 +405,33 @@ CMD ["node",".output/server/index.mjs"]
 Each build replaces the file. To add system packages, such as `git`, start your
 own Dockerfile `FROM` the image that you built. Set `docker: false` in
 `vitehub()` to write no Dockerfile.
+
+## Link the server in the Console
+
+The [hosted Console](/docs/console/get-started#link-a-deployed-app) signs each
+call for the origin of the app. A Node.js server builds the request URL from
+the caller's `Host` header, so it cannot check that origin by itself. Set
+`publicUrl` to the URL that you link, and build again:
+
+```diff
+ vitehub({
+   host: 'node',
++  publicUrl: 'https://app.example.com',
+ })
+```
+
+Without `publicUrl`, Console calls fail with `500 CONSOLE_SIGNATURE_ORIGIN`.
+With an old value, they fail with `401 CONSOLE_SIGNATURE_ORIGIN`. The build
+writes the value into the server, so a new URL needs a new build.
+
+console.vitehub.dev calls the app over HTTPS from the internet, and it refuses
+private addresses, such as `localhost` and `10.0.0.8`. When the server runs
+only on your computer or network:
+
+- Put it behind an HTTPS tunnel, link the tunnel URL, and set `publicUrl` to
+  that URL.
+- Or run a [self-hosted Console](/docs/console/get-started#self-host-the-console)
+  on the same network with `VITEHUB_CONSOLE_ALLOW_PRIVATE=true`.
 
 ## Defaults on the node host
 
