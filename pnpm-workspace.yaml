@@ -8,6 +8,7 @@ packages:
   - "playground/content"
   - "playground/docs"
   - "playground/logs"
+  - "templates/nuxt/*"
 catalog:
   "@cloudflare/vitest-plugin": ^1.9.0
   "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1ee7ef6

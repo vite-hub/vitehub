@@ -7,7 +7,8 @@ async function loadFunction(outputDir, funcPath) {
   const entry = resolve(outputDir, "functions", funcPath, "index.mjs")
   if (!existsSync(entry)) throw new Error(`[e2e:local] Missing Vercel function entry: ${entry}`)
   const mod = await import(pathToFileURL(entry).href)
-  const handler = mod.default ?? mod.handler ?? mod.fetch ?? mod.POST
+  const exported = mod.default ?? mod.handler ?? mod.fetch ?? mod.POST
+  const handler = typeof exported?.fetch === "function" ? request => exported.fetch(request) : exported
   if (typeof handler !== "function") {
     throw new Error(`[e2e:local] Vercel function at ${entry} has no callable default/handler/fetch/POST export.`)
   }

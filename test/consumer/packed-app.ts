@@ -9,6 +9,7 @@ import { promisify } from "node:util"
 import { expect } from "vitest"
 import { parse as parseYaml } from "yaml"
 
+import { featureIds } from "../../packages/internal/src/features.ts"
 import { packedWorkspacePackages } from "../../packages/internal/test-utils/published-types.ts"
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
@@ -28,6 +29,16 @@ export const consumerNuxt = process.env.VITEHUB_CONSUMER_NUXT === "4.7"
       devDependencies: { "vite-plus": "0.1.24" },
       overrides: { nitro: "3.0.261102-rc", rolldown: "1.2.4", vite: "npm:@voidzero-dev/vite-plus-core@0.1.24" },
     }
+
+const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
+
+export async function viteHubPrimitiveIds() {
+  const manifest = JSON.parse(await readFile(join(repoRoot, "packages/vite-hub/package.json"), "utf8")) as PackageManifest
+  const owners = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })
+    .filter(name => name.startsWith("@vite-hub/"))
+    .map(name => name.slice("@vite-hub/".length))
+  return [...new Set([...featureIds.map(id => featurePackages[id] ?? id), ...owners])].sort()
+}
 
 export interface PackageManifest {
   bin?: Record<string, string>

@@ -1,0 +1,14 @@
+{
+  "title": "Jobs",
+  "description": "A nightly repository reviewer that runs on a schedule.",
+  "primitives": [
+    "schedule",
+    "workflow",
+    "queue",
+    "sandbox",
+    "forge",
+    "realtime",
+    "email",
+    "markdown-template"
+  ]
+}
