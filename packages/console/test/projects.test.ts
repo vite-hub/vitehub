@@ -83,6 +83,20 @@ describe("project store", () => {
     expect((await linkProject({ ...caller, roles: ["member"] }, site)).status).toBe(403)
   })
 
+  it("tells the owner of a private app URL to link a public URL, and that only a self-hosted Console takes private ones", async () => {
+    const { db } = await database()
+    const caller: ConsoleTeamCaller = { projects: createConsoleProjectStore(db, secret, "team-1"), roles: ["owner"], teamId: "team-1", user: { id: "u", name: "Ada" } }
+    const local = await linkProject(caller, { url: "http://localhost:4742" })
+    expect(local.status).toBe(400)
+    const problem = await local.json() as { code: string, fix: string, message: string }
+    expect(problem).toMatchObject({ code: "CONSOLE_PROJECT_URL_PRIVATE", message: expect.stringContaining("localhost is a private address") })
+    expect(problem.fix).toMatch(/deploy the app, or expose it through a tunnel/)
+    expect(problem.fix).toMatch(/Only a Console that you run yourself.*VITEHUB_CONSOLE_ALLOW_PRIVATE=true/)
+    expect(problem.message).not.toContain("VITEHUB_CONSOLE_ALLOW_PRIVATE")
+    const typo = await linkProject(caller, { url: "not a url" })
+    await expect(typo.json()).resolves.toMatchObject({ code: "CONSOLE_PROJECT_URL_INVALID", fix: expect.stringContaining("https://app.example.com") })
+  })
+
   it("links the same URL again with the same project and key", async () => {
     const { db } = await database()
     const projects = createConsoleProjectStore(db, secret, "team-1")

@@ -171,7 +171,7 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
     return consoleProblem(400, "CONSOLE_PROJECT_INVALID", "Send { \"url\": \"https://app.example.com\" }, with an optional \"label\". Use \"kind\": \"site\" to register a site for Hosted Comments.")
   }
   const parsed = parseProjectUrl(url, { allowPrivate: allowPrivateProjects() })
-  if ("error" in parsed) return consoleProblem(400, "CONSOLE_PROJECT_URL", parsed.error)
+  if ("error" in parsed) return consoleDiagnosticProblem(400, parsed.error)
   const input = { url: parsed.url, label, createdBy: caller.user.id }
   const project = kind === "site" ? await caller.projects.registerSite(input) : await caller.projects.create(input)
   if (project) return consoleJson({ project }, 201)
