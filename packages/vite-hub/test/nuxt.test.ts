@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
@@ -649,6 +649,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(names.indexOf("vite-hub/forge-build-check")).toBeGreaterThanOrEqual(0)
     expect(names.indexOf("vite-hub/forge-build-check")).toBeLessThan(names.indexOf("vite-hub/nitro-optional-peers"))
     expect(await pluginNames(true)).not.toContain("vite-hub/forge-build-check")
+  })
+
+  it("keeps the disabled KV config file when its content is the same", async () => {
+    const disabledConfig = `${tmp}/vitehub-nuxt/.vitehub/nuxt/disabled-kv-config.mjs`
+    const replay = async () => {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+      await runNitroConfigHook({})
+    }
+    await replay()
+    const written = new Date("2020-01-01T00:00:00Z")
+    await utimes(disabledConfig, written, written)
+    await replay()
+    expect((await stat(disabledConfig)).mtime).toEqual(written)
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
@@ -2261,13 +2275,16 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
     await application.runCloseHook()
   })
 
-  it.each([false, { binding: "REPLAY_DB", databaseId: "replay-id", databaseName: "replayed", driver: "cloudflare" as const }])("uses replayed Database configuration for the Cloudflare journal: %j", async (database) => {
+  it.each([false, { binding: "REPLAY_DB", databaseId: "replay-id", databaseName: "replayed", driver: "cloudflare" as const }])("uses replayed Database configuration for the Cloudflare journal in a Nitro-only build: %j", async (database) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
     await mkdir(`${tmp}/vitehub-nuxt/custom-server/databases`, { recursive: true })
     await writeFile(`${tmp}/vitehub-nuxt/custom-server/databases/default.ts`, 'export default defineDatabase({ schema: {} })\n')
     const application = createNuxt(false, [{
       name: "vite-hub/database-replay",
       config: () => resolvedFeatures({ database }),
     }])
+    Object.assign(application.nuxt.options, { experimental: { buildCache: true, nitroViteEnvironment: false } })
     await viteHubNuxtModule({
       host: "cloudflare", agent: true, console: productionConsole,
       database: { binding: "INITIAL_DB", databaseId: "initial-id", databaseName: "initial", driver: "cloudflare" },
@@ -2276,6 +2293,9 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
     expect(generated).not.toContain('d1: { binding: "INITIAL_DB",')
     if (database) expect(generated).toContain('d1: { binding: "REPLAY_DB",')
     else expect(generated).not.toContain("d1: { binding:")
+    for (const hook of application.nitroBuildBeforeHooks) hook()
+    const journalWarnings = warn.mock.calls.filter(([message]) => String(message).includes("AGENT_JOURNAL_IN_WORKER_MEMORY"))
+    expect(journalWarnings).toHaveLength(database ? 0 : 1)
     await application.runCloseHook()
   })
 

@@ -104,3 +104,46 @@ describe("default Agent Invocation journal libSQL driver", () => {
     expect(journalGraph(generated).packages).toContain("@libsql/client")
   })
 })
+
+async function buildWarnings(options: { d1?: string, databaseUrl?: string, host: string }): Promise<string[]> {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-journal-warning-"))
+  try {
+    const plugin = agentInvocationsVitePlugin({
+      database: false,
+      ...(options.databaseUrl ? { default: { databaseUrl: options.databaseUrl } } : {}),
+      host: options.host,
+      resolveD1Binding: () => options.d1,
+    })
+    const configHook = plugin.config
+    const resolvedHook = plugin.configResolved
+    if (!configHook || !resolvedHook) throw new TypeError("Expected Agent Invocations config hooks.")
+    await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [{ root }, { command: "build", mode: "production" }])
+    const warnings: string[] = []
+    await Reflect.apply("handler" in resolvedHook ? resolvedHook.handler : resolvedHook, {}, [{ command: "build", root, logger: { info() {}, warn: (message: string) => warnings.push(message) }, plugins: [] }])
+    return warnings
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+describe("default Agent Invocation journal build warning", () => {
+  it("warns when a Cloudflare build keeps the journal in Worker memory", async () => {
+    const [warning] = await buildWarnings({ host: "cloudflare" })
+    expect(warning).toContain("loses its records when the isolate stops")
+    expect(warning).toContain("D1 binding on the `default` or only Database Definition")
+    expect(warning).toContain("agent.invocations.databaseUrl")
+  })
+
+  it.each([
+    { d1: "DB", host: "cloudflare" },
+    { databaseUrl: "libsql://journal.example.com", host: "cloudflare" },
+    { host: "node" },
+  ])("does not warn when the journal keeps records: %j", async (options) => {
+    expect(await buildWarnings(options)).toEqual([])
+  })
+
+  it("warns when the host has no persistent filesystem", async () => {
+    expect(await buildWarnings({ host: "vercel" })).toEqual([expect.stringContaining("the vercel host has no persistent filesystem")])
+  })
+})
