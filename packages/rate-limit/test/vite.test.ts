@@ -401,10 +401,10 @@ describe("hubRateLimit", () => {
   })
 
   it("fails automatic hosted fallback where no native driver exists", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vercel-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-netlify-"))
     roots.push(root)
     const previousHosting = process.env.VITEHUB_HOST
-    process.env.VITEHUB_HOST = "vercel"
+    process.env.VITEHUB_HOST = "netlify"
     try {
       const plugin = hubRateLimit()
       const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
@@ -414,11 +414,36 @@ describe("hubRateLimit", () => {
         plugins: [],
         resolve: { alias: [] },
         root,
-      } as never)).rejects.toThrow("no native vercel driver")
+      } as never)).rejects.toThrow("no native netlify driver")
     }
     finally {
       if (previousHosting === undefined) delete process.env.VITEHUB_HOST
       else process.env.VITEHUB_HOST = previousHosting
+    }
+  })
+
+  it("counts in KV on Vercel and fails when the app has no KV store", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vercel-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    vi.stubEnv("VITEHUB_HOST", "vercel")
+    try {
+      const upstash = { api: { getConfig: () => ({ kv: { store: { driver: "upstash" } } }) }, name: "@vite-hub/kv/vite" }
+      const plugin = hubRateLimit()
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn: vi.fn() }, plugins: [upstash], root } as never)
+      await runBuildStart(plugin)
+      const manifest = JSON.parse(await readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8"))
+      expect(manifest.rateLimits).toEqual([expect.objectContaining({ provider: "kv" })])
+
+      const withoutKV = hubRateLimit()
+      await (withoutKV.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn: vi.fn() }, plugins: [], root } as never)
+      await expect(runBuildStart(withoutKV)).rejects.toMatchObject({
+        code: "RATE_LIMIT_KV_STORE_UNSUPPORTED",
+        message: expect.stringContaining("Rate Limit on this host counts in KV, but the app has no KV store"),
+      })
+    }
+    finally {
+      vi.unstubAllEnvs()
     }
   })
 

@@ -205,7 +205,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0144: {
       ...dynamicError,
-      fix: "Remove `rateLimit.driver` to use the driver of the host, or use the `node` host to count in KV.",
+      fix: "Remove `rateLimit.driver` to use the driver of the host, or use the `node` or `vercel` host to count in KV. On Vercel, Rate Limit needs KV, so remove `kv: false`.",
     },
     VITE_HUB_R0116: {
       ...dynamicError,

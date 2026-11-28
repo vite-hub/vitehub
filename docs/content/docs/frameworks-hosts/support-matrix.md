@@ -36,7 +36,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Email | Log | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / SMTP / custom |
 | KV | fs-lite | Workers KV | Upstash | Upstash / Redis | Deno KV | Host driver | Redis / Postgres / fs-lite |
 | Queue | Local driver | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local driver |
-| Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
+| Rate Limit | memory | Cloudflare | KV (Upstash) | — | — | Cloudflare / KV | memory, or KV |
 | Realtime | memory | Durable Objects | — | — | — | Host driver | Postgres or Redis |
 | Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | Deno.cron | Provider Wake | process |

@@ -74,7 +74,7 @@ it("tells the developer to rename one of two files that two discovery sources na
 })
 
 it("names the host option when the host cannot provide a service", () => {
-  expect(() => assertDeploymentService(resolveDeploymentPlan("vercel"), "rateLimit")).toThrow(expect.objectContaining({
+  expect(() => assertDeploymentService(resolveDeploymentPlan("netlify"), "rateLimit")).toThrow(expect.objectContaining({
     code: "INTERNAL_R0002",
     fix: expect.stringContaining("set `host` in `vitehub()`"),
   }))

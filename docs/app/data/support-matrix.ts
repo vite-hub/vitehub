@@ -191,8 +191,8 @@ const serverPrimitives: SupportMatrixGroup = {
     )),
     featureRow("rateLimit", "Atomic request budgets", cell(
       "package",
-      "Cloudflare Nitro presets infer the Cloudflare binding.",
-      "Cloudflare",
+      "Cloudflare Nitro presets infer the Cloudflare binding. Vercel Nitro presets count in the KV store of the app.",
+      "Cloudflare / KV",
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",

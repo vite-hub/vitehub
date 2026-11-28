@@ -82,7 +82,7 @@ export default defineConfig({
 | --- | --- | --- | --- | --- |
 | `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `postgres` with Postgres or `local`, Rate Limit `kv` with shared KV or `memory`, Schedule `process` | Sandbox |
 | `cloudflare` | [Cloudflare](/docs/frameworks-hosts/cloudflare) | `.output/server/wrangler.json` | Blob R2, KV Workers KV, Queue, Rate Limit, and Sandbox on Cloudflare | None |
-| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit, Realtime |
+| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Rate Limit `kv` on Upstash Redis, Vercel Sandbox | Realtime |
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Agent, Queue, Rate Limit, Realtime, Sandbox |
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/main.ts` with static Schedules, otherwise `.output/server/index.mjs` | KV Deno KV, Schedule `Deno.cron` | Blob, Queue, Rate Limit, Realtime, Sandbox |
 

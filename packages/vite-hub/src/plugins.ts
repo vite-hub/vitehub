@@ -1078,9 +1078,9 @@ function assertNoProviderKey(options: ViteHubOptions): void {
  */
 function buildRateLimitDriver(plan: DeploymentPlan, options: ViteHubOptions): { driver: "cloudflare" | "kv" | "memory", memoryFallback?: true } {
   const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.driver : undefined
-  // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
-  if (configured === "kv" && plan.host !== "node") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.driver "kv" works with the "node" host only. The "${plan.host}" host uses its own Rate Limit. Remove rateLimit.driver, or use the "node" host.` })
+  // Node and Vercel have a KV store with a shared atomic increment (Redis, Postgres, or Upstash). Cloudflare KV has none.
+  if (configured === "kv" && plan.host !== "node" && plan.host !== "vercel") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.driver "kv" works with the "node" and "vercel" hosts only. The "${plan.host}" host uses its own Rate Limit. Remove rateLimit.driver, or use the "node" or "vercel" host.` })
   }
   // An app that sets the driver chooses it itself, also when the host has another one.
   const explicit = explicitRateLimitDriver(options.rateLimit)
@@ -1594,6 +1594,12 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.host === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
+  if (plan.host === "vercel" && options.rateLimit && !explicitRateLimitDriver(options.rateLimit)) {
+    if (options.kv === false) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: "[vitehub] Rate Limit on the \"vercel\" host counts in KV, but kv is false. Remove kv: false, or set rateLimit.driver to \"memory\" for counts in one function instance only." })
+    }
+    if (!options.kv) options = { ...options, kv: true }
+  }
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.host === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" host cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the host's Nitro runtime or compose an explicit Deno Agent deployment." })
   }

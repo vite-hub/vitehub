@@ -424,7 +424,7 @@ export default defineQueue<{ id: string }>({
       dev: native("memory", "memory", "Process-local memory driver for development and tests.", "process-local"),
       netlify: unsupported("ViteHub has no native Netlify Rate Limit driver."),
       node: native("memory", "memory, or KV", "Without KV, each process counts alone. With KV on, ViteHub selects the kv provider, which shares the counts when KV uses Redis or a Postgres Database.", "process-local"),
-      vercel: unsupported("ViteHub has no native Vercel Rate Limit driver."),
+      vercel: native("kv", "KV (Upstash)", "Counts in the default KV store, which is Upstash Redis on Vercel, with one atomic increment for each request. Every function instance shares the counts. `rateLimit: true` turns KV on, which reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`."),
     },
     id: "rateLimit",
     packages: ["@vite-hub/rate-limit"],

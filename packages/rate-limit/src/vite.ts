@@ -152,6 +152,7 @@ function resolveDriver(options: RateLimitOptions, command: "build" | "serve", ni
   if (command === "serve") return "memory"
   const hosting = getHostingProvider(resolveHost({ nitro }))
   if (hosting === "cloudflare") return "cloudflare"
+  if (hosting === "vercel") return "kv"
   if (hosting) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_B0002({ message: `[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.` })
   }
@@ -205,7 +206,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     if (driver === "kv" && !(rateLimit as InternalRateLimitOptions).memoryFallback) {
       const kv = kvStoreDriver(resolved)
       const store = kv ? `the default KV store uses ${kv}, which has no shared atomic increment` : "the app has no KV store"
-      throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_STORE_UNSUPPORTED({ message: `[vitehub] rateLimit.driver is "kv", but ${store}. Each server process would count in its own memory.` })
+      const subject = rateLimit.driver === "kv" ? "rateLimit.driver is \"kv\"" : "Rate Limit on this host counts in KV"
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_STORE_UNSUPPORTED({ message: `[vitehub] ${subject}, but ${store}. Each server process would count in its own memory.` })
     }
     const strict = declarations.find(declaration => normalizeRateLimitPolicy(declaration.policy).enforcement === "strict")
     if (strict) {
