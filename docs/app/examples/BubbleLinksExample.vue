@@ -5,13 +5,15 @@ const choices = ["Fix the failing test", "Explain the last deploy", "Something e
 
 <template>
   <div class="flex w-full max-w-sm flex-col gap-8">
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>How can I help you today?</BubbleContent>
     </Bubble>
     <BubbleGroup>
-      <Bubble v-for="choice in choices" :key="choice" variant="tinted" align="end">
-        <BubbleContent as="button" type="button" @click="toast.add({ title: `You chose: ${choice}` })">
-          {{ choice }}
+      <Bubble v-for="choice in choices" :key="choice" variant="soft" tone="info" align="end">
+        <BubbleContent>
+          <template #render="{ props }">
+            <button v-bind="props" type="button" @click="toast.add({ title: `You chose: ${choice}` })">{{ choice }}</button>
+          </template>
         </BubbleContent>
       </Bubble>
     </BubbleGroup>

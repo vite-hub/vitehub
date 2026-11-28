@@ -18,7 +18,7 @@ const items: Item[] = [
   <div class="flex w-full max-w-sm flex-col gap-4">
     <AttachmentGroup class="w-full">
       <Attachment v-for="item in items" :key="item.name" class="w-64">
-        <AttachmentMedia v-if="item.src" variant="image">
+        <AttachmentMedia v-if="item.src" kind="image">
           <img :src="item.src" :alt="item.name">
         </AttachmentMedia>
         <AttachmentMedia v-else-if="item.icon">
@@ -29,7 +29,7 @@ const items: Item[] = [
           <AttachmentDescription>{{ item.meta }}</AttachmentDescription>
         </AttachmentContent>
         <AttachmentActions>
-          <AttachmentAction icon="i-lucide-x" :aria-label="`Remove ${item.name}`" />
+          <AttachmentAction :label="`Remove ${item.name}`" />
         </AttachmentActions>
       </Attachment>
     </AttachmentGroup>

@@ -10,7 +10,7 @@ const images = [
   <div class="flex w-full max-w-sm flex-col gap-4">
     <AttachmentGroup class="w-full">
       <Attachment v-for="image in images" :key="image.name" orientation="vertical">
-        <AttachmentMedia variant="image">
+        <AttachmentMedia kind="image">
           <img :src="image.src" :alt="image.alt">
         </AttachmentMedia>
         <AttachmentContent>
@@ -18,7 +18,7 @@ const images = [
           <AttachmentDescription>{{ image.meta }}</AttachmentDescription>
         </AttachmentContent>
         <AttachmentActions>
-          <AttachmentAction icon="i-lucide-x" :aria-label="`Remove ${image.name}`" />
+          <AttachmentAction :label="`Remove ${image.name}`" />
         </AttachmentActions>
         <AttachmentTrigger
           as="a"

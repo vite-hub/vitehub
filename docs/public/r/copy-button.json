@@ -6,7 +6,7 @@
   "description": "A button that copies text and shows a check for a moment.",
   "dependencies": [
     "@lucide/vue",
-    "@ui-sdk/vue@0.1.0-beta.14"
+    "@ui-sdk/vue@0.1.0-beta.19"
   ],
   "registryDependencies": [
     "@vitehub/core"

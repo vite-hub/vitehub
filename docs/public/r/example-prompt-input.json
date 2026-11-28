@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-prompt-input",
+  "type": "registry:block",
+  "title": "Prompt input example",
+  "description": "A prompt that takes text and files and shows what it sent.",
+  "dependencies": [
+    "ai"
+  ],
+  "registryDependencies": [
+    "@vitehub/prompt-input"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-prompt-input/PromptInputExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { FileUIPart } from \"ai\";\nimport { ref } from \"vue\";\nimport { PromptInput } from \"../prompt-input/index.ts\";\n\nconst text = ref(\"\");\nconst files = ref<readonly FileUIPart[]>([]);\nconst sent = ref(\"\");\n</script>\n\n<template>\n  <div data-slot=\"example-prompt-input\" style=\"display: flex; flex-direction: column; gap: 0.5rem; max-width: 32rem\">\n    <PromptInput\n      v-model=\"text\"\n      v-model:files=\"files\"\n      accept=\"image/*,.txt\"\n      placeholder=\"Ask the Agent…\"\n      @submit=\"sent = $event.text\"\n    />\n    <p data-slot=\"example-prompt-input-sent\" role=\"status\">{{ sent ? `Sent: ${sent}` : \"Nothing sent yet.\" }}</p>\n  </div>\n</template>\n"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "bubble",
+  "type": "registry:component",
+  "title": "Bubble",
+  "description": "A frame for message text in five variants and a tone, with groups and reactions.",
+  "registryDependencies": [
+    "@vitehub/core"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/bubble/Bubble.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport \"../core/vitehub.css\";\nimport \"./bubble.css\";\nimport type { BubbleProps, BubbleSlots } from \"./types.ts\";\n\nconst { align = \"start\", variant = \"solid\", tone = \"neutral\" } = defineProps<BubbleProps>();\ndefineSlots<BubbleSlots>();\n</script>\n\n<template>\n  <div data-slot=\"bubble\" :data-align=\"align\" :data-variant=\"variant\" :data-tone=\"tone\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/bubble/BubbleContent.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { computed, useAttrs, useSlots } from \"vue\";\nimport type { BubbleContentSlots } from \"./types.ts\";\n\ndefineOptions({ inheritAttrs: false });\ndefineSlots<BubbleContentSlots>();\nconst attrs = useAttrs();\nconst slots = useSlots();\nconst part = computed(() => ({ ...attrs, \"data-slot\": \"bubble-content\" }));\nconst children = () => slots.default?.();\n</script>\n\n<template>\n  <slot name=\"render\" :props=\"part\" :children=\"children\">\n    <div v-bind=\"part\"><slot /></div>\n  </slot>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/bubble/BubbleGroup.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\ndefineSlots<{ default?: () => unknown }>();\n</script>\n\n<template>\n  <div data-slot=\"bubble-group\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/bubble/BubbleReactions.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport type { BubbleReactionsProps, BubbleReactionsSlots } from \"./types.ts\";\n\nconst { align = \"end\", side = \"bottom\" } = defineProps<BubbleReactionsProps>();\ndefineSlots<BubbleReactionsSlots>();\n</script>\n\n<template>\n  <div data-slot=\"bubble-reactions\" :data-align=\"align\" :data-side=\"side\"><slot /></div>\n</template>\n"
+    },
+    {
+      "path": "components/vitehub/bubble/bubble.css",
+      "type": "registry:component",
+      "content": "@layer components {\n  /* Bubble */\n\n  [data-slot=\"bubble-group\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.5rem;\n    min-width: 0;\n  }\n\n  [data-slot=\"bubble\"] {\n    display: flex;\n    flex-direction: column;\n    gap: 0.25rem;\n    max-width: 80%;\n    min-width: 0;\n    position: relative;\n    width: fit-content;\n  }\n\n  :is([data-slot=\"bubble\"][data-align=\"end\"], [data-slot=\"message\"][data-align=\"end\"] [data-slot=\"bubble\"]) {\n    align-self: flex-end;\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"ghost\"] {\n    max-width: 100%;\n  }\n\n  [data-slot=\"bubble-content\"] {\n    border: 1px solid transparent;\n    border-radius: calc(var(--vh-radius) * 1.5);\n    font-size: 0.875rem;\n    line-height: 1.625;\n    max-width: 100%;\n    min-width: 0;\n    overflow: hidden;\n    overflow-wrap: break-word;\n    padding: 0.5rem 0.75rem;\n    width: fit-content;\n  }\n\n  [data-slot=\"bubble\"][data-align=\"end\"] > [data-slot=\"bubble-content\"] {\n    align-self: flex-end;\n  }\n\n  :is(a, button)[data-slot=\"bubble-content\"] {\n    color: inherit;\n    cursor: pointer;\n    font: inherit;\n    text-align: left;\n    text-decoration: none;\n    transition: background-color 150ms, color 150ms;\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"solid\"] > [data-slot=\"bubble-content\"] {\n    background: var(--vh-primary);\n    color: var(--vh-inverted);\n  }\n\n  /* Hover colors apply only where a pointer can hover, so a tap on a touch screen does not leave them on, as on the primitive rail. */\n  @media (hover: hover) {\n    [data-slot=\"bubble\"][data-variant=\"solid\"] > :is(a, button)[data-slot=\"bubble-content\"]:hover {\n      background: color-mix(in oklab, var(--vh-primary) 80%, transparent);\n    }\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"soft\"] > [data-slot=\"bubble-content\"] {\n    background: var(--vh-bg-elevated);\n    color: var(--vh-highlighted);\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"bubble\"][data-variant=\"soft\"] > :is(a, button)[data-slot=\"bubble-content\"]:hover {\n      background: color-mix(in oklab, var(--vh-bg-elevated), var(--vh-highlighted) 5%);\n    }\n  }\n\n  /* A soft bubble in a tone is a tint of that color on the page background. */\n  [data-slot=\"bubble\"][data-variant=\"soft\"][data-tone=\"info\"] {\n    --vh-bubble-tone: var(--vh-info);\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"soft\"][data-tone=\"success\"] {\n    --vh-bubble-tone: var(--vh-success);\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"soft\"][data-tone=\"warning\"] {\n    --vh-bubble-tone: var(--vh-warning);\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"soft\"][data-tone=\"error\"] {\n    --vh-bubble-tone: var(--vh-error);\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"soft\"]:not([data-tone=\"neutral\"]) > [data-slot=\"bubble-content\"] {\n    background: color-mix(in oklab, var(--vh-bubble-tone) 14%, var(--vh-bg));\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"bubble\"][data-variant=\"soft\"]:not([data-tone=\"neutral\"]) > :is(a, button)[data-slot=\"bubble-content\"]:hover {\n      background: color-mix(in oklab, var(--vh-bubble-tone) 22%, var(--vh-bg));\n    }\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"outline\"] > [data-slot=\"bubble-content\"] {\n    background: var(--vh-bg);\n    border-color: var(--vh-border);\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"ghost\"] > [data-slot=\"bubble-content\"] {\n    background: transparent;\n    border: none;\n    border-radius: 0;\n    padding: 0;\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"bubble\"]:is([data-variant=\"outline\"], [data-variant=\"ghost\"]) > :is(a, button)[data-slot=\"bubble-content\"]:hover {\n      background: var(--vh-bg-elevated);\n      color: var(--vh-highlighted);\n    }\n  }\n\n  [data-slot=\"bubble\"][data-variant=\"destructive\"] > [data-slot=\"bubble-content\"] {\n    background: color-mix(in oklab, var(--vh-error) 12%, transparent);\n    color: var(--vh-error);\n  }\n\n  @media (hover: hover) {\n    [data-slot=\"bubble\"][data-variant=\"destructive\"] > :is(a, button)[data-slot=\"bubble-content\"]:hover {\n      background: color-mix(in oklab, var(--vh-error) 20%, transparent);\n    }\n  }\n\n  [data-slot=\"bubble-reactions\"] {\n    align-items: center;\n    background: var(--vh-bg-elevated);\n    border-radius: 9999px;\n    box-shadow: 0 0 0 3px var(--vh-bg);\n    display: flex;\n    flex-shrink: 0;\n    font-size: 0.875rem;\n    gap: 0.25rem;\n    justify-content: center;\n    padding: 0.125rem 0.375rem;\n    position: absolute;\n    width: fit-content;\n    z-index: 10;\n  }\n\n  [data-slot=\"bubble-reactions\"]:has(button) {\n    padding: 0;\n  }\n\n  [data-slot=\"bubble-reactions\"][data-side=\"top\"] {\n    top: 0;\n    translate: 0 -75%;\n  }\n\n  [data-slot=\"bubble-reactions\"][data-side=\"bottom\"] {\n    bottom: 0;\n    translate: 0 75%;\n  }\n\n  [data-slot=\"bubble-reactions\"][data-align=\"start\"] {\n    left: 0.75rem;\n  }\n\n  [data-slot=\"bubble-reactions\"][data-align=\"end\"] {\n    right: 0.75rem;\n  }\n}\n"
+    },
+    {
+      "path": "components/vitehub/bubble/index.ts",
+      "type": "registry:component",
+      "content": "export { default as Bubble } from \"./Bubble.vue\";\nexport { default as BubbleContent } from \"./BubbleContent.vue\";\nexport { default as BubbleGroup } from \"./BubbleGroup.vue\";\nexport { default as BubbleReactions } from \"./BubbleReactions.vue\";\nexport type * from \"./types.ts\";\n"
+    },
+    {
+      "path": "components/vitehub/bubble/types.ts",
+      "type": "registry:component",
+      "content": "export type BubbleAlign = \"start\" | \"end\";\nexport type BubbleVariant = \"solid\" | \"soft\" | \"outline\" | \"ghost\" | \"destructive\";\nexport type BubbleTone = \"neutral\" | \"success\" | \"warning\" | \"error\" | \"info\";\n\nexport interface BubbleProps {\n  /** The side the bubble sits on. Inside a `Message` with `align=\"end\"`, it is `end` too. */\n  align?: BubbleAlign;\n  /** `solid` is the primary color, `soft` a light fill, `outline` a border, `ghost` no frame, and `destructive` an error. */\n  variant?: BubbleVariant;\n  /** The color of a `soft` bubble. `neutral` is the gray fill. */\n  tone?: BubbleTone;\n}\n\nexport interface BubbleSlots {\n  /** `BubbleContent`, and `BubbleReactions` when the bubble has reactions. */\n  default?: () => unknown;\n}\n\nexport interface BubbleContentSlots {\n  default?: () => unknown;\n  /**\n   * Renders the content as another element, such as a link or a button. Bind `props` to it, which holds the\n   * `data-slot`, and render `children` inside it.\n   */\n  render?: (scope: { props: Record<string, unknown>; children: () => unknown }) => unknown;\n}\n\nexport interface BubbleReactionsProps {\n  /** The edge of the bubble that the reactions sit at. */\n  align?: BubbleAlign;\n  /** Above or below the bubble. */\n  side?: \"top\" | \"bottom\";\n}\n\nexport interface BubbleReactionsSlots {\n  default?: () => unknown;\n}\n"
+    }
+  ]
+}

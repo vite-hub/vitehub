@@ -1,6 +1,6 @@
 <template>
   <div class="flex w-full max-w-sm flex-col gap-8 py-4">
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>Can you tell me what the issue is?</BubbleContent>
     </Bubble>
     <BubbleGroup>
@@ -17,7 +17,7 @@
         </BubbleReactions>
       </Bubble>
     </BubbleGroup>
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>
         Do you want me to diff yesterday's commit against today's? It is a bit embarrassing.
       </BubbleContent>

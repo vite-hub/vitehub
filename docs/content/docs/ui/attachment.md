@@ -6,7 +6,7 @@ navigation.group: Parts
 icon: i-lucide-paperclip
 ---
 
-`Attachment` shows one file: an icon or image, a title, a description, and actions. The `state` prop shows if the file is waiting, uploading, processing, done, or failed. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
+`Attachment` shows one file: an icon or image, a title, a description, and actions. The `status` prop shows if the file is waiting, uploading, processing, done, or failed. The parts match the names and `data-slot` attributes of the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
 
 ::example{name="AttachmentExample" height=20}
 ::
@@ -48,7 +48,7 @@ const open = ref(false);
       <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
     </AttachmentContent>
     <AttachmentActions>
-      <AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
+      <AttachmentAction label="Remove sales-dashboard.pdf" />
     </AttachmentActions>
   </Attachment>
 </template>
@@ -84,18 +84,18 @@ AttachmentGroup
 - Three sizes, and horizontal or vertical orientation.
 - `AttachmentTrigger` makes the whole attachment open a link or dialog. Actions stay clickable.
 - `AttachmentGroup` scrolls horizontally and snaps to each attachment.
-- `AttachmentAction` is a Nuxt UI `UButton`, so it takes `icon`, `aria-label`, and other `UButton` props.
+- `AttachmentAction` is a small icon button. It shows an X; its default slot replaces the icon.
 
 ## Image
 
-Set `variant="image"` on `AttachmentMedia` and put an `img` in it. `orientation="vertical"` puts the media above the content, with the actions in its top right corner.
+Set `kind="image"` on `AttachmentMedia` and put an `img` in it. `orientation="vertical"` puts the media above the content, with the actions in its top right corner.
 
 ::example{name="AttachmentImageExample" height=11}
 ::
 
 ## States
 
-Set `state` to show upload progress. `idle` uses a dashed border. `error` colors the border, media, and description. An image dims while `uploading`, `processing`, or `error`.
+Set `status` to show upload progress. `idle` uses a dashed border. `error` colors the border, media, and description. An image dims while `uploading`, `processing`, or `error`.
 
 ::example{name="AttachmentStatesExample" height=21}
 ::
@@ -104,7 +104,7 @@ shadcn/ui animates the title with a shimmer while `uploading` or `processing`. V
 
 ## Sizes
 
-Set `size` to `default`, `sm`, or `xs`.
+Set `size` to `md`, `sm`, or `xs`.
 
 ::example{name="AttachmentSizesExample" height=11}
 ::
@@ -118,7 +118,7 @@ An `AttachmentGroup` shows attachments in a row that scrolls horizontally and sn
 
 ## Trigger
 
-Add an `AttachmentTrigger` to make the whole attachment open a link or dialog. It sits behind the actions, so they stay clickable. For a link, use `as="a"` with `href`, or `:as="NuxtLink"` with `to`. For a dialog, set its open state from `@click`.
+Add an `AttachmentTrigger` to make the whole attachment open a link or dialog. It sits behind the actions, so they stay clickable. For a link, render an `a` or a `NuxtLink` in its `render` slot and bind `props` to it. For a dialog, set its open state from `@click`.
 
 ::example{name="AttachmentTriggerExample" height=8}
 ::
@@ -139,14 +139,14 @@ const open = ref(false);
 
 ## Accessibility
 
-`AttachmentAction` renders a Nuxt UI `UButton`. `AttachmentTrigger` renders a native `button` with `type="button"`, or the element you set with `as`.
+`AttachmentAction` renders a native `button`. `AttachmentTrigger` renders a native `button` with `type="button"`, or the element of its `render` slot.
 
 ### Label icon-only actions
 
-`AttachmentAction` usually shows only an icon. Give each one an `aria-label` that names the action and file.
+`AttachmentAction` shows only an icon. Its `label` is its accessible name, "Remove" by default. Give each one a `label` that names the action and file.
 
 ```vue
-<AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
+<AttachmentAction label="Remove sales-dashboard.pdf" />
 ```
 
 ### Label the trigger
@@ -154,7 +154,11 @@ const open = ref(false);
 `AttachmentTrigger` has no text. Give it an `aria-label` that says what it does.
 
 ```vue
-<AttachmentTrigger as="a" :href="file.url" target="_blank" rel="noreferrer" :aria-label="`Open ${file.name}`" />
+<AttachmentTrigger>
+  <template #render="{ props }">
+    <a v-bind="props" :href="file.url" target="_blank" rel="noreferrer" :aria-label="`Open ${file.name}`" />
+  </template>
+</AttachmentTrigger>
 ```
 
 Users can focus and click each action and the trigger separately.
@@ -171,25 +175,25 @@ Do not rely on the `error` color alone. Write the state in `AttachmentDescriptio
 
 ### Attachment
 
-Renders a `div` with `data-slot="attachment"`, `data-state`, `data-size`, and `data-orientation`.
+Renders a `div` with `data-slot="attachment"`, `data-status`, `data-size`, and `data-orientation`.
 
 #### Props
 
 | Prop          | Type                                                         | Default        | Description                                       |
 | ------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------- |
-| `state`       | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `"done"`       | The upload state. Sets the border and colors. |
-| `size`        | `"default" \| "sm" \| "xs"`                                  | `"default"`    | The attachment size. |
+| `status`      | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `"done"`       | The upload state. Sets the border and colors. |
+| `size`        | `"md" \| "sm" \| "xs"`                                       | `"md"`         | The attachment size. |
 | `orientation` | `"horizontal" \| "vertical"`                                 | `"horizontal"` | Puts the media beside or above the content.       |
 
 ### AttachmentMedia
 
-The icon or image preview. Renders a `div` with `data-slot="attachment-media"`.
+The icon or image preview. Renders a `div` with `data-slot="attachment-media"` and `data-kind`.
 
 #### Props
 
-| Prop      | Type                | Default  | Description                                  |
-| --------- | ------------------- | -------- | -------------------------------------------- |
-| `variant` | `"icon" \| "image"` | `"icon"` | An icon or an `img`. |
+| Prop   | Type                | Default  | Description          |
+| ------ | ------------------- | -------- | -------------------- |
+| `kind` | `"icon" \| "image"` | `"icon"` | An icon or an `img`. |
 
 ### AttachmentContent
 
@@ -209,17 +213,24 @@ Actions at the end of the attachment. No props. Renders a `div` with `data-slot=
 
 ### AttachmentAction
 
-One action button. No props of its own. Renders a Nuxt UI `UButton` with `color="neutral"`, `variant="ghost"`, `size="xs"`, and `square`. Other attributes, such as `icon`, `aria-label`, and `@click`, go to the button.
-
-### AttachmentTrigger
-
-Covers the attachment, so a click anywhere opens the file. Renders a `button` with `type="button"`. Your own `type` attribute overrides it.
+One icon button. Renders a `button` with `data-slot="attachment-action"`. Other attributes, such as `@click`, go to the button. The default slot replaces the X icon.
 
 #### Props
 
-| Prop | Type                  | Default    | Description                                             |
-| ---- | --------------------- | ---------- | ------------------------------------------------------- |
-| `as` | `string \| Component` | `"button"` | Renders the trigger as another element, such as a link. |
+| Prop       | Type      | Default    | Description |
+| ---------- | --------- | ---------- | ----------- |
+| `label`    | `string`  | `"Remove"` | The accessible name of the button. |
+| `disabled` | `boolean` | `false`    | Disables the button. |
+
+### AttachmentTrigger
+
+Covers the attachment, so a click anywhere opens the file. Renders a `button` with `type="button"`.
+
+#### Slots
+
+| Slot     | Scope                 | Description |
+| -------- | --------------------- | ----------- |
+| `render` | `{ props, children }` | Renders your own element, such as a link. Bind `props` to it. |
 
 ### AttachmentGroup
 

@@ -39,6 +39,14 @@ const partFamilies = {
   "connection-status": ["ConnectionStatus", "ConnectionStatusIndicator", "ConnectionStatusLabel"],
   marker: ["Marker", "MarkerContent", "MarkerIcon"],
   status: ["Status", "StatusIndicator", "StatusLabel"],
+  "prompt-input": [
+    "PromptInput",
+    "PromptInputAttach",
+    "PromptInputAttachments",
+    "PromptInputSubmit",
+    "PromptInputTextarea",
+    "PromptInputToolbar",
+  ],
   message: ["Message", "MessageAvatar", "MessageContent", "MessageFooter", "MessageGroup", "MessageHeader"],
   "sync-status": ["SyncStatus", "SyncStatusIndicator", "SyncStatusLabel"],
   trace: [
@@ -56,7 +64,6 @@ const partFamilies = {
 export const componentNames = [
   "Chat",
   "ChatMessage",
-  "PromptInput",
   "CodeView",
   "FileView",
   "FileDiff",
@@ -94,6 +101,7 @@ export const componentNames = [
   ...partFamilies.marker,
   ...partFamilies.status,
   ...partFamilies.message,
+  ...partFamilies["prompt-input"],
   ...partFamilies["sync-status"],
   ...partFamilies.trace,
 ] as const;

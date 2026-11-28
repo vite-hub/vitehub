@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PromptInput } from "@vite-hub/ui";
+import { PromptInput, PromptInputAttach, PromptInputAttachments, PromptInputTextarea, PromptInputToolbar } from "@vite-hub/ui";
 import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
@@ -105,45 +105,49 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           v-model:files="files"
           aria-label="Test this Agent"
           accept="image/png,image/jpeg,image/webp,image/gif"
-          @error="error = $event"
+          @error="error = $event.error"
           class="console-invocation-composer__prompt"
           :filter-files="filterFiles"
           :placeholder="`Message ${agent}…`"
           :status="loading ? 'submitted' : 'ready'"
           @submit="submit"
         >
-          <template #footer-leading>
-            <div class="console-invocation-composer__context flex min-w-0 items-center gap-0.5 text-xs text-muted">
-              <span class="flex h-7 min-w-0 items-center gap-1.5 px-2">
-                <Icon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
-                <span class="truncate">{{ agent }}</span>
-              </span>
-              <template v-if="profiles.length > 1">
-                <span class="mx-0.5 h-4 w-px shrink-0 bg-default" aria-hidden="true" />
-                <USelect
-                  v-model="selectedProfileId"
-                  aria-label="Invoker profile"
-                  :items="profileItems"
-                  variant="ghost"
-                />
-              </template>
-              <template v-else-if="profiles[0]?.label">
-                <span class="mx-0.5 h-4 w-px shrink-0 bg-default" aria-hidden="true" />
-                <span class="flex h-7 items-center truncate px-2">{{ profiles[0].label }}</span>
-              </template>
-            </div>
-          </template>
-          <template #submit="{ canSubmit }">
-            <UButton
-              aria-label="Start Agent"
-              class="console-invocation-composer__submit"
-              icon="i-lucide-arrow-up"
-              :disabled="!canSubmit"
-              :loading="loading"
-              square
-              type="button"
-              @click="submit({ text: draft, files })"
-            />
+          <template #default="{ canSubmit }">
+            <PromptInputAttachments />
+            <PromptInputTextarea />
+            <PromptInputToolbar>
+              <PromptInputAttach />
+              <div class="console-invocation-composer__context flex min-w-0 items-center gap-0.5 text-xs text-muted">
+                <span class="flex h-7 min-w-0 items-center gap-1.5 px-2">
+                  <Icon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
+                  <span class="truncate">{{ agent }}</span>
+                </span>
+                <template v-if="profiles.length > 1">
+                  <span class="mx-0.5 h-4 w-px shrink-0 bg-default" aria-hidden="true" />
+                  <USelect
+                    v-model="selectedProfileId"
+                    aria-label="Invoker profile"
+                    :items="profileItems"
+                    variant="ghost"
+                  />
+                </template>
+                <template v-else-if="profiles[0]?.label">
+                  <span class="mx-0.5 h-4 w-px shrink-0 bg-default" aria-hidden="true" />
+                  <span class="flex h-7 items-center truncate px-2">{{ profiles[0].label }}</span>
+                </template>
+              </div>
+              <!-- While the Agent starts, this button shows a spinner, not the Stop button of PromptInputSubmit. ms-auto puts it at the end. -->
+              <UButton
+                aria-label="Start Agent"
+                class="console-invocation-composer__submit ms-auto"
+                icon="i-lucide-arrow-up"
+                :disabled="!canSubmit"
+                :loading="loading"
+                square
+                type="button"
+                @click="submit({ text: draft, files })"
+              />
+            </PromptInputToolbar>
           </template>
         </PromptInput>
       </div>

@@ -3,7 +3,7 @@
     <Message>
       <MessageContent>
         <MessageHeader>Reviewer</MessageHeader>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>I already checked the logs.</BubbleContent>
         </Bubble>
       </MessageContent>

@@ -27,7 +27,7 @@ const lastEvent = ref("");
       :status="status"
       @submit="lastEvent = 'submit'"
       @stop="lastEvent = 'stop'"
-      @reload="lastEvent = 'reload'"
+      @retry="lastEvent = 'retry'"
     />
     <p class="font-mono text-xs text-muted">last event: {{ lastEvent || "none" }}</p>
   </div>

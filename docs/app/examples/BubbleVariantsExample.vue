@@ -9,16 +9,16 @@ A ghost bubble can use the full width of the container. You can also show \`code
     <Bubble>
       <BubbleContent>This is the default primary bubble.</BubbleContent>
     </Bubble>
-    <Bubble variant="secondary" align="end">
+    <Bubble variant="soft" align="end">
       <BubbleContent>This is the secondary variant.</BubbleContent>
     </Bubble>
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>This one is muted. It uses a lower emphasis color.</BubbleContent>
       <BubbleReactions role="img" aria-label="Reaction: thumbs up">
         <span>👍</span>
       </BubbleReactions>
     </Bubble>
-    <Bubble variant="tinted" align="end">
+    <Bubble variant="soft" tone="info" align="end">
       <BubbleContent>This one is tinted. The tint is a soft color from the primary color.</BubbleContent>
     </Bubble>
     <Bubble variant="outline">

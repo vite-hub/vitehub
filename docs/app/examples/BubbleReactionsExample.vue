@@ -4,14 +4,14 @@ const toast = useToast();
 
 <template>
   <div class="flex w-full max-w-sm flex-col gap-12 py-4">
-    <Bubble variant="muted" align="end">
+    <Bubble variant="soft" align="end">
       <BubbleContent>I don't need tests. I know my code works.</BubbleContent>
       <BubbleReactions align="start" role="img" aria-label="Reactions: thumbs up, surprised">
         <span>👍</span>
         <span>😮</span>
       </BubbleReactions>
     </Bubble>
-    <Bubble variant="muted">
+    <Bubble variant="soft">
       <BubbleContent>Bold. I will add some tests and tell you when they are done.</BubbleContent>
       <BubbleReactions role="img" aria-label="Reactions: eyes, rocket, and 2 more">
         <span>👀</span>

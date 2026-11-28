@@ -1,12 +1,12 @@
 ---
 title: Bubble
-description: "Frame message text in one of seven Bubble variants, align it to a side, group Bubbles, and attach reactions."
+description: "Frame message text in one of five Bubble variants and a tone, align it to a side, group Bubbles, and attach reactions."
 navigation.order: 11
 navigation.group: Parts
 icon: i-lucide-message-circle
 ---
 
-`Bubble` frames the text of a turn. Seven variants cover the current user, the assistant, quiet notes, and errors. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from your app's Nuxt UI tokens.
+`Bubble` frames the text of a turn. Five variants and a tone cover the current user, the assistant, quiet notes, and errors. The parts match the names and `data-slot` attributes of the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from your app's Nuxt UI tokens.
 
 `Bubble` is only the frame. Put avatars, names, timestamps, and message actions in [Message](/docs/ui/message).
 
@@ -58,11 +58,11 @@ BubbleGroup
 
 ## Features
 
-- Seven variants, from a strong primary bubble to unframed ghost content.
+- Five variants, from a strong solid bubble to unframed ghost content, and a `tone` for a soft bubble.
 - Start and end alignment for sender and receiver.
 - Reactions on the top or bottom edge, at the start or end.
 - A bubble fits its content, up to 80% of the container width.
-- `as` on `BubbleContent` renders a link or button with hover and focus styles.
+- The `render` slot of `BubbleContent` renders a link or button with hover and focus styles.
 - Default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
 
 ## Variants
@@ -74,10 +74,8 @@ Use `variant` to change the look.
 
 | Variant       | Use for                                       |
 | ------------- | --------------------------------------------- |
-| `default`     | The current user. Uses the primary color.     |
-| `secondary`   | Normal conversation content. |
-| `muted`       | Quiet supporting content.                     |
-| `tinted`      | A subtle primary tint.                        |
+| `solid`       | The current user. Uses the primary color.     |
+| `soft`        | Normal conversation content and quiet notes. With a `tone` other than `neutral`, a subtle tint of that color. |
 | `outline`     | Secondary or rich content, with a border. |
 | `ghost`       | Unframed assistant text or rich content.      |
 | `destructive` | Errors and failed actions.                    |
@@ -107,15 +105,22 @@ Group consecutive bubbles from one sender. Set `align` on each `Bubble`, not on 
 
 ## Links and Buttons
 
-Set `as` on `BubbleContent` to render another element or component, with hover and focus styles.
+Use the `render` slot of `BubbleContent` to render another element or component, with hover and focus styles. Bind `props` to your element: they hold `data-slot="bubble-content"`.
 
 ::example{name="BubbleLinksExample" height=14}
 ::
 
 ```vue
-<BubbleContent as="a" href="/runs/42">Open run 42</BubbleContent>
-<BubbleContent :as="NuxtLink" to="/runs/42">Open run 42</BubbleContent>
-<BubbleContent as="button" type="button" @click="retry">Retry the deploy</BubbleContent>
+<BubbleContent>
+  <template #render="{ props }">
+    <NuxtLink v-bind="props" to="/runs/42">Open run 42</NuxtLink>
+  </template>
+</BubbleContent>
+<BubbleContent>
+  <template #render="{ props }">
+    <button v-bind="props" type="button" @click="retry">Retry the deploy</button>
+  </template>
+</BubbleContent>
 ```
 
 ## Reactions
@@ -172,10 +177,14 @@ For interactive reactions, use buttons. Give icon-only buttons an `aria-label`.
 
 ### Interactive Bubbles
 
-For a clickable bubble, set `as="button"` or `as="a"` on `BubbleContent`. It is then focusable, has the correct role, and shows a focus ring. Its text is the accessible name.
+For a clickable bubble, render a `button` or an `a` in the `render` slot of `BubbleContent`. It is then focusable, has the correct role, and shows a focus ring. Its text is the accessible name.
 
 ```vue
-<BubbleContent as="button" type="button" @click="reply">I forgot my password</BubbleContent>
+<BubbleContent>
+  <template #render="{ props }">
+    <button v-bind="props" type="button" @click="reply">I forgot my password</button>
+  </template>
+</BubbleContent>
 ```
 
 ### Meaning Beyond Color
@@ -186,24 +195,26 @@ Variants show role and tone with color. Do not use color alone. In a `destructiv
 
 ### Bubble
 
-Renders a `div` with `data-slot="bubble"`.
+Renders a `div` with `data-slot="bubble"`, `data-variant`, `data-tone`, and `data-align`.
 
 #### Props
 
-| Prop      | Type                                                                                       | Default     | Description                         |
-| --------- | ------------------------------------------------------------------------------------------ | ----------- | ----------------------------------- |
-| `variant` | `"default" \| "secondary" \| "muted" \| "tinted" \| "outline" \| "ghost" \| "destructive"` | `"default"` | The look of the bubble. |
-| `align`   | `"start" \| "end"`                                                                         | `"start"`   | Inline alignment. |
+| Prop      | Type                                                                   | Default     | Description |
+| --------- | ---------------------------------------------------------------------- | ----------- | ----------- |
+| `variant` | `"solid" \| "soft" \| "outline" \| "ghost" \| "destructive"`          | `"solid"`   | The look of the bubble. |
+| `tone`    | `"neutral" \| "success" \| "warning" \| "error" \| "info"`            | `"neutral"` | The tint of a `soft` bubble. |
+| `align`   | `"start" \| "end"`                                                     | `"start"`   | Inline alignment. |
 
 ### BubbleContent
 
-The framed content. Renders `data-slot="bubble-content"` on the element that `as` selects.
+The framed content. Renders a `div` with `data-slot="bubble-content"`.
 
-#### Props
+#### Slots
 
-| Prop | Type                  | Default | Description                                                |
-| ---- | --------------------- | ------- | ---------------------------------------------------------- |
-| `as` | `string \| Component` | `"div"` | Renders another element, such as a link. |
+| Slot      | Scope                  | Description |
+| --------- | ---------------------- | ----------- |
+| `default` |                        | The content. |
+| `render`  | `{ props, children }`  | Renders your own element, such as a link. Bind `props` to it. |
 
 ### BubbleReactions
 

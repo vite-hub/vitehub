@@ -45,7 +45,7 @@ function output(part: DynamicToolUIPart) {
   <div class="flex w-full max-w-sm flex-col gap-4 text-sm">
     <Message align="end">
       <MessageContent>
-        <Bubble align="end" variant="muted">
+        <Bubble align="end" variant="soft">
           <BubbleContent>Which package managers are installed?</BubbleContent>
         </Bubble>
       </MessageContent>

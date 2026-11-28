@@ -21,7 +21,7 @@ export const ChatMessage = defineComponent({
       // The default slot replaces the body. Other slots go to MessageParts.
       const parts = () => h(MessageParts, { parts: message.parts, streaming: props.streaming }, slots);
       const body = slots.default?.({ message })
-        ?? (user ? h(Bubble, { align: "end", variant: "secondary" }, () => h(BubbleContent, parts)) : parts());
+        ?? (user ? h(Bubble, { align: "end", variant: "soft" }, () => h(BubbleContent, parts)) : parts());
       return h(
         Message,
         {

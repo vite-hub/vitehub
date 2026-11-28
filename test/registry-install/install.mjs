@@ -361,6 +361,24 @@ describe("@vitehub registry install", { concurrency: false }, () => {
         await page.locator("[data-slot=copy-button][data-copied]").first().waitFor();
         assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "pnpm add @vite-hub/ui");
 
+        // The chat parts: their stylesheets loaded, and the prompt sends with Enter.
+        const bubble = await page.locator("[data-slot=bubble][data-variant=soft] [data-slot=bubble-content]").first().evaluate((element) => {
+          const style = getComputedStyle(element);
+          return { padding: style.paddingLeft, background: style.backgroundColor };
+        });
+        assert.notEqual(bubble.padding, "0px", "the soft bubble has its padding");
+        assert.notEqual(bubble.background, "rgba(0, 0, 0, 0)", "the soft bubble has its background");
+        assert.equal(await page.locator("[data-slot=bubble-content]").evaluateAll((elements) => elements.filter((element) => element.tagName === "BUTTON").length), 1, "the render slot makes a button");
+        assert.equal(await page.locator("[data-slot=attachment]").count(), 4);
+        assert.equal(await page.getByRole("button", { name: "Remove release-notes.pdf" }).count(), 1);
+        const submit = page.locator("[data-slot=prompt-input-submit]");
+        assert.equal((await submit.boundingBox())?.width, 28, "the send button is 28px wide");
+        assert.equal(await submit.isDisabled(), true, "the send button waits for text");
+        const textarea = page.locator("[data-slot=prompt-input-textarea]");
+        await textarea.fill("Hello");
+        await textarea.press("Enter");
+        await page.getByText("Sent: Hello").waitFor();
+
         if (screenshots) {
           await mkdir(screenshots, { recursive: true });
           await page.mouse.move(0, 0);

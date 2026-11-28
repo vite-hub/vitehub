@@ -4,7 +4,7 @@ import type { ChatStatus } from "ai";
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it, vi } from "vitest";
-import { PromptInput } from "../src/components/prompt-input.ts";
+import { PromptInput, PromptInputSubmit, PromptInputTextarea, PromptInputToolbar } from "../src/components/prompt-input.ts";
 import { ChatSession } from "../src/components/chat-session.ts";
 import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
@@ -46,16 +46,20 @@ const global = {
 const submitButton = '[data-slot="prompt-input-toolbar"] > button:last-child';
 
 describe("PromptInput", () => {
-  it("renders the leading footer slot before the prompt actions", () => {
+  it("renders its children in place of the default parts", () => {
     const wrapper = mount(PromptInput, {
       global,
       slots: {
-        "footer-leading": () => h("span", { class: "footer-leading" }, "Profile"),
+        default: () => [
+          h(PromptInputTextarea),
+          h(PromptInputToolbar, () => [h("span", { class: "profile" }, "Profile"), h(PromptInputSubmit)]),
+        ],
       },
     });
 
-    expect(wrapper.get(".footer-leading").text()).toBe("Profile");
-    expect(wrapper.html()).toContain('<span class="footer-leading">Profile</span>');
+    expect(wrapper.get('[data-slot="prompt-input-toolbar"] > .profile').text()).toBe("Profile");
+    expect(wrapper.get(submitButton).attributes("aria-label")).toBe("Send prompt");
+    expect(wrapper.find('[data-slot="prompt-input-attach"]').exists()).toBe(false);
   });
 
   it("names the composer and keeps the programmatic picker out of the tab order", () => {
@@ -92,8 +96,11 @@ describe("PromptInput", () => {
     ]);
   });
 
-  it("renders a text-only prompt when attachments are off", async () => {
-    const wrapper = mount(PromptInput, { global, props: { attachments: false } });
+  it("renders a text-only prompt without the attach part", async () => {
+    const wrapper = mount(PromptInput, {
+      global,
+      slots: { default: () => [h(PromptInputTextarea), h(PromptInputToolbar, () => h(PromptInputSubmit))] },
+    });
     const image = new File(["image"], "clipboard.png", { type: "image/png" });
 
     expect(wrapper.find('input[type="file"]').exists()).toBe(false);
@@ -165,7 +172,7 @@ describe("PromptInput", () => {
     await input.trigger("change");
     await flushPromises();
 
-    expect(wrapper.emitted("error")).toEqual([[error]]);
+    expect(wrapper.emitted("error")).toEqual([[{ error }]]);
   });
 
   it("previews image attachments above the editor with a separate remove control", async () => {
@@ -183,11 +190,10 @@ describe("PromptInput", () => {
       },
     });
 
-    expect(wrapper.get('[data-slot="attachment-media"][data-variant="image"] img').attributes()).toMatchObject({
+    expect(wrapper.get('[data-slot="attachment-media"][data-kind="image"] img').attributes()).toMatchObject({
       alt: "preview.png",
       src: "data:image/png;base64,aW1hZ2U=",
     });
-    expect(wrapper.get('[aria-label="Preview preview.png"]').attributes("type")).toBe("button");
     expect(wrapper.find("button button").exists()).toBe(false);
     await wrapper.get('[aria-label="Remove preview.png"]').trigger("click");
     expect(wrapper.emitted("update:files")).toEqual([[[]]]);
@@ -198,8 +204,8 @@ describe("PromptInput", () => {
     ["ready", "Send prompt", undefined],
     ["submitted", "Stop response", "stop"],
     ["streaming", "Stop response", "stop"],
-    ["error", "Retry prompt", "reload"],
-  ] satisfies readonly [ChatStatus, string, "reload" | "stop" | undefined][])(
+    ["error", "Retry prompt", "retry"],
+  ] satisfies readonly [ChatStatus, string, "retry" | "stop" | undefined][])(
     "names and handles the %s submit state",
     async (status, label, emitted) => {
       const wrapper = mount(PromptInput, { global, props: { status } });
@@ -226,19 +232,19 @@ describe("PromptInput", () => {
     scope.stop();
   });
 
-  it("replaces the controlled attachment when multiple files are disabled", () => {
+  it("replaces the controlled attachment when the prompt takes a single file", () => {
     const oldFile = { filename: "old.txt", mediaType: "text/plain", type: "file" as const, url: "data:,old" };
     const newFile = { filename: "new.txt", mediaType: "text/plain", type: "file" as const, url: "data:,new" };
 
-    expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
+    expect(nextPromptFiles([oldFile], [newFile], true)).toEqual([newFile]);
   });
 
   it("softens the send button until there is something to send", async () => {
     const wrapper = mount(PromptInput, { global });
-    expect(wrapper.get(submitButton).attributes("variant")).toBe("soft");
+    expect(wrapper.get(submitButton).attributes("data-variant")).toBe("soft");
 
     await wrapper.setProps({ modelValue: "Ship it" });
-    expect(wrapper.get(submitButton).attributes("variant")).toBe("solid");
+    expect(wrapper.get(submitButton).attributes("data-variant")).toBe("solid");
   });
 
   it("keeps empty prompts without attachments inert", async () => {

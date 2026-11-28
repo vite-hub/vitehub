@@ -124,7 +124,7 @@ export const Parts: Component = defineComponent({
       })),
       section("Attachment", () => h(Attachment, null, () => [
         h(AttachmentContent, () => h(AttachmentTitle, () => "notes.txt")),
-        h(AttachmentActions, () => h(AttachmentAction, { "aria-label": "Remove notes.txt", icon: "i-lucide-x", onClick: () => record("attachment:remove") })),
+        h(AttachmentActions, () => h(AttachmentAction, { label: "Remove notes.txt", onClick: () => record("attachment:remove") })),
       ])),
       section("MessageParts", () => h(MessageParts, { parts: [{ filename: "pixel.png", mediaType: "image/png", type: "file", url: image }] })),
       section("TraceRun", () => h(TraceRun, {

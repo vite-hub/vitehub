@@ -210,7 +210,7 @@ app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", 
 | Name | Source | Default | Used by |
 | --- | --- | --- | --- |
 | `arrowLeft` | Nuxt UI | `i-lucide-arrow-left` | Back button of `CommentThread` |
-| `arrowUp` | Nuxt UI | `i-lucide-arrow-up` | Send button of `PromptInput` and `CommentComposer` |
+| `arrowUp` | Nuxt UI | `i-lucide-arrow-up` | Send button of `CommentComposer` |
 | `check` | Nuxt UI | `i-lucide-check` | Resolve button of `CommentThread` |
 | `chevronLeft` | Nuxt UI | `i-lucide-chevron-left` | Previous picture of a comment's image preview |
 | `chevronRight` | Nuxt UI | `i-lucide-chevron-right` | Next picture of a comment's image preview |
@@ -219,9 +219,9 @@ app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", 
 | `copyCheck` | Nuxt UI | `i-lucide-check` | `CopyButton` after a copy |
 | `external` | Nuxt UI | `i-lucide-external-link` | Open button of image previews |
 | `file` | Nuxt UI | `i-lucide-file` | Attachments that are not images |
-| `plus` | Nuxt UI | `i-lucide-plus` | Attach button of `PromptInput` and `CommentComposer` |
-| `reload` | Nuxt UI | `i-lucide-refresh-cw` | Retry button of `PromptInput` |
-| `stop` | Nuxt UI | `i-lucide-square` | Stop button of `PromptInput` |
+| `plus` | Nuxt UI | `i-lucide-plus` | Attach button of `CommentComposer` |
+| `reload` | Nuxt UI | `i-lucide-refresh-cw` | No part. `PromptInputSubmit` draws a Lucide icon; its default slot replaces it. |
+| `stop` | Nuxt UI | `i-lucide-square` | No part. `PromptInputSubmit` draws a Lucide icon; its default slot replaces it. |
 | `comment` | ViteHub | `i-lucide-message-circle` | Comment mode button of `CommentToolbar` |
 | `commentList` | ViteHub | `i-lucide-list` | List button of `CommentToolbar` |
 | `commentPage` | ViteHub | `i-lucide-square-pen` | Page comment button of `CommentToolbar` |

@@ -31,7 +31,7 @@ import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
-import { PromptInput, type PromptInputSubmit } from "./prompt-input.ts";
+import { PromptInput, PromptInputAttach, PromptInputSubmit, type PromptInputSubmitEvent, PromptInputTextarea, PromptInputToolbar } from "./prompt-input.ts";
 
 export type CommentComposerVariant = "comment" | "reply" | "edit";
 
@@ -408,7 +408,7 @@ export const CommentComposer = defineComponent({
       menu.value = sameToken && show ? { before, failed, index: 0, items, query: found.query, start: found.start } : null;
     }
 
-    function submit(payload: PromptInputSubmit) {
+    function submit(payload: PromptInputSubmitEvent) {
       if (props.busy) return;
       const sent = [...files.value];
       if (!payload.text && (sent.length === 0 || !allowEmpty.value)) {
@@ -487,6 +487,10 @@ export const CommentComposer = defineComponent({
     };
     const UIcon = useUIComponent("UIcon");
     const icons = useViteHubUIIcons();
+    const removeFile = (index: number) => {
+      const part = fileParts.value[index];
+      setFiles(files.value.filter((file) => partOf(file) !== part));
+    };
     // Pictures go in one stack beside the text. Other files keep their chip with the name.
     const fileList = ({ files: list, remove }: { files: readonly FileUIPart[]; remove: (index: number) => void }) => {
       const images: CommentStackImage[] = [];
@@ -506,10 +510,10 @@ export const CommentComposer = defineComponent({
           ? h(AttachmentGroup, { "data-slot": "prompt-input-attachments" }, () =>
               others.map(({ file, index }) =>
                 h(Attachment, { key: file.url, size: "xs" }, () => [
-                  h(AttachmentMedia, { variant: "icon" }, () => h(UIcon, { name: icons.value.file })),
+                  h(AttachmentMedia, { kind: "icon" }, () => h(UIcon, { name: icons.value.file })),
                   h(AttachmentContent, () => h(AttachmentTitle, () => file.filename ?? file.mediaType)),
                   h(AttachmentActions, () =>
-                    h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.busy, icon: icons.value.close, onClick: () => remove(index) }),
+                    h(AttachmentAction, { disabled: props.busy, label: `Remove ${file.filename ?? "attachment"}`, onClick: () => remove(index) }, () => h(UIcon, { name: icons.value.close })),
                   ),
                 ]),
               ),
@@ -564,7 +568,7 @@ export const CommentComposer = defineComponent({
           },
           onChangeCapture: (event: Event) => {
             if (event.target instanceof HTMLInputElement && event.target.type === "file") {
-              origin = root.value?.querySelector("[data-slot=prompt-input-toolbar] button[aria-label='Add attachment']");
+              origin = root.value?.querySelector("[data-slot=prompt-input-attach]");
             }
           },
           ref: root,
@@ -575,10 +579,7 @@ export const CommentComposer = defineComponent({
             h(PromptInput, {
               accept: props.accept,
               "aria-label": labels[props.variant],
-              attachments: attachmentsOn.value,
-              attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
-              filesDisabled: props.busy,
               readonly: props.busy,
               filterFiles: (list: readonly File[]) => {
                 addFiles(list);
@@ -590,7 +591,16 @@ export const CommentComposer = defineComponent({
               onSubmit: submit,
               "onUpdate:files": (next: readonly FileUIPart[]) => setFiles(files.value.filter((file) => next.includes(partOf(file)))),
               "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
-            }, attachmentsOn.value ? { files: fileList } : undefined),
+            }, () => [
+              attachmentsOn.value ? fileList({ files: fileParts.value, remove: removeFile }) : null,
+              h(PromptInputTextarea),
+              h(PromptInputToolbar, () => [
+                attachmentsOn.value
+                  ? h(PromptInputAttach, { disabled: props.busy, variant: props.layout === "row" ? "ghost" : "outline" }, () => h(UIcon, { name: icons.value.plus }))
+                  : null,
+                h(PromptInputSubmit, null, () => h(UIcon, { name: icons.value.arrowUp })),
+              ]),
+            ]),
             menu.value && menu.value.items.length === 0
               ? h(
                   "div",

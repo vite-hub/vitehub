@@ -1,0 +1,20 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-attachment",
+  "type": "registry:block",
+  "title": "Attachment example",
+  "description": "Attachments in three sizes and statuses, and a group of chips.",
+  "dependencies": [
+    "@lucide/vue"
+  ],
+  "registryDependencies": [
+    "@vitehub/attachment"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-attachment/AttachmentExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { FileText } from \"@lucide/vue\";\nimport {\n  Attachment,\n  AttachmentAction,\n  AttachmentActions,\n  AttachmentContent,\n  AttachmentDescription,\n  AttachmentGroup,\n  AttachmentMedia,\n  AttachmentTitle,\n} from \"../attachment/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-attachment\" style=\"display: flex; flex-direction: column; gap: 0.75rem; max-width: 24rem\">\n    <Attachment>\n      <AttachmentMedia>\n        <FileText aria-hidden=\"true\" />\n      </AttachmentMedia>\n      <AttachmentContent>\n        <AttachmentTitle>release-notes.pdf</AttachmentTitle>\n        <AttachmentDescription>PDF · 240 KB</AttachmentDescription>\n      </AttachmentContent>\n      <AttachmentActions>\n        <AttachmentAction label=\"Remove release-notes.pdf\" />\n      </AttachmentActions>\n    </Attachment>\n    <Attachment status=\"uploading\" size=\"sm\">\n      <AttachmentMedia>\n        <FileText aria-hidden=\"true\" />\n      </AttachmentMedia>\n      <AttachmentContent>\n        <AttachmentTitle>design-system.zip</AttachmentTitle>\n        <AttachmentDescription>Uploading · 64%</AttachmentDescription>\n      </AttachmentContent>\n    </Attachment>\n    <AttachmentGroup>\n      <Attachment size=\"xs\">\n        <AttachmentContent>\n          <AttachmentTitle>notes.txt</AttachmentTitle>\n        </AttachmentContent>\n      </Attachment>\n      <Attachment size=\"xs\" status=\"error\">\n        <AttachmentContent>\n          <AttachmentTitle>model.xlsx</AttachmentTitle>\n        </AttachmentContent>\n      </Attachment>\n    </AttachmentGroup>\n  </div>\n</template>\n"
+    }
+  ]
+}

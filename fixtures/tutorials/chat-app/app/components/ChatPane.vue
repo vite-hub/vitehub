@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import { ChatSession, PromptInput, type PromptInputSubmit } from "vite-hub/ui";
+import { ChatSession, PromptInput, PromptInputSubmit, type PromptInputSubmitEvent, PromptInputTextarea, PromptInputToolbar } from "vite-hub/ui";
 import { DefaultChatTransport } from "ai";
 import type { Thread } from "../../shared/chat";
 
@@ -50,7 +50,7 @@ async function reload() {
   }
 }
 
-async function submit({ text }: PromptInputSubmit) {
+async function submit({ text }: PromptInputSubmitEvent) {
   if (busy.value || props.blocked || limitReached.value) return;
   if (text.length > 2000) { notice.value = "Use at most 2,000 characters."; return; }
   notice.value = "";
@@ -81,8 +81,12 @@ async function stopReply() {
           Reload saved history
         </UButton>
         <fieldset :disabled="blocked || recovering || limitReached">
-          <PromptInput v-model="input" :status :attachments="false"
-            placeholder="Ask a question" @submit="submit" @stop="stopReply" @reload="reload" />
+          <PromptInput v-model="input" :status placeholder="Ask a question" @submit="submit" @stop="stopReply" @retry="reload">
+            <PromptInputTextarea />
+            <PromptInputToolbar>
+              <PromptInputSubmit />
+            </PromptInputToolbar>
+          </PromptInput>
         </fieldset>
       </div>
     </template>

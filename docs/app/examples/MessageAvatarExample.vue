@@ -5,7 +5,7 @@
         <UAvatar src="/vitehub-mark.png" alt="Agent" />
       </MessageAvatar>
       <MessageContent>
-        <Bubble variant="muted">
+        <Bubble variant="soft">
           <BubbleContent>The build failed during dependency installation.</BubbleContent>
         </Bubble>
       </MessageContent>
@@ -26,10 +26,10 @@
       </MessageAvatar>
       <MessageContent>
         <BubbleGroup>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>Here is the error from the logs.</BubbleContent>
           </Bubble>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>
               ERR_PNPM_OUTDATED_LOCKFILE: Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with package.json.
             </BubbleContent>

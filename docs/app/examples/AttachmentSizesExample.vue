@@ -1,6 +1,6 @@
 <template>
   <div class="flex w-full max-w-sm flex-col gap-3">
-    <Attachment size="default" class="w-full">
+    <Attachment size="md" class="w-full">
       <AttachmentMedia>
         <UIcon name="i-lucide-file-text" />
       </AttachmentMedia>

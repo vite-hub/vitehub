@@ -4,7 +4,7 @@
       <Message>
         <MessageAvatar />
         <MessageContent>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>I checked the registry addresses.</BubbleContent>
           </Bubble>
         </MessageContent>
@@ -14,7 +14,7 @@
           <UAvatar src="/vitehub-mark.png" alt="Agent" />
         </MessageAvatar>
         <MessageContent>
-          <Bubble variant="muted">
+          <Bubble variant="soft">
             <BubbleContent>The component and example JSON now live in the UI registry.</BubbleContent>
           </Bubble>
         </MessageContent>

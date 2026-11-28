@@ -1,0 +1,17 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry-item.json",
+  "name": "example-bubble",
+  "type": "registry:block",
+  "title": "Bubble example",
+  "description": "A group of bubbles with a reaction and a button, and the outline and destructive variants.",
+  "registryDependencies": [
+    "@vitehub/bubble"
+  ],
+  "files": [
+    {
+      "path": "components/vitehub/example-bubble/BubbleExample.vue",
+      "type": "registry:component",
+      "content": "<script setup lang=\"ts\">\nimport { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from \"../bubble/index.ts\";\n</script>\n\n<template>\n  <div data-slot=\"example-bubble\" style=\"display: flex; flex-direction: column; gap: 1.5rem; max-width: 28rem\">\n    <BubbleGroup>\n      <Bubble align=\"end\">\n        <BubbleContent>Ship it on Friday?</BubbleContent>\n      </Bubble>\n      <Bubble variant=\"soft\">\n        <BubbleContent>Friday works. I will tag the release.</BubbleContent>\n        <BubbleReactions role=\"img\" aria-label=\"Reaction: thumbs up\">👍</BubbleReactions>\n      </Bubble>\n      <Bubble variant=\"soft\" tone=\"info\">\n        <BubbleContent>\n          <template #render=\"{ props }\">\n            <button v-bind=\"props\" type=\"button\">Open the release notes</button>\n          </template>\n        </BubbleContent>\n      </Bubble>\n    </BubbleGroup>\n    <Bubble variant=\"outline\">\n      <BubbleContent>An outline bubble for rich content.</BubbleContent>\n    </Bubble>\n    <Bubble variant=\"destructive\">\n      <BubbleContent>Failed: the deploy stopped.</BubbleContent>\n    </Bubble>\n  </div>\n</template>\n"
+    }
+  ]
+}

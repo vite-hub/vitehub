@@ -154,7 +154,7 @@
         }
       },
       "dependencies": [
-        "@ui-sdk/core@0.1.0-beta.14"
+        "@ui-sdk/core@0.1.0-beta.19"
       ],
       "files": [
         {
@@ -209,7 +209,7 @@
       "description": "A button that copies text and shows a check for a moment.",
       "dependencies": [
         "@lucide/vue",
-        "@ui-sdk/vue@0.1.0-beta.14"
+        "@ui-sdk/vue@0.1.0-beta.19"
       ],
       "registryDependencies": [
         "@vitehub/core"
@@ -233,6 +233,214 @@
         },
         {
           "path": "components/vitehub/copy-button/use-copy.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "message",
+      "type": "registry:component",
+      "title": "Message",
+      "description": "One turn of a conversation: avatar, header, content, and footer, aligned to the start or end.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/message/Message.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/MessageAvatar.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/MessageContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/MessageFooter.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/MessageGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/MessageHeader.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/message.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/message/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "bubble",
+      "type": "registry:component",
+      "title": "Bubble",
+      "description": "A frame for message text in five variants and a tone, with groups and reactions.",
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/bubble/Bubble.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/BubbleContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/BubbleGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/BubbleReactions.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/bubble.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/bubble/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "attachment",
+      "type": "registry:component",
+      "title": "Attachment",
+      "description": "A file with its upload status as a row or a tile, with media, actions, and a group that scrolls.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/attachment/Attachment.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentAction.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentActions.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentContent.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentDescription.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentGroup.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentMedia.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentTitle.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/AttachmentTrigger.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/attachment.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/attachment/types.ts",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "prompt-input",
+      "type": "registry:component",
+      "title": "Prompt input",
+      "description": "A chat input with file attachments and a submit button that follows the AI SDK chat status.",
+      "dependencies": [
+        "@lucide/vue",
+        "ai"
+      ],
+      "registryDependencies": [
+        "@vitehub/attachment",
+        "@vitehub/core"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/prompt-input/PromptInput.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/PromptInputAttach.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/PromptInputAttachments.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/PromptInputSubmit.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/PromptInputTextarea.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/PromptInputToolbar.vue",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/context.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/files.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/prompt-input.css",
+          "type": "registry:component"
+        },
+        {
+          "path": "components/vitehub/prompt-input/types.ts",
           "type": "registry:component"
         }
       ]
@@ -263,6 +471,73 @@
       "files": [
         {
           "path": "components/vitehub/example-copy-button/CopyButtonExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-message",
+      "type": "registry:block",
+      "title": "Message example",
+      "description": "A question from the user and an answer with a header and footer.",
+      "registryDependencies": [
+        "@vitehub/bubble",
+        "@vitehub/message"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-message/MessageExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-bubble",
+      "type": "registry:block",
+      "title": "Bubble example",
+      "description": "A group of bubbles with a reaction and a button, and the outline and destructive variants.",
+      "registryDependencies": [
+        "@vitehub/bubble"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-bubble/BubbleExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-attachment",
+      "type": "registry:block",
+      "title": "Attachment example",
+      "description": "Attachments in three sizes and statuses, and a group of chips.",
+      "dependencies": [
+        "@lucide/vue"
+      ],
+      "registryDependencies": [
+        "@vitehub/attachment"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-attachment/AttachmentExample.vue",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "example-prompt-input",
+      "type": "registry:block",
+      "title": "Prompt input example",
+      "description": "A prompt that takes text and files and shows what it sent.",
+      "dependencies": [
+        "ai"
+      ],
+      "registryDependencies": [
+        "@vitehub/prompt-input"
+      ],
+      "files": [
+        {
+          "path": "components/vitehub/example-prompt-input/PromptInputExample.vue",
           "type": "registry:component"
         }
       ]
