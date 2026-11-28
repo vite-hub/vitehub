@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { readFile, realpath, stat } from "node:fs/promises"
+import { appendFile, readFile, realpath, stat } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
 import { parseArgs, parseEnv } from "node:util"
@@ -10,6 +10,7 @@ import { basename, dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
+import { dotenvLine } from "./console-env.ts"
 import { decryptEnvValues, envKeysFile, isEncryptedEnvValue } from "./env-encrypted.ts"
 import { cloudflareEnv, wranglerVarNames } from "./deploy/cloudflare.ts"
 import { consoleKeyPrefix } from "./deploy/console.ts"
@@ -624,6 +625,18 @@ function entryNames(entries: readonly DeploymentEnvEntry[]): string[] {
   return [...new Set(entries.flatMap(entry => [...entry.names, ...(entry.prefix ? [`${entry.prefix}*`] : [])]))]
 }
 
+async function keepGenerated(item: PlannedValue, file: string, options: Pick<DeployEnvOptions, "context" | "root" | "run">): Promise<string> {
+  const label = fileSource(options.root, file)
+  if (inGitRepository(dirname(file), options.context.env)) {
+    const state = await gitFileState(file, label, options.run, options.context.env)
+    if (state === "tracked") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file: label, names: item.name }), setupExitCodes.conflict)
+    if (state === "unignored") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_NOT_IGNORED({ file: label, names: item.name }), setupExitCodes.conflict)
+  }
+  const current = existsSync(file) ? await readFile(file, "utf8") : ""
+  await appendFile(file, `${current && !current.endsWith("\n") ? "\n" : ""}${dotenvLine(item.name, item.value)}\n`, { mode: 0o600 })
+  return label
+}
+
 /**
  * The Env gate of `vitehub deploy`. It runs after provisioning and the build, before migrations, env writes, or publishing code. Each required entry must be on
  * the host or have a local value (the shell, then the stage env files, as `env push` reads them). Deploy sets every
@@ -661,7 +674,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
 
   const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...configVars, ...stored.map(item => item.name)])))
   const appSecret = unset().find(entry => isRequired(entry) && entry.names.includes(appSecretName))
-  if (appSecret && (options.yes || (options.interactive && await confirmGenerate(label)))) {
+  if (appSecret && options.envDir !== false && (options.yes || (options.interactive && await confirmGenerate(label)))) {
     stored.push({ encrypted: false, files: [], name: appSecretName, secret: true, source: "generated", value: randomBytes(32).toString("base64") })
     output.generated = [appSecretName]
   }
@@ -679,6 +692,8 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   if (stored.length && !hostEnv && host !== "cloudflare") {
     throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: stored.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: host === "deno" ? "vitehub link --host deno" : `vitehub link --host ${host} --create` })
   }
+  const generated = stored.find(item => item.source === "generated")
+  const kept = generated && options.envDir !== false ? await keepGenerated(generated, join(options.envDir, `.env.${stage}.local`), options) : undefined
   await assertUntracked(stored, options.root, options.run, context.env, context.stderr)
   const planned = await decryptPlanned(stored, options.root, context.env, options.secrets)
 
@@ -687,7 +702,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   if (output.missing.length) context.stderr.write(`Warning: optional env not set on ${host}: ${output.missing.map(entryLabel).join(", ")}.\n`)
   for (const item of planned) {
     context.stderr.write(item.source === "generated"
-      ? `Generated ${item.name} and set it on ${host}.\n`
+      ? `Generated ${item.name}, saved it in ${kept}, and set it on ${host}.\n`
       : `Setting ${item.name} on ${host}${host === "cloudflare" ? " with the new version" : ""} from ${sourceLabel(item.source)}${item.encrypted ? ", decrypted" : ""}${onHost.has(item.name) ? ", replaced" : ""}.\n`)
   }
   const deployedNames = new Set([...onHost, ...configVars, ...output.pushed])
