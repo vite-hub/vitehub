@@ -354,6 +354,34 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
   return Promise.all(selected.map(name => runs.get(name))).then(() => undefined)
 }
 
+function isLocalClient(client: unknown) {
+  return (isLibsqlClient(client) && client.protocol === "file") || (!isPostgresClient(client) && !isNodePostgresPool(client) && isPgliteClient(client))
+}
+
+/**
+ * Applies the pending migrations of `names` when the development server starts. It migrates only the databases on this
+ * machine, a SQLite file or PGlite, and skips D1 over HTTP, remote libSQL, and Postgres servers. It copies no backup.
+ * A failure, such as a migration that loses data, is logged, and the development server keeps running.
+ */
+export async function ensureLocalDatabaseMigrations(context: EnsureMigrationsContext, names: readonly string[], log: (message: string) => void = message => console.warn(message)): Promise<void> {
+  const local = names.filter(name => Object.hasOwn(context.databases, name) && isLocalClient(Reflect.get(Object(context.databases[name]!.db), "$client")))
+  if (!local.length) return
+  const load = async (): Promise<ShippedMigrations> => {
+    const shipped = await context.load()
+    return { allowDataLoss: shipped.allowDataLoss, databases: shipped.databases, ...shipped.unsupported !== undefined && { unsupported: shipped.unsupported } }
+  }
+  try {
+    await ensureDatabaseMigrations({ databases: context.databases, load }, local)
+  }
+  catch (error) {
+    const fix: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "fix") : undefined
+    log([
+      `[vitehub] The development server did not apply the pending migrations: ${error instanceof Error ? error.message : String(error)}`,
+      typeof fix === "string" ? fix : "Run `vitehub database migrate` to apply them.",
+    ].join("\n"))
+  }
+}
+
 async function planSqlite(databases: StartMigrationDatabase[], options: MigrateOnStartOptions): Promise<StartMigrationPlan[]> {
   const plans = new Map<string | LibsqlMigrationClient, StartMigrationPlan>()
   for (const database of databases) {

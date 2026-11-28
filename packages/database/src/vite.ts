@@ -27,7 +27,7 @@ import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from ".
 import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
-import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectDevMigrateOnStartDatabases, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
@@ -514,15 +514,18 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     if (!plugins.includes(plugin)) plugins.push(plugin)
   }
 
-  // A Node server build applies pending migrations before it handles requests. In Nuxt the Database module installs it.
   function installNitroMigrateOnStart() {
     const database = resolvedOptions()
     const settings = resolveMigrateOnStart(database)
-    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || nitroOptions.preset === "nitro-prerender" || (database && "nuxtHostResource" in database)) return
-    const databases = selectMigrateOnStartDatabases(runtimeConfig, settings, resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }))
+    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.preset === "nitro-prerender" || (database && "nuxtHostResource" in database)) return
+    const dev = Boolean(nitroOptions.dev)
+    const databases = dev
+      ? selectDevMigrateOnStartDatabases(runtimeConfig)
+      : selectMigrateOnStartDatabases(runtimeConfig, settings, resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }))
     const packageDir = computePackageDir(import.meta.url)
     const source = renderMigrateOnStartPlugin(runtimeConfig, {
       databases,
+      dev,
       registryImport: resolveRuntimeModule(packageDir, "runtime/registry"),
       migrationsImport: DB_INTERNAL_VIRTUAL_MIGRATIONS_ID,
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),

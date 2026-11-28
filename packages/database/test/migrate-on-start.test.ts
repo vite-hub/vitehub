@@ -15,12 +15,12 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createD1QueryAt } from "../src/internal/d1-ledger.ts"
-import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
+import { renderMigrateOnStartPlugin, resolveMigrateOnStart, selectDevMigrateOnStartDatabases, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDatabase } from "../src/nuxt.ts"
 import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
-import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
+import { ensureDatabaseMigrations, ensureLocalDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
 import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
 import type { D1Query } from "../src/internal/d1-ledger.ts"
@@ -490,7 +490,7 @@ describe("database.migrateOnStart", () => {
     }
   })
 
-  it("adds the plugin only to production Node builds of the Vite integration", async () => {
+  it("adds the plugin to Node builds and to the development server of the Vite integration", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const setup = async (options: { dev?: boolean, preset?: string }) => {
@@ -502,8 +502,7 @@ describe("database.migrateOnStart", () => {
     }
     expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({})).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
-    // `vite dev` gets only the plugin that shares the app's Databases with packages that Node loads.
-    expect(await setup({ dev: true, preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/dev-registry.mjs")])
+    expect(await setup({ dev: true, preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/dev-registry.mjs"), join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({ preset: "nitro-prerender" })).toBeUndefined()
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
     for (const preset of ["bun", "static"]) {
@@ -1167,8 +1166,7 @@ describe("ensureMigrations", () => {
     const root = await createProject()
     await writeMigrations(root, [init, seed])
     const url = `file:${join(root, "data/app.sqlite")}`
-    // SQLite does not migrate on start unless the app sets `migrateOnStart: true`.
-    const server = await buildNodeServer(root, { connection: { url } }, [], false, ensureThenSelect)
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: false }, [], false, ensureThenSelect)
     expect(server.config.plugins).toBeUndefined()
 
     expect((await server.start()).stdout.trim().split("\n")).toEqual([
@@ -1293,10 +1291,15 @@ describe("migrate on start defaults", () => {
     },
   } as unknown as ResolvedDBViteConfig
 
-  it("migrates the Postgres databases of a Node build when migrateOnStart is unset", () => {
+  it("migrates the Postgres and local SQLite file databases of a Node build when migrateOnStart is unset", () => {
     const settings = resolveMigrateOnStart({})!
     expect(settings).toEqual({ allowDataLoss: false, explicit: false })
     expect(selectMigrateOnStartDatabases(config, settings, "node")).toEqual(["analytics", "edge"])
+    const sqlite = (database: Record<string, unknown>) => ({ databaseNames: ["default"], databases: { default: { dialect: "sqlite", ...database } } }) as unknown as ResolvedDBViteConfig
+    expect(selectMigrateOnStartDatabases(sqlite({ connection: { url: "file:.vitehub/data/database/sqlite.db" } }), settings, "node")).toEqual(["default"])
+    expect(selectMigrateOnStartDatabases(sqlite({ connection: { url: "libsql://app.turso.io" } }), settings, "node")).toEqual([])
+    expect(selectMigrateOnStartDatabases(sqlite({ connection: { url: { env: "DATABASE_URL" } } }), settings, "node")).toEqual([])
+    expect(selectMigrateOnStartDatabases(sqlite({ cloudflare: { http: {} }, connection: { url: "file:app.db" } }), settings, "node")).toEqual([])
     // An unknown host is not Node.
     expect(selectMigrateOnStartDatabases(config, settings, undefined)).toEqual([])
     for (const host of ["cloudflare", "vercel", "bun"]) expect(selectMigrateOnStartDatabases(config, settings, host)).toEqual([])
@@ -1367,11 +1370,59 @@ describe("migrate on start defaults", () => {
     expect(await setup({ preset: "cloudflare-module" })).toBeUndefined()
   })
 
-  it("adds no plugin for SQLite when migrateOnStart is unset", async () => {
+  it("migrates a local SQLite file before a Node server handles requests when migrateOnStart is unset", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed])
+    const server = await buildNodeServer(root, { connection: { url: `file:${join(root, "data/app.sqlite")}` } })
+    expect(server.config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect((await server.start()).stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect((await buildNodeServer(root, { connection: { url: "libsql://app.turso.io" } })).config.plugins).toBeUndefined()
+    expect((await buildNodeServer(root, { connection: { url: `file:${join(root, "data/app.sqlite")}` }, migrateOnStart: false })).config.plugins).toBeUndefined()
+  })
+})
+
+describe("migrate on start in development", () => {
+  const migration = (dataLoss: Array<{ reason: string, statement: string }> = []) => ({ dataLoss, hash: "hash", name: "20231114221320_init", statements: ["SELECT 1"], when: 1 })
+  const shipped = (databases: Record<string, unknown>) => async () => ({ allowDataLoss: false, databases }) as never
+
+  it("selects every database except D1 over HTTP", () => {
+    const config = {
+      databaseNames: ["default", "d1", "pg"],
+      databases: { d1: { cloudflare: { http: {} }, dialect: "sqlite" }, default: { dialect: "sqlite" }, pg: { dialect: "postgresql" } },
+    } as unknown as ResolvedDBViteConfig
+    expect(selectDevMigrateOnStartDatabases(config)).toEqual(["default", "pg"])
+    expect(selectDevMigrateOnStartDatabases(undefined)).toEqual([])
+  })
+
+  it("renders a plugin that returns the migration, so Nitro holds requests without a top-level await", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
-    const server = await buildNodeServer(root, { connection: { url: `file:${join(root, "data/app.sqlite")}` } })
-    expect(server.config.plugins).toBeUndefined()
+    const config = { databaseNames: ["default"], databases: { default: { dialect: "sqlite", migrationsDir: "server/databases/default/migrations" } }, rootDir: root } as unknown as ResolvedDBViteConfig
+    const source = renderMigrateOnStartPlugin(config, { databases: ["default"], dev: true, migrationsImport: "#migrations", registryImport: "#registry", runtimeImport: "#runtime" })
+    expect(source).toContain('export default () => ensureLocalDatabaseMigrations({ databases, load: async () => migrations }, ["default"])')
+    expect(source).not.toMatch(/^await /m)
+  })
+
+  it("migrates only the databases on this machine", async () => {
+    const applied: string[] = []
+    const client = (protocol: string) => ({ execute: async () => ({ rows: [] }), migrate: async () => applied.push(protocol), protocol })
+    const databases = {
+      local: { db: { $client: client("file") }, dialect: "sqlite" },
+      remote: { db: { $client: client("https") }, dialect: "sqlite" },
+    }
+    await ensureLocalDatabaseMigrations({ databases, load: shipped({ local: { dialect: "sqlite", migrations: [migration()] }, remote: { dialect: "sqlite", migrations: [migration()] } }) } as never, ["local", "remote", "missing"], () => {})
+    expect(applied).toEqual(["file"])
+  })
+
+  it("logs a migration that loses data and keeps the server running", async () => {
+    const applied: string[] = []
+    const logs: string[] = []
+    const databases = { default: { db: { $client: { execute: async () => ({ rows: [] }), migrate: async () => applied.push("default"), protocol: "file" } }, dialect: "sqlite" } }
+    const loss = [{ reason: "drops table \"notes\"", statement: "DROP TABLE notes;" }]
+    await expect(ensureLocalDatabaseMigrations({ databases, load: shipped({ default: { dialect: "sqlite", migrations: [migration(loss)] } }) } as never, ["default"], message => logs.push(message))).resolves.toBeUndefined()
+    expect(applied).toEqual([])
+    expect(logs).toEqual([expect.stringContaining("The development server did not apply the pending migrations")])
+    expect(logs[0]).toContain("drops table \"notes\"")
   })
 })
 
