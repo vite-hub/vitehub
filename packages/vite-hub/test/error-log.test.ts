@@ -217,10 +217,11 @@ describe("generated result error Nitro handler", () => {
     })
     onTestFinished(() => nitro.close())
     if (dev) {
-      const { promise, resolve, reject } = Promise.withResolvers<void>()
-      nitro.hooks.hookOnce("compiled", () => resolve())
-      nitro.hooks.hookOnce("dev:error", reject)
-      await Promise.all([build(nitro), promise])
+      const compiled = new Promise<void>((resolve, reject) => {
+        nitro.hooks.hookOnce("compiled", () => resolve())
+        nitro.hooks.hookOnce("dev:error", reject)
+      })
+      await Promise.all([build(nitro), compiled])
       await nitro.close()
     }
     else await build(nitro)
