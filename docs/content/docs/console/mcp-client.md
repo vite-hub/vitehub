@@ -36,4 +36,4 @@ Each connection has its own grant and MCP session, so **Run as** can send one ca
 
 ## Where connections live
 
-Each connection belongs to one person on one project. The Console keeps it in its own database, sealed with its secret, so connections stay across restarts. Tokens, refresh tokens, PKCE verifiers and client registrations never reach the browser or the app.
+Each connection belongs to one person on one project. The Console keeps it in its own database, sealed with its secret, so connections stay across restarts. When several Console instances share the database, a refreshed grant is kept even when another request saves the same connection at that time. A disconnect still wins. Tokens, refresh tokens, PKCE verifiers and client registrations never reach the browser or the app.
