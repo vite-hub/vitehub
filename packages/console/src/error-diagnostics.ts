@@ -84,6 +84,10 @@ export const consoleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Reload the Console. If this continues, deploy the Console and the server from the same build.",
       data: ({ status }: ConsoleMcpFailure) => ({ status }),
     },
+    CONSOLE_SITE_OPERATION_UNSUPPORTED: {
+      why: ({ operation, operations }: { operation?: unknown, operations?: unknown }) => `${String(operation)} is not an operation of a site. A site that the Console keeps comments for runs only ${String(operations)}.`,
+      fix: "Call one of these operations, or link the app as a ViteHub app to use its other operations.",
+    },
     CONSOLE_VITE_HUB_BUILD_MISSING: {
       why: ({ file }: { file: string }) => `The Console needs ${file}, which the vite-hub build writes.`,
       fix: "Build vite-hub with `vp run -t vite-hub#build`, then build the Console again.",

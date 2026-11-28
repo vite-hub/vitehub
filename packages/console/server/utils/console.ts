@@ -7,6 +7,7 @@ import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation
 
 import { consoleErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import { forwardProjectRequest } from "../../src/forward.ts"
+import { runHostedCommentsOperation } from "../../src/hosted-comments.ts"
 import { consumeForwardBudget, forwardBudget } from "../../src/forward-budget.ts"
 import { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 import { consoleApiKeyOf, createConsoleApiKey, defaultApiKeyDays, maxApiKeyDays, verifyConsoleApiKey } from "../../src/api-keys.ts"
@@ -230,14 +231,26 @@ export async function callProjectOperation(caller: ConsoleTeamCaller, id: string
   return outdated ? { error: outdated, ok: false, status: result.status } : result
 }
 
+async function spentBudgetResult(caller: ConsoleTeamCaller, id: string): Promise<ProjectOperationResult | undefined> {
+  const spent = await spendForwardBudget(caller, id)
+  if (!spent) return undefined
+  const { code, fix, why } = spent.diagnostic
+  return { error: { code, fix, message: why }, ok: false, status: 429 }
+}
+
+async function siteProjectCall(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions): Promise<ProjectOperationResult | undefined> {
+  const project = await caller.projects.get(id)
+  if (!project || project.publicKey !== null) return undefined
+  const spent = await spentBudgetResult(caller, id)
+  if (spent) return spent
+  return runHostedCommentsOperation(useDatabase("default").db, project, { userId: caller.user.id, operation, input, readOnly: options.readOnly === true, reference: options.surface === "mcp" })
+}
+
 async function signedProjectCall(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
   const target = await caller.projects.target(id)
-  if (!target) return undefined
-  const spent = await spendForwardBudget(caller, id)
-  if (spent) {
-    const { code, fix, why } = spent.diagnostic
-    return { error: { code, fix, message: why }, ok: false, status: 429 }
-  }
+  if (!target) return siteProjectCall(caller, id, operation, input, options)
+  const spent = await spentBudgetResult(caller, id)
+  if (spent) return spent
   const outcome = await callOperationRpc(operation, input, async (body) => {
     const call = new Request("https://console.invalid/", { body, headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
     const response = await forwardProjectRequest(call, { caller: consoleCallerOf(caller, options), key: target.key, url: target.project.url }, operationRpcPath)

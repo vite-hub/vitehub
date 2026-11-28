@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { encodeConsoleBase64url } from "@vite-hub/internal/console-signature"
 import { createRestTransport } from "vite-hub/comments/client"
 
-import { authorizeHostedComments, handleHostedCommentsApi, redeemHostedComments } from "../src/hosted-comments.ts"
+import { authorizeHostedComments, handleHostedCommentsApi, redeemHostedComments, runHostedCommentsOperation } from "../src/hosted-comments.ts"
 import { createConsoleProjectStore } from "../src/projects.ts"
 import { createConsoleSiteStore, sitePassCookie } from "../src/site-access.ts"
 
@@ -375,5 +375,59 @@ describe("hosted Comments API", () => {
       expect(await count(table)).toBe(0)
     }
     expect((await call(db, portal.id, token, "/threads")).status).toBe(404)
+  })
+})
+
+describe("comment operations of a site", () => {
+  async function site() {
+    const context = await setup()
+    const docs = (await createConsoleProjectStore(context.db, secret, "t-ada").registerSite({ url: "https://docs.example.com", createdBy: "u-ada", label: "Docs" }))!
+    const run = (operation: string, input: unknown, extra: { userId?: string, readOnly?: boolean, reference?: boolean } = {}) =>
+      runHostedCommentsOperation(context.db, docs, { userId: extra.userId ?? "u-ada", operation, input, ...extra })
+    return { ...context, docs, run }
+  }
+
+  it("lists, replies to, resolves, and reopens the threads of a site, as a linked app answers them", async () => {
+    const { db, docs, run } = await site()
+    const comments = embed(db, docs, await signIn(db, docs, { userId: "u-ada" }))
+    const first = await comments.create({ subject: { kind: "page", id: "/guide" }, anchor, body: "Typo here" })
+    const second = await comments.create({ subject: { kind: "page", id: "/api" }, anchor, body: "Add an example" })
+
+    expect(await run("comments.threads", {})).toMatchObject({
+      ok: true,
+      value: { status: "open", hidden: 0, threads: [{ id: second.id, page: "/api", comment: "Add an example" }, { id: first.id, page: "/guide", comment: "Typo here", author: "Ada" }], next: expect.stringContaining("comments.resolve") },
+    })
+    expect(await run("comments.threads", { page: "/guide" })).toMatchObject({ value: { threads: [{ id: first.id }] } })
+    expect(await run("comments.threads", { search: "example" })).toMatchObject({ value: { threads: [{ id: second.id }] } })
+
+    expect(await run("comments.reply", { threadId: first.id, body: "Which word?" })).toMatchObject({ ok: true, value: { id: first.id, messages: [{ body: "Typo here" }, { body: "Which word?", author: { id: "u-ada" } }] } })
+    expect(await run("comments.resolve", { threadId: first.id, reply: "Fixed in abc123" })).toMatchObject({ ok: true, value: { id: first.id, status: "resolved" } })
+    expect(await run("comments.resolve", { threads: [{ threadId: second.id, reply: "Added" }] })).toMatchObject({ ok: true, value: [{ id: second.id, status: "resolved" }] })
+    expect(await run("comments.threads", {})).toMatchObject({ value: { threads: [] } })
+    expect(await run("comments.threads", { status: "resolved" })).toMatchObject({ value: { threads: [{ id: second.id }, { id: first.id }] } })
+    expect(await run("comments.reopen", { threadId: first.id })).toMatchObject({ ok: true, value: { id: first.id, status: "open" } })
+    expect((await comments.list({ subject: { kind: "page", id: "/guide" } })).map(thread => [thread.id, thread.status])).toEqual([[first.id, "open"]])
+  })
+
+  it("describes the operations of a site, and refuses other operations, writes of a reader, bad input, and people outside the team", async () => {
+    const { docs, run } = await site()
+    const described = await run("project.get", {}, { reference: true })
+    expect(described).toMatchObject({ ok: true, value: { name: "Docs", sections: ["comments"], operations: ["comments.threads", "comments.reply", "comments.resolve", "comments.reopen"] } })
+    const reference = described.ok ? Reflect.get(Object(described.value), "reference") : undefined
+    expect(reference).toEqual([
+      expect.objectContaining({ name: "comments.threads", kind: "read", input: expect.objectContaining({ type: "object" }) }),
+      expect.objectContaining({ name: "comments.reply", kind: "write" }),
+      expect.objectContaining({ name: "comments.resolve", kind: "write" }),
+      expect.objectContaining({ name: "comments.reopen", kind: "write" }),
+    ])
+    expect(await run("project.get", {})).not.toHaveProperty("value.reference")
+
+    expect(await run("kv.list", {})).toMatchObject({ ok: false, status: 404, error: { code: "CONSOLE_SITE_OPERATION_UNSUPPORTED", message: expect.stringContaining("comments.threads") } })
+    expect(await run("comments.resolve", { threadId: "x" }, { readOnly: true })).toEqual({ ok: false, status: 403, error: { code: "CONSOLE_ACCESS_DENIED", message: "comments.resolve is a write operation, and this caller may only read." } })
+    expect(await run("comments.threads", {}, { readOnly: true })).toMatchObject({ ok: true })
+    expect(await run("comments.threads", { limit: 0 })).toMatchObject({ ok: false, status: 400, error: { code: "INTERNAL_R0022" } })
+    expect(await run("comments.reply", { threadId: "missing", body: "Hi" })).toMatchObject({ ok: false, status: 404 })
+    expect(await run("comments.threads", {}, { userId: "u-eve" })).toMatchObject({ ok: false, status: 403, error: { code: "CONSOLE_HOSTED_COMMENTS_ACCESS_ENDED" } })
+    expect(docs.publicKey).toBeNull()
   })
 })

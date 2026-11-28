@@ -14,6 +14,7 @@ import { attachmentThread, base64, can, createThread, deniedError, earlierReply,
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
 import type { CommentsAttachmentBody, CommentsRuntime } from "./service.ts"
+import type { CommentThreadSummary } from "../thread-text.ts"
 import type {
   CommentActor,
   CommentAttachment,
@@ -305,12 +306,51 @@ async function readableThreads(input: CommentListQuery, who: CommentsCaller): Pr
   return { threads: await withForge(who, readable), hidden }
 }
 
+const resolveNext = "After you make the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed, such as the commit or a link. Resolve every thread that you handled in one call: { threads: [{ threadId, reply }] }. Open threads stay on the page."
+
+/** Threads that one search reads from the store at a time. */
+const searchBatch = maximumLimit
+
+/** A short list of page threads, for an Agent: `comments.threads`. */
+export interface CommentThreadsPage {
+  status: "open" | "resolved"
+  threads: CommentThreadSummary[]
+  /** The threads that `authorize` hid from the caller. */
+  hidden: number
+  note?: string
+  next?: string
+}
+
 /**
  * The comment actions behind every surface. The operations (RPC, CLI, MCP) and the overlay API call the same
  * functions, so one policy, one set of checks, and one set of errors serve them all. Each one checks `authorize` for
  * its caller; the input must have passed `commentInputSchemas`.
  */
 export const commentActions = {
+  async threads(input: v.InferOutput<typeof threadsInput>, who: CommentsCaller): Promise<CommentThreadsPage> {
+    const status = input.status ?? "open"
+    const limit = input.limit ?? 25
+    const search = input.search?.toLowerCase()
+    // A search reads larger pages, since it keeps only the threads whose comments contain the text.
+    const batch = search ? searchBatch : limit
+    const found: CommentThread[] = []
+    let hidden = 0
+    let before: CommentListCursor | undefined
+    while (found.length < limit) {
+      const listed = await readableThreads({ limit: batch, status, subjectKind: "page", ...(input.page ? { page: input.page } : {}), ...(before ? { before } : {}) }, who)
+      hidden += listed.hidden
+      for (const thread of listed.threads) {
+        if (!search || thread.messages.some(message => message.body.toLowerCase().includes(search))) found.push(thread)
+        if (found.length === limit) break
+      }
+      if (listed.threads.length < batch) break
+      before = cursorOf(listed.threads.at(-1)!)
+    }
+    const note = hiddenThreadsNote(hidden, { authorize: Boolean(who.runtime.definition.authorize), identify: Boolean(who.runtime.identify), user: who.user !== null, console: who.console === true })
+    const next = status === "open" && found.length ? resolveNext : undefined
+    return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}), ...(next ? { next } : {}) }
+  },
+
   async list(input: CommentListQuery, who: CommentsCaller): Promise<CommentThread[]> {
     return (await readableThreads(input, who)).threads
   },
@@ -479,40 +519,12 @@ const list = defineOperation({
   section: "comments",
 })
 
-const resolveNext = "After you make the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed, such as the commit or a link. Resolve every thread that you handled in one call: { threads: [{ threadId, reply }] }. Open threads stay on the page."
-
-/** Threads that one search reads from the store at a time. */
-const searchBatch = maximumLimit
-
 const threads = defineOperation({
   description: "ViteHub Comments: threads people left with the Comments toolbar on the app's pages, newest activity first. Each has the page, what the comment points at, the time, the first comment, and the Vue components. `hidden` counts the threads that `authorize` hid from you. Read one with comments.get { threadId }. When you have made the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed: the person expects it, and open threads stay on their page.",
   input: threadsInput,
   kind: "read",
   name: "comments.threads",
-  run: async (input, context) => {
-    const who = await caller(context)
-    const status = input.status ?? "open"
-    const limit = input.limit ?? 25
-    const search = input.search?.toLowerCase()
-    // A search reads larger pages, since it keeps only the threads whose comments contain the text.
-    const batch = search ? searchBatch : limit
-    const found: CommentThread[] = []
-    let hidden = 0
-    let before: CommentListCursor | undefined
-    while (found.length < limit) {
-      const listed = await readableThreads({ limit: batch, status, subjectKind: "page", ...(input.page ? { page: input.page } : {}), ...(before ? { before } : {}) }, who)
-      hidden += listed.hidden
-      for (const thread of listed.threads) {
-        if (!search || thread.messages.some(message => message.body.toLowerCase().includes(search))) found.push(thread)
-        if (found.length === limit) break
-      }
-      if (listed.threads.length < batch) break
-      before = cursorOf(listed.threads.at(-1)!)
-    }
-    const note = hiddenThreadsNote(hidden, { authorize: Boolean(who.runtime.definition.authorize), identify: Boolean(who.runtime.identify), user: who.user !== null, console: who.console === true })
-    const next = status === "open" && found.length ? resolveNext : undefined
-    return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}), ...(next ? { next } : {}) }
-  },
+  run: async (input, context): Promise<CommentThreadsPage> => commentActions.threads(input, await caller(context)),
   // After `run`, so TypeScript infers the output from `run` before it types `format`.
   mcp: {
     format: ({ status, threads, note }) => commentThreadsText(threads, status, note ?? ""),
