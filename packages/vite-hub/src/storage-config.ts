@@ -1,6 +1,8 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { cloudflareResourceScope } from "@vite-hub/internal/build/vite"
 import type { BlobStoreConfig } from "@vite-hub/blob"
+import type { DatabaseOptions } from "@vite-hub/database"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./plugins.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
@@ -68,6 +70,33 @@ export function agentJournalStateUrl(options: ViteHubOptions): string | undefine
   if (!state || (state.driver === "memory" || state.driver === "cloudflare") || typeof state.url !== "string") return
   const url = state.url.trim()
   return /^file:/i.test(url) ? url : undefined
+}
+
+/** True when the app has Database Definitions and every one of them uses PostgreSQL. */
+export function usesOnlyPostgresDatabases(rootDir: string, serverDirs: string[] | undefined): boolean {
+  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = requireOptionalOwner(ownerModules.databaseConfig, "database")
+  const definitions = discoverDatabaseDefinitions(rootDir, { serverDirs })
+  return definitions.length > 0 && definitions.every(definition => readDatabaseDefinitionDialect(definition.handler) === "postgresql")
+}
+
+/**
+ * The Database options of a Cloudflare app. SQLite Databases use D1 unless the options select another driver or a
+ * connection. When the options name no D1 database, the app gets `<deployment name>-db`, so provisioning, the build
+ * and the generated wrangler config use the same database.
+ */
+export function withCloudflareD1Default(
+  database: Exclude<DatabaseOptions, false>,
+  deploymentName: string,
+  onlyPostgres: () => boolean,
+): Exclude<DatabaseOptions, false> {
+  if (database.driver !== undefined && database.driver !== "cloudflare") return database
+  if (database.driver === undefined && (database.connection !== undefined || onlyPostgres())) return database
+  const named = database.databaseId !== undefined || database.databaseName !== undefined || database.cloudflare?.http !== undefined
+  return {
+    ...database,
+    driver: "cloudflare",
+    ...named ? {} : { databaseName: `${cloudflareResourceScope(deploymentName) || "app"}-db` },
+  }
 }
 
 /**
