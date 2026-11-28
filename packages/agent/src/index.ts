@@ -90,7 +90,7 @@ import { retainedUserMessages } from "./internal/input-attachments.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
 import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { type AgentMessagePhase, type Message, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
+import { type AgentMessagePhase, type Message, createMessage, getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   agentInvokerInputReplayProvenance,
@@ -1136,6 +1136,11 @@ async function portableWorkflowMessages(messages: Message[], optionalImage?: (me
       return cloneWorkflowJsonValue(portable) as typeof part
     })),
   })))
+}
+
+function currentInputText(messages: Message[], messageId?: string): string | undefined {
+  const current = messageId ? messages.find(message => message.id === messageId) : messages.findLast(message => message.role === "user")
+  return current?.role === "user" ? getMessageText(current) || undefined : undefined
 }
 
 export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>, messageId?: string): Promise<AgentRunInput<CALL_OPTIONS>> {
@@ -5111,7 +5116,7 @@ async function createAgentInvocationContext<
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
       output: internalDefinition?.[baseAgentOutput],
       outputRenderers: capabilities.registries.outputRenderers,
-      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : currentInputText(capabilities.messages, context.run?.messageId),
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
