@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ButtonProps } from "@nuxt/ui";
 import { CopyButton } from "@vite-hub/ui";
-import { computed } from "vue";
+import { useOnline } from "@vueuse/core";
+import { computed, watch } from "vue";
 
 import { consoleProblem } from "../client/problem";
 import { consolePrimitives } from "../sections";
@@ -11,6 +12,8 @@ import ConsoleCodeText from "./console-code-text.vue";
  * One Console state: an error, an empty list, or a primitive that is not configured.
  * - With `error`, it shows the why, the fix, the code, and one next step. A retry button appears only when `retry`
  *   is set and a retry can succeed. `401` asks to sign in again. A fix that only repeats the main button is left out.
+ * - While the browser is offline, a failure to reach the server says so. When the browser is back online, a state with
+ *   `retry` tries again once.
  * - Without `error`, it shows `title` and `description`, and links the setup guide of `section`.
  * A full state grows to fill its parent and centers in it. Put it in a flex column, such as the pane's scroll container
  * with `flex flex-col`, or it stays at the top of the pane.
@@ -34,7 +37,12 @@ const props = withDefaults(
   { actions: undefined, compact: false, description: undefined, docs: undefined, error: undefined, icon: undefined, retry: undefined, section: undefined },
 );
 
-const problem = computed(() => consoleProblem(props.error));
+const online = useOnline();
+const problem = computed(() => consoleProblem(props.error, { online: online.value }));
+
+watch(online, (now, before) => {
+  if (now && !before && problem.value?.action === "retry") void props.retry?.();
+});
 const primitive = computed(() => consolePrimitives.find((entry) => entry.id === props.section));
 const docsURL = computed(() => problem.value ? problem.value.docs : props.docs ?? primitive.value?.setup);
 const stateIcon = computed(() => {

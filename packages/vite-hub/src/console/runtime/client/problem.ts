@@ -31,9 +31,10 @@ function statusAction(status: number, code: string, docs: string | undefined): C
 /**
  * Turns a thrown value into the problem that a Console state shows. Returns `undefined` for no error.
  * A Console code uses its catalog action. Another code uses its status: `401` asks to sign in, a transient status
- * offers a retry, and other failures link the docs.
+ * offers a retry, and other failures link the docs. A server that did not answer while `online` is `false` is
+ * `CONSOLE_OFFLINE`.
  */
-export function consoleProblem(error: unknown): ConsoleProblem | undefined {
+export function consoleProblem(error: unknown, context: { online?: boolean } = {}): ConsoleProblem | undefined {
   if (error === undefined || error === null || error === false) return undefined
   if (error instanceof ConsoleRequestError) {
     if (isConsoleDiagnosticCode(error.code)) {
@@ -49,7 +50,7 @@ export function consoleProblem(error: unknown): ConsoleProblem | undefined {
       why: error.message,
     }
   }
-  if (error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE") return fromCode("CONSOLE_UNAVAILABLE")
+  if (error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE") return fromCode(context.online === false ? "CONSOLE_OFFLINE" : "CONSOLE_UNAVAILABLE")
   if (error instanceof Error) {
     const code = text(Reflect.get(error, "code"))
     if (code && isConsoleDiagnosticCode(code)) return fromCode(code, error.message)

@@ -20,6 +20,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
+  | "CONSOLE_OFFLINE"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
   | "CONSOLE_REQUEST_INVALID"
@@ -188,6 +189,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Turn the feature on in the ViteHub configuration of the app, then restart the dev server, or build and deploy the app again.",
       `${consoleGuide}/limits-and-errors#error-codes`,
       "docs",
+    ),
+    CONSOLE_OFFLINE: code(
+      "This browser is offline, so the Console cannot reach the server.",
+      "Connect to the network, then try again.",
+      `${consoleGuide}/limits-and-errors#fix-common-failures`,
+      "retry",
     ),
     CONSOLE_SITE_ACCOUNT_MISMATCH: code(
       "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",

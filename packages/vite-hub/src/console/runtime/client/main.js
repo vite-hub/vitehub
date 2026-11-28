@@ -35,6 +35,7 @@ import {
 import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
+import { browserConsoleChunkHost, createConsoleChunkRecovery, forgetConsoleChunkReload, isConsoleChunkError } from "./chunk-recovery";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { loadConsolePageTools } from "./page-tools";
@@ -487,6 +488,15 @@ subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
 // section of the page, the page goes to the Overview.
 subscribeConsoleNavigation(sectionsBase, (navigation) => {
   if (isConsoleSectionRevoked(router.currentRoute.value.meta.consoleSection, navigation)) void router.replace({ name: "vitehub-console" });
+});
+
+const pageCodeHost = browserConsoleChunkHost(window, path => void router.push(path), path => router.resolve(path).href);
+const recoverPageCode = createConsoleChunkRecovery(pageCodeHost);
+router.onError((error, to) => {
+  if (isConsoleChunkError(error)) recoverPageCode(to.fullPath);
+});
+router.afterEach((_to, _from, failure) => {
+  if (!failure) forgetConsoleChunkReload(pageCodeHost.storage);
 });
 
 router.beforeEach(async (to) => {

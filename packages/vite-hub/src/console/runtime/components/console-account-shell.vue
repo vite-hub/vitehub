@@ -7,6 +7,7 @@ import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
+import { browserConsoleChunkHost, createConsoleChunkRecovery, forgetConsoleChunkReload, isConsoleChunkError } from "../client/chunk-recovery";
 import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sidebar";
 import { useStoredData } from "@vite-hub/device/vue";
@@ -36,10 +37,21 @@ const pageCode = {
 };
 type LazyPage = keyof typeof pageCode;
 const loadedPages = shallowReactive<Partial<Record<LazyPage, Component>>>({ "team": views.team, "team-settings": views.teamSettings, "env": views.env, "settings": views.settings });
-const ConsoleAccountTeam = computed(() => loadedPages.team ?? defineAsyncComponent(pageCode.team));
-const ConsoleAccountTeamSettings = computed(() => loadedPages["team-settings"] ?? defineAsyncComponent(pageCode["team-settings"]));
-const ConsoleAccountEnv = computed(() => loadedPages.env ?? defineAsyncComponent(pageCode.env));
-const ConsoleAccountSettings = computed(() => loadedPages.settings ?? defineAsyncComponent(pageCode.settings));
+const pageCodeHost = browserConsoleChunkHost(window, path => window.location.assign(path));
+const recoverPageCode = createConsoleChunkRecovery(pageCodeHost);
+function lazyPage(target: LazyPage): Component {
+  return defineAsyncComponent({
+    loader: () => pageCode[target]().then((module) => {
+      forgetConsoleChunkReload(pageCodeHost.storage);
+      return module;
+    }),
+    onError: (error, retry, fail) => isConsoleChunkError(error) ? recoverPageCode(`${window.location.pathname}${window.location.search}`, retry) : fail(),
+  });
+}
+const ConsoleAccountTeam = computed(() => loadedPages.team ?? lazyPage("team"));
+const ConsoleAccountTeamSettings = computed(() => loadedPages["team-settings"] ?? lazyPage("team-settings"));
+const ConsoleAccountEnv = computed(() => loadedPages.env ?? lazyPage("env"));
+const ConsoleAccountSettings = computed(() => loadedPages.settings ?? lazyPage("settings"));
 
 /**
  * The frame of an `account` Console before a project opens: the Console sidebar with the pages of the team, and a panel
