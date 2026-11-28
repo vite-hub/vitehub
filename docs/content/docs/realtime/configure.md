@@ -174,12 +174,27 @@ upgrades never reach Nitro. There, build and preview to test rooms.
 | Node, Docker (several instances) | `redis` or `postgres`, which `auto` picks | In the memory of each instance, shared through the bus. | What the document adapter saved, and the shared room record. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). |
 | Node, Docker (one process) | `memory`, which `auto` picks without `REDIS_URL` or a Postgres Default Database | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
 | Cloudflare Workers | `cloudflare` | One Durable Object instance holding every room, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
-| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_DRIVER` or `REALTIME_DRIVER_CONFLICT`. |
+| Vercel Functions | `redis` or `postgres`, which `auto` picks | In the memory of each function instance, shared through the bus. Each WebSocket stays on one instance. | Same as Node with several instances. There is no `memory` fallback. |
+| Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_DRIVER` or `REALTIME_DRIVER_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
 database for CRDT updates causes races and load. WordPress removed
 HTTP-polling collaboration from 7.0 for those reasons. On hosts without a
 driver, use a single-writer flow, or a Workspace or Content lease.
+
+## Deploy to Vercel
+
+Vercel Functions serve WebSockets on [Fluid compute](https://vercel.com/docs/functions/websockets). Realtime sets `nitro.vercel.entryFormat` to `'node'`, the entry of Nitro's `vercel` preset that passes the upgrade to the Realtime route. The client and the public API stay the same. Each connection stays on the function instance that accepted it, and two clients can land on two instances. So, like Node with several instances, the instances share each room through Redis or Postgres.
+
+`driver: 'auto'` picks the bus when the function starts:
+
+1. `REDIS_URL`, which the Redis integration of the Vercel Marketplace sets.
+2. `KV_URL` when it is a `redis://` or `rediss://` URL, which Upstash Redis sets.
+3. `REALTIME_POSTGRES_URL`, or a Default Database with `dialect: 'postgresql'`.
+
+With none of them, the first connection fails with `REALTIME_MISSING_SHARED_BUS`, because rooms in the memory of one instance would split the clients. `driver: 'memory'` fails the build with `REALTIME_DRIVER_CONFLICT`. Postgres needs a direct or session-mode connection for `LISTEN`.
+
+A WebSocket closes at the maximum duration of the function, 300 seconds by default. The client reconnects and syncs the room again, so set a longer `maxDuration` only to reconnect less often.
 
 ## Builds without Realtime
 

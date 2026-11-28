@@ -208,7 +208,11 @@ The identity's user has no `id`, or the `id` is not a string of at most 256 char
 
 ### REALTIME_MISSING_BUS_CONNECTION
 
-`driver: "redis"` needs `REDIS_URL`. `driver: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `driver: "auto"`, which keeps rooms in one process without one.
+`driver: "redis"` needs `REDIS_URL`, or a `KV_URL` that starts with `redis://` or `rediss://`. `driver: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `driver: "auto"`, which keeps rooms in one process without one.
+
+### REALTIME_MISSING_SHARED_BUS
+
+A Vercel Function with `driver: "auto"` found no bus. Each request can run in another instance, so rooms in memory would split the clients. Connect Redis or Upstash Redis to the project, which sets `REDIS_URL` or `KV_URL`. Or define the Default Database with `dialect: "postgresql"`, or set `REALTIME_POSTGRES_URL`.
 
 ### REALTIME_ROOM_LOCK_TIMEOUT
 
@@ -222,8 +226,8 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ### REALTIME_DRIVER_CONFLICT
 
-`driver: "cloudflare"` needs a Cloudflare host. `driver: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
+`driver: "cloudflare"` needs a Cloudflare host. `driver: "postgres"` and `"redis"` need the `node` or `vercel` host. `driver: "memory"` needs the `node` host.
 
 ### REALTIME_MISSING_DRIVER
 
-A production build with `driver: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.
+A production build with `driver: "auto"` found no Cloudflare, Node, or Vercel host. Use the Cloudflare host for Durable Objects, or the Node or Vercel host to share rooms through Postgres or Redis.

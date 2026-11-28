@@ -241,7 +241,7 @@ describe("hubRealtime", () => {
     expect(config).toMatchObject({ environments: { nitro: { resolve: { noExternal: expect.arrayContaining([/^nitro/, "yjs", "y-protocols", "lib0", "@tiptap/y-tiptap"]) } } } })
   })
 
-  it("requires an explicit driver for non-Cloudflare production", async () => {
+  it("requires an explicit driver for a production host without a room driver", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     await mkdir(join(root, "server/realtime"), { recursive: true })
@@ -249,7 +249,7 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const plugin = hubRealtime()
-    const config = { root, nitro: { preset: "vercel" } }
+    const config = { root, nitro: { preset: "netlify" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
 
     await expect(hook(config, { command: "build" }))
@@ -280,6 +280,42 @@ describe("hubRealtime", () => {
     expect(config.nitro).toMatchObject({ plugins: [busPlugin], features: { websocket: true }, handlers: [expect.objectContaining({ lazy: false })] })
     const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
     expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
+  })
+
+  it.each([
+    { name: "auto", options: {}, expected: "auto" },
+    { name: "redis", options: { driver: "redis" as const }, expected: "redis" },
+  ])("shares rooms across Vercel Function instances with $name and no memory fallback", async ({ options, expected }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime(options)
+    const config = { root, nitro: { preset: "vercel" } } as Record<string, unknown>
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await expect(hook(config, { command: "build" })).resolves.toBeUndefined()
+
+    const { readFile } = await import("node:fs/promises")
+    const namespace = JSON.stringify(basename(root))
+    expect(await readFile(join(root, ".vitehub/nitro/realtime/handler.ts"), "utf8")).toContain(`useRealtimeBus(${JSON.stringify(expected)}, { namespace: ${namespace}, shared: true }) })`)
+    expect(await readFile(join(root, ".vitehub/nitro/realtime/bus.mjs"), "utf8")).toContain(`logRealtimeNodeDriver(${JSON.stringify(expected)}, { namespace: ${namespace}, shared: true })`)
+    expect(config.nitro).toMatchObject({ features: { websocket: true }, handlers: [expect.objectContaining({ lazy: false })], vercel: { entryFormat: "node" } })
+    const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
+    expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
+  })
+
+  it("rejects the memory driver in a Vercel build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    const hook = hubRealtime({ driver: "memory" }).config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await expect(hook({ root, nitro: { preset: "vercel" } }, { command: "build" }))
+      .rejects.toMatchObject({ code: "REALTIME_DRIVER_CONFLICT", why: expect.stringContaining("the vercel host runs more than one process") })
   })
 
   it("passes the app's Databases to the bus when the Default Database is on Postgres, also when it resolves at buildStart", async () => {
@@ -328,7 +364,7 @@ describe("hubRealtime", () => {
     expect((config.nitro as { plugins?: string[] }).plugins ?? []).not.toContain(join(root, ".vitehub/nitro/realtime/bus.mjs"))
   })
 
-  it("rejects a Postgres driver outside the Node preset", async () => {
+  it("rejects a Postgres driver outside the Node and Vercel presets", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     await mkdir(join(root, "server/realtime"), { recursive: true })
@@ -336,7 +372,7 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const hook = hubRealtime({ driver: "postgres" }).config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
-    await expect(hook({ root, nitro: { preset: "vercel" } }, { command: "build" }))
+    await expect(hook({ root, nitro: { preset: "netlify" } }, { command: "build" }))
       .rejects.toMatchObject({ code: "REALTIME_DRIVER_CONFLICT", why: expect.stringContaining("needs a Node.js server") })
   })
 
@@ -408,6 +444,7 @@ describe("hubRealtime", () => {
     { name: "development", nitro: {}, command: "serve", options: {}, driver: "memory" },
     { name: "an explicit memory driver", nitro: { preset: "node" }, command: "build", options: { driver: "memory" as const }, driver: "memory" },
     { name: "a Node build", nitro: { preset: "node" }, command: "build", options: {}, driver: "memory" },
+    { name: "a Vercel build", nitro: { preset: "vercel" }, command: "build", options: {}, driver: "memory" },
   ])("adds contributed definitions and plugins on $name", async ({ nitro, command, options, driver }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
@@ -434,7 +471,7 @@ describe("hubRealtime", () => {
     expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
   })
 
-  it.each(["vercel", "netlify", "deno-deploy"])("leaves contributions out without an error on %s", async (preset) => {
+  it.each(["netlify", "deno-deploy"])("leaves contributions out without an error on %s", async (preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     let called = false

@@ -196,7 +196,7 @@ const serverPrimitives: SupportMatrixGroup = {
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
-      "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
+      "Cloudflare Nitro output uses Durable Objects. Node servers and Vercel Functions share rooms through Postgres or Redis.",
       "Host driver",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(

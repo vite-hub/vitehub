@@ -120,8 +120,8 @@ Of these three hosts, only Cloudflare has a ViteHub provider for:
 
 - Rate Limit uses the Cloudflare Rate Limiting binding. `rateLimit: true`
   fails the build on Vercel and Netlify.
-- Realtime uses Durable Objects on Cloudflare. Vercel and Netlify reject the
-  `memory` provider.
+- Realtime uses Durable Objects on Cloudflare. On Vercel it shares rooms
+  through Redis or Postgres. Netlify rejects the `memory` provider.
 - Browser needs the `cloudflare` host. `email: true` uses Cloudflare Email
   there. On other hosts, a production build needs `email.driver`, such as
   `resend`.

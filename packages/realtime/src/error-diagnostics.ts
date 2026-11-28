@@ -179,9 +179,13 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     REALTIME_MISSING_BUS_CONNECTION: {
       why: ({ driver }: { driver: "postgres" | "redis" }) => driver === "redis"
-        ? "Realtime driver \"redis\" shares rooms through Redis, and REDIS_URL is not set."
+        ? "Realtime driver \"redis\" shares rooms through Redis, and REDIS_URL and a Redis KV_URL are not set."
         : "Realtime driver \"postgres\" shares rooms through Postgres, and the app has no Postgres Default Database and no REALTIME_POSTGRES_URL.",
       fix: "Set REDIS_URL for Redis. For Postgres, define the Default Database with `dialect: \"postgresql\"`, or set REALTIME_POSTGRES_URL. Or set `realtime.driver` to \"auto\".",
+    },
+    REALTIME_MISSING_SHARED_BUS: {
+      why: "This host runs each request in one of many function instances, so Realtime shares rooms through Redis or Postgres. REDIS_URL, a Redis KV_URL, REALTIME_POSTGRES_URL, and a Postgres Default Database are all missing.",
+      fix: "Connect a Redis or Upstash Redis store to the project, which sets REDIS_URL or KV_URL. Or define the Default Database with `dialect: \"postgresql\"`, or set REALTIME_POSTGRES_URL.",
     },
     REALTIME_ROOM_LOCK_TIMEOUT: {
       why: "Realtime waited 30 seconds for the save lock of a room, and another instance still holds it.",
@@ -195,11 +199,11 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : driver === "cloudflare"
           ? `Realtime driver "cloudflare" does not work with the ${host} host.`
           : `Realtime driver "${driver}" needs a Node.js server, and the ${host} host does not run one.`,
-      fix: "Set `realtime.driver` to \"cloudflare\" with a Cloudflare host. With the Node host, use \"auto\", \"postgres\", \"redis\", or \"memory\".",
+      fix: "Set `realtime.driver` to \"cloudflare\" with a Cloudflare host. With the Node host, use \"auto\", \"postgres\", \"redis\", or \"memory\". With the Vercel host, use \"auto\", \"postgres\", or \"redis\".",
     },
     REALTIME_MISSING_DRIVER: {
       why: "Realtime production builds need one room driver, and ViteHub cannot select one for this deployment.",
-      fix: "Deploy with a Cloudflare host to use Durable Objects, or with the Node host to share rooms through Postgres or Redis.",
+      fix: "Deploy with a Cloudflare host to use Durable Objects, or with the Node or Vercel host to share rooms through Postgres or Redis.",
     },
     REALTIME_RENAMED_AUTHORITY_KEY: {
       why: ({ value }: { value: string }) => `\`realtime.authority\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`authority\`, so Realtime would not use the driver you chose.`,

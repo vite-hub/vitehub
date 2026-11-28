@@ -78,10 +78,11 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     cloudflare: { options: { rateLimit: { comment: "On Cloudflare, a binding keeps counts", value: "true" } } },
     node: { options: { rateLimit: { comment: "On Node, counts stay in memory. Turn on shared KV to share them.", value: "true" } } },
   },
-  // realtime/configure.md, "Choose a room driver": `auto` selects Durable Objects, or Redis or Postgres on Node.
+  // realtime/configure.md, "Choose a room driver": `auto` selects Durable Objects, or Redis or Postgres on Node and Vercel.
   realtime: {
     cloudflare: { options: { realtime: { comment: "Keep rooms in Durable Objects", value: "true" } } },
     node: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL) or a Postgres Default Database", value: "true" } } },
+    vercel: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL or KV_URL) or Postgres", value: "true" } } },
   },
   sandboxTask: {
     netlify: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ driver: 'vercel' }" } } },

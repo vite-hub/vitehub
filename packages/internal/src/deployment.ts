@@ -121,7 +121,7 @@ const plans = {
       browser: unsupported("Vercel has no built-in Browser Provider."),
       queue: { driver: "vercel", guarantee: "native", supported: true },
       rateLimit: unsupported("Vercel has no built-in distributed Rate Limit driver."),
-      realtime: unsupported("Vercel has no shared room authority for Realtime."),
+      realtime: { driver: "node", guarantee: "native", supported: true },
       sandbox: { driver: "vercel", guarantee: "native", supported: true },
     },
   },

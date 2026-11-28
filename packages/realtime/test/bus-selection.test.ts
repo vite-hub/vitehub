@@ -33,6 +33,20 @@ describe("the Realtime driver of a Node server", () => {
       .rejects.toMatchObject({ code: "REALTIME_MISSING_BUS_CONNECTION" })
   })
 
+  it("reads a Redis KV_URL after REDIS_URL", () => {
+    expect(resolveRealtimeNodeDriver("auto", { env: { KV_URL: "rediss://default:token@upstash:6379" } }))
+      .toEqual({ driver: "redis", source: "KV_URL", url: "rediss://default:token@upstash:6379" })
+    expect(resolveRealtimeNodeDriver("auto", { env: { KV_URL: "rediss://upstash", REDIS_URL: "redis://cache" } })).toMatchObject({ source: "REDIS_URL" })
+    expect(resolveRealtimeNodeDriver("auto", { env: { KV_URL: "https://upstash.example" } })).toEqual({ driver: "memory" })
+    expect(resolveRealtimeNodeDriver("redis", { env: { KV_URL: "redis://kv" } })).toMatchObject({ driver: "redis", source: "KV_URL" })
+  })
+
+  it("fails instead of keeping rooms in memory on a shared host", async () => {
+    expect(() => resolveRealtimeNodeDriver("auto", { env: {}, shared: true })).toThrow(expect.objectContaining({ code: "REALTIME_MISSING_SHARED_BUS" }))
+    expect(resolveRealtimeNodeDriver("auto", { database: true, env: {}, shared: true })).toEqual({ driver: "postgres", source: "Default Database" })
+    await expect(createRealtimeNodeBus("auto", { env: {}, shared: true })).rejects.toMatchObject({ code: "REALTIME_MISSING_SHARED_BUS" })
+  })
+
   it("keeps rooms in this process without a connection", async () => {
     await expect(createRealtimeNodeBus("auto", { env: { DATABASE_URL: "postgres://other/unrelated" } })).resolves.toBeUndefined()
   })

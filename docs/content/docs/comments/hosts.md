@@ -154,7 +154,7 @@ Run `pnpm vitehub provision run --host cloudflare` to create the D1 Database, th
 
 ### Vercel and Netlify
 
-Use a hosted Database, such as libSQL. Do not turn on Realtime. These hosts have no room driver, so the build fails with `REALTIME_MISSING_DRIVER`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
+Use a hosted Database, such as libSQL. On Vercel, Realtime shares rooms through Redis or Postgres, see [Realtime host support](/docs/realtime/configure#host-support). On Netlify, do not turn on Realtime. Netlify has no room driver, so the build fails with `REALTIME_MISSING_DRIVER`. Comments runs without avatars or cursors. Each page reloads its threads on tab focus and every 30 seconds while visible.
 
 ## Proxies that end TLS
 

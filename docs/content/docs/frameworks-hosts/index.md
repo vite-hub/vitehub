@@ -82,7 +82,7 @@ export default defineConfig({
 | --- | --- | --- | --- | --- |
 | `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `postgres` with Postgres or `local`, Rate Limit `kv` with shared KV or `memory`, Schedule `process` | Sandbox |
 | `cloudflare` | [Cloudflare](/docs/frameworks-hosts/cloudflare) | `.output/server/wrangler.json` | Blob R2, KV Workers KV, Queue, Rate Limit, and Sandbox on Cloudflare | None |
-| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit, Realtime |
+| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Realtime on Redis or Postgres, Vercel Queues, Vercel Sandbox | Rate Limit |
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Agent, Queue, Rate Limit, Realtime, Sandbox |
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/main.ts` with static Schedules, otherwise `.output/server/index.mjs` | KV Deno KV, Schedule `Deno.cron` | Blob, Queue, Rate Limit, Realtime, Sandbox |
 
@@ -90,7 +90,7 @@ export default defineConfig({
 - On `node`, `schedule: true` runs Schedules in the server process. Set
   `schedule: { providerOutput: false }` to wake them yourself.
   On `netlify`, Agent needs `agent: { invocations: false }`.
-- Realtime fails on `vercel`, `netlify`, and `deno` only when the app has Realtime Definitions.
+- Realtime fails on `netlify` and `deno` only when the app has Realtime Definitions.
 - Browser requires the `cloudflare` host.
 - `email: true` uses Cloudflare Email on `cloudflare`. On other hosts, `vite dev` logs each message and production builds fail until you set `email.driver`.
 - Blob without an explicit store requires a host with a Blob provider.
