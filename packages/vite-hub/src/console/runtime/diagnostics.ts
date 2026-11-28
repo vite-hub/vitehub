@@ -19,6 +19,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
+  | "CONSOLE_OFFLINE"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
   | "CONSOLE_REQUEST_INVALID"
@@ -193,6 +194,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Open the site again from the ViteHub Console, in the same browser. Check that the app has the `VITEHUB_CONSOLE_KEY_<NAME>` of its link and that `vitehub({ publicUrl })` is the URL that you open.",
       `${consoleGuide}/site-access#how-the-app-checks-a-visit`,
       "docs",
+    ),
+    CONSOLE_OFFLINE: code(
+      "This browser is offline, so the Console cannot reach the server.",
+      "Connect to the network, then try again.",
+      `${consoleGuide}/limits-and-errors#fix-common-failures`,
+      "retry",
     ),
     CONSOLE_UNAVAILABLE: code(
       "The server did not answer. It can be restarting, offline, or rate limited.",

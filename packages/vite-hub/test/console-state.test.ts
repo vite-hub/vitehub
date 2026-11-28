@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { Window } from "happy-dom"
-import { createApp, defineComponent, h, type Component } from "vue"
+import { createApp, defineComponent, h, nextTick, type Component } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
-import { ConsoleRequestError } from "../src/console/runtime/client/request"
+import { ConsoleRequestError, consoleNetworkError } from "../src/console/runtime/client/request"
 import ConsoleState from "../src/console/runtime/components/console-state.vue"
 
 const UButton = defineComponent({
@@ -34,6 +34,21 @@ function render(props: Record<string, unknown>) {
   app.mount(root)
   const buttons = [...root.querySelectorAll("[data-button]")].map(button => button.getAttribute("data-button"))
   return { app, buttons, root }
+}
+
+const browserWindow = globalThis as unknown as EventTarget
+
+function goOffline() {
+  let onLine = false
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => onLine })
+  return {
+    async reconnect() {
+      onLine = true
+      browserWindow.dispatchEvent(new Event("online"))
+      await nextTick()
+    },
+    restore: () => Reflect.deleteProperty(navigator, "onLine"),
+  }
 }
 
 describe("Console state", () => {
@@ -84,6 +99,42 @@ describe("Console state", () => {
     finally {
       transient.app.unmount()
       withoutHandler.app.unmount()
+    }
+  })
+
+  it("says the browser is offline and tries again once it is back online", async () => {
+    const network = goOffline()
+    const retry = vi.fn()
+    const unreachable = consoleNetworkError(new TypeError("Failed to fetch"))
+    const withRetry = render({ error: unreachable, retry, title: "Couldn't load the database" })
+    const withoutRetry = render({ error: unreachable, title: "Couldn't load the database" })
+    try {
+      expect(withRetry.root.textContent).toContain("This browser is offline")
+      expect(withRetry.root.textContent).toContain("CONSOLE_OFFLINE")
+      expect(withRetry.root.textContent).not.toContain("restarting")
+      await network.reconnect()
+      expect(retry).toHaveBeenCalledOnce()
+      expect(withRetry.root.textContent).toContain("CONSOLE_UNAVAILABLE")
+      expect(withoutRetry.root.textContent).toContain("CONSOLE_UNAVAILABLE")
+    }
+    finally {
+      withRetry.app.unmount()
+      withoutRetry.app.unmount()
+      network.restore()
+    }
+  })
+
+  it("does not retry a failure that a retry cannot repair when the browser is back online", async () => {
+    const network = goOffline()
+    const retry = vi.fn()
+    const { app } = render({ error: new ConsoleRequestError(403), retry, title: "Could not load Agents" })
+    try {
+      await network.reconnect()
+      expect(retry).not.toHaveBeenCalled()
+    }
+    finally {
+      app.unmount()
+      network.restore()
     }
   })
 
