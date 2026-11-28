@@ -2,6 +2,7 @@ import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConne
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { invariant } from "@vite-hub/internal/invariant"
+import { isPlainObject } from "@vite-hub/internal/object"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -33,7 +34,7 @@ import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPack
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { featureOptionsResolved, withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { definitionFeaturesRootPlugin, resolveDefinitionFeatures } from "./internal/definition-features.ts"
-import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { assertViteHubOptionKeys } from "./removed-options.ts"
 import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
@@ -345,6 +346,7 @@ const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLT
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
 const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
 const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
+const devRpcRuntimeSections: ReadonlySet<string> = new Set(["agents", "schedules"])
 
 function workspaceStoreEntry() {
   return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
@@ -736,9 +738,13 @@ export function resolveSandboxTaskDriver(sandboxTask: ViteHubOptions["sandboxTas
   return plan.services.sandbox.supported ? plan.services.sandbox.driver : undefined
 }
 
+function queueConfigObject(queue: ViteHubOptions["queue"]): Exclude<QueueOptions, false> | undefined {
+  if (queue === true || queue === false || queue === undefined) return undefined
+  return isPlainObject(queue) ? queue : undefined
+}
+
 /** The local and Postgres drivers run only on the Node host. */
-function assertNodeQueueDriver(queue: ViteHubOptions["queue"], host: ViteHubHost): void {
-  const driver = queue && queue !== true ? queue.driver : undefined
+function assertNodeQueueDriver(driver: string | undefined, host: ViteHubHost): void {
   if ((driver === "local" || driver === "postgres") && host !== "node") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: `[vitehub] queue.driver "${driver}" works with the "node" host only. The "${host}" host uses its own Queue. Remove queue.driver, or use the "node" host.` })
   }
@@ -1195,9 +1201,8 @@ function deploymentPlugins(
             plan.host === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
           )
           const name = identity.name
-          if (requestedServices.includes("queue") && plan.services.queue.supported) {
-            const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
-            // Queue infers the Node driver from the resolved Default Database.
+          const configuredQueue = queueConfigObject(options.queue)
+          if (requestedServices.includes("queue") && plan.services.queue.supported && (options.queue === true || configuredQueue)) {
             const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
@@ -1607,8 +1612,9 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   const sandboxTaskDriver = resolveSandboxTaskDriver(options.sandboxTask, plan)
   const sandboxTaskEnabled = sandboxTaskDriver !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
-  const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
-  assertNodeQueueDriver(options.queue, plan.host)
+  const queueEnabled = options.queue !== undefined && options.queue !== false
+  const configuredQueue = queueConfigObject(options.queue)
+  assertNodeQueueDriver(configuredQueue?.driver, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
   const { browserErrors, ...observabilityOptions } = observability ?? {}
   const logs = options.logs === true ? {} : options.logs || undefined
@@ -1631,7 +1637,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ["i18n", options.i18n],
     // `cache: { driver: "kv" }` stores the cache in KV.
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
-    ["queue", options.queue && plan.services.queue.supported],
+    ["queue", queueEnabled && plan.services.queue.supported],
     ["rateLimit", options.rateLimit],
     ["mcp", options.mcp],
     ["realtime", options.realtime],
@@ -1655,7 +1661,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   const plugins: unknown[] = [doctorPlugin(), viteHubHintsPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
   const requestedServices: HostSelectedService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
-  if (options.queue) requestedServices.push("queue")
+  if (queueEnabled) requestedServices.push("queue")
   // An app that sets `rateLimit.driver` chooses the driver itself, so the host does not need to provide one.
   if (options.rateLimit && !explicitRateLimitDriver(options.rateLimit)) requestedServices.push("rateLimit")
   // The host selects the Sandbox, unless an explicit driver is not the host's own, such as Vercel Sandbox on Node.
@@ -1819,9 +1825,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
       operationSections: devOperationsOnly ? consoleSections : undefined,
-      // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
-      // Schedules is the exception: `vitehub schedule run` runs only the manual Schedules that its section installs.
-      sections: devOperationsOnly ? consoleSections.filter(section => section === "schedules") : consoleSections,
+      sections: devOperationsOnly ? consoleSections.filter(section => devRpcRuntimeSections.has(section)) : consoleSections,
     })
     if (devOperationsOnly) consolePlugin.apply = "serve"
     plugins.push(consolePlugin)
@@ -1905,10 +1909,11 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     plugins.push(requireOptionalOwner(kvVite, "kv").hubKV(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "@vite-hub/database/runtime/registry" }))
   }
   else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
-  if (options.queue && plan.services.queue.supported) {
+  if (queueEnabled && plan.services.queue.supported) {
     const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
-    // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/queue" })))
+    const queueOptions = options.queue === true || configuredQueue ? { ...configuredQueue, ...(driver ? { driver } : {}) } : options.queue
+    // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`. hubQueue() rejects a value of another shape.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue(queueOptions as QueueOptions, { databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
@@ -2136,7 +2141,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
 export function viteHubPlugins(options: ViteHubOptions, reportVersionError = true): PluginOption[] {
-  assertNoRemovedViteHubOptions(options, "`vitehub()`")
+  assertViteHubOptionKeys(options, "`vitehub()`")
   // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
   const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant, reportVersionError)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.

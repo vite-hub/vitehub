@@ -5,7 +5,6 @@ import { listConsoleInvocations } from "../src/agent/console/invocations.get.ts"
 import { agentConsole } from "../src/console/server.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 
-/** The codes that the Console route, its operations, and the Console page can raise. */
 const consoleCodes = [
   "VITE_HUB_B0001",
   "VITE_HUB_C0001",
@@ -88,13 +87,13 @@ describe("Console error fixes", () => {
     }))
   })
 
-  it("tells a CLI call to a runtime without the Console journal how to turn the Console on", async () => {
+  it("explains how to register an Agent Invocation journal for CLI operations", async () => {
     vi.resetModules()
     const { getConsoleInvocations } = await import("../src/console/runtime/server/invocations.ts")
     expect(() => getConsoleInvocations()).toThrow(expect.objectContaining({
       code: "VITE_HUB_R0063",
-      fix: expect.stringContaining("`console: true`"),
-      message: expect.stringContaining("The Console is off"),
+      fix: expect.stringMatching(/`agents` Console section.*server\/agents\/support\.ts/),
+      message: expect.stringContaining("no Agent Invocation journal registered for ViteHub operations"),
     }))
   })
 

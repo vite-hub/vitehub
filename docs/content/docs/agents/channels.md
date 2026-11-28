@@ -1135,6 +1135,8 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
+`useChat()` sends each message to the chat route of the Agent's `webChat()` Channel. When the Agent has no such Channel, the route answers 404 with a message that tells you to add `channels: { web: webChat() }`.
+
 `useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/console/site-access#link-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.

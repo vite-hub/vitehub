@@ -2332,7 +2332,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0511: {
       ...dynamicError,
-      fix: "Check --url and the Console key in VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>. The message shows the HTTP status. A retry helps only for network errors and 5xx.",
+      fix: "Without --url, start the dev server of this project. With --url, check the app URL, check that the app sets `console` in `vitehub()`, and set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to the private key of its VITEHUB_CONSOLE_KEY_<NAME>. The message shows the HTTP status. A retry helps only for network errors and 5xx.",
     },
     AGENT_R0512: {
       ...dynamicError,

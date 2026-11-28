@@ -148,9 +148,9 @@ pnpm vitehub schedule runs list daily-report
 ```
 
 ```txt [output/runs.txt]
-RUN                                                                         STATUS     SCHEDULED AT              ATTEMPTS  ERROR
-srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  succeeded  2026-11-07T12:33:04.174Z  1         -
-srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succeeded  2026-01-31T08:00:00.000Z  1         -
+RUN                                                                         SCHEDULE      STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  daily-report  succeeded  2026-11-07T12:33:04.174Z  1         -
+srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  daily-report  succeeded  2026-01-31T08:00:00.000Z  1         -
 ```
 
 A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
