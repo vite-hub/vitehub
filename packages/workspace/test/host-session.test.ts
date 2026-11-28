@@ -2021,7 +2021,7 @@ describe("workspace host sessions", () => {
     await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "nested/.Git/config" }),
     ]))
-    await expect(session.writeFile("nested/.Git/config", "mutated")).rejects.toThrow("Workspace path escapes")
+    await expect(session.writeFile("nested/.Git/config", "mutated")).rejects.toThrow("[vitehub] The Workspace path ")
     await expect(session.exec("write", ["nested/.Git/config", "mutated"])).resolves.toMatchObject({ exitCode: 0 })
     await expect(session.exec("write", ["nested/.Git/new", "created"])).resolves.toMatchObject({ exitCode: 0 })
     await session.commit({ message: "ignore nested Git metadata" })
