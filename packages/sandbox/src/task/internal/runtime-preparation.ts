@@ -11,7 +11,7 @@ import { isPlainObject } from '@vite-hub/internal/object'
 import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxTaskDefinitions } from '../discovery'
-import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeLocalProviderSpecifier, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
+import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskEntryFilename, sandboxTaskRuntimeLocalProviderSpecifier, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
 import { getSandboxTaskFeatureDriver } from '../module-types'
 import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from '../type-template'
 import {
@@ -478,6 +478,7 @@ export async function prepareSandboxTaskRuntime(options: {
     return {
       aliases: {} as AliasMap,
       definitions,
+      entryFile: undefined,
       files,
       hosting: context.hosting,
       localDev: false,
@@ -493,6 +494,7 @@ export async function prepareSandboxTaskRuntime(options: {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_WINDOWS()
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), 'runtime/sandbox-task.mjs')
+  const entryFile = resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), sandboxTaskEntryFilename)
   const plan = await createSandboxTaskFeaturePlan(
     context.config,
     definitions,
@@ -512,6 +514,7 @@ export async function prepareSandboxTaskRuntime(options: {
       aliases,
       cloudflare: plan.cloudflare,
       definitions,
+      entryFile,
       files: [],
       hosting: context.hosting,
       localDev,
@@ -538,6 +541,7 @@ export async function prepareSandboxTaskRuntime(options: {
     aliases,
     cloudflare: plan.cloudflare,
     definitions,
+    entryFile,
     files: [
       facadeFile,
       ...Array.from(emitted.values(), artifact => artifact.dst),
