@@ -298,6 +298,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (args.build) await build(project, host, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
+  if (link && output.identityName && output.identityName !== link.project.name) writeLinkedNameNote(context, host, link.project.name, output.identityName)
   if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
@@ -369,6 +370,10 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)
   return setupExitCodes.done
+}
+
+function writeLinkedNameNote(context: Pick<ViteHubCliContext, "stderr">, host: DeployHost, linked: string, built: string): void {
+  context.stderr.write(`[vitehub] Deploying to the ${host} project "${linked}" of .vitehub/link.json. The build names the app "${built}", but the link wins. To deploy to "${built}", run \`vitehub link --host ${host} --project ${built} --create\` and deploy again. To keep "${linked}", set \`vitehub({ name: "${linked}" })\`.\n`)
 }
 
 async function deployConsole(step: DeployConsole, initial: DeployResult, options: { context: ViteHubCliContext, deployContext: DeployContext, host: DeployHost, onHost: ReadonlySet<string>, projectName: string }) {
