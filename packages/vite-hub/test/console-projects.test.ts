@@ -242,13 +242,13 @@ describe("project.get probe", () => {
 describe("account Console", () => {
   const linked = { id: "p-1", url: "https://app.example.com/portal", label: "Docs", publicKey: "a".repeat(43), keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_P1" }
 
-  async function account(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+  async function account(fetch: (url: string, init: RequestInit) => Promise<Response>, project: { id: string, url: string, label: string | null, publicKey: string, keyVariable: string } = linked) {
     vi.stubGlobal("fetch", operationRpcFetch(fetch))
     const module = await import("../src/console/runtime/client/project-session.ts")
     const storage = memoryProjectStorage()
-    storage.setItem(consoleProjectsStorageKey, JSON.stringify({ active: linked.id, projects: [{ id: linked.id, url: linked.url, label: linked.label }] }))
+    storage.setItem(consoleProjectsStorageKey, JSON.stringify({ active: project.id, projects: [{ id: project.id, url: project.url, label: project.label }] }))
     const state = module.startConsoleProjects({ base: "", home: "/", mode: "account", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage })
-    state.account.value = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    state.account.value = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [project] }
     return { module, state }
   }
 
@@ -519,11 +519,23 @@ describe("account Console", () => {
     expect(state.info.value?.name).toBe("vitehub-docs")
     expect(module.consoleProjectDisplayName(linked)).toBe("Docs")
     expect(module.consoleOpenProjectName("vitehub-docs")).toBe("Docs")
+    expect(module.consoleOpenProjectNameSource("vitehub-docs")).toBe("label")
     const { useConsoleApp } = await import("../src/console/runtime/client/app-identity.ts")
     expect(useConsoleApp().value.name).toBe("Docs")
     // Without a label, the reported name, then the host.
     expect(module.consoleProjectDisplayName({ ...linked, label: null })).toBe("vitehub-docs")
     expect(module.consoleProjectDisplayName({ id: "p-2", label: null, url: "https://other.example.com" })).toBe("other.example.com")
+  })
+
+  it("says that the app reports the name when its link has no label, and that the address is shown without a name", async () => {
+    const unlabeled = { ...linked, label: null }
+    const { module, state } = await account(json(200, { ok: true, value: { protocol: 1, name: "vitehub-docs", operations: [], sections: [] } }), unlabeled)
+    await module.openConsoleProject()
+    expect(module.consoleOpenProjectName()).toBe("vitehub-docs")
+    expect(module.consoleOpenProjectNameSource()).toBe("app")
+    state.info.value = undefined
+    expect(module.consoleOpenProjectNameSource()).toBeUndefined()
+    expect(module.consoleOpenProjectNameSource("from-navigation")).toBe("app")
   })
 
   it("renames an app", async () => {
