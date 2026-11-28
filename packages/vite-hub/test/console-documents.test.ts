@@ -10,7 +10,7 @@ import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineContent } from "../../content/src/index.ts"
-import { contentOperations } from "../../content/src/operations.ts"
+import { contentOperations, installContentModule } from "../../content/src/operations.ts"
 import { createContentConsoleActions } from "../../content/src/runtime/console.ts"
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
@@ -352,13 +352,14 @@ describe("Console document editor discovery", () => {
           load: async () => ({ default: content }),
         },
       })
+      installContentModule(async () => ({ default: content }))
       await installViteHubConsoleOperations([{ operations: contentOperations }])
       await expect(call("content.head", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { heads: [{ source: "docs", live: false }] } } })
       await expect(documents("overview", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { activity: [], collections: [] } } })
     }
     finally {
       installConsoleOperations()
-      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules"))
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module"))
       vi.unstubAllEnvs()
       await content.dispose()
     }

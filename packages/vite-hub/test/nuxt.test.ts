@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
@@ -649,6 +649,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(names.indexOf("vite-hub/forge-build-check")).toBeGreaterThanOrEqual(0)
     expect(names.indexOf("vite-hub/forge-build-check")).toBeLessThan(names.indexOf("vite-hub/nitro-optional-peers"))
     expect(await pluginNames(true)).not.toContain("vite-hub/forge-build-check")
+  })
+
+  it("keeps the disabled KV config file when its content is the same", async () => {
+    const disabledConfig = `${tmp}/vitehub-nuxt/.vitehub/nuxt/disabled-kv-config.mjs`
+    const replay = async () => {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+      await runNitroConfigHook({})
+    }
+    await replay()
+    const written = new Date("2020-01-01T00:00:00Z")
+    await utimes(disabledConfig, written, written)
+    await replay()
+    expect((await stat(disabledConfig)).mtime).toEqual(written)
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
@@ -1502,10 +1516,10 @@ describe("ViteHub Nuxt integration", () => {
         const source = `import { defineAgent } from '@vite-hub/agent'\nimport { github } from '@vite-hub/agent/channels'\n${body}`
         await mkdir(dirname(file), { recursive: true })
         await writeFile(file, source)
-        const transformed = await Reflect.apply(transform, {}, [source, file])
+        const transformed: { code: string } | undefined = await Reflect.apply(transform, {}, [source, file])
         const artifact = resolve(root, `${name}.mjs`)
         // Compile the direct import without loading the generated catalog or running any Vite plugin.
-        await build({ stdin: { contents: transformed ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
+        await build({ stdin: { contents: transformed?.code ?? source, loader: "ts", resolveDir: dirname(file) }, outfile: artifact, format: "esm" })
         const loaded = import(/* @vite-ignore */ pathToFileURL(artifact).href)
         if (name === "review") await expect(loaded).rejects.toMatchObject({ code: "AGENT_R1037" })
         else expect((await loaded).default).toBeDefined()
@@ -1564,10 +1578,11 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
         await expect(result).rejects.toThrow("whose static imports lead back to that Agent")
         return
       }
-      const transformed = String(await result)
-      expect(transformed).toContain(`import vitehubChannel0 from ${JSON.stringify(channel)}`)
-      expect(transformed).toContain(`vitehubRegisterAgentChannels({ ["hooks"]: vitehubChannel0 })`)
-      expect(transformed).toContain(`vitehubWithDiscoveredAgentName(`)
+      const transformed: { code: string, map: unknown } = await result
+      expect(transformed.map).toBeDefined()
+      expect(transformed.code).toContain(`import vitehubChannel0 from ${JSON.stringify(channel)}`)
+      expect(transformed.code).toContain(`vitehubRegisterAgentChannels({ ["hooks"]: vitehubChannel0 })`)
+      expect(transformed.code).toContain(`vitehubWithDiscoveredAgentName(`)
       expect(resolved, "the import cycle check skips installed packages").toEqual(["@vite-hub/channels", "@vite-hub/channels/adapters", "@vite-hub/agent/channels", specifier])
     }
     finally {

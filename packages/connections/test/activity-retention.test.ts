@@ -83,7 +83,7 @@ describe("Connection activity retention", () => {
   })
 
   it.each([{ maxRecords: 0 }, { maxRecords: 2.5 }, { maxAgeMs: 0 }, { maxAgeMs: -1 }, { maxAgeMs: Number.NaN }, { maxAgeMs: Number.MAX_SAFE_INTEGER + 1 }])("rejects %j", (activityRetention) => {
-    expect(() => setup(activityRetention)).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_CONFIG", message: expect.stringMatching(/activityRetention\.max(AgeMs|Records) must be a positive integer/) }))
+    expect(() => setup(activityRetention)).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_CONFIG", fix: expect.stringContaining("activityRetention: { maxAgeMs: 1_209_600_000, maxRecords: 10_000 }"), message: expect.stringMatching(/activityRetention\.max(AgeMs|Records) must be a positive integer/) }))
   })
 
   it("prunes after every event", async () => {

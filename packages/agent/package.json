@@ -275,6 +275,7 @@
     "comark": "catalog:markdown",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
+    "magic-string": "^1.4.5",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"

@@ -40,6 +40,9 @@ export interface WorkflowRunDetailView extends WorkflowRunView {
   steps: WorkflowRunStepView[]
 }
 
+/** The statuses that `workflow.runs-list` filters by. */
+export type WorkflowRunsListStatus = Extract<WorkflowRunStatus, "completed" | "failed" | "queued" | "running">
+
 /** Result of `workflow.runs-list`. The runs are newest first and have no steps. */
 export interface WorkflowRunsListResult {
   runs: Array<WorkflowRunView & { stepCount: number }>
