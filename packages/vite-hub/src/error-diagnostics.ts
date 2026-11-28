@@ -629,7 +629,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+      fix: "Remove `driver` to use the Sandbox of the host, use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the host that the driver names: `cloudflare` for Cloudflare Sandbox, `node` for the container Sandbox.",
     },
     VITE_HUB_SECURITY_HEADER_INVALID: {
       why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,

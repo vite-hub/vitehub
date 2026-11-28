@@ -3,7 +3,7 @@ import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 /** `local` runs a Sandbox Task as a process on this machine, which only `vite dev` does. */
-export type SandboxTaskExecutionProvider = 'cloudflare' | 'vercel' | 'local'
+export type SandboxTaskExecutionProvider = 'cloudflare' | 'container' | 'vercel' | 'local'
 
 export interface TaskSandbox {
   readonly executionAuthority: ExecutionAuthority

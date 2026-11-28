@@ -18,7 +18,7 @@ type GeneratedSandboxTaskRuntimeRegistryEntry = {
 type GeneratedSandboxTaskRuntimeRegistry = Record<string, GeneratedSandboxTaskRuntimeRegistryEntry>
 
 let sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined
-let sandboxTaskLocalProvider: (() => Promise<ResolvedTaskSandbox>) | undefined
+let sandboxTaskLocalProvider: ((config: false | AgentSandboxTaskConfig | undefined) => Promise<ResolvedTaskSandbox>) | undefined
 let sandboxTaskRegistry: SandboxTaskRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxTaskRuntimeRegistry>()
 const generatedRegistryOwnership = new WeakMap<SandboxTaskRuntimeRegistry, { registry: GeneratedSandboxTaskRuntimeRegistry, scope: string }>()
@@ -91,7 +91,7 @@ export function getSandboxTaskRuntimeLocalProvider() {
   return sandboxTaskLocalProvider
 }
 
-export function setSandboxTaskRuntimeLocalProvider(provider: (() => Promise<ResolvedTaskSandbox>) | undefined) {
+export function setSandboxTaskRuntimeLocalProvider(provider: ((config: false | AgentSandboxTaskConfig | undefined) => Promise<ResolvedTaskSandbox>) | undefined) {
   sandboxTaskLocalProvider = provider
 }
 

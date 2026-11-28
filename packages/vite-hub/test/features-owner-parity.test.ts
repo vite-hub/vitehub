@@ -49,7 +49,7 @@ describe("feature catalog parity with owner resolution", () => {
         expect(support.level, id).toBe(id === "sandboxTask" && preset === "netlify" ? "explicit" : "unsupported")
         continue
       }
-      expect(support, id).toMatchObject({ driver: policy.driver, level: "native" })
+      expect(support, id).toMatchObject({ driver: id === "sandboxTask" ? "container" : policy.driver, level: "native" })
       if (id === "queue" && support.level === "native") {
         expect(support.driver).toBe(normalizeQueueOptions({ driver: policy.driver }, { hosting: plan.nitroPreset })?.driver)
       }

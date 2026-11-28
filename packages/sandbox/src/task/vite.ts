@@ -65,7 +65,7 @@ interface SandboxTaskViteInternalOptions {
   providerImportSpecifier?: string
 }
 type SandboxTaskAlias = Alias & { replacement: string }
-type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeDependencyByProvider
+type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeProviderSpecifiers
 
 function mergeSandboxTaskNitroProviderAliases(
   nitro: SandboxTaskNitroHost['options'],
@@ -92,7 +92,7 @@ function mergeSandboxTaskNitroNoExternals(
   nitro: SandboxTaskNitroHost['options'],
   provider: string | undefined,
 ) {
-  if (provider !== 'cloudflare' && provider !== 'vercel')
+  if (provider !== 'cloudflare' && provider !== 'container' && provider !== 'vercel')
     return
 
   const existing = nitro.noExternals
@@ -100,10 +100,9 @@ function mergeSandboxTaskNitroNoExternals(
     return
 
   const existingEntries = Array.isArray(existing) ? existing : []
-  const additions = [
-    SANDBOX_PACKAGE_NAME,
-    sandboxTaskRuntimeDependencyByProvider[provider],
-  ]
+  const additions = provider === 'container'
+    ? [SANDBOX_PACKAGE_NAME]
+    : [SANDBOX_PACKAGE_NAME, sandboxTaskRuntimeDependencyByProvider[provider]]
   nitro.noExternals = [
     ...existingEntries,
     ...additions.filter(addition => !existingEntries.includes(addition)),
@@ -119,6 +118,7 @@ export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(i
 
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
+  [sandboxTaskRuntimeProviderSpecifiers.container]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/container', 'runtime/providers/container.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
   [sandboxTaskRuntimeLocalProviderSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/local', 'runtime/providers/local.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),

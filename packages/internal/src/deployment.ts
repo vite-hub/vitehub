@@ -23,7 +23,7 @@ export interface DeploymentServices {
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
   realtime: SupportedDeploymentServicePolicy<"cloudflare" | "node", "native"> | UnsupportedDeploymentServicePolicy
-  sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
+  sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "container" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
 }
 
 export type DeploymentServicePolicy = DeploymentServices[DeploymentService]
@@ -104,7 +104,7 @@ const plans = {
       queue: { driver: "local", guarantee: "single-host", supported: true },
       rateLimit: { driver: "memory", guarantee: "process-local", supported: true },
       realtime: { driver: "node", guarantee: "native", supported: true },
-      sandbox: unsupported("The Node host has no built-in isolated Sandbox Provider."),
+      sandbox: { driver: "container", guarantee: "single-host", supported: true },
     },
   },
   vercel: {

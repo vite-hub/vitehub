@@ -36,7 +36,7 @@ Approvals, tool policy, and Capabilities decide what the agent may do. The sandb
 | Startup | Vercel says milliseconds. | Cloudflare says cold starts are often 1 to 3 seconds. | About 1 to 3 seconds with a pulled image in our tests, plus the broker when egress is on. | A local process. | Depends on your host. |
 | Limits | Sessions up to 45 minutes on Hobby, 24 hours on Pro. Up to 8 vCPUs and 16 GB memory on Pro. | From 1/16 vCPU and 256 MiB to 4 vCPUs and 12 GiB. Stops after 10 idle minutes by default. | The limits of your Docker host. Optional `cpus`, `memoryBytes`, and `pidsLimit`. | Your machine's. An optional memory cap on Linux. | Your host's. |
 | Pricing model | Usage based: active CPU, provisioned memory, creations, and data transfer. Hobby includes a monthly allowance. | Workers Paid plan. Billed per 10 ms of active vCPU, memory, and disk, plus Workers and Durable Objects usage. | The cost of your server. | Your server's cost. | Crabbox is free. You pay for the host. |
-| Select it | `runtime: 'vercel'`, or the `vercel` host for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` host for Sandbox Tasks | `runtime: { kind: 'container', image }` | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
+| Select it | `runtime: 'vercel'`, or the `vercel` host for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` host for Sandbox Tasks | `runtime: { kind: 'container', image }`, or the `node` host and `vite dev` for Sandbox Tasks | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
 
 Startup and limit values are vendor claims, not our measurements. Sources: [Vercel Sandbox](https://vercel.com/docs/sandbox), [Vercel Sandbox pricing and quotas](https://vercel.com/docs/sandbox/pricing), [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/), [Cloudflare Containers limits](https://developers.cloudflare.com/containers/platform/limits/), [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [Cloudflare container lifecycle](https://developers.cloudflare.com/containers/platform-details/architecture/), and [Crabbox](https://crabbox.sh/).
 
@@ -176,7 +176,7 @@ Each Sandbox Task run gets a new Sandbox, closed at the end, unless you set `san
 
 Limits:
 
-- The Vite dev server cannot host the Container. With Nitro's `node-worker` dev runner, `vite dev` runs tasks as local processes without isolation or a restrictive network policy ([Development](/docs/sandbox/hosts#development)). To test the Container, build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
+- The Vite dev server cannot host the Container. With Nitro's `node-worker` dev runner, `vite dev` runs Sandbox Tasks in local Docker containers with the `container` runtime ([Development](/docs/sandbox/hosts#development)). To test the Cloudflare Container, build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
 - There is no network policy option, and ViteHub reports `network: 'unknown'`.
 - The generated Durable Object has no preview URLs, so `session.ports` is unavailable. Spawned process output lives in the Durable Object's memory and ends with the Container.
 
@@ -211,7 +211,7 @@ The runtime reports `isolation: 'container'`. It reports `network: 'none'` witho
 
 Plan for these limits:
 
-- The ViteHub process needs the Docker CLI and rootful Docker Engine 28 or newer on native Linux. The isolated bridge has no host address, and the Sandbox cannot connect directly to host services. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary and are rejected before resources are created. Serverless hosts cannot run it.
+- The ViteHub process needs the Docker CLI and Docker Engine 28 or newer. If the CLI or the daemon is missing, the run fails with `SANDBOX_DOCKER_UNAVAILABLE`. With egress `"none"` or `{ allow }`, it needs rootful Docker Engine on native Linux: the isolated bridge has no host address, and the Sandbox cannot connect directly to host services. Docker Desktop, OrbStack, WSL, and rootless Docker have additional host routes outside this boundary, so these egress values are rejected there before resources are created. Egress `"open"` has no network limit and runs on every Docker. Serverless hosts cannot run it.
 - Egress and credential host patterns without a port allow only port 443. Use `host:port` for another HTTP or HTTPS port.
 - The image needs `sh`, coreutils, GNU `find`, and `git` for a `checkout`. Debian-based images such as `node:24-bookworm` work. BusyBox `find` does not.
 - Git over SSH and other non-HTTP protocols cannot leave the Sandbox. Use HTTPS remotes.
