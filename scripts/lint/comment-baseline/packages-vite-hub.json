@@ -507,7 +507,6 @@
   "packages/vite-hub/test/published-types.test.ts": 3,
   "packages/vite-hub/test/pure-facades.test-d.ts": 1,
   "packages/vite-hub/test/pure-facades.test.ts": 3,
-  "packages/vite-hub/test/queue-dev-host.test.ts": 1,
   "packages/vite-hub/test/redirects-build.test.ts": 3,
   "packages/vite-hub/test/redirects.test.ts": 2,
   "packages/vite-hub/test/request-policy-build.test.ts": 2,

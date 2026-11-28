@@ -412,14 +412,14 @@ describe("normalizeKVOptions existing behavior", () => {
     })
   })
 
-  it("rejects non-object config and shows `kv: true` and a driver object", () => {
-    expect(() => normalizeKVOptions("redis" as never, {
+  it.each([true, "redis"])("rejects %j and shows the default for each KV config form", options => {
+    expect(() => normalizeKVOptions(options as never, {
       env: {},
       hosting: "",
     })).toThrow(expect.objectContaining({
       code: "KV_INVALID_CONFIG",
-      fix: "Set `kv: true` for the default store of the host, or pass an object, such as `kv: { driver: 'redis' }`. Set `kv: false` to turn KV off.",
-      message: "`kv` must be `true`, `false`, or a plain object.",
+      fix: expect.stringContaining("Call `hubKV()` for the default store"),
+      message: "KV options must be a plain object or `false`. Only `vitehub()` accepts `kv: true`.",
     }))
   })
 
