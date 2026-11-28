@@ -3,6 +3,8 @@ import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { glob, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { SourceMap } from "node:module"
+import type { SourceMapPayload } from "node:module"
 import { runInNewContext } from "node:vm"
 import { dirname, join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
@@ -121,6 +123,16 @@ async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: 
 
 function chatApprovedTools(context: AgentRunContext): string[] {
   return [...agentChatApprovedTools(context, context.input.context?.["chat.sessionId"])]
+}
+
+function registryTransformResult(plugin: { transform?: unknown }) {
+  // SAFETY: hubAgent installs its transform as an object hook with a handler that returns the code and its source map.
+  return (plugin.transform as { handler: (code: string, id: string) => Promise<{ code: string, map: SourceMapPayload } | undefined> }).handler
+}
+
+function registryTransform(plugin: { transform?: unknown }) {
+  const handler = registryTransformResult(plugin)
+  return async (code: string, id: string) => (await handler(code, id))?.code
 }
 
 function isTestRecord(value: unknown): value is Record<string, unknown> {
@@ -975,8 +987,7 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
+      const transform = registryTransform(plugin)
       await installStubPackages(root, ["@vite-hub/blob", "vite-hub/console/server", "@vite-hub/database/runtime/registry", "@vite-hub/email"])
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await configResolved({
@@ -1026,7 +1037,7 @@ describe("agent Vite plugin", () => {
       expect(windowsProviderRegistry).toBe(registry)
       expect(nitroRegistry).toBe(registry)
       if (!registry || !providerRegistry) throw new Error("Expected generated workflow registries")
-      expect(await transform(providerRegistry, `/virtual/.vitehub/${registryPath}`)).toBe(registry)
+      expect(await transform(providerRegistry, `/virtual/.vitehub/${registryPath}`)).toBeUndefined()
       expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", registryPath))).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1047,8 +1058,7 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
+      const transform = registryTransform(plugin)
       await configResolved({
         command: "build",
         plugins: [],
@@ -1062,14 +1072,13 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
       if (!registry) throw new Error("Expected a libSQL workflow registry")
-      expect(await transform(registry, `/virtual/.vitehub/${registryPath}`)).toBe(registry)
+      expect(await transform(registry, `/virtual/.vitehub/${registryPath}`)).toBeUndefined()
 
       const cloudflarePlugin = hubAgent()
       const cloudflareConfigResolvedHook: unknown = cloudflarePlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for Cloudflare builds.
       const cloudflareConfigResolved = cloudflareConfigResolvedHook as typeof configResolved
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const cloudflareTransform = (cloudflarePlugin.transform as { handler: typeof transform }).handler
+      const cloudflareTransform = registryTransform(cloudflarePlugin)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await cloudflareConfigResolved({
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -1083,7 +1092,7 @@ describe("agent Vite plugin", () => {
       expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
       if (!cloudflareRegistry) throw new Error("Expected a Cloudflare workflow registry")
-      expect(await cloudflareTransform(cloudflareRegistry, `/virtual/.vitehub/${registryPath}`)).toBe(cloudflareRegistry)
+      expect(await cloudflareTransform(cloudflareRegistry, `/virtual/.vitehub/${registryPath}`)).toBeUndefined()
 
       await cloudflareConfigResolved({
         command: "build",
@@ -1112,8 +1121,7 @@ describe("agent Vite plugin", () => {
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
+      const transform = registryTransform(plugin)
       await configResolved({ command: "build", plugins: [], vitehub: { host: "cloudflare" }, root })
       const registry = await transform(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
       if (!registry) throw new Error("Expected a Cloudflare workflow registry")
@@ -1122,7 +1130,11 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain("createCloudflareAgentState({ namespace })")
       expect(registry).not.toContain("createLibsqlAgentState")
       expect(registry.endsWith("export default {}\n")).toBe(true)
-      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
+      const mapped = await registryTransformResult(plugin)(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
+      if (!mapped) throw new Error("Expected a mapped Cloudflare workflow registry")
+      expect(new SourceMap(mapped.map).findEntry(mapped.code.split("\n").indexOf("export default {}"), 0))
+        .toMatchObject({ originalLine: written.split("\n").indexOf("export default {}"), originalColumn: 0 })
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBeUndefined()
       expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, registryFile)).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })

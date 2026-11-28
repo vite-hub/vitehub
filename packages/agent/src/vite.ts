@@ -8,6 +8,8 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import MagicString from "magic-string"
+import type { SourceMap } from "magic-string"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
@@ -107,7 +109,7 @@ interface AgentCliContributingPlugin {
         projectRoot?: string
         serverDirs?: string[]
         resolve?: (specifier: string, importer: string) => Promise<string | undefined>
-      }) => Promise<string | undefined>
+      }) => Promise<AgentTransformResult | undefined>
       /** The Agent files that a generated Workflow registry imports by path. */
       workflowModules: { index: string, runtimeWorkflow: string, serverInternal: string }
     }
@@ -478,7 +480,7 @@ function transformGeneratedAgentWorkflowRegistry(
   code: string,
   capabilities: GeneratedAgentRuntimeCapability[],
   state: { cloudflare?: boolean, libsql?: GeneratedLibsqlAgentStateOptions } = {},
-): string {
+): MagicString {
   const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities)
   const stateImports = state.libsql
     ? [
@@ -509,27 +511,38 @@ function transformGeneratedAgentWorkflowRegistry(
       : []
   // Nuxt writes this registry from its Nitro config hook before Vite resolves the host preset,
   // and the Vite transform runs again on that file. The latest call owns the setup block.
-  const registry = stripGeneratedAgentWorkflowRegistrySetup(code)
-  if (!capabilityLoaders.imports.length && !stateImports.length) return registry
-  return [
-    generatedAgentWorkflowRegistrySetupStart,
-    ...capabilityLoaders.imports,
-    ...stateImports,
-    "",
-    ...capabilityLoaders.setup,
-    ...stateSetup,
-    generatedAgentWorkflowRegistrySetupEnd,
-    registry,
-  ].join("\n")
+  const registry = new MagicString(code)
+  const setupEnd = generatedAgentWorkflowRegistrySetupLength(code)
+  const setup = capabilityLoaders.imports.length || stateImports.length
+    ? `${[
+        generatedAgentWorkflowRegistrySetupStart,
+        ...capabilityLoaders.imports,
+        ...stateImports,
+        "",
+        ...capabilityLoaders.setup,
+        ...stateSetup,
+        generatedAgentWorkflowRegistrySetupEnd,
+      ].join("\n")}\n`
+    : ""
+  if (code.slice(0, setupEnd) === setup) return registry
+  if (setupEnd) registry.remove(0, setupEnd)
+  if (setup) registry.prepend(setup)
+  return registry
 }
 
 const generatedAgentWorkflowRegistrySetupStart = "// @vite-hub/agent workflow registry setup start"
 const generatedAgentWorkflowRegistrySetupEnd = "// @vite-hub/agent workflow registry setup end"
 
-function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
-  if (!code.startsWith(`${generatedAgentWorkflowRegistrySetupStart}\n`)) return code
+function generatedAgentWorkflowRegistrySetupLength(code: string): number {
+  if (!code.startsWith(`${generatedAgentWorkflowRegistrySetupStart}\n`)) return 0
   const end = code.indexOf(`\n${generatedAgentWorkflowRegistrySetupEnd}\n`)
-  return end === -1 ? code : code.slice(end + generatedAgentWorkflowRegistrySetupEnd.length + 2)
+  return end === -1 ? 0 : end + generatedAgentWorkflowRegistrySetupEnd.length + 2
+}
+
+type AgentTransformResult = { code: string, map: SourceMap }
+
+function agentTransformResult(output: MagicString): AgentTransformResult | undefined {
+  return output.hasChanged() ? { code: output.toString(), map: output.generateMap({ hires: "boundary" }) } : undefined
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
@@ -1147,17 +1160,6 @@ function isPositionedNode(value: unknown): value is PositionedNode {
   )
 }
 
-function applyCodeReplacements(
-  code: string,
-  replacements: Array<{ end: number, start: number, value: string }>,
-): string {
-  let transformed = code
-  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
-    transformed = transformed.slice(0, replacement.start) + replacement.value + transformed.slice(replacement.end)
-  }
-  return transformed
-}
-
 interface DiscoveredAgentExportDecorator {
   decorate: (value: string) => string
   imports: string[]
@@ -1201,10 +1203,11 @@ function declaredWorkspaceDecorators(definition: DiscoveredAgentDefinition): Dis
 
 // Direct imports can create derived Agents before any generated registry loads the parent.
 function decorateDiscoveredAgentExport(
+  output: MagicString,
   code: string,
   parse: (code: string) => unknown,
   decorators: DiscoveredAgentExportDecorator[],
-): string | undefined {
+): void {
   if (!decorators.length) return
   const program = parse(code)
   if (!isPositionedNode(program) || !Array.isArray(program.body)) return
@@ -1215,10 +1218,9 @@ function decorateDiscoveredAgentExport(
     const declaration = statement.declaration
     if (statement.type === "ExportDefaultDeclaration" && isPositionedNode(declaration)) {
       if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") return
-      return [
-        ...imports,
-        applyCodeReplacements(code, [{ start: declaration.start, end: declaration.end, value: decorate(code.slice(declaration.start, declaration.end)) }]),
-      ].join("\n")
+      const [before = "", after = ""] = decorate(discoveredAgentExportValue).split(discoveredAgentExportValue)
+      output.prepend(`${imports.join("\n")}\n`).appendLeft(declaration.start, before).prependRight(declaration.end, after)
+      return
     }
     if (statement.type !== "ExportNamedDeclaration" || !Array.isArray(statement.specifiers)) continue
     for (const specifier of statement.specifiers) {
@@ -1226,21 +1228,18 @@ function decorateDiscoveredAgentExport(
       if (specifier.exported.name !== "default" || typeof specifier.local.name !== "string") continue
       if (isPositionedNode(statement.source)) {
         const source = code.slice(statement.source.start, statement.source.end)
-        return [
-          ...imports,
-          `import { ${specifier.local.name} as vitehubReexportedAgent } from ${source}`,
-          code,
-          `${decorate("vitehubReexportedAgent")}`,
-        ].join("\n")
+        output
+          .prepend(`${[...imports, `import { ${specifier.local.name} as vitehubReexportedAgent } from ${source}`].join("\n")}\n`)
+          .append(`\n${decorate("vitehubReexportedAgent")}`)
+        return
       }
-      return [
-        ...imports,
-        code,
-        `${decorate(specifier.local.name)}`,
-      ].join("\n")
+      output.prepend(`${imports.join("\n")}\n`).append(`\n${decorate(specifier.local.name)}`)
+      return
     }
   }
 }
+
+const discoveredAgentExportValue = "\0vitehubAgentExport\0"
 
 /** The Channel names of each `defineAgent({ channels: ['slack'] })` call in a module. */
 function listedChannelNames(program: unknown, code: string, file: string): string[] {
@@ -1316,20 +1315,20 @@ async function namedAgentChannelModules(
 
 /** Registers listed Channels before the Agent runs, without importing unrelated Channels. */
 async function transformNamedAgentChannels(
+  output: MagicString,
   code: string,
   parse: (code: string) => unknown,
   file: string,
   channels: ReadonlyArray<{ handler: string, name: string }>,
   resolveModule?: NamedChannelModuleResolver,
-): Promise<string | undefined> {
+): Promise<void> {
   const modules = await namedAgentChannelModules(code, parse, file, channels, resolveModule)
   if (!modules.length) return
-  return [
+  output.prepend(`${[
     `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...modules.map((channel, index) => `import vitehubChannel${index} from ${JSON.stringify(channel.handler.replace(/\\/g, "/"))}`),
     `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `[${JSON.stringify(channel.name)}]: vitehubChannel${index}`).join(", ")} })`,
-    code,
-  ].join("\n")
+  ].join("\n")}\n`)
 }
 
 async function transformDiscoveredAgentDefinition(
@@ -1339,15 +1338,16 @@ async function transformDiscoveredAgentDefinition(
   definition: DiscoveredAgentDefinition,
   channels: ReadonlyArray<{ handler: string, name: string }>,
   resolveModule?: NamedChannelModuleResolver,
-): Promise<string | undefined> {
+): Promise<AgentTransformResult | undefined> {
   const skills = readColocatedAgentSkills(definition.handler)
-  let transformed = decorateDiscoveredAgentExport(code, parse, [
+  const output = new MagicString(code)
+  decorateDiscoveredAgentExport(output, code, parse, [
     ...declaredWorkspaceDecorators(definition),
     ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
     discoveredAgentIdentityDecorator(definition),
-  ]) ?? code
-  transformed = await transformNamedAgentChannels(transformed, parse, file, channels, resolveModule) ?? transformed
-  return transformed === code ? undefined : transformed
+  ])
+  await transformNamedAgentChannels(output, code, parse, file, channels, resolveModule)
+  return agentTransformResult(output)
 }
 
 async function prepareRetainedAgentSources(
@@ -1364,7 +1364,7 @@ async function prepareRetainedAgentSources(
     const code = await readFile(handler, "utf8")
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
     const transformed = await transformDiscoveredAgentDefinition(code, parse, definition.handler, definition, retainedChannels)
-    if (transformed) await writeFile(handler, transformed, "utf8")
+    if (transformed) await writeFile(handler, transformed.code, "utf8")
   }
 }
 
@@ -3289,11 +3289,11 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           }
         }
         if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
-          return transformGeneratedAgentWorkflowRegistry(
+          return agentTransformResult(transformGeneratedAgentWorkflowRegistry(
             code,
             runtimeCapabilities,
             workflowState(resolved!),
-          )
+          ))
         }
       },
     },
@@ -3334,7 +3334,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
               code,
               runtimeCapabilities,
               workflowState(resolved!),
-            )
+            ).toString()
           : code,
       },
       cli: async () => {

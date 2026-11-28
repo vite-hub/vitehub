@@ -8,6 +8,7 @@ import { emitWorkflowFailed } from "./run-failed.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
+import type { WorkflowRunsListStatus } from "../results.ts"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { defaultOpenWorkflowSqlitePath } from "../internal/openworkflow-defaults.ts"
@@ -22,6 +23,7 @@ type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
 type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>> | ReturnType<OpenWorkflowSqliteModule["BackendSqlite"]["connect"]>
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
+type OpenWorkflowRunStatus = NonNullable<Parameters<OpenWorkflowBackend["listWorkflowRuns"]>[0]["status"]>
 type OpenWorkflowStepAttempt = Awaited<ReturnType<OpenWorkflowBackend["listStepAttempts"]>>["data"][number]
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
 type OpenWorkflowJsonValue = NonNullable<Parameters<OpenWorkflowClient["sendSignal"]>[0]["data"]>
@@ -35,6 +37,7 @@ interface OpenWorkflowRuntime {
   client: OpenWorkflowClient
   definitions: Map<string, WorkflowDefinition>
   findRunId: (name: string, key: string) => Promise<string | undefined>
+  findRuns: (id: string, name?: string) => Promise<StoredRunIdentity[]>
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
@@ -279,12 +282,13 @@ async function createOpenWorkflowRuntime(
     client,
     definitions,
     findRunId: createRunIdLookup(backend, options),
+    findRuns: createStoredRunLookup(backend, options),
     workflows: new Map(),
   }
 }
 
 interface SqliteHandle {
-  prepare: (sql: string) => { get: (...values: unknown[]) => unknown }
+  prepare: (sql: string) => { all: (...values: unknown[]) => unknown[], get: (...values: unknown[]) => unknown }
 }
 
 interface PostgresHandle {
@@ -306,6 +310,10 @@ function readRowId(row: unknown): string | undefined {
   return typeof id === "string" ? id : undefined
 }
 
+function missingBackendConnection(backend: OpenWorkflowStorageConfig["backend"]): never {
+  throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${backend} backend has neither`)
+}
+
 function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRunId"] {
   const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
   return async (name, key) => {
@@ -317,7 +325,42 @@ function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowSt
       const [row] = await connection`SELECT "id" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = ${name} AND "idempotency_key" = ${key} ORDER BY "created_at" ASC, "id" ASC LIMIT 1`
       return readRowId(row)
     }
-    throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
+    return missingBackendConnection(options.backend)
+  }
+}
+
+interface StoredRunIdentity {
+  id: string
+  workflow: string
+}
+
+function readStoredRunIdentity(row: unknown): StoredRunIdentity | undefined {
+  if (typeof row !== "object" || row === null) return undefined
+  const id = readRowId(row)
+  const workflow: unknown = Reflect.get(row, "workflowName")
+  return id !== undefined && typeof workflow === "string" ? { id, workflow } : undefined
+}
+
+function createStoredRunLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRuns"] {
+  const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
+  return async (id, name) => {
+    let rows: unknown[]
+    if (options.backend === "sqlite" && isSqliteHandle(connection)) {
+      rows = connection.prepare(`SELECT "id", "workflow_name" AS "workflowName" FROM "workflow_runs" WHERE "namespace_id" = ? AND "workflow_name" = COALESCE(?, "workflow_name") AND ("id" = ? OR "idempotency_key" = ?) ORDER BY "workflow_name", ("id" = ?) DESC, "created_at", "id"`)
+        .all(options.namespaceId, name ?? null, id, id, id)
+    }
+    else if (options.backend === "postgres" && isPostgresHandle(connection)) {
+      rows = await connection`SELECT "id", "workflow_name" AS "workflowName" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = COALESCE(${name ?? null}, "workflow_name") AND ("id"::text = ${id} OR "idempotency_key" = ${id}) ORDER BY "workflow_name", ("id"::text = ${id}) DESC, "created_at", "id"`
+    }
+    else {
+      return missingBackendConnection(options.backend)
+    }
+    const matches = new Map<string, StoredRunIdentity>()
+    for (const row of rows) {
+      const run = readStoredRunIdentity(row)
+      if (run && !matches.has(run.workflow)) matches.set(run.workflow, run)
+    }
+    return [...matches.values()]
   }
 }
 
@@ -568,14 +611,55 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   config: ResolvedWorkflowOptions,
   name: string,
   id: string,
+  lookup: "key-or-id" | "provider-id" = "key-or-id",
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   return await runWorkflowProviderOperation("openworkflow", "get", async () => {
-    const run = await runtime.backend.getWorkflowRun({ workflowRunId: await runtime.findRunId(name, id) ?? id })
+    const workflowRunId = lookup === "provider-id" ? id : await runtime.findRunId(name, id) ?? id
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId })
     if (!run || run.workflowName !== name) return { id, provider: "openworkflow" as const, status: "unknown" as const }
     // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
     const serialized = serializeOpenWorkflowRun(run, name) as WorkflowRun<TPayload, TResult>
     return { ...serialized, steps: toWorkflowRunSteps(await listOpenWorkflowStepAttempts(runtime.backend, run.id)) }
+  })
+}
+
+export async function findOpenWorkflowRuns(config: ResolvedWorkflowOptions, id: string, name?: string): Promise<StoredRunIdentity[]> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  return await runWorkflowProviderOperation("openworkflow", "get-run", async () => await runtime.findRuns(id, name))
+}
+
+const openWorkflowRunStatuses: Readonly<Record<WorkflowRunsListStatus, readonly OpenWorkflowRunStatus[]>> = {
+  completed: ["completed", "succeeded"],
+  failed: ["failed"],
+  queued: ["pending"],
+  running: ["running", "sleeping"],
+}
+
+export interface OpenWorkflowRunListing {
+  run: WorkflowRun<unknown, unknown>
+  stepCount: number
+  workflow: string
+}
+
+/** Lists the stored OpenWorkflow runs, newest first, with the number of steps of each run. */
+export async function listOpenWorkflowRuns(config: ResolvedWorkflowOptions, input: { limit: number, status?: WorkflowRunsListStatus, workflow?: string }): Promise<OpenWorkflowRunListing[]> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  return await runWorkflowProviderOperation("openworkflow", "list-runs", async () => {
+    const statuses = input.status ? openWorkflowRunStatuses[input.status] : [undefined]
+    const pages = await Promise.all(statuses.map(async status => await runtime.backend.listWorkflowRuns({
+      limit: input.limit,
+      ...(status ? { status } : {}),
+      ...(input.workflow ? { workflowName: input.workflow } : {}),
+    })))
+    const runs = pages.flatMap(page => page.data)
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, input.limit)
+    return await Promise.all(runs.map(async run => ({
+      run: serializeOpenWorkflowRun(run, run.workflowName),
+      stepCount: toWorkflowRunSteps(await listOpenWorkflowStepAttempts(runtime.backend, run.id)).length,
+      workflow: run.workflowName,
+    })))
   })
 }
 
@@ -586,19 +670,20 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
   config: ResolvedWorkflowOptions,
   name: string,
   id: string,
+  lookup: "key-or-id" | "provider-id" = "key-or-id",
 ): Promise<WorkflowRun<TPayload, TResult>> {
-  const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+  const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup)
   if (current.status === "unknown" || terminalOpenWorkflowStatuses.has(current.status)) return current
   const runtime = await getOpenWorkflowRuntime(config)
   try {
-    await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(await runtime.findRunId(name, id) ?? id))
+    await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(lookup === "provider-id" ? id : await runtime.findRunId(name, id) ?? id))
   }
   catch (error) {
-    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id).catch(() => undefined)
+    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup).catch(() => undefined)
     if (latest && terminalOpenWorkflowStatuses.has(latest.status)) return latest
     throw error
   }
-  return await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+  return await getOpenWorkflowRun<TPayload, TResult>(config, name, id, lookup)
 }
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {

@@ -1,5 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { SourceMap } from "node:module"
+import type { SourceMapPayload } from "node:module"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -230,8 +232,8 @@ describe("Agent plugin", () => {
       root,
     })
     const transformHook = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
-    const transform = (name: keyof typeof files) => (transformHook as (...args: unknown[]) => Promise<string | undefined>)
-      .call({ parse: parseAst }, sources[name], files[name])
+    const transform = async (name: keyof typeof files) => (await (transformHook as (...args: unknown[]) => Promise<{ code: string } | undefined>)
+      .call({ parse: parseAst }, sources[name], files[name]))?.code
 
     expect(await transform("review")).toContain("export default vitehubWithDiscoveredAgentName(vitehubWithDeclaredAgentWorkspace(defineAgent({ channels: { github: github({ pullRequest: true }) } }), \"review\"), \"review\")")
     expect(await transform("docs")).not.toContain("vitehubWithDeclaredAgentWorkspace")
@@ -254,7 +256,12 @@ describe("Agent plugin", () => {
       root,
     })
     const transformHook = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
-    const transformed = await (transformHook as (...args: unknown[]) => Promise<string | undefined>).call({ parse: parseAst }, source, file)
-    expect(transformed).toContain("vitehubRegisterAgentChannels({ [\"hooks\"]: vitehubChannel0 })")
+    const transformed = await (transformHook as (...args: unknown[]) => Promise<{ code: string, map: SourceMapPayload } | undefined>).call({ parse: parseAst }, source, file)
+    expect(transformed?.code).toContain("vitehubRegisterAgentChannels({ [\"hooks\"]: vitehubChannel0 })")
+    if (!transformed) throw new Error("Expected a transformed Agent Definition")
+    const lines = transformed.code.split("\n")
+    const line = lines.findIndex(text => text.includes("make({ channels"))
+    const column = lines[line]!.indexOf("make(")
+    expect(new SourceMap(transformed.map).findEntry(line, column)).toMatchObject({ originalLine: 2, originalColumn: "export default ".length })
   })
 })
