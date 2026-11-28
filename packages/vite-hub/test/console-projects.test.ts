@@ -639,6 +639,69 @@ describe("account Console", () => {
   })
 })
 
+describe("MCP sign-in callback of an account Console", () => {
+  const appA = { id: "p-a", url: "https://a.example.com", publicKey: "a".repeat(43), keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_PA" }
+  const appB = { id: "p-b", url: "https://b.example.com", publicKey: "b".repeat(43), keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_PB" }
+  const search = `?code=abc&state=p-a.random&iss=${encodeURIComponent("https://auth.example.com")}`
+  const connected = { ok: true, value: { connection: { id: "mcp_1", auth: "oauth", status: "connected" }, teamId: "t-a" } }
+
+  afterEach(() => {
+    vi.doUnmock("../src/console/runtime/client/account.ts")
+  })
+
+  async function boot(team: { teamId: string, projects: unknown[] }, answer: unknown, query = search) {
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t-a", name: "A", slug: "a" }, { id: "t-b", name: "B", slug: "b" }], roles: ["owner"], ...team }
+    const calls: Array<{ input: unknown, operation: string, url: string }> = []
+    vi.stubGlobal("fetch", operationRpcFetch(async (url: string, init: RequestInit) => {
+      if (url === "/api/account") return Response.json(session)
+      calls.push({ url, ...operationRpcRequest(init.body) })
+      return Response.json(answer)
+    }))
+    const switchConsoleTeam = vi.fn(async () => {})
+    vi.doMock("../src/console/runtime/client/account.ts", async importOriginal => ({ ...await importOriginal<object>(), switchConsoleTeam }))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const navigate = vi.fn()
+    const address = await module.startConsoleAccount({ boot: "app", home: "/", navigate, pageOrigin: "https://console.example.com", pathname: "/mcp-client/callback", search: query, showPath: () => {} })
+    return { address, calls, module, navigate, switchConsoleTeam }
+  }
+
+  it.each([
+    ["a team with a ready app", [appB]],
+    ["a team without apps", []],
+  ])("finishes a sign-in of team A after a switch to %s, then opens the connection in team A", async (_, projects) => {
+    const { address, calls, module, navigate, switchConsoleTeam } = await boot({ teamId: "t-b", projects }, connected)
+    expect(address).toBe("/mcp-client/callback")
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "mcp-callback", search })
+
+    await module.finishConsoleMcpSignIn()
+    expect(calls).toEqual([{ url: "/p/p-a/mcp-client", operation: "mcp-client.complete", input: { code: "abc", iss: "https://auth.example.com", state: "p-a.random" } }])
+    expect(switchConsoleTeam).toHaveBeenCalledWith("t-a")
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/mcp-client?connection=mcp_1&app=p-a"))
+  })
+
+  it("opens the connection without a team switch when the team of the sign-in is active", async () => {
+    const { module, navigate, switchConsoleTeam } = await boot({ teamId: "t-a", projects: [appA] }, connected)
+    await module.finishConsoleMcpSignIn()
+    expect(switchConsoleTeam).not.toHaveBeenCalled()
+    expect(navigate).toHaveBeenCalledWith("/mcp-client?connection=mcp_1&app=p-a")
+  })
+
+  it("says why the sign-in did not finish, with the way back", async () => {
+    const refused = { ok: false, code: "CONSOLE_MCP_AUTHORIZATION_FAILED", message: "This sign-in is not known.", status: 404 }
+    const { module, navigate } = await boot({ teamId: "t-b", projects: [appB] }, refused)
+    await module.finishConsoleMcpSignIn()
+    expect(module.useConsoleProjects().gate.value).toMatchObject({ kind: "mcp-callback", problem: { title: "Couldn't finish the sign-in", message: expect.stringContaining("This sign-in is not known.") } })
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it("sends nothing for a state that names no project", async () => {
+    const { calls, module } = await boot({ teamId: "t-b", projects: [appB] }, connected, "?code=abc&state=random")
+    await module.finishConsoleMcpSignIn()
+    expect(calls).toEqual([])
+    expect(module.useConsoleProjects().gate.value).toMatchObject({ kind: "mcp-callback", problem: { title: "Couldn't finish the sign-in" } })
+  })
+})
+
 describe("embedded Console", () => {
   async function embedded(fetch: (url: string, init: RequestInit) => Promise<Response>) {
     vi.stubGlobal("fetch", operationRpcFetch(fetch))

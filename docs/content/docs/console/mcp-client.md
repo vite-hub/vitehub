@@ -30,6 +30,8 @@ Every MCP request starts on the Console server. On a self-hosted Console with `V
 
 When a server answers `401`, the section runs the [MCP authorization flow](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization). It reads the protected resource metadata that `WWW-Authenticate` names, finds the authorization server through RFC 8414 or OpenID Connect discovery, and registers a public client (RFC 7591). You sign in with PKCE `S256`, `state` and `resource` (RFC 8707), plus `offline_access` when offered. The browser returns to `<console origin>/mcp-client/callback`, such as `https://console.vitehub.dev/mcp-client/callback`, where the Console checks a supplied `iss` (RFC 9207). Register that URL when a server needs a fixed callback.
 
+The sign-in finishes on the project where you started it, even when you switch to another team before you come back. The Console checks that you are a member of that project's team, then opens the new connection in that project and team.
+
 A rejected access token is refreshed, and without a refresh token the connection shows **Signed out**. **Disconnect** ends the MCP session and revokes the tokens when the server names a revocation endpoint (RFC 7009). For a server without OAuth, choose **Token** and paste a bearer token.
 
 Each connection has its own grant and MCP session, so **Run as** can send one call through several accounts on the same server and show the results side by side.

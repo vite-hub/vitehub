@@ -7,18 +7,27 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
-import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import { resetConsoleMcp } from "../src/mcp-client.ts"
 import { databaseConsoleMcpRecords } from "../src/mcp-client-records.ts"
-import { answerConsoleMcpCall, consoleMcpCallProject, readConsoleMcpRequest } from "../src/mcp-client-rpc.ts"
+import { answerConsoleMcpCall, consoleMcpCompletionProject, readConsoleMcpRequest } from "../src/mcp-client-rpc.ts"
 import { consoleOutboundFetch } from "../src/outbound-fetch.ts"
 import { memberConsoleProject } from "../src/projects.ts"
+
+const session = vi.hoisted(() => ({ db: undefined as unknown, team: "team-1", user: "user-1" }))
+vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: session.db }) }))
+vi.mock("vite-hub/auth/server", () => ({
+  withAuthorization: (_required: boolean, handler: (request: Request, authorization: unknown) => Promise<Response>) => (request: Request) =>
+    handler(request, { session: { activeOrganizationId: session.team }, user: { email: `${session.user}@example.com`, id: session.user, name: "Person" } }),
+}))
+vi.mock("#console-outbound-fetch", () => ({ consoleOutboundFetch: () => fetch }))
+const { default: mcpRoute } = await import("../server/routes/p/[id]/mcp-client.ts")
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import type * as AppWire from "../../vite-hub/src/console/runtime/mcp-client.ts"
-import type { ConsoleMcpScope, connectConsoleMcp, listConsoleMcp } from "../src/mcp-client.ts"
+import type { ConsoleMcpScope, completeConsoleMcp, connectConsoleMcp, listConsoleMcp } from "../src/mcp-client.ts"
 import type { ConsoleMcpRecords } from "../src/mcp-client-records.ts"
 import type * as ConsoleWire from "../src/mcp-client-types.ts"
 
@@ -154,7 +163,7 @@ async function database() {
 }
 
 function scopeOf(db: Awaited<ReturnType<typeof database>>["db"], overrides: Partial<ConsoleMcpScope> = {}): ConsoleMcpScope {
-  return { allowPrivate: true, appOrigin: origin, fetch, projectId: "project-1", records: databaseConsoleMcpRecords(db, secret), redirectUrl, userId: "user-1", ...overrides }
+  return { allowPrivate: true, appOrigin: origin, fetch, projectId: "project-1", records: databaseConsoleMcpRecords(db, secret), redirectUrl, teamId: "team-1", userId: "user-1", ...overrides }
 }
 
 let calls = 0
@@ -202,21 +211,87 @@ describe("Console MCP client", () => {
     const other = await call(scopeOf(db, { userId: "user-2" }), "mcp-client.complete", { code: "code-1", state })
     expect(other.error).toMatchObject({ code: "CONSOLE_MCP_AUTHORIZATION_FAILED", status: 404 })
     const finished = valueOf(await call(scope, "mcp-client.complete", { code: "code-1", state }))
-    expect(finished).toMatchObject({ auth: "oauth", status: "connected" })
-    const answer = valueOf(await call(scope, "mcp-client.call", { id: finished.id, tool: "whoami" }))
+    expect(finished).toMatchObject({ connection: { auth: "oauth", status: "connected" }, teamId: "team-1" })
+    const answer = valueOf(await call(scope, "mcp-client.call", { id: Object(finished.connection).id, tool: "whoami" }))
     expect(answer.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
   })
 
-  it("finishes a sign-in on the project in its state, when the browser opened another project since", async () => {
-    requireOAuth = true
-    const { db } = await database()
-    const started = valueOf(await call(scopeOf(db), "mcp-client.connect", { server: `${origin}/mcp` }))
-    const state = new URL(String(started.authorizationUrl)).searchParams.get("state")
-    grants.set("code-2", "Lucía")
-    const body = { a: [{ code: "code-2", state }], i: "complete", m: "mcp-client.complete", t: "q" }
-    expect(consoleMcpCallProject(body, "project-2")).toBe("project-1")
-    expect(consoleMcpCallProject({ ...body, m: "mcp-client.list" }, "project-2")).toBe("project-2")
-    expect(await answerConsoleMcpCall(body, scopeOf(db, { projectId: consoleMcpCallProject(body, "project-2") }))).toMatchObject({ r: { status: "connected" } })
+  it("reads the project of a sign-in from its state, and no project for other calls", () => {
+    const body = { a: [{ code: "code-2", state: "project-1.abc" }], i: "complete", m: "mcp-client.complete", t: "q" }
+    expect(consoleMcpCompletionProject(body)).toBe("project-1")
+    expect(consoleMcpCompletionProject({ ...body, a: [{ state: "abc" }] })).toBe("")
+    expect(consoleMcpCompletionProject({ ...body, m: "mcp-client.list" })).toBeUndefined()
+  })
+
+  describe("POST /p/<id>/mcp-client", () => {
+    async function signInStartedInTeamOne() {
+      requireOAuth = true
+      const { client, db } = await database()
+      session.db = db
+      await client.execute("INSERT INTO organization (id, name, slug, created_at) VALUES ('team-2', 'Other', 'other', 0), ('team-3', 'Empty', 'empty', 0)")
+      await client.execute("INSERT INTO console_projects (id, team_id, url, key_sealed, public_key, created_by, created_at) VALUES ('project-3', 'team-2', 'https://project-3.example.com', 'sealed', 'public', 'user-1', 0)")
+      await client.execute("INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m-1', 'team-1', 'user-1', 'member', 0), ('m-2', 'team-2', 'user-1', 'owner', 0), ('m-3', 'team-3', 'user-1', 'owner', 0), ('m-4', 'team-2', 'user-2', 'owner', 0)")
+      const started = valueOf(await call(scopeOf(db), "mcp-client.connect", { server: `${origin}/mcp` }))
+      const state = new URL(String(started.authorizationUrl)).searchParams.get("state")
+      grants.set("code-2", "Lucía")
+      return { client, state }
+    }
+
+    function complete(project: string, state: string | null) {
+      return mcpRoute.fetch(new Request(`https://console.example.com/p/${project}/mcp-client`, {
+        body: JSON.stringify({ a: [{ code: "code-2", state }], i: "complete", m: "mcp-client.complete", t: "q" }),
+        headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+        method: "POST",
+      }))
+    }
+
+    beforeAll(() => {
+      vi.stubEnv("VITEHUB_CONSOLE_SECRET", secret)
+      vi.stubEnv("VITEHUB_CONSOLE_ALLOW_PRIVATE", "true")
+    })
+    afterAll(() => vi.unstubAllEnvs())
+    afterEach(() => {
+      session.team = "team-1"
+      session.user = "user-1"
+    })
+
+    it.each([
+      ["a team with a ready app", "team-2", "project-3"],
+      ["a team without apps", "team-3", "project-1"],
+    ])("finishes a sign-in that started in team 1 after a switch to %s, and names team 1", async (_name, team, routeProject) => {
+      const { client, state } = await signInStartedInTeamOne()
+      session.team = team
+      const response = await complete(routeProject, state)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ r: { connection: { auth: "oauth", status: "connected" }, teamId: "team-1" } })
+      const { rows } = await client.execute("SELECT project_id FROM console_mcp_connections")
+      expect(rows).toEqual([expect.objectContaining({ project_id: "project-1" })])
+    })
+
+    it("refuses the state to a person who is not a member of its project, and does not use it up", async () => {
+      const { state } = await signInStartedInTeamOne()
+      session.user = "user-2"
+      session.team = "team-2"
+      const refused = await complete("project-1", state)
+      expect(refused.status).toBe(404)
+      expect(await refused.json()).toMatchObject({ code: "CONSOLE_PROJECT_NOT_FOUND" })
+      session.user = "user-1"
+      expect((await complete("project-1", state)).status).toBe(200)
+    })
+
+    it("refuses a state of a project that the person can open but did not start the sign-in on", async () => {
+      const { client, state } = await signInStartedInTeamOne()
+      await client.execute("INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m-5', 'team-1', 'user-2', 'member', 0)")
+      session.user = "user-2"
+      const refused = await complete("project-1", state)
+      expect(refused.status).toBe(404)
+      expect(await refused.json()).toMatchObject({ e: { code: "CONSOLE_MCP_AUTHORIZATION_FAILED" } })
+    })
+
+    it("refuses a state without a project instead of finishing it on the project of the route", async () => {
+      await signInStartedInTeamOne()
+      expect((await complete("project-1", "no-project")).status).toBe(404)
+    })
   })
 
   it("finds the project of a sign-in state through the person's membership of its team, not the open team", async () => {
@@ -297,7 +372,7 @@ describe("Console MCP client", () => {
     const started = valueOf(await call(scope, "mcp-client.connect", { server: `${origin}/mcp` }))
     grants.set("code-3", "Lucía")
     const finished = valueOf(await call(scope, "mcp-client.complete", { code: "code-3", state: new URL(String(started.authorizationUrl)).searchParams.get("state") }))
-    expect(valueOf(await call(scope, "mcp-client.disconnect", { id: finished.id }))).toMatchObject({ revoked: false })
+    expect(valueOf(await call(scope, "mcp-client.disconnect", { id: Object(finished.connection).id }))).toMatchObject({ revoked: false })
     expect(otherOriginRequests).toBe(0)
   })
 
@@ -356,6 +431,8 @@ describe("Console MCP wire types", () => {
     expectTypeOf<ConsoleWire.ConsoleMcpPage>().toEqualTypeOf<AppWire.ConsoleMcpPage>()
     expectTypeOf<Awaited<ReturnType<typeof listConsoleMcp>>>().toEqualTypeOf<AppWire.ConsoleMcpOverview>()
     expectTypeOf<Awaited<ReturnType<typeof connectConsoleMcp>>>().toEqualTypeOf<AppWire.ConsoleMcpConnectResult>()
+    expectTypeOf<ConsoleWire.ConsoleMcpCompletion>().toEqualTypeOf<AppWire.ConsoleMcpCompletion>()
+    expectTypeOf<Awaited<ReturnType<typeof completeConsoleMcp>>>().toEqualTypeOf<AppWire.ConsoleMcpCompletion>()
   })
 })
 

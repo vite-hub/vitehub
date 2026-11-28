@@ -1,13 +1,13 @@
 import { requestConsoleOperation } from "./request"
 
-import type { ConsoleMcpAuth, ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpStatus } from "../mcp-client"
+import type { ConsoleMcpAuth, ConsoleMcpCandidate, ConsoleMcpCompletion, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpStatus } from "../mcp-client"
 
 type ConsoleMcpAnswer = ConsoleMcpOutcome & { connection: ConsoleMcpConnection }
 
 /** What each operation of the MCP section returns. `@vite-hub/console` answers them. */
 export interface ConsoleMcpResults {
   "mcp-client.call": ConsoleMcpAnswer
-  "mcp-client.complete": ConsoleMcpConnection
+  "mcp-client.complete": ConsoleMcpCompletion
   "mcp-client.connect": ConsoleMcpConnectResult
   "mcp-client.disconnect": { revoked: boolean, sessionEnded: boolean }
   "mcp-client.items": ConsoleMcpPage & { connection: ConsoleMcpConnection }

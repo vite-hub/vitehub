@@ -77,7 +77,7 @@ onMounted(() => {
 <template>
   <ConsoleAccountShell v-if="accountShell" />
 
-  <div v-else-if="gate.kind === 'opening' || gate.kind === 'site'" class="vitehub-console-boot">
+  <div v-else-if="gate.kind === 'opening' || gate.kind === 'site' || (gate.kind === 'mcp-callback' && !gate.problem)" class="vitehub-console-boot">
     <div class="vitehub-sidebar">
       <div class="vitehub-sidebar__surface">
         <div class="vitehub-sidebar__top">
@@ -89,7 +89,7 @@ onMounted(() => {
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
         <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        {{ host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
+        {{ gate.kind === "mcp-callback" ? "Finishing the sign-in…" : host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
   </div>
@@ -126,7 +126,16 @@ onMounted(() => {
         />
       </template>
 
-      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'account' && gate.kind !== 'site-refused'" class="vitehub-project-gate__host">
+      <template v-else-if="gate.kind === 'mcp-callback' && gate.problem">
+        <div class="grid gap-1.5" role="alert">
+          <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
+          <p class="vitehub-project-gate__text"><ConsoleCodeText :text="gate.problem.message" /></p>
+          <p v-if="gate.problem.fix" class="vitehub-project-gate__fix"><ConsoleCodeText :text="gate.problem.fix" /></p>
+        </div>
+        <UButton icon="i-lucide-arrow-left" label="Back to the Console" class="justify-self-start" @click="projects.navigate(projects.home)" />
+      </template>
+
+      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'account' && gate.kind !== 'site-refused' && gate.kind !== 'mcp-callback'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
           <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />

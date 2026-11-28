@@ -38,7 +38,7 @@ import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { loadConsolePageTools } from "./page-tools";
-import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { consoleProjectReady, finishConsoleMcpSignIn, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
 import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, isConsoleSectionRevoked, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
 
@@ -91,6 +91,7 @@ if (account) {
   // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening. With the answer that the
   // device kept from the last visit, the app opens at once.
   if (projects.gate.value.kind === "site") void openConsoleSite();
+  else if (projects.gate.value.kind === "mcp-callback") void finishConsoleMcpSignIn();
   else if (projects.gate.value.kind === "opening") {
     const opening = openConsoleProject().catch(() => undefined);
     openedAtOnce = projects.gate.value.kind === "ready";
@@ -108,10 +109,14 @@ if (account) {
     const view = kind === "ready" ? "app" : ["home", "empty", "setup", "problem"].includes(kind) ? "shell" : undefined;
     if (view) document.cookie = `vitehub-console-view=${view}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
   }, { immediate: true });
-  // The app of a `?app=<id>` link is open now, so the address goes back to the home path before the router reads it.
-  // An `/open` link shows the page that it names.
+  // The app of a `?app=<id>` link is open now, so the parameter leaves the address before the router reads it. An
+  // `/open` link shows the page that it names.
+  const linked = new URLSearchParams(window.location.search);
   if (address) window.history.replaceState(null, "", address);
-  else if (new URLSearchParams(window.location.search).has("app")) window.history.replaceState(null, "", consoleBase);
+  else if (linked.has("app")) {
+    linked.delete("app");
+    window.history.replaceState(null, "", `${window.location.pathname}${linked.size ? `?${linked}` : ""}`);
+  }
   // Back and Forward between the account pages, such as from `/team` to `/start`, load that page. In an open project,
   // the router handles them.
   window.addEventListener("popstate", () => {
