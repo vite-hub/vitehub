@@ -4,6 +4,7 @@ import {
 } from "@vite-hub/runtime"
 
 import { isRuntimeObject } from "./internal/runtime-type.ts"
+import { findGatewayAuthenticationError } from "./run-errors.ts"
 
 interface NormalizedAgentError {
   message: string
@@ -318,7 +319,7 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
     ? readAgentErrorProperty(error, "lastError")
     : error
   const name = readAgentErrorProperty(retry, "name")
-  if (name === "AI_LoadAPIKeyError") {
+  if (name === "AI_LoadAPIKeyError" || findGatewayAuthenticationError(retry)) {
     return publicError("PROVIDER_AUTHENTICATION_FAILED", "AI provider credentials were rejected.")
   }
   if (name !== "AI_APICallError") return
@@ -415,7 +416,9 @@ function emulationPublicError(error: unknown): AgentPublicError | undefined {
 /** The failure inside a `runAgent()` error. Its own code only says that the run failed or stopped. */
 function runFailureCause(error: unknown): unknown {
   const code = readAgentErrorProperty(error, "code")
-  return code === "AGENT_RUN_FAILED" || code === "AGENT_RUN_CANCELLED" ? readAgentErrorProperty(error, "cause") : error
+  return code === "AGENT_RUN_FAILED" || code === "AGENT_RUN_CANCELLED" || code === "AGENT_MODEL_GATEWAY_UNAUTHENTICATED"
+    ? readAgentErrorProperty(error, "cause")
+    : error
 }
 
 export function toAgentPublicError(failure: unknown, context: AgentPublicErrorContext): AgentPublicError {

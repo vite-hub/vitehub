@@ -526,7 +526,7 @@ describe("agent public types", () => {
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
     expectTypeOf(standaloneResult).toEqualTypeOf<Promise<Result<AgentRunResult<{ summary: string, title: string }>, AgentErrorCode>>>()
     expectTypeOf<NonNullable<Awaited<typeof standaloneResult>[1]>["output"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
-    expectTypeOf<NonNullable<Awaited<typeof standaloneResult>[0]>["code"]>().toEqualTypeOf<"AGENT_RUN_CANCELLED" | "AGENT_RUN_FAILED">()
+    expectTypeOf<NonNullable<Awaited<typeof standaloneResult>[0]>["code"]>().toEqualTypeOf<"AGENT_MODEL_GATEWAY_UNAUTHENTICATED" | "AGENT_RUN_CANCELLED" | "AGENT_RUN_FAILED">()
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()

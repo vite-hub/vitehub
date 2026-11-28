@@ -10,6 +10,8 @@ navigation.kind: Guides
 
 The AI emulator (`@emulators/ai`) is a local server that speaks the OpenAI and Anthropic model APIs. It answers from rules that you write, not from a model. Turn it on, and your Agents run in dev and tests with no AI key. The Agent files do not change, and no request goes to a real provider.
 
+Without a key and without the emulator, a model Driver returns [`AGENT_MODEL_GATEWAY_UNAUTHENTICATED`](/docs/agents/diagnostics/agent_model_gateway_unauthenticated).
+
 ## Turn it on in dev
 
 Install the emulator packages, and `@ai-sdk/openai` for the `openai/*` model ID below:

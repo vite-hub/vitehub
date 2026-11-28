@@ -56,7 +56,7 @@ The success value is an `AgentRunResult`:
 | `usage`, `usageRecord`, `finishReason`, `warnings` | Facts that the Driver reports. |
 | `raw` | The Driver result, or the `Response` that the Agent returned. |
 
-`error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure, for example a `CHANNEL_DELIVERY_REQUIRED` error or an invalid `data` error. See [Errors](#errors).
+`error.code` is `AGENT_RUN_FAILED`, `AGENT_RUN_CANCELLED`, or `AGENT_MODEL_GATEWAY_UNAUTHENTICATED`, and `error.cause` has the original failure, for example a `CHANNEL_DELIVERY_REQUIRED` error or an invalid `data` error. See [Errors](#errors).
 
 ### Pass the host Runtime Context
 
@@ -442,6 +442,10 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 ### AGENT_RUN_FAILED
 
 The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED`.
+
+### AGENT_MODEL_GATEWAY_UNAUTHENTICATED
+
+A model Driver called the Vercel AI Gateway with no key, or with a key that is not valid. Set `AI_GATEWAY_API_KEY`, or add `agent.models.emulate` rules for dev. See [Run Agents with no AI key](/docs/agents/no-ai-key).
 
 ### AGENT_RUN_CANCELLED
 
