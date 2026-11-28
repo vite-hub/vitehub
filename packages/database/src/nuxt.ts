@@ -26,7 +26,7 @@ import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinit
 import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectDevMigrateOnStartDatabases, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { assertDatabaseOptionsDriver, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -200,6 +200,11 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         const refresh = async () => {
           if (!localNitroConfig || closed) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions, undefined, true)
+          const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
+          const ownRegistry = isRecord(localNitroConfig.alias) && localNitroConfig.alias[databaseRegistryImport] === resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+          if (runtime && migrateOnStart && ownRegistry) {
+            await installNitroMigrateOnStart(localNitroConfig, root, runtime, migrateOnStart, selectDevMigrateOnStartDatabases(runtime), { dev: true, generatedRoot })
+          }
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -861,18 +866,22 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
   ].join("\n"))
 }
 
-/** Applies pending migrations when the Node server starts. `@vite-hub/database/runtime/registry` is the local runtime alias here. */
-async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings, databases: string[]) {
+/**
+ * Applies pending migrations when the Node server or `nuxt dev` starts. `@vite-hub/database/runtime/registry` is the
+ * local runtime alias here. `generatedRoot` is the folder of the shipped migrations module.
+ */
+async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings, databases: string[], { dev = false, generatedRoot = resolve(root, ".vitehub") }: { dev?: boolean, generatedRoot?: string } = {}) {
   const file = resolve(root, migrateOnStartPluginFile)
   const plugin = renderMigrateOnStartPlugin(runtime, {
     databases,
+    dev,
     registryImport: databaseRegistryImport,
-    migrationsImport: pathToFileURL(resolve(root, ".vitehub", generatedNitroShippedMigrations)).href,
+    migrationsImport: pathToFileURL(resolve(generatedRoot, generatedNitroShippedMigrations)).href,
     runtimeImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
   })
   if (!plugin) return
   await writeFileIfChanged(file, plugin)
-  if (settings.explicit) {
+  if (settings.explicit || dev) {
     const kit = createNitroServerKit(config)
     kit.addPlugin(file)
     config.plugins = kit.config.plugins

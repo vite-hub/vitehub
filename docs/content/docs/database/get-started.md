@@ -95,7 +95,7 @@ pnpm vitehub database migrate
 ```
 
 - `generate` writes the SQL for your tables to `server/databases/default/migrations/`.
-- `migrate` runs that SQL on the local SQLite file.
+- `migrate` runs that SQL on the local SQLite file. The dev server also applies pending migrations when it starts.
 
 These commands need no running server. Make sure both finish without an error before you go on.
 
@@ -182,7 +182,7 @@ The response has your note:
 
 Each `POST` adds a row with a new ID, and `GET` returns all rows. Restart the server and send the `GET` again. The note is still there.
 
-If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root, or restart the dev server. The server terminal names a migration that it could not apply. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
 To test a Cloudflare build against local D1, see [Try the Cloudflare build with `wrangler dev`](/docs/database/hosts#try-the-cloudflare-build-with-wrangler-dev).
 

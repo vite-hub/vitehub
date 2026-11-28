@@ -80,7 +80,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
-| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files and D1 over HTTP. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres and local SQLite files in a Node build, and for local databases in development | Applies pending migrations when a Node server build or the development server starts. Unset, a Node build migrates Postgres and SQLite with a `file:` URL in the config. `true` also migrates D1 over HTTP and URLs from the environment. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
@@ -329,16 +329,18 @@ On SQLite, Drizzle Kit 0.x made a unique index for a `.unique()` column, and Dri
 
 A self-hosted Node server, for example in Docker, often has only `.output`, with no sources or CLI for `vitehub database migrate`. ViteHub can apply pending migrations when the server starts, before it handles a request.
 
-| Database | Default in a Node build | With `migrateOnStart: true` |
-| --- | --- | --- |
-| Postgres | Migrates on start | Migrates on start |
-| Local SQLite file (`file:` URL) | Does not migrate | Migrates on start |
-| D1 over HTTP (`cloudflare.http`) | Does not migrate | Migrates on start, in Wrangler's `d1_migrations` table |
-| Remote libSQL | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
+| Database | `vite dev` and `nuxt dev` | Default in a Node build | With `migrateOnStart: true` |
+| --- | --- | --- | --- |
+| Postgres | Migrates on PGlite only | Migrates on start | Migrates on start |
+| Local SQLite file (`file:` URL) | Migrates on start | Migrates on start | Migrates on start |
+| D1 over HTTP (`cloudflare.http`) | Does not migrate | Does not migrate | Migrates on start, in Wrangler's `d1_migrations` table |
+| Remote libSQL | Does not migrate | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
 
-A build whose host is not Node, or is unknown, does not migrate on start by default. In Nuxt without a preset, ViteHub waits for the preset that Nitro detects. With `migrateOnStart: true`, another host fails the build with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Development never migrates on start: run `vitehub database migrate`.
+In a Node build, the default migrates a SQLite database only when its `connection.url` in the config is a `file:` URL, as the default `file:.vitehub/data/database/sqlite.db` is. A URL from an environment variable can point to remote libSQL, so set `true` for it. A build whose host is not Node, or is unknown, does not migrate on start by default. In Nuxt without a preset, ViteHub waits for the preset that Nitro detects. With `migrateOnStart: true`, another host fails the build with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`.
 
-Set `true` to also migrate local SQLite files, or `false` to migrate only with `vitehub database migrate`:
+`vite dev` and `nuxt dev` apply the pending migrations of the databases on your computer, SQLite files and PGlite, before they handle the first request. They skip D1 over HTTP, remote libSQL, and Postgres servers: run `vitehub database migrate` for those. When a migration fails or loses data, the development server logs the error and its fix, and keeps running. `allowDataLoss` and `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1` work as in a build. `backup` copies nothing in development.
+
+Set `true` to also migrate D1 over HTTP and SQLite URLs from the environment, or `false` to migrate only with `vitehub database migrate`, in the build and in development:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -1026,7 +1028,7 @@ Keep `connection: { url: process.env.DATABASE_URL }`, and do not set `DATABASE_U
 - `vitehub inspect definitions --kind database` shows the folder in the `Development` field.
 
 > [!NOTE]
-> PGlite opens its folder in one process only. Stop the dev server before you run `vitehub database migrate`.
+> PGlite opens its folder in one process only. The dev server applies pending migrations when it starts. Stop it before you run `vitehub database migrate`.
 
 To use PGlite also when a URL or PG* variables are set, set `driver: 'pglite'`:
 

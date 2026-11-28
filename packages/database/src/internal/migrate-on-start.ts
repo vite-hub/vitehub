@@ -15,11 +15,11 @@ export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-star
 export interface MigrateOnStartSettings {
   allowDataLoss: boolean
   backup?: MigrationBackup
-  /** The app set `migrateOnStart`. Without it, only Postgres databases of a Node build migrate on start. */
+  /** The app set `migrateOnStart`. Without it, a Node build migrates its Postgres databases and local SQLite files on start. */
   explicit: boolean
 }
 
-/** `false` turns migrate on start off. Unset turns it on for Postgres databases only. */
+/** `false` turns migrate on start off. Unset turns it on for Postgres databases and local SQLite files. */
 export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationOptions, "migrateOnStart"> | undefined): MigrateOnStartSettings | undefined {
   if (options === false) return
   const value = options?.migrateOnStart
@@ -42,8 +42,9 @@ function resolveMigrationBackup(value: boolean | MigrationBackupOptions | undefi
 
 /**
  * Returns the databases that the server migrates when it starts. An explicit `migrateOnStart` takes every database and
- * fails the build when one cannot migrate in the server process. The default takes the Postgres databases of a build
- * whose host is known to be Node, and nothing when the host is another one or unknown.
+ * fails the build when one cannot migrate in the server process. The default takes the Postgres databases and the SQLite
+ * databases with a literal `file:` URL of a build whose host is known to be Node, and nothing when the host is another
+ * one or unknown.
  */
 export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined, settings: MigrateOnStartSettings, host: string | undefined): string[] {
   if (settings.explicit) {
@@ -52,12 +53,30 @@ export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | und
     return config?.databaseNames ?? []
   }
   if (!config || host !== "node") return []
-  return config.databaseNames.filter(name => config.databases[name]!.dialect === "postgresql")
+  return config.databaseNames.filter((name) => {
+    const database = config.databases[name]!
+    return database.dialect === "postgresql" || isLocalSqliteFile(database)
+  })
+}
+
+/**
+ * Returns the databases that the development server migrates when it starts. The server checks each client and skips
+ * the databases that are not on this machine, so this list leaves out only D1 over HTTP.
+ */
+export function selectDevMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined): string[] {
+  if (!config) return []
+  return config.databaseNames.filter(name => !config.databases[name]!.cloudflare?.http)
+}
+
+function isLocalSqliteFile(database: ResolvedDBViteConfig["databases"][string]) {
+  const url = database.connection?.url
+  return database.dialect === "sqlite" && !database.cloudflare?.http && typeof url === "string" && /^file:/i.test(url.trim())
 }
 
 interface RenderMigrateOnStartOptions {
-  /** The names that `selectMigrateOnStartDatabases()` returned. */
+  /** The names that `selectMigrateOnStartDatabases()` or `selectDevMigrateOnStartDatabases()` returned. */
   databases: string[]
+  dev?: boolean
   /** Module that exports `databases` in the server build. */
   registryImport: string
   /** Module that `renderShippedMigrationsModule()` wrote. */
@@ -93,6 +112,16 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
   const databases = options.databases.filter(name => readShippedDatabaseMigrations(config, name))
   if (!databases.length) return
+  if (options.dev) {
+    return [
+      `import { databases } from ${JSON.stringify(options.registryImport)}`,
+      `import { ensureLocalDatabaseMigrations } from ${JSON.stringify(options.runtimeImport)}`,
+      `import migrations from ${JSON.stringify(options.migrationsImport)}`,
+      "",
+      `export default () => ensureLocalDatabaseMigrations({ databases, load: async () => migrations }, ${JSON.stringify(databases)})`,
+      "",
+    ].join("\n")
+  }
   return [
     `import { databases } from ${JSON.stringify(options.registryImport)}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(options.runtimeImport)}`,
