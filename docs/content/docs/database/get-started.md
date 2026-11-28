@@ -184,6 +184,8 @@ Each `POST` adds a row with a new ID, and `GET` returns all rows. Restart the se
 
 If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
+A Cloudflare build run with `wrangler dev` has its own local D1 database. See [Try the Cloudflare build with `wrangler dev`](/docs/database/hosts#try-the-cloudflare-build-with-wrangler-dev).
+
 ::
 
 ## Next steps

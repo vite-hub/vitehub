@@ -242,6 +242,17 @@ A Vite app with the Nitro Vite plugin and a Cloudflare host gets each Definition
 
 Cloudflare Nuxt output also copies D1 migration SQL next to the Wrangler config, so `.output/server` can apply migrations without the sources.
 
+### Try the Cloudflare build with `wrangler dev`
+
+`wrangler dev` uses a local D1 database that is empty at first. `vitehub database migrate` does not change it. Apply the migrations to it before the first query, from the app root:
+
+```bash [Terminal]
+pnpm wrangler d1 migrations apply DB --local --config .output/server/wrangler.json
+pnpm wrangler dev --config .output/server/wrangler.json
+```
+
+Use the binding name of your Database, `DB` by default. Wrangler keeps the local database in `.output/server/.wrangler/state`, and each build replaces `.output`. Apply the migrations again after each build. Without them, the first query fails with `D1_ERROR: no such table`.
+
 A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub also writes, for example one kept from NuxtHub. Nitro merges that file into the generated config. ViteHub then keeps one entry per binding name, at the top level and in each `env`:
 
 - ViteHub's entry wins. The project entry only fills missing fields, such as `preview_database_id` or `migrations_table`.
