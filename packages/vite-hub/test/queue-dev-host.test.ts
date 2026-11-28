@@ -13,7 +13,6 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-// `vite dev` and `nuxt dev` have no Nitro preset, so Queue must read the host from `vitehub({ host })`.
 it.each(["vite", "nuxt"] as const)("runs the Queue of a Node app with the local driver in %s dev", async (framework) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-dev-host-"))
   roots.push(root)
@@ -41,4 +40,11 @@ it.each(["vite", "nuxt"] as const)("runs the Queue of a Node app with the local 
   const nitroPlugin = await readFile(join(root, ".vitehub/nitro/queue/plugin.ts"), "utf8")
   expect(nitroPlugin).toContain('"driver": "local"')
   expect(nitroPlugin).not.toContain('"rules"')
+})
+
+it.each(["cloudflare", () => ({ driver: "cloudflare" }), [], null, 0, ""])("rejects invalid Queue options in Vite: %j", async (queue) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-queue-invalid-config-"))
+  roots.push(root)
+  await expect(resolveConfig({ configFile: false, root, plugins: vitehub({ host: "cloudflare", queue: queue as never }) }, "build"))
+    .rejects.toMatchObject({ code: "QUEUE_INVALID_CONFIG" })
 })

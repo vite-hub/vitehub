@@ -167,7 +167,7 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_CONFIG
 
-`queue` is not a plain object or `false`.
+In `vitehub()`, set `queue: true` for the default driver, `queue: { driver: 'cloudflare' }` to choose a driver, or `queue: false` to turn Queue off. In a standalone app, call `hubQueue()` for the default driver, or pass an options object or `false`.
 
 ### QUEUE_INVALID_DEFINITION
 
