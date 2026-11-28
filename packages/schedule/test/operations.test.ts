@@ -71,7 +71,19 @@ describe("schedule operations", () => {
     expect(await call("runs", { id: "digest", limit: 0 })).toMatchObject({ ok: false, status: 400 })
     expect(await call("runs", { id: "digest", limit: 101 })).toMatchObject({ ok: false, status: 400 })
     expect(await call("runs", { id: "digest", limit: 100 })).toMatchObject({ ok: true })
-    expect(await call("runs", {})).toMatchObject({ ok: false, status: 400 })
+    expect(await call("runs", { id: "" })).toMatchObject({ ok: false, status: 400 })
+  })
+
+  it("list the runs of every Schedule, newest first, when no id is passed", async () => {
+    await runDigest(new Date("2026-05-21T09:00:00.000Z"))
+    await executeStaticSchedule({ cron: "0 10 * * *", definition: { cron: "0 10 * * *", handler: () => {} }, name: "cleanup", scheduledAt: new Date("2026-05-22T10:00:00.000Z") })
+
+    expect(await call("runs", {})).toMatchObject({
+      ok: true,
+      value: { runs: [{ scheduleId: "cleanup", scheduledAt: "2026-05-22T10:00:00.000Z" }, { scheduleId: "digest", scheduledAt: "2026-05-21T09:00:00.000Z" }] },
+    })
+    expect(await call("runs", { limit: 1 })).toMatchObject({ ok: true, value: { runs: [{ scheduleId: "cleanup" }] } })
+    expect(await call("runs", { id: "digest" })).toMatchObject({ ok: true, value: { runs: [{ scheduleId: "digest" }] } })
   })
 
   it("limits omitted run queries to the newest 100 records before reading the store", async () => {
