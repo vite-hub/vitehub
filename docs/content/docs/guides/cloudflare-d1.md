@@ -21,7 +21,7 @@ database before the first build. Without the ID, the build stops with
 Development does not need the database.
 
 Create a new database with Wrangler, and note the name and the `database_id`
-in the output:
+in the output. With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
 
 ```bash [Terminal]
 pnpm add -D wrangler

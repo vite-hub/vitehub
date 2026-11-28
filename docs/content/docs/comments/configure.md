@@ -466,7 +466,7 @@ export default defineConfig({
 })
 ```
 
-Build for Workers and deploy:
+Build for Workers and deploy. With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
 
 ```bash [commands/deploy]
 pnpm add -D wrangler

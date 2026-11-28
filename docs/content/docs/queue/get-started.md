@@ -63,7 +63,7 @@ export default defineConfig({
 
 For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
 
-Install the Queue package and Wrangler, the Cloudflare CLI. You use it later to read the logs of the deployed app:
+Install the Queue package and Wrangler, the Cloudflare CLI. You use it later to read the logs of the deployed app. With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/queue

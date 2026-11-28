@@ -66,7 +66,7 @@ provider's browser, and your code calls it by name.
 ## Check the generated binding
 
 Install Wrangler, log in to the account with Browser Run, then build and run
-the Worker:
+the Worker. With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
 
 ```bash [Terminal]
 pnpm add -D wrangler
