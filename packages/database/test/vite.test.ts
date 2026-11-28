@@ -407,7 +407,10 @@ describe("hubDatabase", () => {
         default: "file:.vitehub/data/database/sqlite.db",
       })
       expect(supportsHostedDatabaseRuntime("cloudflare", plugin.api.getConfig()!, {})).toBe(false)
-      expect(buildStart).toThrow(expect.objectContaining({ code: "DATABASE_MISSING_D1_RESOURCE" }))
+      expect(buildStart).toThrow(expect.objectContaining({
+        code: "DATABASE_MISSING_D1_RESOURCE",
+        why: expect.stringContaining("The `connection.url` reads `VITEHUB_VITE_TEST_REMOTE_URL`, which is not set in the shell that runs the build"),
+      }))
 
       vi.stubEnv("VITEHUB_VITE_TEST_REMOTE_URL", "libsql://database.example")
       expect(supportsHostedDatabaseRuntime("cloudflare", plugin.api.getConfig()!, {})).toBe(true)

@@ -25,7 +25,7 @@ import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
-import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, unsetConnectionUrlEnv, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
@@ -278,10 +278,11 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         // CLI discovery also runs readiness hooks before its Provision Steps can create those resources.
         const building = !nuxtOptions.dev && !nuxtOptions._prepare && !nuxtOptions.vitehubCliDiscovery
         if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
+          const unsetUrlEnv = databaseConfig ? unsetConnectionUrlEnv(databaseConfig, [d1.unresolved.database]) : []
           if (d1.unresolved.reason === "missing-database-name") {
-            throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
+            throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`", unsetUrlEnv })
           }
-          throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseId` or provision state" })
+          throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseId` or provision state", unsetUrlEnv })
         }
         if (!nuxtOptions.dev && provider) mergeNitroHostedCondition(config)
         if (nuxtOptions.dev) {
@@ -360,7 +361,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
               if (d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections[binding.database]?.resource === "inherited" && findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)) continue
               if (!building) continue
               const missing = binding.reason === "missing-database-name" ? "`cloudflare.databaseName`" : "`cloudflare.databaseId` or provision state"
-              throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [binding.database], missing })
+              throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [binding.database], missing, unsetUrlEnv: unsetConnectionUrlEnv(runtime, [binding.database]) })
             }
             const bindings = d1Databases.filter(binding => !(d1 && binding.binding === d1.bindingName && runtime.definitionDefaults.cloudflareProjections.default?.resource === "inherited"))
             const wrangler = ensureRecord(ensureRecord(config, "cloudflare"), "wrangler")

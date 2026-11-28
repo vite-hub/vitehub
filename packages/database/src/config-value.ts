@@ -23,6 +23,12 @@ function getRuntimeEnvNames(value: RuntimeEnvDeclarationLike) {
   return value.source?.names ?? (value.source?.name ? [value.source.name] : [])
 }
 
+export function unsetConfigValueEnvNames(value: DatabaseConfigValue | undefined, env: NodeJS.ProcessEnv = process.env): string[] {
+  if (typeof value !== "object") return []
+  const names = getRuntimeEnvNames(value)
+  return names.some(name => env[name]) ? [] : names
+}
+
 export function renderConfigValueExpression(value: DatabaseConfigValue | undefined) {
   if (typeof value === "undefined") return
   if (typeof value === "string") return JSON.stringify(value)
