@@ -155,6 +155,7 @@ describe("Auth option resolution", () => {
     function buildRuntime() {
       vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
       vi.stubEnv("NODE_ENV", "production")
+      vi.stubEnv("VITEHUB_SECRET", "s".repeat(32))
     }
 
     it.each([
@@ -275,5 +276,23 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
     expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
     vi.stubEnv("VITEHUB_SECRET", "short")
     expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_R0016" }))
+  })
+
+  it("fails a build without any secret, also without NODE_ENV", () => {
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", "")
+    const definition = defineAuth({ appName: "ViteHub", database: "memory" })
+    try {
+      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_SECRET_MISSING" }))
+      expect(resolveAuthOptions(defineAuth(() => ({ database: "memory" as const, secret: "explicit" }))).providerOptions.secret).toBe("explicit")
+      vi.stubEnv("BETTER_AUTH_SECRET", "from-better-auth-env")
+      expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
+      vi.stubEnv("BETTER_AUTH_SECRET", undefined)
+      const event = requestEvent(new Request("https://app.example.com/api/auth"), { VITEHUB_SECRET: root })
+      expect(resolveAuthOptions(definition, { request: event["~standard"].req, event }).providerOptions.secret).toMatch(/^[0-9a-f]{64}$/)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

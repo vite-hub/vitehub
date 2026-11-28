@@ -34,8 +34,9 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Move the options to `deleteAccount`, without `enabled`: `user: { deleteUser: { enabled: true, beforeDelete } }` becomes `deleteAccount: { beforeDelete }`.",
     },
 
-    // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
-    // throw them. `listAuthEvents()` and `aggregateAuthEvents()` return the event read errors as `[error, undefined]`.
+    // Event, password, secret, and sign-out errors. The event store, the events route, the password verifier, the
+    // Better Auth instance of a request, and `signOut()` throw them. `listAuthEvents()` and `aggregateAuthEvents()`
+    // return the event read errors as `[error, undefined]`.
     AUTH_EVENT_CALLBACK_FAILED: {
       why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
       fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
@@ -59,6 +60,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_PASSWORD_HASH_INVALID: {
       why: "Invalid password hash",
       fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+    AUTH_SECRET_MISSING: {
+      why: "Auth has no secret to sign sessions, so Better Auth would use its public default secret. `VITEHUB_SECRET` is not set, and the app sets no Better Auth secret.",
+      fix: "Run `pnpm vitehub secret generate` and set the output as `VITEHUB_SECRET` in the server environment. On Cloudflare, run `pnpm exec wrangler secret put VITEHUB_SECRET`. To keep a Better Auth secret, set `BETTER_AUTH_SECRET`, or return `secret` from the Definition callback.",
     },
     AUTH_SIGN_OUT_REDIRECT_INVALID: {
       why: ({ redirectTo }: { redirectTo: string }) => `\`signOut()\` redirects only to a path of the app, not to ${JSON.stringify(redirectTo)}.`,

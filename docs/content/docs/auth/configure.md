@@ -49,7 +49,7 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 
 - Auth reads `VITEHUB_SECRET` from the process environment and the request's Cloudflare bindings.
 - A configured Better Auth secret always wins.
-- With no secret at all, Better Auth uses a development default and throws in production.
+- With no secret at all, a development server uses the secret that ViteHub generates in `.vitehub/env/secret`. A production build or server fails each Auth request with `AUTH_SECRET_MISSING`, also on a Worker or a Node server without `NODE_ENV=production`.
 - A root secret shorter than 32 characters throws `AUTH_R0016`.
 - Rotating `VITEHUB_SECRET` signs out every session.
 

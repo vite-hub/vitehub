@@ -13,6 +13,16 @@ export const authSecretPurpose = "vitehub:auth"
 // Better Auth reads these itself, so any of them keeps the app's own secret.
 const betterAuthSecretNames = ["BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"] as const
 
+function authSecretEnv(event?: ViteHubContext): Record<string, unknown> {
+  return { ...globalThis.process?.env, ...authCloudflareEnv(event) }
+}
+
+/** True when the environment sets a Better Auth secret that Better Auth reads itself. */
+export function hasBetterAuthSecretEnv(event?: ViteHubContext): boolean {
+  const env = authSecretEnv(event)
+  return betterAuthSecretNames.some(name => env[name])
+}
+
 let derived: { root: string, secret: string } | undefined
 
 function hex(buffer: ArrayBuffer): string {
@@ -25,9 +35,8 @@ function hex(buffer: ArrayBuffer): string {
  * It is synchronous because Better Auth reads its options synchronously.
  */
 export function deriveAuthSecret(event?: ViteHubContext): string | undefined {
-  const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
-  if (betterAuthSecretNames.some(name => env[name])) return undefined
-  const root = readViteHubSecret(env)
+  if (hasBetterAuthSecretEnv(event)) return undefined
+  const root = readViteHubSecret(authSecretEnv(event))
   if (!root) return undefined
   if (root.length < viteHubSecretMinimumLength) {
     throw authErrorDiagnostics.AUTH_R0016({ message: `[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.` })
