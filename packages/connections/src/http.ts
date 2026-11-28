@@ -52,10 +52,10 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   return normalized;
 }
 
-function logRequestFailure(error: unknown, path: string, request: Request): void {
+function logRequestFailure(fields: { route: string; action?: string; stage: "access" | "handler" }, request: Request): void {
   logFailure(
-    { error, field: "connections", fields: { path }, level: "error", message: "The Connections request failed.", request },
-    () => console.error("[vitehub] The Connections request failed.", error),
+    { field: "connections", fields, level: "error", message: "The Connections request failed.", request },
+    () => console.error("[vitehub] The Connections request failed.", fields),
   );
 }
 
@@ -75,24 +75,29 @@ export function createConnectionsHandler(options: ConnectionsHandlerOptions): Co
   return {
     async fetch(request) {
       const path = new URL(request.url).pathname.replace(/\/+$/, "");
+      const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
+      let stage: "access" | "handler" = "handler";
+      let action: string | undefined;
       try {
         if (path === `${base}/callback`) {
           const completed = await completeConsoleCallback(request, runtime);
           if (completed) return completed;
         }
+        stage = "access";
         const check = await checkConnectionsAccess(options.actor, request, runtime, options.agentName);
         if (check.rejection) return check.rejection;
-        const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
         if (!route)
           return json({ error: managementErrorBody("CONNECTIONS_ROUTE_NOT_FOUND", "Not found.") }, 404);
         if (request.method !== route.method)
           return json({ error: managementErrorBody("CONNECTIONS_METHOD_NOT_ALLOWED", `Use ${route.method}.`) }, 405, {
             allow: route.method,
           });
-        return await route.handle(check.access, base);
+        stage = "handler";
+        return await route.handle(check.access, base, (name) => { action = name; });
       } catch (error) {
         const shape = getViteHubErrorShape(error);
-        if (!shape && !isConnectionError(error)) logRequestFailure(error, path, request);
+        if (!shape && !isConnectionError(error))
+          logRequestFailure({ route: route?.id ?? "unmatched", stage, ...(action ? { action } : {}) }, request);
         if (request.method === "GET") {
           return page({
             code: isConnectionError(error) ? error.code : shape?.code ?? "CONNECTIONS_REQUEST_FAILED",

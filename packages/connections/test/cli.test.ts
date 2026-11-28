@@ -289,12 +289,17 @@ describe("vitehub connections", () => {
     expect(output.stderr).toContain("Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts.")
   })
 
-  it("names the management option when a production build has no management route", async () => {
+  it.each([
+    ["Nitro JSON", () => Response.json({ error: true, message: "Cannot find any route matching [POST] https://app.example.com/_vitehub/connections", status: 404 }, { status: 404 }), "Cannot find any route matching"],
+    ["actor JSON", () => Response.json({ message: "Not Found" }, { status: 404 }), "Not Found"],
+    ["plain text", () => new Response("Not Found", { status: 404 }), "Request failed with 404"],
+  ])("shows a conditional management hint for an uncoded %s 404", async (_name, response, message) => {
     const output = { stderr: "", stdout: "" }
     const context = { env: { ...devServerEnv }, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
-    const fetch = (async () => Response.json({ error: true, message: "Cannot find any route matching [POST] https://app.example.com/_vitehub/connections", status: 404 }, { status: 404 })) as typeof globalThis.fetch
+    const fetch = (async () => response()) as typeof globalThis.fetch
     expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
-    expect(output.stderr).toContain("Cannot find any route matching")
+    expect(output.stderr).toContain(message)
+    expect(output.stderr).toContain("If the management route is not mounted")
     expect(output.stderr).toContain("`connections: { management: { actor } }`")
   })
 

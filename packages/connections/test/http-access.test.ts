@@ -1,4 +1,5 @@
 import { ViteHubError } from "@vite-hub/runtime";
+import { evlogBridge, setEvlogBridge } from "@vite-hub/internal/runtime/request-log";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsHandler } from "../src/http.ts";
@@ -77,7 +78,7 @@ describe("Connections route guard contract", () => {
     if (!check.access) throw new Error("Expected access.");
     expect(Object.isFrozen(check.access)).toBe(true);
     const forged: ConnectionsAccess = { ...check.access };
-    await expect(route.handle(forged, base)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" });
+    await expect(route.handle(forged, base, vi.fn())).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" });
     expect(runtime).not.toHaveBeenCalled();
   });
 
@@ -250,14 +251,39 @@ describe("Connections route failures", () => {
     expect(connect).toContain("Set GOOGLE_CLIENT_ID.");
   });
 
-  it("logs an unknown failure on the server and hides its message from the caller", async () => {
+  it.each(["console", "evlog"])("logs an authorization write failure safely with %s", async (sink) => {
     const test = createTestRuntime();
-    const failure = new Error("/srv/app/private path");
-    const runtime = { ...test.runtime, list: vi.fn(() => Promise.reject(failure)) };
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const response = await createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime }).fetch(routeRequests.action());
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_REQUEST_FAILED", message: "The Connections request failed." } });
-    expect(logged).toHaveBeenCalledWith("[vitehub] The Connections request failed.", failure);
-    logged.mockRestore();
+    const put = vi.spyOn(test.store.authorizations, "put").mockImplementation(async ({ verifier }) => {
+      throw Object.assign(new Error(`Write failed: ${verifier}`, { cause: new Error(verifier) }), { code: verifier, params: [verifier] });
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = { error: vi.fn(), set: vi.fn(), warn: vi.fn() };
+    const bridge = evlogBridge();
+    setEvlogBridge(sink === "evlog" ? { createLogger: vi.fn() } : undefined);
+    try {
+      const request = Object.assign(new Request(`${origin}${base}`, {
+        body: JSON.stringify({ action: "authorize", name: "mail", redirectUri: `${origin}/callback` }),
+        headers: { "content-type": "application/json", origin },
+        method: "POST",
+      }), { context: { log } });
+      const response = await createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime }).fetch(request);
+      expect(put).toHaveBeenCalledOnce();
+      const verifier = put.mock.calls[0]![0].verifier;
+      const text = await response.text();
+      expect(response.status).toBe(500);
+      expect(text).not.toContain(verifier);
+      expect(JSON.parse(text)).toMatchObject({ error: { code: "CONNECTIONS_REQUEST_FAILED", message: "The Connections request failed." } });
+      const fields = { route: "action", action: "authorize", stage: "handler" };
+      if (sink === "evlog") {
+        expect(log.warn.mock.calls).toEqual([["The Connections request failed.", { connections: fields }]]);
+        expect(consoleError).not.toHaveBeenCalled();
+      } else {
+        expect(consoleError.mock.calls).toEqual([["[vitehub] The Connections request failed.", fields]]);
+        expect(log.warn).not.toHaveBeenCalled();
+      }
+    } finally {
+      setEvlogBridge(bridge);
+      consoleError.mockRestore();
+    }
   });
 });

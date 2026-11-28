@@ -158,7 +158,7 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 
 function statusFix(status: number, code: string | undefined): string | undefined {
   if (status === 401 || status === 403) return "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts."
-  if (status === 404 && !code) return "The app does not serve the Connections management route. A production build serves it only with `connections: { management: { actor } }`. See https://vitehub.dev/docs/connections/server-api#management-routes."
+  if (status === 404 && !code) return "If the management route is not mounted, configure `connections: { management: { actor } }` in the production build. See https://vitehub.dev/docs/connections/server-api#management-routes."
   return undefined
 }
 
@@ -194,7 +194,7 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     value = JSON.parse(text)
   }
   catch {
-    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.` })
+    if (response.status !== 404) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.` })
   }
   if (!response.ok) {
     const parsedError = v.safeParse(v.object({ error: errorBody }), value)

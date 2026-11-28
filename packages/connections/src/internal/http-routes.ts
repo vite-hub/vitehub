@@ -149,7 +149,7 @@ export interface ConnectionsRoute {
   readonly id: "action" | "callback" | "connect";
   readonly method: "GET" | "POST";
   readonly matches: (path: string, base: string) => boolean;
-  readonly handle: (access: ConnectionsAccess, base: string) => Promise<Response>;
+  readonly handle: (access: ConnectionsAccess, base: string, onAction: (action: v.InferOutput<typeof actionSchema>["action"]) => void) => Promise<Response>;
 }
 
 const connect: ConnectionsRoute = {
@@ -273,7 +273,7 @@ const action: ConnectionsRoute = {
   id: "action",
   method: "POST",
   matches: (path, base) => path === base,
-  async handle(access) {
+  async handle(access, _base, onAction) {
     const runtime = connectionsRuntimeFor(access);
     const { actor, request } = access;
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -291,6 +291,7 @@ const action: ConnectionsRoute = {
         400,
       );
     const input = parsed.output;
+    onAction(input.action);
     const connections = runtime();
     switch (input.action) {
       case "list":
