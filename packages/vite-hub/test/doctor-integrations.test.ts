@@ -13,7 +13,7 @@ import {
   sandboxRuntimeOptions,
   validViteHubOptions,
 } from "../src/doctor/rules/integrations.ts"
-import { runProjectFixture } from "vite-doctor/testkit"
+import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
 
 import vitehubDoctorExtension from "../src/doctor.ts"
 import { codes, doctorTestTimeout } from "./doctor-helpers.ts"
@@ -229,6 +229,48 @@ describe("vitehub/valid-vitehub-options", () => {
     expect(await codes(validViteHubOptions, {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { databse: true }]], vitehub: { kv: true, ratelimit: true } })",
     }, "nuxt")).toEqual(Array(2).fill("VHUB0031"))
+  })
+
+  it.each([
+    ["viteHubNuxt", "vitehub: { kvv: true }"],
+    ["[viteHubNuxt, { kvv: true }]", ""],
+  ])("reports unknown options for Nuxt module entry %s", async (entry, config) => {
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": lines(
+        "import viteHubNuxt from 'vite-hub/nuxt'",
+        `export default defineNuxtConfig({ modules: [${entry}], ${config} })`,
+      ),
+    }, "nuxt")).toEqual(["VHUB0031"])
+  })
+
+  it("does not report unknown options whose final value is statically unset", async () => {
+    expect(await codes(validViteHubOptions, {
+      "vite.config.ts": lines(
+        "import { vitehub } from 'vite-hub'",
+        "export default { plugins: [vitehub({ kvv: true, ...{ kvv: undefined }, databse: undefined })] }",
+      ),
+    })).toEqual([])
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { databse: undefined }]] })",
+    }, "nuxt")).toEqual([])
+  })
+
+  it("makes the build failure conditional when a later spread can unset a key", async () => {
+    const result = await runRuleFixture({
+      rule: validViteHubOptions,
+      framework: "vite",
+      files: {
+        "vite.config.ts": lines(
+          "import { vitehub } from 'vite-hub'",
+          "import overrides from './options'",
+          "export default { plugins: [vitehub({ kvv: true, ...overrides })] }",
+        ),
+      },
+    })
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      code: "VHUB0031",
+      why: expect.stringContaining("if its final value is not `undefined`"),
+    })])
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
