@@ -170,7 +170,7 @@ describe("vitehub deploy on Cloudflare", () => {
       ...output,
       ".output/server dir/wrangler.json": JSON.stringify({
         d1_databases: [{ binding: "DB_DEFAULT", migrations_dir: "migrations" }],
-        env: { production: { d1_databases: [{ binding: "DB", migrations_dir: "migrations", migrations_table: "prod_migrations" }] } },
+        env: { production: { d1_databases: [{ binding: "DB", database_id: "id-DB", migrations_dir: "migrations", migrations_table: "prod_migrations" }] } },
       }),
       ".output/server dir/migrations/0001_init.sql": "CREATE TABLE t (id INTEGER);\n",
     })
@@ -184,6 +184,30 @@ describe("vitehub deploy on Cloudflare", () => {
       ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", 'SELECT name FROM "prod_migrations"'],
     ])
     expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("stops before it calls Wrangler when a D1 binding of the build has no database id", async () => {
+    const output = buildOutput("cloudflare")
+    const root = await builtProject("cloudflare", {
+      ...output,
+      ".output/server/wrangler.json": JSON.stringify({
+        d1_databases: [{ binding: "DB", database_name: "my-app-db", migrations_dir: ".vitehub/database/migrations/DB" }],
+        main: "index.mjs",
+        name: "my-app",
+      }),
+      ".output/server/.vitehub/database/migrations/DB/0001_init.sql": "CREATE TABLE t (id INTEGER);\n",
+    })
+    for (const flags of [[], ["--preview"]]) {
+      const hosts = await fakeHosts(cloudflareEnv)
+      const result = await deploy(["--no-build", "--no-provision", "--yes", ...flags], root, hosts.env)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_DATABASE_ID_MISSING")
+      expect(result.json.error?.why).toContain("D1 binding DB")
+      expect(result.json.error?.fix).toContain("vitehub provision run --host cloudflare")
+      expect(await hosts.calls()).toEqual([])
+      expect((await hosts.state()).deploys).toBe(0)
+    }
   })
 
   it("deploys with quiet Wrangler logging when D1 has applied every migration of the build", async () => {

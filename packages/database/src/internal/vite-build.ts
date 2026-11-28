@@ -99,7 +99,7 @@ export function assertHostedDatabaseRuntimeResources(runtimeConfig: ResolvedDBVi
     if (opaqueNativeDatabases.length) {
       throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
-    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "a resolved `cloudflare.databaseName`" })
   }
   resolveCloudflareD1Bindings(runtimeConfig)
 }
@@ -158,7 +158,7 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, 
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
     if (database?.dialect === "postgresql") return !hasCloudflarePostgresConnection(database)
-    const hasD1Binding = hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
+    const hasD1Binding = hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState)) || hasConfigValue(database?.cloudflare?.databaseName)
     return !hasD1Binding && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
@@ -201,7 +201,7 @@ export function assertDefinitionD1Resources(runtimeConfig: ResolvedDBViteConfig,
   if (!databases.length) return
   // The implicit default Database has no Definition file, so it takes its D1 resource from the module options.
   const options = runtimeConfig.definitions.some(isImplicitDefaultDatabase) ? "database" : "cloudflare"
-  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`, and \`${options}.databaseId\` or provision state,` })
+  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`` })
 }
 
 /** Reports whether a Definition reaches its database over the network: D1 HTTP or a remote libSQL URL. */

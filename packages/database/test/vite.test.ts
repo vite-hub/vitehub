@@ -175,7 +175,7 @@ describe("hubDatabase", () => {
     { name: "local SQLite", connection: "url: 'file:local.db',", cloudflare: undefined, providers: [] },
     { name: "remote libSQL", connection: "url: 'libsql://database.example',", cloudflare: undefined, providers: ["cloudflare", "vercel"] },
     { name: "remote libSQL with unresolved D1 fallback", connection: "url: 'libsql://database.example',", cloudflare: "databaseId: '   ', databaseName: '   ',", providers: ["cloudflare", "vercel"] },
-    { name: "D1 with a blank ID", connection: undefined, cloudflare: "databaseId: '   ', databaseName: 'database-name',", providers: [] },
+    { name: "D1 with a blank ID", connection: undefined, cloudflare: "databaseId: '   ', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 with a blank name", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: '   ',", providers: [] },
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
@@ -200,13 +200,13 @@ describe("hubDatabase", () => {
     expect(supportsHostedDatabaseRuntime("vercel", runtime, {})).toBe(false)
   })
 
-  it("reads provisioned D1 IDs for the Cloudflare hosted runtime", async () => {
+  it("supports the Cloudflare hosted runtime for a named D1 database before and after provisioning", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     const plugin = hubDatabase()
     await resolveConfigResolved(plugin)({ root: rootDir })
     const runtime = plugin.api.getConfig()!
-    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(false)
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(true)
 
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
     expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(true)
@@ -358,9 +358,7 @@ describe("hubDatabase", () => {
   })
 
   it.each([
-    { cloudflare: "databaseName: 'database-name',", missing: "cloudflare.databaseId" },
     { cloudflare: "databaseId: 'database-id',", missing: "cloudflare.databaseName" },
-    { cloudflare: "databaseId: '   ', databaseName: 'database-name',", missing: "cloudflare.databaseId" },
     { cloudflare: "databaseId: 'database-id', databaseName: '   ',", missing: "cloudflare.databaseName" },
   ])("rejects incomplete native D1 resources in a Cloudflare Vite build: $cloudflare", async ({ cloudflare, missing }) => {
     for (const name of ["default", "orders"]) {
@@ -378,6 +376,8 @@ describe("hubDatabase", () => {
   it.each([
     { name: "a D1 binding", cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", connection: undefined, provisioned: false },
     { name: "a provisioned D1 database", cloudflare: "databaseName: 'database-name',", connection: undefined, provisioned: true },
+    { name: "a D1 database name and no id", cloudflare: "databaseName: 'database-name',", connection: undefined, provisioned: false },
+    { name: "a D1 database name and a blank id", cloudflare: "databaseId: '   ', databaseName: 'database-name',", connection: undefined, provisioned: false },
     { name: "D1 HTTP", cloudflare: "databaseId: 'database-id', http: true,", connection: undefined, provisioned: false },
     { name: "remote libSQL", cloudflare: undefined, connection: "url: 'libsql://database.example',", provisioned: false },
     { name: "remote libSQL with incomplete D1 options", cloudflare: "databaseName: 'database-name',", connection: "url: 'libsql://database.example',", provisioned: false },
@@ -1071,7 +1071,7 @@ describe("hubDatabase", () => {
     const unprovisioned = await plugin.api.refresh()
     expect(unprovisioned?.databases.default?.cloudflare?.databaseId).toBeUndefined()
     expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.provisionedId).toBeUndefined()
-    expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.binding).toBeUndefined()
+    expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.binding).toBe("DB")
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {
