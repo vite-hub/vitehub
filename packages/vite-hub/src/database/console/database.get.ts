@@ -97,6 +97,17 @@ function requestError(statusCode: number, statusMessage: string): Error {
   return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0050({ message: statusMessage }))
 }
 
+const postgresUndefinedTable = "42P01"
+
+function isMissingTableError(error: unknown): boolean {
+  const seen = new Set<unknown>()
+  for (let current = error; current instanceof Error && !seen.has(current); current = current.cause) {
+    seen.add(current)
+    if (Reflect.get(current, "code") === postgresUndefinedTable || /\bno such table\b/iu.test(current.message)) return true
+  }
+  return false
+}
+
 function integerParameter(value: number | undefined, name: string, fallback: number, maximum: number): number {
   if (value === undefined) return fallback
   if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
@@ -293,10 +304,14 @@ export async function browseConsoleDatabase(query: ConsoleDatabaseQuery): Promis
       countQuery = countQuery.where(conditions)
     }
     if (orderColumn) rowsQuery = rowsQuery.orderBy(direction === "desc" ? desc(orderColumn) : asc(orderColumn))
+    const tableName = entry.name
     const [selectedRows, totals] = await Promise.all([
       rowsQuery.limit(limit).offset(offset),
       countQuery,
-    ])
+    ]).catch((error: unknown) => {
+      if (isMissingTableError(error)) throw consoleHttpError(409, viteHubErrorDiagnostics.DATABASE_TABLE_MISSING({ database: requestedDatabase, table: tableName }))
+      throw error
+    })
     rows = selectedRows
     total = totals[0]?.value ?? 0
   }
