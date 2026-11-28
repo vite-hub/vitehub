@@ -6,6 +6,7 @@ import { decodeConsoleBase64url, encodeConsoleBase64url } from "@vite-hub/intern
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent"
 import { isSiteTokenKind, readSiteTokenTarget, signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
 
+import { isPasskeyEmail } from "./accounts.ts"
 import { consoleProjects } from "./projects.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
@@ -158,7 +159,7 @@ async function isTeamMember(db: ConsoleDatabase, teamId: string, userId: string)
 async function personOf(db: ConsoleDatabase, userId: string): Promise<ConsoleSitePerson | undefined> {
   const [row] = await db.select({ email: authUser.email, image: authUser.image, name: authUser.name }).from(authUser).where(eq(authUser.id, userId)).limit(1)
   if (!row) return undefined
-  return { id: userId, name: row.name || row.email, email: row.email, ...(row.image ? { image: row.image } : {}) }
+  return { id: userId, name: row.name || row.email, ...(isPasskeyEmail(row.email) ? {} : { email: row.email }), ...(row.image ? { image: row.image } : {}) }
 }
 
 /** The person of a member of the project's team, or `undefined` when they are no member. */

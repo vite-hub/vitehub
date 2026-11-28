@@ -38,8 +38,8 @@ async function setup() {
     plugins: [organization(), ...consoleCliDeviceFlow({ database: () => db })],
   })
   const context = await auth.$context
-  async function person(name: string) {
-    const user = await context.internalAdapter.createUser({ name, email: `${name.toLowerCase()}@example.com`, emailVerified: true }, { method: "passkey" })
+  async function person(name: string, email = `${name.toLowerCase()}@example.com`) {
+    const user = await context.internalAdapter.createUser({ name, email, emailVerified: true }, { method: "passkey" })
     const team = await context.adapter.create<{ id: string }>({ model: "organization", data: { name: `${name}'s team`, slug: name.toLowerCase(), createdAt: new Date() } })
     await context.adapter.create({ model: "member", data: { organizationId: team.id, userId: user.id, role: "owner", createdAt: new Date() } })
     const session = await context.internalAdapter.createSession(user.id)
@@ -99,6 +99,22 @@ describe("CLI device flow", () => {
 
     advance(5_100)
     expect(await (await poll(code.device_code)).json()).toMatchObject({ error: "invalid_grant" })
+  })
+
+  it("gives the CLI no email for a passkey account, and the email of another account", async () => {
+    const { person, call, start, poll } = await setup()
+    const ada = await person("Ada")
+    const bob = await person("Bob", "bob-id@passkey.invalid")
+    const advance = clock()
+    const login = async (who: typeof ada) => {
+      const code = await start()
+      await call(`/device?user_code=${code.user_code}`, { cookie: who.cookie })
+      expect((await call("/cli/approve", { body: { userCode: code.user_code, teamId: who.team.id }, cookie: who.cookie })).status).toBe(200)
+      advance(5_100)
+      return (await (await poll(code.device_code)).json() as { user: Record<string, unknown> }).user
+    }
+    expect(await login(ada)).toEqual({ id: ada.user.id, name: "Ada", email: "ada@example.com" })
+    expect(await login(bob)).toEqual({ id: bob.user.id, name: "Bob" })
   })
 
   it("answers slow_down when the CLI polls faster than the interval, and counts polls in the rate_limit table", async () => {

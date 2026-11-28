@@ -3,6 +3,7 @@ import { createAuthEndpoint, sessionMiddleware } from "better-auth/api"
 import { deviceAuthorization, redeemDeviceCode } from "better-auth/plugins"
 import * as z from "zod"
 
+import { isPasskeyEmail } from "./accounts.ts"
 import { createConsoleApiKey, defaultApiKeyDays } from "./api-keys.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
@@ -128,7 +129,7 @@ export function consoleCliDeviceFlow(options: ConsoleCliOptions): BetterAuthPlug
           scope: "",
           key_id: created.apiKey.id,
           team: created.apiKey.team,
-          user: { id: user.id, name: user.name, email: user.email },
+          user: { id: user.id, name: user.name, ...(isPasskeyEmail(user.email) ? {} : { email: user.email }) },
         })
       }),
     },
