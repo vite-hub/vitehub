@@ -2,7 +2,7 @@
 // generated Database schema imports it when the server starts, and Drizzle Kit loads it to write migrations.
 import { defineRelationsPart, isTable, sql } from "drizzle-orm"
 import { bigint as pgBigint, boolean, foreignKey as pgForeignKey, index as pgIndex, integer as pgInteger, jsonb, pgTable, text as pgText, timestamp, uniqueIndex as pgUniqueIndex } from "drizzle-orm/pg-core"
-import { foreignKey as sqliteForeignKey, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { customType, foreignKey as sqliteForeignKey, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import { authSqlName, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
 
@@ -11,7 +11,7 @@ import type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOp
 
 export { authPluginSchemas, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
 export type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
-import type { $Type, AnyRelations, BuildColumns, ExtractTablesFromSchema, ExtractTablesWithRelationsParts, HasDefault, IsPrimaryKey, Many, NotNull, One, RelationsRecord, Table } from "drizzle-orm"
+import type { $Type, AnyRelation, AnyRelations, BuildColumns, ExtractTablesFromSchema, ExtractTablesWithRelationsParts, HasDefault, IsPrimaryKey, Many, NotNull, One, RelationsRecord, Table } from "drizzle-orm"
 import type { PgBigInt53Builder, PgBooleanBuilder, PgBuildColumns, PgColumn, PgIntegerBuilder, PgJsonbBuilder, PgTableWithColumns, PgTextBuilder, PgTimestampBuilder } from "drizzle-orm/pg-core"
 import type { SQLiteBooleanBuilder, SQLiteColumn, SQLiteIntegerBuilder, SQLiteTableWithColumns, SQLiteTextBuilder, SQLiteTextJsonBuilder, SQLiteTimestampBuilder } from "drizzle-orm/sqlite-core"
 
@@ -351,8 +351,74 @@ type TwoFactorAuthRelationConfig = Omit<CoreAuthRelationConfig, "user"> & {
   twoFactor: { user: One<"user", true> }
 }
 
-type AuthRelationConfig<TOptions extends AuthSchemaOptions = {}> =
+type BaseAuthRelationConfig<TOptions extends AuthSchemaOptions> =
   "twoFactor" extends SchemaPlugins<TOptions> ? TwoFactorAuthRelationConfig : CoreAuthRelationConfig
+
+type BaseTableFields<TOptions, TModel extends AuthTableName> =
+  Prefer<AuthCoreTableSpecs[TModel]["fields"], MergeFields<PluginFields<SchemaPlugins<TOptions>, TModel>>>
+
+type ExtraAdditionalFields<TOptions, TModel extends AuthCoreModel> =
+  Omit<AdditionalFields<TOptions, TModel>, keyof BaseTableFields<TOptions, TModel>>
+
+type AuthSchemaTableNames<TOptions> = AuthTableName | (keyof PluginTables<SchemaPlugins<TOptions>> & string)
+
+type PluralizeModel<TModel extends string> = TModel extends `${string}s` ? TModel : `${TModel}s`
+
+type AdditionalForwardRelations<TOptions, TModel extends string> =
+  TModel extends AuthCoreModel
+    ? {
+        [F in keyof ExtraAdditionalFields<TOptions, TModel> as ExtraAdditionalFields<TOptions, TModel>[F] extends { readonly references: { readonly model: infer TTarget extends AuthSchemaTableNames<TOptions> } }
+          ? `${F & string}${Capitalize<TTarget>}`
+          : never]: ExtraAdditionalFields<TOptions, TModel>[F] extends { readonly references: { readonly model: infer TTarget extends AuthSchemaTableNames<TOptions> } }
+          ? One<TTarget, true>
+          : never
+      }
+    : {}
+
+type AdditionalReverseRelationsForSource<TOptions, TSource extends AuthCoreModel, TTarget extends string> = {
+  [F in keyof ExtraAdditionalFields<TOptions, TSource> as ExtraAdditionalFields<TOptions, TSource>[F] extends { readonly references: { readonly model: TTarget } }
+    ? ExtraAdditionalFields<TOptions, TSource>[F] extends { readonly unique: true }
+      ? `${TSource}By${Capitalize<F & string>}`
+      : `${PluralizeModel<TSource>}By${Capitalize<F & string>}`
+    : never]: ExtraAdditionalFields<TOptions, TSource>[F] extends { readonly unique: true }
+    ? One<TSource, true>
+    : Many<TSource>
+}
+
+type AdditionalReverseRelations<TOptions, TTarget extends string> =
+  & AdditionalReverseRelationsForSource<TOptions, "user", TTarget>
+  & AdditionalReverseRelationsForSource<TOptions, "session", TTarget>
+  & AdditionalReverseRelationsForSource<TOptions, "account", TTarget>
+  & AdditionalReverseRelationsForSource<TOptions, "verification", TTarget>
+
+type ModelBaseRelations<TOptions extends AuthSchemaOptions, TModel extends string> =
+  TModel extends keyof BaseAuthRelationConfig<TOptions> ? BaseAuthRelationConfig<TOptions>[TModel] : {}
+
+type ModelAllRelations<TOptions extends AuthSchemaOptions, TModel extends string> =
+  Prefer<
+    ModelBaseRelations<TOptions, TModel>,
+    Prefer<
+      AdditionalForwardRelations<TOptions, TModel>,
+      AdditionalReverseRelations<TOptions, TModel>
+    >
+  >
+
+type TableColumnKeys<TOptions extends AuthSchemaOptions, TModel extends string> =
+  TModel extends AuthTableName
+    ? "id" | (keyof TableFields<TOptions, TModel> & string)
+    : TModel extends keyof PluginTables<SchemaPlugins<TOptions>>
+      ? "id" | (keyof PluginTableFields<TOptions, TModel> & string)
+      : "id"
+
+type ModelRelations<TOptions extends AuthSchemaOptions, TModel extends string> = {
+  [K in Exclude<keyof ModelAllRelations<TOptions, TModel>, TableColumnKeys<TOptions, TModel>>]: ModelAllRelations<TOptions, TModel>[K] extends AnyRelation
+    ? ModelAllRelations<TOptions, TModel>[K]
+    : never
+}
+
+type AuthRelationConfig<TOptions extends AuthSchemaOptions = {}> = {
+  [TModel in AuthSchemaTableNames<TOptions> as keyof ModelRelations<TOptions, TModel> extends never ? never : TModel]: ModelRelations<TOptions, TModel>
+}
 
 /** The Drizzle v1 relations for `authSqliteSchema`. */
 export type AuthSqliteRelations = ExtractTablesWithRelationsParts<CoreAuthRelationConfig, ExtractTablesFromSchema<AuthSqliteSchema>>
@@ -363,6 +429,52 @@ export type AuthPostgresRelations = ExtractTablesWithRelationsParts<CoreAuthRela
 /** The Drizzle v1 relations for the Auth tables of `TSchema` built with `TOptions`. */
 export type AuthRelationsFor<TSchema extends Record<string, unknown>, TOptions extends AuthSchemaOptions = {}> =
   ExtractTablesWithRelationsParts<AuthRelationConfig<TOptions>, ExtractTablesFromSchema<TSchema>>
+
+function parseJsonString(value: string): [boolean, unknown] {
+  try {
+    return [true, JSON.parse(value)]
+  }
+  catch {
+    return [false, value]
+  }
+}
+
+function decodeSqliteJson(raw: unknown, arrayOnly: boolean): unknown {
+  if (raw === null || raw === undefined) return raw
+  let value: unknown = raw
+  if (typeof value === "string") {
+    const [ok, parsed] = parseJsonString(value)
+    if (!ok) return value
+    value = parsed
+  }
+  if (typeof value === "string") {
+    if (arrayOnly) {
+      if (value.startsWith("[")) {
+        const [ok, parsed] = parseJsonString(value)
+        if (ok && Array.isArray(parsed)) return parsed
+      }
+    }
+    else if (value === "null" || value.startsWith("{") || value.startsWith("[")) {
+      const [ok, parsed] = parseJsonString(value)
+      if (ok) return parsed
+    }
+  }
+  return value
+}
+
+const sqliteJsonArray = customType<{ data: unknown, driverData: string }>({
+  dataType: () => "text",
+  toDriver: value => JSON.stringify(value),
+  fromDriver: value => decodeSqliteJson(value, true),
+  fromJson: value => decodeSqliteJson(value, true),
+})
+
+const sqliteJsonValue = customType<{ data: unknown, driverData: string }>({
+  dataType: () => "text",
+  toDriver: value => JSON.stringify(value),
+  fromDriver: value => decodeSqliteJson(value, false),
+  fromJson: value => decodeSqliteJson(value, false),
+})
 
 // SAFETY: Every Drizzle column builder has the chain methods; the casts give the two dialects one builder type.
 const sqliteDialect: Dialect<SQLiteColumn, AuthSqliteTable> = {
@@ -375,7 +487,9 @@ const sqliteDialect: Dialect<SQLiteColumn, AuthSqliteTable> = {
           ? integer(name)
           : field.type === "string"
             ? text(name)
-            : text(name, { mode: "json" })
+            : field.type === "json"
+              ? sqliteJsonValue(name)
+              : sqliteJsonArray(name)
     return builder as unknown as ColumnChain<SQLiteColumn>
   },
   id: () => text("id").primaryKey() as unknown as ColumnChain<SQLiteColumn>,
@@ -423,56 +537,93 @@ function pluralizeModel(model: string): string {
   return model.endsWith("s") ? model : `${model}s`
 }
 
-function buildAuthRelations(tables: Record<string, unknown>, specs: Readonly<Record<string, AuthTableSpec>>): AnyRelations {
+function buildAuthRelations(
+  tables: Record<string, unknown>,
+  baseSpecs: Readonly<Record<string, AuthTableSpec>>,
+  allSpecs: Readonly<Record<string, AuthTableSpec>> = baseSpecs,
+): AnyRelations {
   const schemaTables: Record<string, Table> = {}
   for (const [name, value] of Object.entries(tables)) {
     if (isTable(value)) schemaTables[name] = value
   }
   return defineRelationsPart(schemaTables, (r) => {
     const config: Record<string, RelationsRecord> = {}
-    for (const [model, spec] of Object.entries(specs)) {
+    const relationsOf = (model: string): RelationsRecord => {
+      config[model] ??= {}
+      return config[model]
+    }
+    const canAdd = (model: string, key: string): boolean => {
+      const spec = allSpecs[model]
+      if (!spec || key === "id" || Object.hasOwn(spec.fields, key)) return false
+      return !Object.hasOwn(relationsOf(model), key)
+    }
+    for (const [model, baseSpec] of Object.entries(baseSpecs)) {
       if (!Object.hasOwn(schemaTables, model)) continue
-      const modelRelations: RelationsRecord = {}
-      const oneTargets = new Map<string, number>()
-      for (const [fieldName, field] of Object.entries(spec.fields)) {
+      for (const [fieldName, field] of Object.entries(baseSpec.fields)) {
         const reference = field.references
         if (!reference || !Object.hasOwn(schemaTables, reference.model)) continue
         const target = reference.model
-        const count = oneTargets.get(target) ?? 0
-        oneTargets.set(target, count + 1)
-        const key = count > 0 ? `${capitalize(fieldName)}${capitalize(target)}` : target
-        if (key === "id" || Object.hasOwn(spec.fields, key) || Object.hasOwn(modelRelations, key)) continue
-        modelRelations[key] = r.one[target]!({
-          from: r[model]![fieldName]!,
-          to: r[target]![reference.field]!,
-        })
-      }
-      for (const [otherModel, otherSpec] of Object.entries(specs)) {
-        if (otherModel === model || !Object.hasOwn(schemaTables, otherModel)) continue
-        const pointingHere = Object.entries(otherSpec.fields).filter(([, field]) => field.references?.model === model)
-        if (!pointingHere.length) continue
-        const nonUnique = pointingHere.filter(([, field]) => !field.unique)
-        if (nonUnique.length) {
-          for (const [fkFieldName, fkField] of nonUnique) {
-            const baseKey = pluralizeModel(otherModel)
-            const key = nonUnique.length > 1 ? `${baseKey}By${capitalize(fkFieldName)}` : baseKey
-            if (key === "id" || Object.hasOwn(spec.fields, key) || Object.hasOwn(modelRelations, key)) continue
-            modelRelations[key] = r.many[otherModel]!({
-              from: r[model]![fkField.references!.field]!,
-              to: r[otherModel]![fkFieldName]!,
-            })
-          }
+        if (canAdd(model, target)) {
+          relationsOf(model)[target] = r.one[target]!({
+            from: r[model]![fieldName]!,
+            to: r[target]![reference.field]!,
+          })
         }
-        else {
-          const [fkFieldName, fkField] = pointingHere[0]!
-          if (otherModel === "id" || Object.hasOwn(spec.fields, otherModel) || Object.hasOwn(modelRelations, otherModel)) continue
-          modelRelations[otherModel] = r.one[otherModel]!({
-            from: r[model]![fkField.references!.field]!,
-            to: r[otherModel]![fkFieldName]!,
+        const reverseKey = field.unique ? model : pluralizeModel(model)
+        if (canAdd(target, reverseKey)) {
+          relationsOf(target)[reverseKey] = field.unique
+            ? r.one[model]!({
+                from: r[target]![reference.field]!,
+                to: r[model]![fieldName]!,
+              })
+            : r.many[model]!({
+                from: r[target]![reference.field]!,
+                to: r[model]![fieldName]!,
+              })
+        }
+      }
+    }
+    for (const [model, spec] of Object.entries(allSpecs)) {
+      if (!Object.hasOwn(schemaTables, model)) continue
+      const baseFields = baseSpecs[model]?.fields
+      for (const [fieldName, field] of Object.entries(spec.fields)) {
+        if (baseFields && Object.hasOwn(baseFields, fieldName)) continue
+        const reference = field.references
+        if (!reference || !Object.hasOwn(schemaTables, reference.model)) continue
+        const target = reference.model
+        const forwardKey = `${fieldName}${capitalize(target)}`
+        if (canAdd(model, forwardKey)) {
+          relationsOf(model)[forwardKey] = r.one[target]!({
+            from: r[model]![fieldName]!,
+            to: r[target]![reference.field]!,
           })
         }
       }
-      if (Object.keys(modelRelations).length) config[model] = modelRelations
+    }
+    for (const [model, spec] of Object.entries(allSpecs)) {
+      if (!Object.hasOwn(schemaTables, model)) continue
+      const baseFields = baseSpecs[model]?.fields
+      for (const [fieldName, field] of Object.entries(spec.fields)) {
+        if (baseFields && Object.hasOwn(baseFields, fieldName)) continue
+        const reference = field.references
+        if (!reference || !Object.hasOwn(schemaTables, reference.model)) continue
+        const target = reference.model
+        const reverseKey = field.unique ? `${model}By${capitalize(fieldName)}` : `${pluralizeModel(model)}By${capitalize(fieldName)}`
+        if (canAdd(target, reverseKey)) {
+          relationsOf(target)[reverseKey] = field.unique
+            ? r.one[model]!({
+                from: r[target]![reference.field]!,
+                to: r[model]![fieldName]!,
+              })
+            : r.many[model]!({
+                from: r[target]![reference.field]!,
+                to: r[model]![fieldName]!,
+              })
+        }
+      }
+    }
+    for (const [model, modelRelations] of Object.entries(config)) {
+      if (!Object.keys(modelRelations).length) delete config[model]
     }
     return config
   })
@@ -512,5 +663,7 @@ export function createAuthPostgresSchema<const TOptions extends AuthSchemaOption
 
 /** Drizzle v1 relations for the Better Auth tables created by `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. */
 export function createAuthRelations<TSchema extends Record<string, unknown>, const TOptions extends AuthSchemaOptions = {}>(tables: TSchema, options?: TOptions): AuthRelationsFor<TSchema, TOptions> {
-  return buildAuthRelations(tables, resolveAuthTableSpecs(options)) as AuthRelationsFor<TSchema, TOptions>
+  const baseSpecs = resolveAuthTableSpecs(options?.plugins ? { plugins: options.plugins } : undefined)
+  const allSpecs = resolveAuthTableSpecs(options)
+  return buildAuthRelations(tables, baseSpecs, allSpecs) as AuthRelationsFor<TSchema, TOptions>
 }

@@ -216,8 +216,26 @@ describe("Auth tables", () => {
     expect(extendedRelations.twoFactor.table).toBe(extendedSchema.twoFactor)
     expect(Object.keys(extendedRelations.twoFactor.relations)).toEqual(["user"])
     expect(Object.keys(extendedRelations.user.relations)).toContain("twoFactors")
-    expect(Object.keys(extendedRelations.session.relations)).toEqual(expect.arrayContaining(["user", "InvitedByUser"]))
-    expect(Object.keys(extendedRelations.user.relations)).toEqual(expect.arrayContaining(["sessionsByUserId", "sessionsByInvitedBy"]))
+    expect(Object.keys(extendedRelations.session.relations)).toEqual(expect.arrayContaining(["user", "invitedByUser"]))
+    expect(Object.keys(extendedRelations.user.relations)).toEqual(expect.arrayContaining(["sessions", "sessionsByInvitedBy"]))
+
+    const collidingOptions = { additionalFields: { user: { accounts: { type: "string" } } } } as const
+    const collidingSchema = createAuthSqliteSchema(collidingOptions)
+    const collidingRelations = createAuthRelations(collidingSchema, collidingOptions)
+    expect(Object.keys(collidingRelations.user.relations)).not.toContain("accounts")
+    expect(Object.keys(collidingRelations.user.relations)).toContain("sessions")
+  })
+
+  it("decodes both legacy double-encoded and fresh SQLite JSON and array values", () => {
+    const redirectUris = authSqliteSchema.oauthClient.redirectUris
+    const metadata = authSqliteSchema.oauthClient.metadata
+    expect(redirectUris.mapFromDriverValue(JSON.stringify(JSON.stringify(["http://localhost/cb"])))).toEqual(["http://localhost/cb"])
+    expect(redirectUris.mapFromDriverValue(JSON.stringify(["http://localhost/cb"]))).toEqual(["http://localhost/cb"])
+    expect(redirectUris.mapToDriverValue(["http://localhost/cb"])).toBe(JSON.stringify(["http://localhost/cb"]))
+    expect(metadata.mapFromDriverValue(JSON.stringify(JSON.stringify({ plan: "pro" })))).toEqual({ plan: "pro" })
+    expect(metadata.mapFromDriverValue(JSON.stringify({ plan: "pro" }))).toEqual({ plan: "pro" })
+    expect(metadata.mapFromDriverValue(JSON.stringify("null"))).toBeNull()
+    expect(metadata.mapFromDriverValue(JSON.stringify("plain-text"))).toBe("plain-text")
   })
 })
 
