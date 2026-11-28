@@ -1,11 +1,11 @@
 import { writeQueueTypes } from "../registry-types.ts"
 import { readFileSync } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
-import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import { defaultLocalQueueBase, normalizeQueueOptions } from "../config.ts"
 import { isQueueMaxBatchSize } from "../definition.ts"
@@ -234,23 +234,26 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
   ])
   const vercelConsumerDir = resolve(rootDir, generatedQueueNitroVercelConsumerDir)
   const vercelConsumers = queueConfig !== false && queueConfig.driver === "vercel" ? createVercelQueueConsumerRoutes(definitions) : []
-  await rm(vercelConsumerDir, { force: true, recursive: true })
-  if (vercelConsumers.length) await mkdir(vercelConsumerDir, { recursive: true })
+  const vercelConsumerFiles = new Set(vercelConsumers.map((consumer) => resolve(rootDir, consumer.handler)))
+  const staleVercelConsumerFiles = (await readdir(vercelConsumerDir).catch(() => []))
+    .map((name) => resolve(vercelConsumerDir, name))
+    .filter((file) => !vercelConsumerFiles.has(file))
+  await Promise.all(staleVercelConsumerFiles.map((file) => rm(file, { force: true, recursive: true })))
   await Promise.all([
-    writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, runtimeConfig, cloudflareQueues, queueDefinitions, development, database.import ?? defaultQueueDatabaseImport), "utf8"),
-    writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, runtimeConfig, definitions.length > 0, development), "utf8"),
+    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
+    writeFileIfChanged(pluginFile, renderNitroPlugin(pluginFile, registryFile, runtimeConfig, cloudflareQueues, queueDefinitions, development, database.import ?? defaultQueueDatabaseImport)),
+    writeFileIfChanged(middlewareFile, renderNitroMiddleware(middlewareFile, runtimeConfig, definitions.length > 0, development)),
     ...vercelConsumers.map(async (consumer) => {
       const file = resolve(rootDir, consumer.handler)
-      await writeFile(file, renderVercelQueueConsumerHandler(file, consumer.name), "utf8")
+      await writeFileIfChanged(file, renderVercelQueueConsumerHandler(file, consumer.name))
     }),
-    ...(process.env.VITEST ? [writeFile(resolve(rootDir, generatedQueueTestSetup), [
+    ...(process.env.VITEST ? [writeFileIfChanged(resolve(rootDir, generatedQueueTestSetup), [
       `import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(resolve(rootDir, generatedQueueTestSetup), resolveRuntimeModule("internal/runtime/state")))}`,
       `import registry from "./${generatedRegistryFileName}"`,
       `setQueueRuntimeConfig(${JSON.stringify(queueConfig)})`,
       "setQueueRuntimeRegistry(registry)",
       "",
-    ].join("\n"), "utf8")] : []),
+    ].join("\n"))] : []),
   ])
   return queueConfig
 }
