@@ -147,7 +147,7 @@ See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support
 
 Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database` or `@vite-hub/database` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database.
 
-If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
+If the host cannot provide an enabled capability, the build fails with `INTERNAL_R0002`. Its fix names the hosts that provide the capability, and the driver option when the host has one, such as `sandboxTask: { driver: "vercel" }` on Node or `blob: { driver: "s3" }` on Deno.
 
 On the Deno host, `schedule: true` writes static Schedules as `Deno.cron` registrations. The generated `.output/main.ts` loads them before the Nitro server. Use the default Agent runtime for deployed routes. The host rejects `agent.runtime: "deno"` because it generates a separate server outside the deployed entrypoint. See the [Deno host guide](https://vitehub.dev/docs/frameworks-hosts/deno).
 

@@ -73,10 +73,14 @@ it("tells the developer to rename one of two files that two discovery sources na
   }))
 })
 
-it("names the host option when the host cannot provide a service", () => {
-  expect(() => assertDeploymentService(resolveDeploymentPlan("vercel"), "rateLimit")).toThrow(expect.objectContaining({
+it("names the hosts that provide a service when the host cannot provide it", () => {
+  expect(() => assertDeploymentService(resolveDeploymentPlan("vercel"), "realtime")).toThrow(expect.objectContaining({
     code: "INTERNAL_R0002",
-    fix: expect.stringContaining("set `host` in `vitehub()`"),
+    fix: "Set `host` in `vitehub()` to \"cloudflare\" or \"node\", or remove `realtime` from `vitehub()`.",
+  }))
+  expect(() => assertDeploymentService(resolveDeploymentPlan("node"), "sandbox", "Set `sandboxTask: { driver: \"vercel\" }`.")).toThrow(expect.objectContaining({
+    code: "INTERNAL_R0002",
+    fix: "Set `sandboxTask: { driver: \"vercel\" }`. Or: Set `host` in `vitehub()` to \"cloudflare\" or \"vercel\", or remove `sandboxTask` from `vitehub()`.",
   }))
 })
 

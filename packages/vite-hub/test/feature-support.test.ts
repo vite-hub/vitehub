@@ -101,7 +101,14 @@ describe("feature catalog host checks", () => {
       expect(() => build(host, { email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
     }
     expect(featureSupport("blob", "deno").level).toBe("explicit")
-    expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002" }))
+    expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002", fix: expect.stringContaining("Set `blob: { driver: \"s3\" }`") }))
+  })
+
+  it("tells sandboxTask: true on Node to choose Vercel Sandbox or a host that has a Sandbox", () => {
+    expect(() => build("node", { sandboxTask: true })).toThrow(expect.objectContaining({
+      code: "INTERNAL_R0002",
+      fix: expect.stringMatching(/Set `sandboxTask: \{ driver: "vercel" \}`.*Set `host` in `vitehub\(\)` to "cloudflare" or "vercel"/),
+    }))
   })
 
   it("allows email: true during Nuxt type preparation on every host", () => {

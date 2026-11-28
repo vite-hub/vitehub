@@ -2181,8 +2181,8 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenCalledTimes(2)
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ host: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
-    expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
-    expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide blob")
+    expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide `blob`")
+    expect(() => callHook(deployment.resolveId, [fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts"])).toThrow("cannot provide `blob`")
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob/client", "/app/server/api.ts"])).not.toThrow()
 
     const dependency = dependencyPlugin({ host: "deno" })
@@ -2479,7 +2479,7 @@ describe("vitehub", () => {
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const unsupported = vitehub({ host: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
-    expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
+    expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide `queue`")
 
     // SAFETY: The explicit Node preset installs the named deployment plugin.
     const nodeQueue = vitehub({ host: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin

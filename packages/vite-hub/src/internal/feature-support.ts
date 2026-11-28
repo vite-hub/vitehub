@@ -55,6 +55,7 @@ export type HostSelectedService = keyof typeof serviceFeatures
  * the Deployment Plan gives the reason in the error. A parity test keeps the two in agreement.
  */
 export function assertHostService(plan: DeploymentPlan, service: HostSelectedService): void {
-  if (featureSupport(serviceFeatures[service], plan.host).level === "native") return
-  assertDeploymentService(plan, service)
+  const support = featureSupport(serviceFeatures[service], plan.host)
+  if (support.level === "native") return
+  assertDeploymentService(plan, service, support.level === "explicit" ? support.detail : undefined)
 }

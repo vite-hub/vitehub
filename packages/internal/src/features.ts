@@ -200,7 +200,7 @@ export default defineAgent({
     docs: "/docs/blob",
     hosts: {
       cloudflare: native("cloudflare", "R2", "Cloudflare R2 binding or S3-compatible HTTP access."),
-      deno: explicit("blob.driver", "S3", "Use a remote S3-compatible store. No Deno-native Blob driver is provided."),
+      deno: explicit("blob.driver", "S3", "Set `blob: { driver: \"s3\" }` with a remote S3-compatible store. No Deno-native Blob driver is provided."),
       dev: native("fs", "fs", "Local filesystem storage for development.", "single-host"),
       netlify: native("netlify-blobs", "Netlify Blobs", "Netlify Blobs selected from the detected host."),
       node: native("fs", "fs / S3", "Filesystem, S3-compatible, MinIO, or files-sdk drivers.", "single-host"),
