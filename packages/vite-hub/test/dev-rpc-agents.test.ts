@@ -49,6 +49,7 @@ describe("dev RPC without the Console", () => {
       const target = { env: {}, roots: [root], url: server.resolvedUrls!.local[0]! }
       await expect(callOperation(target, "project.get", {})).resolves.toMatchObject({ ok: true, value: { name: "journal-test" } })
       await expect(callOperation(target, "invocations.list", {})).resolves.toMatchObject({ code: "VITE_HUB_R0047", ok: false })
+      await expect(callOperation(target, "env.get", {})).resolves.toEqual({ ok: true, value: { entries: [] } })
     }
     finally {
       await server?.close()

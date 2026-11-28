@@ -12,10 +12,10 @@ icon: i-lucide-mouse-pointer-click
 | Tool | What it does |
 | --- | --- |
 | `page_snapshot` | Lists the page's components with their state and the actions each takes. |
-| `page_query` | Finds components and list items, such as the regions of a select, without listing the page. |
+| `page_query` | Finds components and list items without opening tabs or sections. Use `within` to name a list and `from` to skip items already read. |
 | `page_act` | Runs steps through each component's api, such as `setValue` on a select or `press` on Save. |
 
-The descriptions are ui-sdk's own. Every change reaches the component's `on<Key>Change` with `source: "agent"`, so the page can tell the Agent's changes from the person's.
+The tool descriptions follow ui-sdk, except that `page_query` is read-only and does not accept `closed`. Every change reaches the component's `on<Key>Change` with `source: "agent"`, so the page can tell the Agent's changes from the person's.
 
 ## Connect a page
 

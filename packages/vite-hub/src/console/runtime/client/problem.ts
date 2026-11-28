@@ -12,7 +12,6 @@ export interface ConsoleProblem {
   why: string
 }
 
-// Codes from owner packages that a retry cannot repair, even with a 5xx status.
 const configurationCodes = new Set(["CONNECTIONS_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
 
 const text = (value: unknown): string | undefined =>
@@ -38,7 +37,10 @@ function statusAction(status: number, code: string, docs: string | undefined): C
 export function consoleProblem(error: unknown, context: { online?: boolean } = {}): ConsoleProblem | undefined {
   if (error === undefined || error === null || error === false) return undefined
   if (error instanceof ConsoleRequestError) {
-    if (isConsoleDiagnosticCode(error.code)) return { ...fromCode(error.code, error.message), status: error.status }
+    if (isConsoleDiagnosticCode(error.code)) {
+      const problem = fromCode(error.code, error.message)
+      return { ...problem, fix: error.fix ?? problem.fix, status: error.status }
+    }
     return {
       action: statusAction(error.status, error.code, error.docs),
       code: error.code,
@@ -48,7 +50,6 @@ export function consoleProblem(error: unknown, context: { online?: boolean } = {
       why: error.message,
     }
   }
-  // Only failures wrapped at the fetch boundary are transient network errors. They show the default why.
   if (error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE") return fromCode(context.online === false ? "CONSOLE_OFFLINE" : "CONSOLE_UNAVAILABLE")
   if (error instanceof Error) {
     const code = text(Reflect.get(error, "code"))
