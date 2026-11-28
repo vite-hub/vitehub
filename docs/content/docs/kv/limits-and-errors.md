@@ -81,6 +81,10 @@ A `database` store deletes expired rows in the background, at most once a minute
 
 ## Runtime errors
 
+### KV_INVALID_KEY
+
+The key is empty or has a `.` or `..` segment. KV returns HTTP 400 when you send this error with `toResponse()`. Read [KV_INVALID_KEY](/docs/kv/diagnostics/kv_invalid_key) for how to encode request text and migrate keys that older versions accepted.
+
 ### KV_INVALID_CURSOR
 
 The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.

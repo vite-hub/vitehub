@@ -26,7 +26,8 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     KV_INVALID_KEY: {
       why: ({ key }: { key: string }) => `The key ${JSON.stringify(key)} is empty, or has a "." or ".." segment. Both "/" and ":" separate segments.`,
-      fix: "Use a key with at least one segment and no `.` or `..` segment, such as `users:alice`. To use text from a request in a key, encode it first, for example with `encodeURIComponent()`.",
+      fix: "Use a key with at least one segment and no `.` or `..` segment, such as `users:alice`. For request text, use `` `users:id-${encodeURIComponent(text)}` ``.",
+      status: 400,
     },
     KV_INVALID_LIMIT: {
       why: "`limit` must be a positive integer.",

@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises"
 import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation, toOperationFailure } from "@vite-hub/internal/operations"
+import { toResponse } from "@vite-hub/runtime"
 
 import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kv } from "../src/index.ts"
@@ -61,6 +62,16 @@ async function run(body: Record<string, unknown>): Promise<{ body: Record<string
 }
 
 describe("kv operations", () => {
+  it("returns a bad request for invalid keys in app routes and operation RPC", async () => {
+    const key = "users/../alice"
+    const [error] = await kv.get(key)
+    expect(toResponse(error).status).toBe(400)
+    expect(await run({ key, operation: "get" })).toMatchObject({
+      body: { error: { code: "KV_INVALID_KEY", message: expect.stringContaining(key) } },
+      status: 400,
+    })
+  })
+
   it.each(["get", "has", "set", "delete"] as const)("passes empty keys through the %s runtime operation", async operation => {
     const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, "empty key"])
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, true])

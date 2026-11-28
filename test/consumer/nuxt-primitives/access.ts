@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { commentsTables } from "../../../packages/comments/src/tables.ts"
 import { formsTables } from "../../../packages/forms/src/database.ts"
 import { webhooksTables } from "../../../packages/webhooks/src/database.ts"
-import { envDeclaration, expectJson, setServerEnv, type PrimitiveRow } from "./row.ts"
+import { envDeclaration, expectJson, retryUnavailableNitroWorker, setServerEnv, type PrimitiveRow } from "./row.ts"
 
 const rootSecret = "nuxt-primitives-root-secret-0123456789abcdef"
 
@@ -200,7 +200,7 @@ export const access: PrimitiveRow[] = [
     async probe({ fetch, mode }) {
       const origin = await appOrigin(fetch)
       const post = (body: unknown) => fetch("/_vitehub/forms/primitive-contact", { body: JSON.stringify(body), headers: { "content-type": "application/json", origin }, method: "POST" })
-      const invalid = await post({ email: "not an email", message: "hi" })
+      const invalid = await retryUnavailableNitroWorker(mode, () => post({ email: "not an email", message: "hi" }))
       const invalidBody = await invalid.text()
       if (invalid.status !== 400 || !invalidBody.includes("Enter a valid email.")) throw new Error(`An invalid submission answered ${invalid.status}: ${invalidBody.slice(0, 2000)}`)
       const message = `message from ${mode}`
