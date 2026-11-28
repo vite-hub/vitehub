@@ -53,6 +53,28 @@ the project `wrangler.json`. ViteHub then leaves the key as you wrote it.
 | Runtime context | Runtime Host Context from the host integration, not global app state. |
 | Agent state | Agent state provider configuration when you select Cloudflare state. |
 
+## Install Wrangler
+
+`vitehub deploy`, `vitehub provision`, and the Cloudflare guides use Wrangler,
+the Cloudflare CLI. Install it in the project:
+
+```bash [Terminal]
+pnpm add -D wrangler
+```
+
+pnpm 11 and later stop this install with `ERR_PNPM_IGNORED_BUILDS`, because
+`workerd` and `esbuild` have build scripts that pnpm did not approve. Wrangler
+works without these scripts. Before you install, set them to `false` in
+`allowBuilds`, and create the file when the app has none:
+
+```yaml [pnpm-workspace.yaml]
+allowBuilds:
+  esbuild: false
+  workerd: false
+```
+
+In a pnpm workspace, edit the `pnpm-workspace.yaml` at the workspace root.
+
 ## Configure the host
 
 Select the `cloudflare` host and turn on the features you use.

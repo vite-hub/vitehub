@@ -18,7 +18,7 @@ In this tutorial, you define a browser task that fetches the HTML of `https://ex
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install the Browser package, Valibot, and Cloudflare's Wrangler CLI:
+Install the Browser package, Valibot, and Cloudflare's Wrangler CLI. With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/browser valibot

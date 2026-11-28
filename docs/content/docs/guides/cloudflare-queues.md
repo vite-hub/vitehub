@@ -19,6 +19,8 @@ You write the handler and the send call. ViteHub makes the bindings, queue names
 
 ### Enable Queue with the Cloudflare host
 
+With pnpm 11 or later, first [set the Wrangler builds in `allowBuilds`](/docs/frameworks-hosts/cloudflare#install-wrangler).
+
 ```bash [Terminal]
 pnpm add vite-hub @vite-hub/queue
 pnpm add -D wrangler
