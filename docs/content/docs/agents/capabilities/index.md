@@ -87,7 +87,7 @@ Keep Capabilities that add Agent Triggers, chat admission, or static Workspace S
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
 | Metadata | Configuration for diagnostics and CLI inspection. |
 
-Agent inspection shows metadata under each Capability id. ViteHub keeps JSON values, sorts keys and ids, drops unsupported or cyclic values, and redacts keys that look like auth, API keys, credentials, passwords, secrets, or tokens.
+Agent inspection lists every Capability id, and `vitehub agent get` counts them. A Capability that sets `metadata` shows it under its id. ViteHub keeps JSON values, sorts keys and ids, drops unsupported or cyclic values, and redacts keys that look like auth, API keys, credentials, passwords, secrets, or tokens.
 
 > [!WARNING]
 > Metadata must describe configuration or a check result. Never put Env values, authentication material, or credentials in it.

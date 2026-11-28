@@ -2,8 +2,7 @@ import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult } from "./results.ts"
-import type { WorkflowRunStatus } from "./types.ts"
+import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsListStatus, WorkflowRunView, WorkflowSignalResult } from "./results.ts"
 
 const runtime = () => import("./runtime/operations.ts")
 
@@ -28,7 +27,7 @@ const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, W
 
 const get = defineWorkflowOperation<{ runId: string, workflow?: string }, WorkflowRunResult>({
   cli: { command: "runs get", format: formatRun, positional: ["runId"] },
-  description: "Show the status and result of a Workflow run, with its steps when `vite dev` recorded it. Pass `workflow` for a run that this runtime did not start.",
+  description: "Show the status and result of a Workflow run, with its steps when `vite dev` recorded it. OpenWorkflow finds the Workflow of a stored run from its id. On other providers, pass `workflow` for a run that this runtime did not start.",
   input: v.object({ runId, workflow: v.optional(name) }),
   kind: "read",
   name: "workflow.get",
@@ -93,9 +92,9 @@ function formatRun({ run }: { run: WorkflowRunView & Partial<Pick<WorkflowRunDet
   ].join("\n")
 }
 
-const runsList = defineWorkflowOperation<{ limit?: number, status?: WorkflowRunStatus, workflow?: string }, WorkflowRunsListResult>({
+const runsList = defineWorkflowOperation<{ limit?: number, status?: WorkflowRunsListStatus, workflow?: string }, WorkflowRunsListResult>({
   cli: { command: "runs list", format: formatRuns },
-  description: "List the Workflow runs that `vite dev` recorded, newest first. Other runtimes keep no history and fail with WORKFLOW_RUNS_UNAVAILABLE.",
+  description: "List Workflow runs, newest first: the runs that OpenWorkflow stores, and the inline runs that `vite dev` recorded. Other providers outside `vite dev` fail with WORKFLOW_RUNS_UNAVAILABLE.",
   input: v.strictObject({
     limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
     status: v.optional(v.picklist(["queued", "running", "completed", "failed"])),
@@ -108,7 +107,7 @@ const runsList = defineWorkflowOperation<{ limit?: number, status?: WorkflowRunS
 
 const runsClear = defineWorkflowOperation<Record<string, never>, WorkflowRunsClearResult>({
   cli: { command: "runs clear", format: ({ cleared }) => `Cleared ${cleared} ${cleared === 1 ? "run" : "runs"}.\n` },
-  description: "Remove the Workflow runs that `vite dev` recorded. Other runtimes keep no history and fail with WORKFLOW_RUNS_UNAVAILABLE.",
+  description: "Remove the inline Workflow runs that `vite dev` recorded. Stored OpenWorkflow runs stay. Outside `vite dev` it fails with WORKFLOW_RUNS_UNAVAILABLE.",
   input: v.strictObject({}),
   kind: "destructive",
   name: "workflow.runs-clear",
@@ -121,4 +120,4 @@ const runsClear = defineWorkflowOperation<Record<string, never>, WorkflowRunsCle
  */
 export const workflowOperations: readonly AnyOperation[] = [start, get, cancel, resume, runsList, runsClear]
 
-export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"
+export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsListStatus, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"

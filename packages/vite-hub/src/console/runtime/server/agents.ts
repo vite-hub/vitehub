@@ -1,4 +1,4 @@
-import { markConsoleSuppliedInvocations, resolveConsoleInvocations, resolveConsoleSuppliedInvocations } from "../../internal.ts"
+import { consoleState, markConsoleSuppliedInvocations, resolveConsoleInvocations, resolveConsoleSuppliedInvocations } from "../../internal.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, installAgentInvocationsOverride, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
@@ -23,7 +23,7 @@ export type ConsoleAgentCapabilities = RuntimeCapabilities | (() => Promise<Runt
 
 export type ConsoleAgentDefinitionInstallation =
   | { capabilities?: ConsoleAgentCapabilities, invocations: AgentInvocations, projectRoot?: never }
-  | { capabilities?: ConsoleAgentCapabilities, invocations?: never, invoke?: boolean, projectRoot: string }
+  | { allowSeparateJournals?: boolean, capabilities?: ConsoleAgentCapabilities, invocations?: never, invoke?: boolean, projectRoot: string }
 
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentDefinitionsKey]?: ReadonlyMap<string, AgentInput>
@@ -44,7 +44,6 @@ type ResolvedConsoleAgentDefinition = {
 
 function record(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return
-  // Keep definition identity and symbol metadata for journal ownership and rebinding.
   return v.is(recordSchema, value) ? value : undefined
 }
 
@@ -78,7 +77,6 @@ function explicitAgentInvocations(agent: AgentInput | undefined): AgentInvocatio
   return invocations as AgentInvocations
 }
 
-/** The app-wide `agent.invocations` journal of an Agent Definition that does not set its own journal. */
 function defaultAgentInvocations(agent: AgentInput | undefined): AgentInvocations | undefined {
   if (!agent || Reflect.get(agent, agentInvocationsFallbackKey) !== true || Reflect.get(agent, agentInvocationsDisabledKey) === true) return undefined
   return resolveDefaultAgentInvocations()
@@ -89,20 +87,21 @@ function resolveConsoleAgentInvocations(
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
   if (installation.invocations) {
-    // A journal that the Console supplies replaces the app-wide journal of discovered Agents.
     markConsoleSuppliedInvocations(installation.invocations)
     installAgentInvocationsOverride(resolveConsoleSuppliedInvocations)
+    delete consoleState().invocationJournalError
     return installation.invocations
   }
   const configured = [...new Set(definitions.flatMap(({ agent }) => {
     const journal = explicitAgentInvocations(agent) ?? defaultAgentInvocations(agent)
     return journal ? [journal] : []
   }))]
-  if (configured.length > 1) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
-  }
-  // Without an Agent journal, the Console reads the app-wide journal that ViteHub installs with the Console on or off.
-  return installConsoleInvocations(installation.projectRoot, configured[0])
+  const journalError = configured.length > 1
+    ? viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
+    : undefined
+  if (journalError && !installation.allowSeparateJournals) throw journalError
+  consoleState().invocationJournalError = journalError
+  return installConsoleInvocations(installation.projectRoot, journalError ? undefined : configured[0])
 }
 
 export function installConsoleAgents(
@@ -134,7 +133,6 @@ export function installConsoleAgentDefinitions(
       }
     }
     if (agent?.name?.trim()) return agent.name
-    // Invocations started outside a host route record the name that the Console lists.
     if (agent) markDiscoveredAgentName(agent, fallbackName)
     return fallbackName
   })

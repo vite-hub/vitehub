@@ -249,7 +249,7 @@ The fix is complete when the consumer works without the patch. Retire combined p
 
 - Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
-- Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
+- Build new app UI on ui-sdk parts (`@ui-sdk/vue`) and the kit tokens (`@vite-hub/kit/styles/tokens.css`). Do not add `@nuxt/ui` or `reka-ui` to a new app. The Console and the docs site still use Nuxt UI until they move. Match ViteHub's compact spacing and T3 Code's interaction patterns.
 - Prefer dense layouts, small icons, minimal copy, a near black page in dark mode (the tokens of `@vite-hub/ui/theme.css`), white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.

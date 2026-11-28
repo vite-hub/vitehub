@@ -899,12 +899,12 @@ function capabilityInspectionMetadata(
   capabilities: readonly AgentCapabilityDefinition[],
 ): AgentInspectionCapabilityMetadata[] {
   return normalizeCapabilities(capabilities)
-    .flatMap((capability) => {
+    .map((capability) => {
       const metadata = inspectionMetadataValue(capability.metadata)
       return isRecord(metadata) && Object.keys(metadata).length
         // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-        ? [{ id: capability.id, metadata: metadata as Record<string, AgentInspectionValue> }]
-        : []
+        ? { id: capability.id, metadata: metadata as Record<string, AgentInspectionValue> }
+        : { id: capability.id }
     })
     .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
 }

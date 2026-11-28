@@ -1,5 +1,5 @@
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
-import type { HookHandler, Plugin } from "vite"
+import type { HookHandler, Plugin, Rollup } from "vite"
 
 import { cloudflareEmailDevShimSource, cloudflareWorkersDevShimSource } from "../cloudflare-workers-dev-shim.injected.ts"
 
@@ -21,7 +21,7 @@ export type NitroAgentOptions = {
 
 type AgentDefinitionTransform = (code: string, id: string, options: NitroAgentOptions & {
   resolve?: (specifier: string, importer: string) => Promise<string | undefined>
-}) => Promise<string | undefined>
+}) => Promise<{ code: string, map: Rollup.SourceMapInput } | undefined>
 
 export const nitroRuntimeResolverNames = new Set([
   "@vite-hub/auth/vite",
