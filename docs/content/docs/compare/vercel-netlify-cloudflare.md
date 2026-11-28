@@ -17,7 +17,7 @@ icon: i-lucide-columns-3
 
 For a ViteHub app, the hosts differ in which features have a default provider,
 how long work can run, and how the host bills. The `cloudflare` host rejects
-no ViteHub feature. The `vercel` host rejects Rate Limit. The `netlify`
+no ViteHub feature. The `vercel` host counts Rate Limits in Upstash Redis. The `netlify`
 host rejects Queue, Rate Limit, and Sandbox when you turn them on with
 `true`.
 
@@ -118,8 +118,8 @@ function restart.
 
 Of these three hosts, only Cloudflare has a ViteHub provider for:
 
-- Rate Limit uses the Cloudflare Rate Limiting binding. `rateLimit: true`
-  fails the build on Vercel and Netlify.
+- Rate Limit uses the Cloudflare Rate Limiting binding. On Vercel it counts
+  in Upstash Redis through KV. `rateLimit: true` fails the build on Netlify.
 - Realtime uses Durable Objects on Cloudflare. Vercel and Netlify reject the
   `memory` provider.
 - Browser needs the `cloudflare` host. `email: true` uses Cloudflare Email
@@ -204,7 +204,7 @@ before you serve traffic.
 ::agent-only
 Use this page when a user asks which host to choose for a ViteHub app, or compares Vercel, Netlify, and Cloudflare for Vite apps or Agents.
 
-Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.driver`. On the `vercel` host, `rateLimit: true` fails the build.
+Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.driver`. On the `vercel` host, `rateLimit: true` turns KV on and counts in Upstash Redis.
 
 Vendor limits and prices change. Link the vendor source and give the date that you checked it.
 ::

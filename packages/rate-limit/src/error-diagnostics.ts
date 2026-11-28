@@ -200,7 +200,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_KV_STORE_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use a KV driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash. Or remove `driver: 'kv'` to let ViteHub choose.",
+      fix: "Turn KV on with a driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash, which is the KV default on Vercel. Or remove `driver: 'kv'` to let ViteHub choose.",
     },
     RATE_LIMIT_KV_TIMEOUT: {
       why: "The KV store did not answer the Rate Limit within 1000 milliseconds.",

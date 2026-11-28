@@ -50,7 +50,7 @@ it("names the namespace option when a Cloudflare build has no Rate Limit namespa
 
 it("names the provider option when the production host has no Rate Limit driver", async () => {
   const root = await createRoot()
-  vi.stubEnv("VITEHUB_HOST", "vercel")
+  vi.stubEnv("VITEHUB_HOST", "netlify")
   const plugin = hubRateLimit()
   // SAFETY: The test calls the plugin's configResolved hook with the fields of the resolved config that it reads.
   const configResolved = plugin.configResolved as (config: unknown) => Promise<void>

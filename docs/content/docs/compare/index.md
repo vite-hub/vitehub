@@ -32,7 +32,7 @@ Pick a tool from the app you need to build. ViteHub adds Agents and server servi
 - **You need MySQL.** ViteHub Database supports SQLite, libSQL, Cloudflare D1, and Postgres.
 - **You need retrieval with a vector store.** ViteHub has no vector store or embedding pipeline. Mastra has both.
 - **You build only for Cloudflare and want one stateful object for each agent.** The Cloudflare Agents SDK gives each agent instance its own SQL storage, WebSocket connections, and schedules.
-- **Your host does not provide the feature.** For example, ViteHub has no Rate Limit driver for Vercel, and Queue on Netlify needs a Cloudflare or Vercel provider. Check the [support matrix](/docs/frameworks-hosts/support-matrix).
+- **Your host does not provide the feature.** For example, ViteHub has no Rate Limit driver for Netlify, and Queue on Netlify needs a Cloudflare or Vercel provider. Check the [support matrix](/docs/frameworks-hosts/support-matrix).
 - **You want a hosted agent platform.** ViteHub runs inside your app, on your host account.
 
 These pages cite official docs checked on 29 October 2026. They do not rank speed, cost, security, or production readiness. Check the installed versions and the support matrix before you choose a host.

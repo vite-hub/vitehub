@@ -21,7 +21,7 @@ export interface DeploymentServices {
   blob: SupportedDeploymentServicePolicy<"cloudflare" | "fs" | "netlify-blobs" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
-  rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
+  rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "kv" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
   realtime: SupportedDeploymentServicePolicy<"cloudflare" | "node", "native"> | UnsupportedDeploymentServicePolicy
   sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
 }
@@ -120,7 +120,7 @@ const plans = {
       blob: { driver: "vercel", guarantee: "native", supported: true },
       browser: unsupported("Vercel has no built-in Browser Provider."),
       queue: { driver: "vercel", guarantee: "native", supported: true },
-      rateLimit: unsupported("Vercel has no built-in distributed Rate Limit driver."),
+      rateLimit: { driver: "kv", guarantee: "native", supported: true },
       realtime: unsupported("Vercel has no shared room authority for Realtime."),
       sandbox: { driver: "vercel", guarantee: "native", supported: true },
     },

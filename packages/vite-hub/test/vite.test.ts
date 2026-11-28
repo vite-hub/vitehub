@@ -2265,14 +2265,28 @@ describe("vitehub", () => {
       [VITEHUB_FEATURES]: { rateLimit: { driver: "memory" } },
     })
 
-    // Off Node, no KV store has a shared atomic increment that ViteHub selects.
-    for (const preset of ["cloudflare", "vercel"] as const) {
-      expect(() => vitehub({ kv: true, host: preset, rateLimit: { driver: "kv" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0144" }))
-    }
+    // Cloudflare KV has no shared atomic increment.
+    expect(() => vitehub({ kv: true, host: "cloudflare", rateLimit: { driver: "kv" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0144" }))
 
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, host: "node", rateLimit: true })
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", driver: "kv", memoryFallback: true }))
+  })
+
+  it("counts Vercel Rate Limits in the KV store that `rateLimit: true` turns on", async () => {
+    await expect(applyDeploymentConfig({ host: "vercel", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { driver: "kv" } },
+    })
+    const config = await applyDeploymentConfig({ host: "vercel", rateLimit: true }, {}, "build")
+    expect(config).not.toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true } } })
+
+    integrationMocks.hubKV.mockClear()
+    integrationMocks.hubRateLimit.mockClear()
+    vitehub({ host: "vercel", rateLimit: true })
+    expect(integrationMocks.hubKV).toHaveBeenCalled()
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", driver: "kv" }))
+    vitehub({ host: "vercel", kv: true, rateLimit: { driver: "kv" } })
+    expect(() => vitehub({ host: "vercel", kv: false, rateLimit: true })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0144", message: expect.stringContaining("kv is false") }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

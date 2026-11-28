@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { parseArgs } from "node:util"
 
 const providers = ["cloudflare"]
-const usage = "Rate Limit e2e requires --mode local|live --provider cloudflare --url <url>; Vercel has no native Rate Limit provider."
+const usage = "Rate Limit e2e requires --mode local|live --provider cloudflare --url <url>."
 const log = message => console.log(`[rate-limit e2e] ${message}`)
 
 async function request(baseURL, path) {

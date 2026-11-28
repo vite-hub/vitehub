@@ -16,7 +16,7 @@ import { vitehub } from "../src/index.ts"
 
 
 describe("built-in host integration", () => {
-  // The host checks run before the owners read their options. A host without the service, such as Rate Limit on Vercel
+  // The host checks run before the owners read their options. A host without the service, such as Rate Limit on Netlify
   // or Sandbox on Node, stopped with INTERNAL_R0002 and hid the rename.
   it.each(["cloudflare", "node", "vercel"] as const)("rejects old provider keys before %s driver inference", async (host) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-old-provider-"))
