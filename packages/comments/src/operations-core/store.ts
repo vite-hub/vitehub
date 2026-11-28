@@ -144,6 +144,23 @@ function escapeLike(value: string): string {
   return value.replaceAll(/[%_\\]/g, "\\$&")
 }
 
+const maximumLikeBytes = 50
+const encoder = new TextEncoder()
+
+/**
+ * A LIKE pattern for text that contains `value`. D1 refuses a pattern over 50 bytes, so a longer value matches only
+ * by its end, and the caller checks the whole value.
+ */
+function containsPattern(value: string): string {
+  let end = ""
+  for (const character of [...value].reverse()) {
+    const next = `${escapeLike(character)}${end}`
+    if (encoder.encode(`%${next}%`).byteLength > maximumLikeBytes) break
+    end = next
+  }
+  return `%${end}%`
+}
+
 export interface NewMessage {
   actor?: CommentActor
   attachments: string[]
@@ -414,8 +431,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       return row ? find(row.threadId) : null
     },
     async getByAttachment(key, cursor) {
-      // `attachments` is a JSON list of strings, so the quoted key matches one whole entry. The parsed list decides.
-      const pattern = `%${JSON.stringify(key).replaceAll(/[\\%_]/g, character => `\\${character}`)}%`
+      const pattern = containsPattern(JSON.stringify(key))
       const rows = await db.select({ id: messages.id, threadId: messages.threadId, attachments: messages.attachments }).from(messages)
         .where(and(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`, cursor === undefined ? undefined : gt(messages.id, cursor)))
         .orderBy(asc(messages.id)).limit(candidateLimit)
@@ -562,7 +578,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         .where(and(eq(threads.authorId, userId), or(isNotNull(threads.authorName), isNotNull(threads.authorImage))))
       // `resolvedBy` holds the JSON of the person, so the pattern finds candidates and the parsed id decides.
       const candidates = await db.select({ id: threads.id, resolvedBy: threads.resolvedBy }).from(threads)
-        .where(sql`${threads.resolvedBy} like ${`%${escapeLike(JSON.stringify(userId))}%`} escape '\\'`)
+        .where(sql`${threads.resolvedBy} like ${containsPattern(JSON.stringify(userId))} escape '\\'`)
       const resolved = candidates.flatMap(({ id, resolvedBy }) => resolvedBy !== null && parseJson<CommentUser | undefined>(resolvedBy, undefined)?.id === userId
         ? [{ id, resolvedBy }]
         : [])

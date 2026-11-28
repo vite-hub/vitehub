@@ -1,5 +1,8 @@
+import { DatabaseSync } from "node:sqlite"
+
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
+import { drizzle as drizzleNodeSqlite } from "drizzle-orm/node-sqlite"
 
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
@@ -32,10 +35,16 @@ export async function createDatabase(): Promise<CommentsDatabase> {
   return drizzle({ client }) as unknown as CommentsDatabase
 }
 
+export function createD1LimitedDatabase(): CommentsDatabase {
+  const client = new DatabaseSync(":memory:", { limits: { likePatternLength: 50 } })
+  client.exec(commentsMigration)
+  return drizzleNodeSqlite({ client }) as unknown as CommentsDatabase
+}
+
 /** Comments on an in-memory Database. Tests name their own policy; `{ authorize: undefined }` tests the default one. */
-export async function createComments(options: DefineCommentsOptions = {}) {
+export async function createComments(options: DefineCommentsOptions = {}, database?: CommentsDatabase) {
   const comments = defineComments({ authorize: () => true, ...options })
-  installComments(comments, { database: await createDatabase() })
+  installComments(comments, { database: database ?? await createDatabase() })
   return comments
 }
 
