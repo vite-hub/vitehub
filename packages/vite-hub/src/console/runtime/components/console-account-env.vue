@@ -16,10 +16,13 @@ const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
 const apps = computed(() => (account.value?.projects ?? []).map(project => ({ label: consoleProjectDisplayName(project), value: project.id })));
 
-const appId = ref(apps.value[0]?.value);
-// The first app, once the account lists one.
+function openedAppOr(list: { value: string }[]): string | undefined {
+  const opened = projects.current.value?.id;
+  return list.some(app => app.value === opened) ? opened : list[0]?.value;
+}
+const appId = ref(openedAppOr(apps.value));
 watch(apps, (list) => {
-  if (!list.some(app => app.value === appId.value)) appId.value = list[0]?.value;
+  if (!list.some(app => app.value === appId.value)) appId.value = openedAppOr(list);
 });
 const stage = ref("production");
 const state = shallowRef<ConsoleEnvStage>();
