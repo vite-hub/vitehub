@@ -177,7 +177,23 @@ The CLI covers these tasks, but a Console login and a direct app signing key giv
 
 The `--url` commands above call the app directly. Give the CLI [its own app signing key](/docs/console/signed-requests#make-a-key-for-the-cli). `vitehub login` alone does not sign direct app requests.
 
-The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). Clients that prompt only for tools marked destructive let agents reply to and resolve comments through `run_operation` without asking. Other changes use `run_destructive_operation`, which is marked destructive. The client decides whether to prompt based on that hint. The agent must ask before passing `confirm: true`: this is the caller's assertion, not proof of consent. The app refuses other changes from signed MCP callers without signed confirmation.
+### Where the MCP and the CLI differ
+
+The MCP and the CLI run the same operations, with two exceptions.
+
+**Operations that the MCP hides.** An operation with `mcp: false` is not in `list_operations`, and the app refuses it when the MCP calls it. The Console page still runs it, and `vitehub project get` still lists it for the CLI. These built-in operations set `mcp: false`. Each one exists only when the app uses its primitive:
+
+| Section | Operations |
+| --- | --- |
+| Auth | All 19 `auth.*` operations: `auth.activity`, `auth.agents`, `auth.ban`, `auth.describe`, `auth.edit-field`, `auth.impersonate`, `auth.organization`, `auth.organizations`, `auth.overview`, `auth.remove`, `auth.revoke-consent`, `auth.revoke-session`, `auth.revoke-sessions`, `auth.sessions`, `auth.set-role`, `auth.stop-impersonating`, `auth.unban`, `auth.user`, `auth.users` |
+| Agents | `channels.replay` |
+| Comments | `comments.upload`, `comments.attachment` |
+| Content | `documents.action`, `documents.preview` |
+| Blob | `media.action`, `media.upload` |
+
+**Confirmation.** The CLI asks for confirmation only for an operation of kind `destructive`, or takes `--yes`. It runs a `write` operation, such as `kv.set`, with no prompt. The MCP needs `run_destructive_operation` with `confirm: true` for every change except `comments.reply` and `comments.resolve`, also for a `write` operation. Without it, the app answers `409` with `CONSOLE_CONFLICT`.
+
+The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation with `mcp: false` is [hidden from the MCP](#where-the-mcp-and-the-cli-differ). Clients that prompt only for tools marked destructive let agents reply to and resolve comments through `run_operation` without asking. Other changes use `run_destructive_operation`, which is marked destructive. The client decides whether to prompt based on that hint. The agent must ask before passing `confirm: true`: this is the caller's assertion, not proof of consent. The app refuses other changes from signed MCP callers without signed confirmation.
 
 ### Comments that an agent handles
 
