@@ -2485,6 +2485,12 @@
  * They live in the components layer, so a utility class on a component, such as `<Chat class="h-96">`, overrides them.
  */
 @layer components {
+  /* ChatMessage gives the user's bubble the raised fill and the strong text, one step above a soft bubble. */
+  [data-slot="message"][data-role="user"] [data-slot="bubble"][data-variant="soft"] > [data-slot="bubble-content"] {
+    background: var(--vh-bg-elevated);
+    color: var(--vh-highlighted);
+  }
+
   .vh-chat {
     display: grid;
     grid-template-rows: minmax(0, 1fr);

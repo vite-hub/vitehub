@@ -65,8 +65,7 @@
   }
 
   [data-slot="bubble"][data-variant="soft"] > [data-slot="bubble-content"] {
-    background: var(--vh-bg-elevated);
-    color: var(--vh-highlighted);
+    background: var(--vh-bg-muted);
   }
 
   @media (hover: hover) {
