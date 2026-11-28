@@ -20,6 +20,7 @@ import { createDeployRun, hostCli, hostCliFailed } from "./deploy/host.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { CredentialHost, CredentialSource, HostCredentials, HostCredentialsContext, HostCredentialsDescription } from "@vite-hub/internal/host-credentials"
 import type { SetupProject } from "./project.ts"
 
@@ -294,18 +295,27 @@ async function linkDeno(name: string, options: SetupLinkOptions, token: string |
   return { ...linked, account: { id: organization }, verified: true }
 }
 
-/** `content` of a `.gitignore` with a `.vitehub` line, or undefined when it already ignores `.vitehub`. */
-export function gitignoreWithViteHub(content: string): string | undefined {
-  const ignored = content.split(/\r?\n/u).some(line => /^\/?(?:\*\*\/)?\.vitehub\/?$/u.test(line.trim()))
-  if (ignored) return
-  return `${content}${content === "" || content.endsWith("\n") ? "" : "\n"}.vitehub\n`
+const hostCliFolders: Partial<Record<ViteHubHost, string>> = { cloudflare: ".wrangler", netlify: ".netlify", vercel: ".vercel" }
+
+/** The folders that a `.gitignore` must ignore: `.vitehub`, and the local folder of the host CLI, such as `.wrangler`. */
+export function ignoredFolders(host?: ViteHubHost): string[] {
+  const folder = host ? hostCliFolders[host] : undefined
+  return [".vitehub", ...(folder ? [folder] : [])]
 }
 
-/** Appends `.vitehub` to the project `.gitignore` when it is missing. */
-export async function ensureViteHubGitignore(root: string): Promise<SetupLinkResult["gitignore"]> {
+/** `content` of a `.gitignore` with a line for each of `ignoredFolders(host)` that it does not ignore yet, or undefined when it ignores all. */
+export function gitignoreWithViteHub(content: string, host?: ViteHubHost): string | undefined {
+  const lines = content.split(/\r?\n/u).map(line => line.trim())
+  const missing = ignoredFolders(host).filter(folder => !lines.some(line => line.replace(/^\/|\/$/gu, "").replace(/^\*\*\//u, "") === folder))
+  if (!missing.length) return
+  return `${content}${content === "" || content.endsWith("\n") ? "" : "\n"}${missing.map(folder => `${folder}\n`).join("")}`
+}
+
+/** Appends `.vitehub` and the local folder of the host CLI to the project `.gitignore` when they are missing. */
+export async function ensureViteHubGitignore(root: string, host?: ViteHubHost): Promise<SetupLinkResult["gitignore"]> {
   const file = join(root, ".gitignore")
   if (!existsSync(file)) return "no-gitignore"
-  const next = gitignoreWithViteHub(await readFile(file, "utf8"))
+  const next = gitignoreWithViteHub(await readFile(file, "utf8"), host)
   if (next === undefined) return "present"
   await writeFile(file, next)
   return "added"
@@ -344,7 +354,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
     credentials: host !== "deno" && credentials.ok ? { source: credentials.source } : null,
     default: links.default ?? null,
     file: SETUP_LINK_FILE,
-    gitignore: await ensureViteHubGitignore(project.root),
+    gitignore: await ensureViteHubGitignore(project.root, host),
     hosts: links.targets.map(target => target.host),
     link,
   }

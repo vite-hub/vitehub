@@ -98,7 +98,7 @@ describe("vitehub link", () => {
     expect(new Date(json.link.linkedAt).toString()).not.toBe("Invalid Date")
     expect(file).not.toContain(TOKEN)
     expect(stdout).not.toContain(TOKEN)
-    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n")
+    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n.wrangler\n")
   })
 
   it("uses the wrangler login and its one account when no env var is set", async () => {
@@ -362,14 +362,14 @@ describe("vitehub link", () => {
     for (const output of [json.stdout, json.stderr, human.stdout, human.stderr]) expect(output).not.toContain(TOKEN)
   })
 
-  it("keeps a .gitignore that already ignores .vitehub", async () => {
-    const root = await cloudflareProject({ ".gitignore": "dist\n/.vitehub/\n", "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
+  it("keeps a .gitignore that already ignores .vitehub and .wrangler", async () => {
+    const root = await cloudflareProject({ ".gitignore": "dist\n/.vitehub/\n**/.wrangler\n", "vite.config.ts": viteConfig(`{ host: "cloudflare", name: "my-app" }`) })
     const api = hostApi({ [cloudflare.worker]: { fixture: "cloudflare-worker.json" } })
 
     const { json } = await runSetup<SetupLinkResult>(["link", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch })
 
     expect(json.gitignore).toBe("present")
-    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("dist\n/.vitehub/\n")
+    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("dist\n/.vitehub/\n**/.wrangler\n")
   })
 })
 

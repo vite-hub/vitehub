@@ -11,7 +11,7 @@ import { minVersion, satisfies, subset, validRange } from "semver"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { gitignoreWithViteHub } from "./link.ts"
+import { gitignoreWithViteHub, ignoredFolders } from "./link.ts"
 import { declaresNuxt5, detectPackageManager, nuxtReleases, pnpmWorkspaceFile, readSetupProject } from "./project.ts"
 import { deriveSetupStack, setupStackLabels } from "./stack.ts"
 import { formatInstallCommand, installArgs, installCommand, setupStatus } from "./status.ts"
@@ -190,7 +190,7 @@ function packageNameOf(root: string): string {
 
 function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    ".gitignore": "node_modules\n.output\n.vitehub\n.env*\n!.env.example\n",
+    ".gitignore": ["node_modules", ".output", ...ignoredFolders(host), ".env*", "!.env.example", ""].join("\n"),
     "package.json": `${JSON.stringify({
       name,
       private: true,
@@ -387,7 +387,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
 
   if (state.kind === "adopt") {
     const gitignore = await readOptional(join(root, ".gitignore"))
-    base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
+    base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignoreWithViteHub(gitignore ?? "", args.host) ?? gitignore ?? "" })
   }
 
   const workspaceFile = allowsNuxt4 && packageManager === "pnpm" ? pnpmWorkspaceFile(root) : undefined

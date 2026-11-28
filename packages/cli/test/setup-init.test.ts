@@ -50,7 +50,7 @@ describe("vitehub init", () => {
     expect(JSON.parse(files["package.json"]!)).toEqual({ ...JSON.parse(await readFile(join(installation, "package.fixture.json"), "utf8")), name: "my-app" })
     expect(files["tsconfig.json"]).toBe(await readFile(join(installation, "tsconfig.json"), "utf8"))
     expect(files["server/api/health.get.ts"]).toBe(await readFile(join(installation, "server/api/health.get.ts"), "utf8"))
-    expect(files[".gitignore"]!.split("\n")).toContain(".vitehub")
+    expect(files[".gitignore"]).toBe(`node_modules\n.output\n.vitehub\n${{ cloudflare: ".wrangler\n", netlify: ".netlify\n", vercel: ".vercel\n" }[host as string] ?? ""}.env*\n!.env.example\n`)
 
     const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub()", "VITEHUB")
     const config = files["vite.config.ts"]!
@@ -189,6 +189,21 @@ describe("vitehub init", () => {
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
+  it.each([
+    ["vercel", undefined, ".vitehub\n.vercel\n"],
+    ["vercel", ".output\n/.vercel/\n", ".output\n/.vercel/\n.vitehub\n"],
+    ["cloudflare", ".vitehub\n", ".vitehub\n.wrangler\n"],
+  ] as const)("ignores the %s CLI folder when it adopts an app with .gitignore %j", async (host, gitignore, expected) => {
+    const root = await createProject({
+      ...(gitignore === undefined ? {} : { ".gitignore": gitignore }),
+      "package.json": JSON.stringify({ devDependencies: { vite: "^8.0.0" }, name: "shop", packageManager: "pnpm@10.0.0", type: "module" }),
+      "vite.config.ts": "import { defineConfig } from 'vite'\n\nexport default defineConfig({})\n",
+    })
+    const result = await init([".", "--host", host, "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe(expected)
+  })
+
   it("adopts an existing Vite app without overwriting a file", async () => {
     const root = await createProject({
       ".gitignore": "node_modules\n",
@@ -202,7 +217,7 @@ describe("vitehub init", () => {
     expect(result.json).toMatchObject({ mode: "adopt", status: "applied" })
     expect(result.json.changes.map(change => [change.path, change.kind])).toEqual([[".gitignore", "patch"], ["vite.config.ts", "patch"]])
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe("import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 4000 },\n  plugins: [vitehub({ host: 'cloudflare', kv: true })],\n})\n")
-    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n")
+    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n.wrangler\n")
     expect(await readFile(join(root, "README.md"), "utf8")).toBe("# Shop\n\nMy app.\n\n<!-- vitehub:stack -->\nold stack\n<!-- /vitehub:stack -->\n")
     expect(await readFile(join(root, "index.html"), "utf8")).toBe("<div id=app></div>\n")
     expect(result.json.install.devPackages).toEqual(["typescript@^6", "@types/node@^24"])
