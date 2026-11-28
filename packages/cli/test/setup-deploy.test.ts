@@ -633,7 +633,7 @@ describe("vitehub deploy", () => {
     const failing: ViteHubCliSpawn = async () => ({ exitCode: 2 })
     const failed = await deploy(["--yes"], root, hosts.env, { spawn: failing })
     expect(failed.exitCode).toBe(1)
-    expect(failed.json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
+    expect(failed.json.error).toMatchObject({ code: "SETUP_DEPLOY_BUILD_FAILED", fix: "Fix the build error above and run the command again." })
   })
 
   it.each(["vercel", "netlify", "node"])("builds for the linked Cloudflare host when the config names %s", async (preset) => {
@@ -652,7 +652,10 @@ describe("vitehub deploy", () => {
 
   it("needs a build script and a build output for the host", async () => {
     const noScript = await builtProject("cloudflare", { "package.json": JSON.stringify({ name: "my-app" }) })
-    expect((await deploy(["--yes"], noScript, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
+    expect((await deploy(["--yes"], noScript, (await fakeHosts(cloudflareEnv)).env)).json.error).toMatchObject({
+      code: "SETUP_DEPLOY_BUILD_FAILED",
+      fix: "Add a `build` script to package.json, such as `\"build\": \"vite build\"`, and run the command again.",
+    })
 
     const unbuilt = await createProject({ "package.json": JSON.stringify({ name: "my-app" }), "vite.config.ts": "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ host: \"cloudflare\" })] }\n" })
     expect((await deploy(["--no-build", "--yes"], unbuilt, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_OUTPUT_MISSING")

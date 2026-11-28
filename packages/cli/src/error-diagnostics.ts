@@ -212,7 +212,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: () => "The Deno Deploy organization is not known.",
     },
     SETUP_DEPLOY_BUILD_FAILED: {
-      fix: "Fix the build error above and run the command again, or pass --no-build to deploy the output that is there.",
+      fix: ({ exitCode }: { exitCode?: unknown }) => exitCode === undefined ? "Add a `build` script to package.json, such as `\"build\": \"vite build\"`, and run the command again." : "Fix the build error above and run the command again.",
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => exitCode === undefined
         ? `package.json has no \`build\` script, so \`${String(command)}\` cannot build the app.`
         : `\`${String(command)}\` exited with code ${String(exitCode)}.`,
