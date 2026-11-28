@@ -301,8 +301,8 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
     const sha = fake.commit("main", { "guide/index.md": page("Getting started", "Read [the setup](/guide/setup).\n") })
     const content = server()
     const registry = createOperationRegistry([{ operations: contentOperations }])
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ default: content }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    Reflect.set(globalThis, Symbol.for("vitehub.content.module"), async () => ({ default: content }))
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.content.module")) })
     const app = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       const { input, operation } = operationRpcRequest(init?.body)
       const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
