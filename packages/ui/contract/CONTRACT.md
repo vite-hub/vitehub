@@ -138,7 +138,7 @@ The styles are in `@layer components`. A selector names only the item's own `dat
 
 ## Files
 
-- `api.json`: the generated report of every exported component. `pnpm run contract:api` writes it.
-- `violations.json`: the violations that exist today. The list can only get shorter.
+- `api.json`: the generated report of every exported component. `pnpm run contract:api` writes it from `report.ts`. The report reads types from the built `.d.ts` of workspace dependencies, so build first: the package `test` script does.
+- `violations.json`: the violations that exist today, from the rules in `rules.ts`. The list can only get shorter. After a rebase, merge it with `pnpm run contract:api -- --violations`, then check that the diff adds no row. A new row is a new break, and the pull request must say why.
 - `audit.md`: today's API and the target API of each component family.
-- `migrations.ts`: the rename table that the `vitehub migrate` codemod and the migration page read.
+- `migrations.ts`: the rename table that the `vitehub migrate` codemod and the migration page read. A row is a planned break of `audit.md` and lands with the unit that changes the component. `component` and `from` are the names in `api.json` before the change, `to` is `null` when the name is gone, and `note` says what the developer changes, including value changes and opposite booleans. The file has no imports, so `packages/codemods` can import it by relative path.

@@ -1,12 +1,9 @@
-// The rules of `CONTRACT.md` that the API report can check. `test/contract.test.ts` compares their result with
-// `violations.json`, and `generate.ts --violations` writes that file.
 import { kebab } from "./report.ts"
 import type { ApiComponent, ApiProp, ApiReport } from "./report.ts"
 
 export interface Violation {
   component: string
   rule: ContractRule
-  /** The prop, event key, or type that breaks the rule. Absent for a rule about the whole component. */
   prop?: string
 }
 
@@ -30,7 +27,6 @@ export type ContractRule =
   | "update-without-prop"
   | "variant-values"
 
-/** The shared look vocabulary. A prop with one of these names takes only these values. */
 export const vocabulary = {
   size: ["xs", "sm", "md", "lg"],
   tone: ["neutral", "success", "warning", "error", "info"],
@@ -43,10 +39,10 @@ const capitalize = (value: string) => value.replace(/^./, (char) => char.toUpper
 function propRules(prop: ApiProp): ContractRule[] {
   const rules: ContractRule[] = []
   if (prop.name === "ui") rules.push("ui-prop")
-  if (/Class$/.test(prop.name)) rules.push("class-prop")
+  if (prop.name.endsWith("Class")) rules.push("class-prop")
   if (prop.name === "color") rules.push("color-prop")
   if (prop.name === "as") rules.push("as-prop")
-  if ((prop.name === "icon" || /Icon$/.test(prop.name)) && /\bstring\b/.test(prop.type)) rules.push("icon-string")
+  if ((prop.name === "icon" || prop.name.endsWith("Icon")) && /\bstring\b/.test(prop.type)) rules.push("icon-string")
   if (isBoolean(prop) && /^(?:no|hide|disable)[A-Z]/.test(prop.name)) rules.push("negative-boolean")
   if (isBoolean(prop) && prop.default === "true") rules.push("boolean-default-true")
   if (/\bany\b/.test(prop.type)) rules.push("any-type")

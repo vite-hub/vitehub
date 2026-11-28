@@ -1,25 +1,14 @@
-// The rename table of `@vite-hub/ui`: where each prop, event, slot, or component went when it left the API.
-//
-// A row is a planned break of `audit.md`. It lands with the plan unit that changes the component, and the
-// `vitehub migrate` codemod and the migration page read this table. `test/contract.test.ts` fails when a name leaves
-// `api.json` with no row here. Keep this file free of imports, so `packages/codemods` can import it by relative path.
-
 export type UIMigrationKind = "prop" | "event" | "slot" | "component" | "removed"
 
 export interface UIMigration {
-  /** The component name in `api.json` before the change. */
   component: string
-  /** The old prop, event, or slot name. For `kind: "component"`, the old component name. */
   from: string
-  /** The new name, or `null` when the name is gone and the note says what to do. */
   to: string | null
   kind: UIMigrationKind
-  /** What the developer changes, in one sentence. Name value changes and opposite booleans here. */
   note: string
 }
 
 export const uiMigrations: readonly UIMigration[] = [
-  // U2 pilots
   { component: "CopyButton", from: "icon", to: "icon", kind: "slot", note: "Put the icon component in the `#icon` slot." },
   { component: "CopyButton", from: "ariaLabel", to: "aria-label", kind: "prop", note: "Set `aria-label` as an attribute. It falls through to the button." },
   { component: "CopyButton", from: "variant", to: "variant", kind: "prop", note: "`variant=\"subtle\"` becomes `variant=\"soft\"`." },
@@ -30,7 +19,6 @@ export const uiMigrations: readonly UIMigration[] = [
   { component: "PromptInput", from: "filesDisabled", to: null, kind: "removed", note: "Set `disabled` on `PromptInputAttach`." },
   { component: "PromptInput", from: "reload", to: "retry", kind: "event", note: "Listen to `@retry`." },
 
-  // U4 small parts
   { component: "DropField", from: "files", to: "select", kind: "event", note: "Listen to `@select`. The payload is `{ files }`." },
   { component: "HoldToDelete", from: "state", to: "update:status", kind: "event", note: "Bind `v-model:status` or listen to `@update:status`." },
   { component: "RelativeTime", from: "tooltip", to: "plain", kind: "prop", note: "`:tooltip=\"false\"` becomes `plain`." },
@@ -46,13 +34,11 @@ export const uiMigrations: readonly UIMigration[] = [
   { component: "RollNumber", from: "as", to: "render", kind: "slot", note: "Use the `#render` slot of ui-sdk." },
   { component: "MotionList", from: "tag", to: "render", kind: "slot", note: "Use the `#render` slot of ui-sdk." },
 
-  // U5 code and text
   { component: "CodeBlock", from: "size", to: "size", kind: "prop", note: "`size=\"default\"` becomes `size=\"md\"`." },
   { component: "CodeBlock", from: "variant", to: "tone", kind: "prop", note: "`variant=\"destructive\"` becomes `tone=\"error\"`. Remove `variant=\"default\"`." },
   { component: "CodeBlockLine", from: "variant", to: "kind", kind: "prop", note: "Use `kind` with the same value. Remove `variant=\"default\"`." },
   { component: "MarkdownEditor", from: "uploadError", to: "error", kind: "event", note: "Listen to `@error`. The payload is `{ error, file }`." },
 
-  // U6 chat
   { component: "Bubble", from: "variant", to: "variant", kind: "prop", note: "`\"default\"` becomes `\"solid\"`, `\"secondary\"` and `\"muted\"` become `\"soft\"`, and `\"tinted\"` becomes `variant=\"soft\" tone=\"info\"`." },
   { component: "BubbleContent", from: "as", to: "render", kind: "slot", note: "Use the `#render` slot of ui-sdk." },
   { component: "Attachment", from: "state", to: "status", kind: "prop", note: "Use `status` with the same value." },
@@ -67,7 +53,6 @@ export const uiMigrations: readonly UIMigration[] = [
   { component: "MessageScrollerItem", from: "as", to: "render", kind: "slot", note: "Use the `#render` slot of ui-sdk." },
   { component: "MessageScrollerViewport", from: "as", to: "render", kind: "slot", note: "Use the `#render` slot of ui-sdk." },
 
-  // U7 comments
   { component: "CommentComposer", from: "variant", to: "mode", kind: "prop", note: "Use `mode` with the same value." },
   { component: "CommentComposer", from: "attachments", to: null, kind: "removed", note: "Leave out the files part in the composition to turn off files." },
   { component: "CommentComposer", from: "autofocus", to: "manualFocus", kind: "prop", note: "`:autofocus=\"false\"` becomes `manual-focus`." },
@@ -84,7 +69,6 @@ export const uiMigrations: readonly UIMigration[] = [
   { component: "CommentReply", from: "onDelete", to: "delete", kind: "event", note: "Listen to `@delete`. The payload is `{ messageId }`." },
   { component: "CommentPin", from: "n", to: "number", kind: "prop", note: "Use `number` with the same value." },
 
-  // U8 agents, traces, workspace
   { component: "AgentSession", from: "defaultDetailsOpen", to: "defaultDetailsClosed", kind: "prop", note: "`:default-details-open=\"false\"` becomes `default-details-closed`." },
   { component: "AgentSessionDetailsRow", from: "icon", to: "icon", kind: "slot", note: "Put the icon component in the `#icon` slot." },
   { component: "AgentSessionDetailsRow", from: "tone", to: "tone", kind: "prop", note: "`tone=\"default\"` and `tone=\"muted\"` become `tone=\"neutral\"`." },

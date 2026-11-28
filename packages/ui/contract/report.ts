@@ -1,16 +1,8 @@
-// Builds the API report of every component that `@vite-hub/ui` exports: `contract/api.json`. `generate.ts` writes it,
-// and `test/contract.test.ts` builds it again in memory to check that the committed copy is current.
-//
-// vue-component-meta reads the props, emits, and typed slots from the TypeScript program of `tsconfig.build.json`.
-// The source gives the rest: the `data-*` attributes that a component renders and the slots that it calls without a
-// type. A source value counts when it is a literal in the component, or in a function or value of the same file that
-// the component uses.
 import { relative } from "node:path"
 import ts from "typescript"
 import { createChecker } from "vue-component-meta"
 import type { PropertyMeta } from "vue-component-meta"
 
-/** The source of each public entry, by its `package.json` export. Every JavaScript export must be listed. */
 export const entrySources: Readonly<Record<string, string>> = {
   ".": "src/index.ts",
   "./headless": "src/headless.ts",
@@ -27,7 +19,6 @@ export const entrySources: Readonly<Record<string, string>> = {
 export interface ApiProp {
   name: string
   type: string
-  /** The string literals of the type, when the type is a union of string literals only. */
   values?: string[]
   default?: string
   required: boolean
@@ -40,17 +31,13 @@ export interface ApiEvent {
 
 export interface ApiComponent {
   name: string
-  /** The `package.json` exports that export the component. */
   entries: string[]
   source: string
   props: ApiProp[]
   events: ApiEvent[]
   slots: string[]
-  /** The `data-slot` values that the component renders. */
   dataSlots: string[]
-  /** The names of the `data-*` attributes that the component renders, except `data-slot`. */
   dataAttributes: string[]
-  /** Which of `<Name>Props`, `<Name>Emits`, and `<Name>Slots` a public entry exports. */
   types: string[]
 }
 
@@ -65,7 +52,6 @@ const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
 const camelize = (value: string) => value.replace(/-(\w)/g, (_, char: string) => char.toUpperCase())
 const listenerName = (event: string) => `on${camelize(event).replace(/^./, (char) => char.toUpperCase())}`
 
-/** The kebab-case form of a component name, which is the `data-slot` value of its root: `CopyButton` is `copy-button`. */
 export const kebab = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/([A-Z])([A-Z][a-z])/g, "$1-$2").toLowerCase()
 
 export function buildReport(packageRoot: string): ApiReport {
@@ -103,13 +89,10 @@ export function buildReport(packageRoot: string): ApiReport {
     const meta = checker.getComponentMeta(file.fileName, localName)
     const scan = scanSource(file, declaration)
     const props: ApiProp[] = []
-    // vue-component-meta prints a type with the names that its own file sees, such as `D` for the `CommentUser` export
-    // of a bundled declaration chunk. Print it again from the component's declaration, where the imported names apply.
     const print = (type: ts.Type | undefined, fallback: string) => clean(type ? typeChecker.typeToString(type, declaration, typeFormat) : fallback, repoRoot)
     const events = new Map<string, ApiEvent>(meta.events.map((event) => [event.name, { name: event.name, type: print(event.getTypeObject(), event.type) }]))
     for (const prop of meta.props) {
       if (prop.global) continue
-      // Array emits reach vue-component-meta as `on<Event>` props. They are events.
       const emitted = scan.emits.find((event) => listenerName(event) === prop.name)
       if (emitted !== undefined) {
         if (!events.has(emitted)) events.set(emitted, { name: emitted, type: "unknown[]" })
@@ -145,7 +128,6 @@ function apiProp(prop: PropertyMeta, type: string): ApiProp {
   return result
 }
 
-/** The members of a union of string literals, or `undefined` when a member is not a string literal. */
 function stringLiterals(type: ts.Type): string[] | undefined {
   const members = type.isUnion() ? type.types : [type]
   const values: string[] = []
@@ -157,7 +139,6 @@ function stringLiterals(type: ts.Type): string[] | undefined {
   return values.length ? values.sort() : undefined
 }
 
-/** Keeps the report the same on every machine: no absolute paths in printed types. */
 function clean(type: string, repoRoot: string): string {
   return type.split(repoRoot).join("").replace(/import\("[^"]*node_modules\/\.pnpm\/[^"]*?node_modules\/([^"]+)"\)/g, "import(\"$1\")")
 }
@@ -169,7 +150,6 @@ interface SourceScan {
   emits: string[]
 }
 
-/** Reads the component's initializer and every top-level function or value of its file that it uses. */
 function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): SourceScan {
   const topLevel = new Map<string, ts.Node>()
   for (const statement of file.statements) {
@@ -178,7 +158,6 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
       for (const item of statement.declarationList.declarations) if (ts.isIdentifier(item.name)) topLevel.set(item.name.text, item)
     }
   }
-  // `slotPart()` and `kitSlot()` come from `src/internal/slot-part.ts`. Helpers of the same file are found below.
   const slotHelpers = new Map([["kitSlot", 1], ["slotPart", 1]])
   for (const [name, node] of topLevel) {
     const index = slotParameter(node)
@@ -203,7 +182,6 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
       if (key === "data-slot") for (const value of literals(node.initializer)) scan.dataSlots.add(value)
       else if (key?.startsWith("data-")) scan.dataAttributes.add(key)
     }
-    // A helper that renders one of its parameters as the `data-slot`, such as `slotPart(name, slot)`.
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const index = slotHelpers.get(node.expression.text)
       const slot = index === undefined ? undefined : node.arguments[index]
@@ -215,7 +193,6 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
     }
     if (ts.isIdentifier(node)) {
       const target = topLevel.get(node.text)
-      // Another component of the file renders its own parts, so its source is not this component's.
       if (target && !others.has(target) && !visited.has(target)) {
         visited.add(target)
         visit(target)
@@ -230,7 +207,6 @@ function scanSource(file: ts.SourceFile, declaration: ts.VariableDeclaration): S
   return scan
 }
 
-/** The index of the parameter that a top-level function renders as `"data-slot"`, if it renders one. */
 function slotParameter(node: ts.Node): number | undefined {
   const fn = ts.isFunctionDeclaration(node) ? node : ts.isVariableDeclaration(node) && node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) ? node.initializer : undefined
   if (!fn) return undefined
@@ -253,7 +229,6 @@ function isComponentDeclaration(node: ts.Node): boolean {
   return ts.isIdentifier(callee) && (callee.text === "defineComponent" || callee.text === "slotPart")
 }
 
-/** The names in the `emits` option of `defineComponent()`. */
 function emitNames(declaration: ts.VariableDeclaration): string[] {
   const call = declaration.initializer
   if (!call || !ts.isCallExpression(call)) return []

@@ -165,10 +165,6 @@ describe("audit.md", () => {
   })
 })
 
-/**
- * `api.json` as it is on the base branch: `GITHUB_BASE_REF` in a pull request run, else `origin/main`. Undefined when
- * the base has no report yet.
- */
 function baseReport(): ApiReport | undefined {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: packageRoot, encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] }).trim()
   const base = git("merge-base", "HEAD", `origin/${process.env.GITHUB_BASE_REF || "main"}`)
