@@ -101,6 +101,7 @@ async function closeHttpServer(server: Server) {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -187,6 +188,22 @@ describe("hubDatabase", () => {
     await resolveConfigResolved(plugin)({ root: rootDir })
     const runtime = plugin.api.getConfig()!
     expect((["cloudflare", "vercel"] as const).filter(provider => supportsHostedDatabaseRuntime(provider, runtime, {}))).toEqual(providers)
+  })
+
+  it("supports the Vercel runtime for a libSQL URL that the server reads from env", async () => {
+    vi.stubEnv("TURSO_DATABASE_URL", "")
+    const definitionRoot = await createTempProject()
+    await writeDefinition(definitionRoot, "server/databases/default.ts", "notes", { connection: "url: process.env.TURSO_DATABASE_URL," })
+    const definition = hubDatabase()
+    await resolveConfigResolved(definition)({ root: definitionRoot })
+
+    const optionsRoot = await createTempProject()
+    const options = hubDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "TURSO_DATABASE_URL" } } } })
+    await resolveConfigResolved(options)({ root: optionsRoot })
+
+    for (const runtime of [definition.api.getConfig()!, options.api.getConfig()!]) {
+      expect(supportsHostedDatabaseRuntime("vercel", runtime, {})).toBe(true)
+    }
   })
 
   it("requires every Database Definition to support a host", async () => {

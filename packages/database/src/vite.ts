@@ -717,6 +717,8 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       const runtimeDir = resolve(databaseRoot(), HOSTED_RUNTIME_DIR)
       if (!supportsHostedDatabaseRuntime(provider, runtimeConfig, readProvisionStateSync(resolved.root))) {
         resetRuntimeContribution()
+        const database = resolvedOptions()
+        if (database && "nuxtHostResource" in database) return
         await Promise.all([
           rm(resolve(runtimeDir, `${provider}-runtime.mjs`), { force: true }),
           rm(resolve(runtimeDir, "definition-defaults.mjs"), { force: true }),
