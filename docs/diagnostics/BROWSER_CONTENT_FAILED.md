@@ -1,6 +1,6 @@
 ---
 description: "Fix BROWSER_CONTENT_FAILED in ViteHub. runBrowserContent() could not read the page HTML from Browser Run."
-seo.title: "BROWSER_CONTENT_FAILED: Browser content request failed"
+seo.title: "BROWSER_CONTENT_FAILED: content request failed"
 ---
 
 `runBrowserContent()` returns `BROWSER_CONTENT_FAILED` when it cannot read the page HTML. A failed handler that calls it returns `BROWSER_RUN_FAILED` with this error in `error.cause`.
