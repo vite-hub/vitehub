@@ -1,6 +1,7 @@
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
-import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
+import { getProvisionStatePath, mergeProvisionState, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
+import { relative } from "pathe"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { planProvisionSteps, resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
@@ -17,7 +18,7 @@ import type {
 
 import type { SetupLink } from "./setup/link.ts"
 
-type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "runHostCli" | "stderr" | "stdout">
+type ProvisionFeatureContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir" | "runHostCli" | "stderr" | "stdout">
 type ProvisionCommand = "run" | "status"
 
 /**
@@ -211,11 +212,17 @@ interface UndeclaredProvisionEntry {
   key: string
 }
 
+/** The path of the Provision State file of `rootDir` as the user sees it from `cwd`, such as `app/.vitehub/provision.json` in a Nuxt app. */
+export function provisionStateFile(rootDir: string, cwd: string): string {
+  return relative(cwd, getProvisionStatePath(rootDir))
+}
+
 function findUndeclaredEntries(
   provider: ProvisionProvider,
   recorded: Record<string, Record<string, string>>,
   steps: readonly ProvisionStep[],
   env: ProvisionFeatureContext["env"],
+  stateFile: string,
 ): UndeclaredProvisionEntry[] {
   const categories = new Map<string, ProvisionStateCategory>()
   const unverifiedDeclarations = new Set<string>()
@@ -255,7 +262,7 @@ function findUndeclaredEntries(
       if (identity !== undefined && isDeclared(category, key, id) && !declaredById.has(identity)) declaredById.set(identity, `${category} ${JSON.stringify(key)}`)
     }
   }
-  const stateEdit = `remove the entry from ${PROVISION_STATE_FILE}`
+  const stateEdit = `remove the entry from ${stateFile}`
   const entries: UndeclaredProvisionEntry[] = []
   for (const [category, ids] of Object.entries(recorded)) {
     for (const [key, id] of Object.entries(ids)) {
@@ -350,12 +357,12 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
       mode: parsed.dryRun ? "dry-run" : "apply",
       provider,
       schemaVersion: 1,
-      stateFile: wroteState ? PROVISION_STATE_FILE : null,
+      stateFile: wroteState ? provisionStateFile(context.rootDir, context.cwd) : null,
       warnings,
     })}\n`)
   }
   else if (wroteState) {
-    context.stdout.write(`provision: wrote ids to ${PROVISION_STATE_FILE}\n`)
+    context.stdout.write(`provision: wrote ids to ${provisionStateFile(context.rootDir, context.cwd)}\n`)
   }
   return blocked ? 1 : 0
 }
@@ -369,7 +376,8 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
   const context = await withHostCredentials(provider, { ...cliContext, env, rootDir }, resolved.link)
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
-  const undeclared = findUndeclaredEntries(provider, recorded, steps, context.env)
+  const stateFile = provisionStateFile(context.rootDir, context.cwd)
+  const undeclared = findUndeclaredEntries(provider, recorded, steps, context.env, stateFile)
   const hasCredentials = hasHostCredentials(provider, context.env)
   const { actions, checked, warnings } = hasCredentials
     ? await planProvision(provider, context, steps, parsed.json)
@@ -386,7 +394,7 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
       provider,
       recorded,
       schemaVersion: 1,
-      stateFile: PROVISION_STATE_FILE,
+      stateFile,
       undeclared,
       warnings,
     })}\n`)
@@ -397,12 +405,12 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
   const recordedEntries = Object.entries(recorded)
     .flatMap(([category, ids]) => Object.entries(ids).map(([key, id]) => `${category}\t${key}\t${id}${isUndeclared(category, key) ? "\tnot declared" : ""}\n`))
   if (recordedEntries.length) {
-    context.stdout.write(`recorded ${provider} ids (${PROVISION_STATE_FILE}):\n`)
+    context.stdout.write(`recorded ${provider} ids (${stateFile}):\n`)
     for (const entry of recordedEntries) context.stdout.write(entry)
     for (const entry of undeclared) context.stdout.write(`fix: ${entry.category} ${JSON.stringify(entry.key)}: ${entry.fix}\n`)
   }
   else {
-    context.stdout.write(`recorded ${provider} ids: none in ${PROVISION_STATE_FILE}\n`)
+    context.stdout.write(`recorded ${provider} ids: none in ${stateFile}\n`)
   }
 
   if (!checked) {

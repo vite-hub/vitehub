@@ -82,7 +82,7 @@ Vercel Blob needs `VERCEL_PROJECT_ID` to connect the store to the project. The
 connection adds `BLOB_STORE_ID`, which the driver uses for OIDC on Vercel.
 `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` sets an optional team scope.
 
-After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
+After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json` in the Vite root. In a Nuxt app, the Vite root is the `srcDir`, so the file is `app/.vitehub/provision.json`. The CLI prints the path from the current folder, and `--json` output gives it in `stateFile`.
 Vite Integrations may read that file as a binding-id source during dev or build.
 D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace ids are keyed by KV Store name under `kv`.
 R2 buckets are recorded as `<jurisdiction>/<bucket-name>` (using `default` when no jurisdiction is set), keyed by Blob Store name under `r2`. Cloudflare Queue names are keyed by Queue Definition name under `queue`. Builds do not read `r2` or `queue`, because bucket and Queue names come from config and Definitions. `provision status` uses them to find a bucket or Queue that no Definition declares.

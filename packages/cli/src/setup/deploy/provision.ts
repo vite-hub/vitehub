@@ -2,10 +2,10 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { planProvisionSteps } from "@vite-hub/internal/provision"
-import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
+import { mergeProvisionState, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { isProvisionHost, provisionActionStatus, provisionEnv, writeProvisionActions } from "../../provision.ts"
+import { isProvisionHost, provisionActionStatus, provisionEnv, provisionStateFile, writeProvisionActions } from "../../provision.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -119,7 +119,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
   finally {
     if (Object.keys(state).length) await writeProvisionState(root, state)
   }
-  if (changes.length && !input.json) context.stdout.write(`Provisioned ${changes.length} ${changes.length === 1 ? "resource" : "resources"} on ${host}. Ids are in ${PROVISION_STATE_FILE}.\n`)
+  if (changes.length && !input.json) context.stdout.write(`Provisioned ${changes.length} ${changes.length === 1 ? "resource" : "resources"} on ${host}. Ids are in ${provisionStateFile(root, context.cwd)}.\n`)
 
   return {
     changed: changes.map(({ planned, status }) => ({ kind: planned.action.kind, name: planned.action.name, status, step: planned.step })),
