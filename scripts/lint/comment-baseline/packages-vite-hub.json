@@ -78,7 +78,6 @@
   "packages/vite-hub/src/console/runtime/components/console-account-settings.vue": 8,
   "packages/vite-hub/src/console/runtime/components/console-account-shell.vue": 13,
   "packages/vite-hub/src/console/runtime/components/console-account-sign-in.vue": 8,
-  "packages/vite-hub/src/console/runtime/components/console-account-snippet.vue": 1,
   "packages/vite-hub/src/console/runtime/components/console-account-team-settings.vue": 5,
   "packages/vite-hub/src/console/runtime/components/console-account-team.vue": 3,
   "packages/vite-hub/src/console/runtime/components/console-account-unlink.vue": 1,

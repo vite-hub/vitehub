@@ -4,10 +4,10 @@ import { computed, ref } from "vue";
 
 import { useConsoleToast } from "../client/toast";
 
-/** The config that an app needs before an `account` Console can link it, for Nuxt and for Vite. */
 const snippets = {
   nuxt: { label: "Nuxt", file: "nuxt.config.ts", code: "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: {\n    console: true,\n  },\n})" },
   vite: { label: "Vite", file: "vite.config.ts", code: "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    console: true,\n  })],\n})" },
+  nitro: { label: "Nitro", file: "vite.config.ts", code: "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { nitro } from 'nitro/vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    console: true,\n  }), nitro()],\n})" },
 } as const;
 type Framework = keyof typeof snippets;
 
@@ -18,36 +18,41 @@ const tabs = Object.entries(snippets).map(([value, item]) => ({ label: item.labe
 </script>
 
 <template>
-  <!-- Both files sit in one grid cell, so the block keeps the height of the longer one when the tab changes. -->
-  <CodeBlock size="sm" class="vitehub-account-snippet">
-    <CodeBlockHeader class="vitehub-account-snippet__header">
-      <UTabs
-        v-model="framework"
-        :items="tabs"
-        :content="false"
-        variant="link"
-        size="xs"
-        aria-label="Framework"
-        :ui="{ list: 'border-b-0 p-0', trigger: 'px-2 py-2.5' }"
-      />
-      <CodeBlockActions>
-        <span class="font-mono text-xs text-muted">{{ snippet.file }}</span>
-        <CodeBlockCopyButton
-          :value="snippet.code"
-          :aria-label="`Copy ${snippet.file}`"
-          color="neutral"
-          @error="toast.show({ title: 'The browser blocked the clipboard. Select the code and copy it.' })"
+  <div class="grid gap-2">
+    <!-- Both files sit in one grid cell, so the block keeps the height of the longer one when the tab changes. -->
+    <CodeBlock size="sm" class="vitehub-account-snippet">
+      <CodeBlockHeader class="vitehub-account-snippet__header">
+        <UTabs
+          v-model="framework"
+          :items="tabs"
+          :content="false"
+          variant="link"
+          size="xs"
+          aria-label="Framework"
+          :ui="{ list: 'border-b-0 p-0', trigger: 'px-2 py-2.5' }"
         />
-      </CodeBlockActions>
-    </CodeBlockHeader>
-    <CodeBlockContent
-      v-for="(item, key) in snippets"
-      :key="key"
-      class="vitehub-account-snippet__code"
-      :data-active="framework === key ? '' : undefined"
-      :inert="framework !== key"
-    >{{ item.code }}</CodeBlockContent>
-  </CodeBlock>
+        <CodeBlockActions>
+          <span class="font-mono text-xs text-muted">{{ snippet.file }}</span>
+          <CodeBlockCopyButton
+            :value="snippet.code"
+            :aria-label="`Copy ${snippet.file}`"
+            color="neutral"
+            @error="toast.show({ title: 'The browser blocked the clipboard. Select the code and copy it.' })"
+          />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent
+        v-for="(item, key) in snippets"
+        :key="key"
+        class="vitehub-account-snippet__code"
+        :data-active="framework === key ? '' : undefined"
+        :inert="framework !== key"
+      >{{ item.code }}</CodeBlockContent>
+    </CodeBlock>
+    <p class="vitehub-account-snippet__node text-xs text-muted">
+      On the Node.js host, also set <code class="font-mono">publicUrl</code> to the URL that you link, and build again.
+    </p>
+  </div>
 </template>
 
 <style>
