@@ -835,7 +835,7 @@ export default defineAgent({
 })
 ```
 
-`prompt` is the `prompt` that the caller passes. When the input has only messages, as in a chat, a Channel, or `vitehub agent dev`, `prompt` is the text of the latest user message. The callback also receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
+An explicit string `prompt` wins. Otherwise, the callback gets the text of the prepared user message identified by `run.messageId`, or the latest prepared user message if that ID does not match a user message. If the selected message has no text, `prompt` is `undefined`. The callback also receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 ViteHub cannot stop this callback. On cancel, `input.abortSignal` aborts and the result shows `notEnforcedBy: 'run'`. Pass the signal to your I/O or throw `input.abortSignal.reason` to stop. Model and provider Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 

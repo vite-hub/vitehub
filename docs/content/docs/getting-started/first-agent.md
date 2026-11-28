@@ -70,7 +70,7 @@ export default defineConfig({
 ::tutorial-step{title="Define the greeting Agent"}
 ## Define the greeting Agent
 
-Create `server/agents/greeting.ts`. ViteHub names the Agent `greeting` from its file path. `runtime: false` runs it inline. The function Driver gets the name as `prompt` and returns text. In a chat or `vitehub agent dev`, `prompt` is the text of the latest user message.
+Create `server/agents/greeting.ts`. ViteHub names the Agent `greeting` from its file path. `runtime: false` runs it inline. The function Driver gets the name as `prompt` and returns text. In a chat or `vitehub agent dev`, the Driver gets the user message text as `prompt`.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"

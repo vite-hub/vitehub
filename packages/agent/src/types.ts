@@ -1342,7 +1342,6 @@ export interface AgentRunContext<
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
-  /** The caller's `prompt`, else the text of the user message that started the run, else the latest user message. */
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   tools?: AgentToolSet

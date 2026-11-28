@@ -38,6 +38,7 @@ import type {
 } from "../types.ts"
 import type { SandboxToolchain } from "@vite-hub/sandbox"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { getMessageText } from "../messages.ts"
 
 export type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -533,13 +534,21 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
 
   assertNoUnsupportedOptions(driver, runDriverKeys, "defineAgent({ driver: { run } })")
   if (typeof driver.run !== "function") throw agentDiagnostics.AGENT_R0496({ message: "[vitehub] defineAgent({ driver.run }) must be a function." })
+  // SAFETY: The typed AgentSettings boundary establishes the handler signature after runtime callability is validated.
+  const run = driver.run as AgentRunHandler
   return {
     capacity,
     kind: "run",
     // SAFETY: The typed AgentSettings boundary establishes the run output definition.
     output: driver.output as AgentOutputDefinition | undefined,
-    // SAFETY: The typed AgentSettings boundary establishes the handler signature after runtime callability is validated.
-    run: driver.run as AgentRunHandler,
+    run(context) {
+      if (context.prompt !== undefined) return run.call(this, context)
+      const messageId = context.run?.messageId
+      const message = (messageId ? context.messages.find(message => message.role === "user" && message.id === messageId) : undefined)
+        ?? context.messages.findLast(message => message.role === "user")
+      const prompt = message && getMessageText(message)
+      return run.call(this, prompt ? { ...context, prompt } : context)
+    },
   }
 }
 

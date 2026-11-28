@@ -12,7 +12,21 @@ function echoPrompt() {
 
 describe("run context prompt", () => {
   it("keeps the prompt that the caller passes", async () => {
-    const [error, result] = await runAgent(echoPrompt(), { prompt: "Ada" })
+    const [error, result] = await runAgent(echoPrompt(), {
+      messages: [createMessage({ role: "user", text: "first" })],
+      prompt: "Ada",
+    })
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("Ada")
+  })
+
+  it("prefers a matching user turn over a later user turn", async () => {
+    const [error, result] = await runAgent(echoPrompt(), {
+      messages: [
+        createMessage({ id: "original", role: "user", text: "Ada" }),
+        createMessage({ role: "user", text: "later" }),
+      ],
+    }, { runtimeContext: { run: { messageId: "original", runId: "run-1" } } })
     expect(error).toBeUndefined()
     expect(result?.text).toBe("Ada")
   })
