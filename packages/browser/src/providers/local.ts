@@ -114,7 +114,7 @@ function resolveExecutable(options: LocalBrowserOptions): string {
     throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: "[vitehub:browser] Browser found no Chromium on this host. BROWSER_EXECUTABLE_PATH is not set, and no Playwright or system Chromium is installed." })
   }
   if (!existsSync(executablePath)) {
-    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: `[vitehub:browser] The Chromium at ${JSON.stringify(executablePath)} does not exist.` })
+    throw browserErrorDiagnostics.BROWSER_CHROMIUM_NOT_FOUND({ message: `[vitehub:browser] BROWSER_EXECUTABLE_PATH points to ${JSON.stringify(executablePath)}, but no Chromium binary exists at that path on this host.` })
   }
   return executablePath
 }

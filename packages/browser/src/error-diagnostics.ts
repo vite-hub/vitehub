@@ -22,7 +22,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
     // Named errors.
     BROWSER_CDP_URL_INVALID: {
-      why: "The CDP URL must use `ws`, `wss`, `http`, or `https`.",
+      why: "The CDP URL of the remote Chromium must use the `ws`, `wss`, `http`, or `https` protocol.",
       fix: "Set `BROWSER_CDP_URL` or the `url` option of `cdpBrowser()` to a browser WebSocket or a DevTools HTTP endpoint.",
     },
     BROWSER_CDP_URL_REQUIRED: {
@@ -34,7 +34,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Install Chromium on the host, set `BROWSER_EXECUTABLE_PATH` to the Chromium binary, or set `BROWSER_CDP_URL` to a remote Chromium.",
     },
     BROWSER_CHROMIUM_SANDBOX_UNAVAILABLE: {
-      why: "Chromium found no usable sandbox on this host.",
+      why: "Chromium found no usable sandbox on this host, so it cannot start with its process isolation on.",
       fix: "Allow unprivileged user namespaces for Chromium. On a trusted host, you can instead set `BROWSER_SANDBOX=false` or `localBrowser({ sandbox: false })`.",
     },
     BROWSER_QUICK_ACTION_REQUIRES_BROWSER_RUN: {
