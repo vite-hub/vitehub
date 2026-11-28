@@ -4829,6 +4829,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
       fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
     },
+    AGENT_STATE_DATABASE_NOT_POSTGRES: {
+      why: ({ database }: { database: string }) => `[vitehub] Agent State cannot use the "${database}" Database because it does not run on Postgres. Agent State in a Database needs Postgres.`,
+      fix: "Set `dialect: \"postgresql\"` in the Database Definition, or keep Agent State in libSQL with VITEHUB_AGENT_STATE_URL.",
+    },
     AGENT_STATE_FILE_URL_UNSUPPORTED: {
       why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
       fix: "Set agent.providers.state.url to a libSQL server URL, such as a Turso URL. If VITEHUB_AGENT_STATE_URL is supplied to the Worker, change or remove that override. To keep using the local file, run `vite dev` on a Node dev runner.",
@@ -4844,6 +4848,18 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_STATE_MIGRATE_DATABASE_MISSING: {
       why: ({ path }: { path: string }) => `No Agent State database exists at ${path}. vitehub agent state migrate does not create one.`,
       fix: "Pass `--url` with the `file:` URL or path of the Agent State database that the app used, such as the `url` of the old `messages.state`.",
+    },
+    AGENT_STATE_POSTGRES_DRIVER_UNSUPPORTED: {
+      why: ({ database }: { database: string }) => `[vitehub] The Postgres Database "${database}" uses a client that Agent State cannot use. Agent State runs on postgres.js, a node-postgres Pool, and PGlite.`,
+      fix: "Run the Database on the default postgres.js driver, `driver: \"node-postgres\"`, or `driver: \"pglite\"`, or keep Agent State in libSQL with VITEHUB_AGENT_STATE_URL.",
+    },
+    AGENT_STATE_POSTGRES_VALUE_UNSUPPORTED: {
+      why: ({ type }: { type: string }) => `[vitehub] Postgres Agent State cannot bind a ${type} parameter. It binds strings, numbers, booleans, bigints, and null.`,
+      fix: "Convert the value before you pass it to `extension().execute()`, for example a Date to `date.getTime()` or an object to `JSON.stringify(value)`.",
+    },
+    AGENT_STATE_POSTGRES_WEBHOOK_RECORD_INVALID: {
+      why: "Postgres Agent State found a webhook queue record with an invalid payload or settlement key.",
+      fix: "Check that all instances using the State tables run the same ViteHub version. If a queue record was modified outside ViteHub, restore it from a known-good backup.",
     },
     AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
       why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,

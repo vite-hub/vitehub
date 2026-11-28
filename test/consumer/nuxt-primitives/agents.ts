@@ -110,12 +110,9 @@ export const agents: PrimitiveRow[] = [
   },
   {
     id: "channels",
-    packages: ["@vite-hub/agent", "@vite-hub/channels"],
+    packages: ["@vite-hub/agent", "@vite-hub/channels", "@vite-hub/kv"],
+    vitehub: () => ({ kv: true }),
     files: {
-      "server/utils/primitive-inbox.ts": `
-        const store = globalThis as typeof globalThis & { primitiveInbox?: string[] }
-        export const primitiveInbox = store.primitiveInbox ??= []
-      `,
       "server/channels/alerts.ts": `
         import { defineChannel } from "vite-hub/channels"
 
@@ -141,14 +138,15 @@ export const agents: PrimitiveRow[] = [
       `,
       "server/agents/ticketing.ts": `
         import { defineAgent } from "vite-hub/agent"
-        import { primitiveInbox } from "../utils/primitive-inbox"
+        import { kv } from "vite-hub/kv"
 
         export default defineAgent({
           channels: ["tickets"],
           runtime: false,
           driver: {
-            run: ({ prompt }) => {
-              primitiveInbox.push(String(prompt))
+            run: async ({ prompt }) => {
+              const [error] = await kv.set(\`primitives:channels:\${String(prompt)}\`, true)
+              if (error) throw error
               return { text: "received" }
             },
           },
@@ -157,10 +155,14 @@ export const agents: PrimitiveRow[] = [
       "server/api/primitives/channels.ts": `
         import { defineEventHandler, getQuery, readBody } from "nitro/h3"
         import { useChannel } from "vite-hub/channels/server"
-        import { primitiveInbox } from "../../utils/primitive-inbox"
+        import { kv } from "vite-hub/kv"
 
         export default defineEventHandler(async (event) => {
-          if (event.req.method === "GET") return { received: primitiveInbox.includes(String(getQuery(event).text)) }
+          if (event.req.method === "GET") {
+            const [error, received] = await kv.get(\`primitives:channels:\${String(getQuery(event).text)}\`)
+            if (error) throw error
+            return { received: received === true }
+          }
           const { text } = await readBody<{ text: string }>(event)
           const [error, receipt] = await useChannel("alerts").send(text, { label: "primitives" })
           if (error) throw error

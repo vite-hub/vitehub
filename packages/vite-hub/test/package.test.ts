@@ -93,6 +93,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/realtime/client/browser.js",
   // Message utilities stay available on the standalone Agent package.
   "@vite-hub/agent/messages",
+  "@vite-hub/agent/state/postgres",
   // Importing native CLI sessions is a standalone journal integration.
   "@vite-hub/agent/sessions",
   // The Console reads the hashed entry names of the prebuilt Console app.

@@ -6,27 +6,38 @@ import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability
 
 /**
  * What the build passes to `agentStateDurability()`. `url` is a `file:` or `:memory:` URL, or `remote` for a remote
- * libSQL server, so no credential reaches the server bundle.
+ * libSQL server, so no credential reaches the server bundle. `database` is the Postgres Database that keeps the State.
  */
-export interface AgentStateDurabilityInput {
-  provider: "cloudflare" | "libsql" | "memory"
-  url?: string
-}
+export type AgentStateDurabilityInput =
+  | { provider: "cloudflare" | "libsql" | "memory", url?: string }
+  | { provider: "database", database: string }
 
-/** The durability of Agent state. `VITEHUB_AGENT_STATE_URL` replaces the configured libSQL URL at boot. */
-export function agentStateDurability(input: AgentStateDurabilityInput, { env }: DurabilityContext): Durability[] {
+const stateFix = "Set VITEHUB_AGENT_STATE_URL to a remote libSQL URL."
+
+/**
+ * The durability of Agent state. `VITEHUB_AGENT_STATE_URL` replaces the configured libSQL URL, or the Postgres
+ * Database, at boot.
+ */
+export function agentStateDurability(input: AgentStateDurabilityInput, context: DurabilityContext): Durability[] {
+  const { env } = context
   if (input.provider === "cloudflare") {
     return [{ primitive: "agent-state", store: "cloudflare", scope: "shared", reason: "Durable Objects keep each Agent's state." }]
   }
   if (input.provider === "memory") {
-    return [{ primitive: "agent-state", store: "memory", scope: "process", reason: "Agent state lives in the memory of this process.", fix: "Set VITEHUB_AGENT_STATE_URL to a remote libSQL URL." }]
+    return [{ primitive: "agent-state", store: "memory", scope: "process", reason: "Agent state lives in the memory of this process.", fix: stateFix }]
   }
-  const url = env.VITEHUB_AGENT_STATE_URL?.trim() || input.url
+  const runtimeUrl = env.VITEHUB_AGENT_STATE_URL?.trim()
+  if (input.provider === "database" && !runtimeUrl) {
+    const database = context.find("database", input.database)
+    if (!database) return [{ primitive: "agent-state", store: "database", scope: "process", reason: `The ${input.database} Database is off.`, fix: stateFix }]
+    return [{ primitive: "agent-state", store: `database (${database.store})`, scope: database.scope, reason: `Tables in the ${input.database} Database. ${database.reason}`, ...(database.fix ? { fix: database.fix } : {}) }]
+  }
+  const url = runtimeUrl || (input.provider === "database" ? undefined : input.url)
   if (!url) {
-    return [{ primitive: "agent-state", store: "libsql", scope: "process", reason: "No Agent state URL is set, so Agents cannot keep state.", fix: "Set VITEHUB_AGENT_STATE_URL to a remote libSQL URL." }]
+    return [{ primitive: "agent-state", store: "libsql", scope: "process", reason: "No Agent state URL is set, so Agents cannot keep state.", fix: stateFix }]
   }
   const sqlite = classifySqliteUrl(url)
-  return [{ primitive: "agent-state", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: "Set VITEHUB_AGENT_STATE_URL to a remote libSQL URL." }) }]
+  return [{ primitive: "agent-state", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: stateFix }) }]
 }
 
 /**

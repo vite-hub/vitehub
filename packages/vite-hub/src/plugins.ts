@@ -1863,6 +1863,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       ...agentOptions,
       channelProjectRoot: typeof options.channels === "object" ? options.channels.projectRoot : undefined,
       kvImport: "vite-hub/kv",
+      postgresStateDatabase: plan.host === "node" && Boolean(options.database),
       processDiscordGateway: plan.host === "node",
       providerImportAliases,
       runtimeCapabilityImports: {

@@ -436,6 +436,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "PullRequestInbox requires exactly one of path or storage.",
       fix: "Set inboxPath, a private node:sqlite file, or inboxStorage, such as agentState.extension(\"babysitter\"), in the createBabysitterRuntime() options.",
     },
+    PRESETS_BABYSITTER_INBOX_STORAGE_NOT_SQLITE: {
+      why: "PullRequestInbox storage runs on Postgres Agent State. The inbox SQL is SQLite.",
+      fix: "Set inboxPath to a private node:sqlite file in the data directory of the server that holds the process host, as the Babysitter host does on Postgres Agent State.",
+    },
     PRESETS_BABYSITTER_PROMPT_TOO_LARGE: {
       why: ({ characters, bytes, limit }: { characters: number, bytes: number, limit: number }) => `GitHubPullRequest prompt exceeds transport safety limit: ${characters} characters, ${bytes} UTF-8 bytes; limit ${limit}. All review/comment bodies were retained. No truncated prompt was sent.`,
       fix: "Shorten or hide the longest comments and review bodies on the pull request, or split it into smaller pull requests. The Babysitter does not cut feedback.",

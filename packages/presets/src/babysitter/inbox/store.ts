@@ -289,6 +289,7 @@ export class PullRequestInbox {
   constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
+    if (storage?.dialect === 'postgresql') throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_NOT_SQLITE()
     this.budgets = { ...budgets }
     this.priorityLabels = [...new Set(priorityLabels.map(label => label.trim().toLowerCase()).filter(Boolean))]
     this.mainRepairBranchPrefix = mainRepairBranchPrefix || undefined

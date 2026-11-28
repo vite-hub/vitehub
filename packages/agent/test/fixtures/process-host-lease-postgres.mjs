@@ -10,6 +10,7 @@ import { createPostgresAgentInvocationStore } from "../../src/invocations/postgr
 import { agentProcessHostIntake, registerAgentProcessHostIntake, withAgentProcessHost } from "../../src/process-host.ts"
 import { createInvocationClaimId } from "../../src/server/invocation-health.ts"
 import { createAgentProcessHosts, createProcessAgentHost } from "../../src/runtime/process.ts"
+import { createPostgresAgentState } from "../../src/state/postgres.ts"
 import { createLibsqlAgentState } from "../../src/state/sqlite.ts"
 
 const [url, tablePrefix, agentName, stateFile, dataDir, ttlMs, intervalMs, claimMs] = process.argv.slice(2)
@@ -17,7 +18,10 @@ const sql = postgres(url, { max: 3, onnotice: () => {} })
 const store = createPostgresAgentInvocationStore({ client: () => agentInvocationPostgresClient(sql, "default"), maxAge: false, maxRecords: false, tablePrefix })
 const invocations = defineAgentInvocations({ content: "content", store })
 const leases = createSqlLeaseStore({ dialect: "postgresql", query: async (text, params) => await sql.unsafe(text, params) })
-const state = createLibsqlAgentState({ url: `file:${stateFile}` })
+// `postgres` keeps Agent State in the same Postgres server, so the intake rows that forward deliveries are shared there.
+const state = stateFile === "postgres"
+  ? createPostgresAgentState({ client: sql, tablePrefix: `${tablePrefix}state_` })
+  : createLibsqlAgentState({ url: `file:${stateFile}` })
 const print = value => process.stdout.write(`${JSON.stringify({ instance: getInstanceId(), at: Date.now(), ...value })}\n`)
 
 const agent = withAgentProcessHost(defineAgent({ name: agentName, driver: { run: () => "" } }), {
