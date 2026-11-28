@@ -21,7 +21,7 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser | Browser Run. It requires this host. |
+| Browser | Browser Run. Node uses local Chromium, and Vercel uses `BROWSER_CDP_URL`. |
 | Email | Cloudflare Email for `email: true`. |
 | Workers Logs | `observability: { enabled: true }` in `wrangler.json` |
 

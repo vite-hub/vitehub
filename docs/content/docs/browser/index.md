@@ -2,12 +2,12 @@
 title: Browser
 layout: landing
 navigation.title: Overview
-description: Load and control web pages in a Cloudflare browser from your server code, with no browser setup in your app.
+description: Load and control web pages in a browser from your server code. ViteHub picks the browser for each host.
 navigation.order: 1
 icon: i-lucide-monitor
 ---
 
-::product-hero{tagline="Open web pages in a cloud browser from your server, and get back HTML, screenshots, or data." hosts="Cloudflare"}
+::product-hero{tagline="Open web pages in a browser from your server, and get back HTML, screenshots, or data." hosts="Cloudflare, Node, Docker, Vercel"}
   :hero-figure{name="browser"}
 ::
 
@@ -122,8 +122,8 @@ export default defineConfig({
   Get HTML, Markdown, links, a screenshot, or a PDF in one function call.
   :::
 
-  :::product-feature-item{title="No browser setup in your app" icon="i-lucide-cloud-cog" to="/docs/browser/configure#configuration"}
-  `browser: true` adds the Cloudflare binding at build time, so routes import no Cloudflare code.
+  :::product-feature-item{title="One browser per host" icon="i-lucide-cloud-cog" to="/docs/browser/hosts#drivers"}
+  `browser: true` uses Browser Run on Cloudflare, local Chromium on Node, and `BROWSER_CDP_URL` on Vercel.
   :::
 
   :::product-feature-item{title="Full control when you need it" icon="i-lucide-sliders-horizontal" to="/docs/browser/server-api#low-level-sessions"}
@@ -140,7 +140,7 @@ Use Browser for provider-backed browser actions that need a remote session. Brow
 
 Check [Hosts](https://vitehub.dev/raw/docs/browser/hosts.md) before choosing a provider.
 
-Browser Definitions currently use Cloudflare Browser Run. Keep credentials and session authority in the host configuration. Do not treat a browser screenshot or page as trusted application data without validation.
+Browser Definitions use Browser Run on Cloudflare, local Chromium on Node and in dev, and the Chromium at `BROWSER_CDP_URL` on Vercel. Keep credentials and session authority in the host configuration. Do not treat a browser screenshot or page as trusted application data without validation.
 
 Remote pages are untrusted input and may leave the allowed origin or change
 between runs. Validate URLs, extracted data, and side effects in application

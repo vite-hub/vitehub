@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 import { build } from "vite"
 
-import { hubBrowser } from "../src/vite.ts"
+import { hubBrowser, selectBrowserDriver } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
@@ -56,7 +56,7 @@ describe("hubBrowser", () => {
     await mkdir(appRoot)
     await writeFile(join(root, "package.json"), '{"type":"module"}')
     const plugin = hubBrowser({ binding: "BROWSER" })
-    await runBrowserProviderOutput(plugin, { build: { outDir: "dist" }, command: "build", mode: "production", nitro: {}, root: appRoot })
+    await runBrowserProviderOutput(plugin, { build: { outDir: "dist" }, command: "build", mode: "production", nitro: { preset: "cloudflare-module" }, root: appRoot })
     const [entry] = await collectViteHubProviderOutputEntries([plugin])
     expect(entry?.path).toBe(join(appRoot, "dist/app/wrangler.json"))
     await expect(readFile(entry!.path, "utf8")).resolves.toContain("BROWSER")
@@ -77,6 +77,7 @@ describe("hubBrowser", () => {
     const config: Record<string, unknown> = {
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["existing"] } },
+        preset: "cloudflare-module",
         rollupConfig: { external: ["existing-module"] },
       },
     }
@@ -92,7 +93,7 @@ describe("hubBrowser", () => {
 
   it("honors top-level Browser config", async () => {
     const config: Record<string, unknown> = {
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
     }
     const plugin = hubBrowser({ binding: "TOP_LEVEL_BROWSER" })
 
@@ -100,6 +101,33 @@ describe("hubBrowser", () => {
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
     expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", engine: "kitesurf", remote: false })
+  })
+
+  it("selects Browser Run on Cloudflare, a remote CDP browser on serverless hosts, and local Chromium elsewhere", () => {
+    expect(selectBrowserDriver("cloudflare", true, false)).toBe("cloudflare")
+    expect(selectBrowserDriver("cloudflare", false, false)).toBe("local")
+    expect(selectBrowserDriver("cloudflare", false, true)).toBe("cloudflare")
+    expect(selectBrowserDriver("vercel", true, false)).toBe("cdp")
+    expect(selectBrowserDriver("vercel", false, false)).toBe("local")
+    expect(selectBrowserDriver("node", true, false)).toBe("local")
+    expect(selectBrowserDriver(undefined, true, false)).toBe("local")
+  })
+
+  it.each([
+    { driver: "local", hostDriver: true, nitro: { preset: "node-server" }, wrangler: false },
+    { driver: "cdp", hostDriver: true, nitro: { preset: "vercel" }, wrangler: false },
+    { driver: "cloudflare", hostDriver: false, nitro: { preset: "cloudflare-module" }, wrangler: true },
+  ])("generates the $driver runtime for a $nitro.preset build", async ({ driver, hostDriver, nitro, wrangler }) => {
+    const plugin = hubBrowser()
+    const config: Record<string, unknown> = { nitro: { ...nitro }, root: tmpdir() }
+    await runHook(plugin.config, config, { command: "build", mode: "production" })
+
+    const runtime = String(await runHook(plugin.load, await runHook(plugin.resolveId, "#vitehub/browser/runtime")))
+    expect(plugin.api.getDriver()).toBe(driver)
+    expect(runtime).toContain(`"driver": "${driver}"`)
+    expect(runtime.includes("hostBrowserDriver")).toBe(hostDriver)
+    const nitroConfig = config.nitro as { cloudflare?: { wrangler?: { browser?: unknown } } }
+    expect(nitroConfig.cloudflare?.wrangler?.browser).toEqual(wrangler ? { binding: "BROWSER" } : undefined)
   })
 
   it("filters resolveId and load to the Browser virtual modules", () => {
@@ -126,7 +154,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
 
@@ -168,7 +196,7 @@ describe("hubBrowser", () => {
   it("generates whether the build enables Browser", async () => {
     const load = async (options?: false) => {
       const plugin = hubBrowser(options)
-      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)({ nitro: {}, root: tmpdir() })
+      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)({ nitro: { preset: "cloudflare-module" }, root: tmpdir() })
       const id = await runHook(plugin.resolveId, "#vitehub/browser/availability")
       return await runHook(plugin.load, id)
     }
@@ -181,8 +209,8 @@ describe("hubBrowser", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-chromium-runtime-"))
     roots.push(root)
     const plugin = hubBrowser({ engine: "chromium" })
-    const config = { nitro: {}, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    const config = { nitro: { preset: "cloudflare-module" }, root }
+    await runHook(plugin.config, config, { command: "build", mode: "production" })
 
     const runtimeId = await runHook(plugin.resolveId, "#vitehub/browser/runtime")
     const runtime = await runHook(plugin.load, runtimeId)
@@ -204,7 +232,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
     await runHook(plugin.config, config)
@@ -247,7 +275,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root: appRoot,
     }
 
@@ -273,7 +301,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
 
@@ -302,7 +330,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "serve",
       mode: "development",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
 
@@ -421,6 +449,8 @@ describe("hubBrowser", () => {
   })
 
   it("bundles Browser Run actions without Playwright", async () => {
+    vi.stubEnv("NITRO_PRESET", "cloudflare-module")
+    onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-action-build-"))
     roots.push(root)
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }), "utf8")
@@ -476,7 +506,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     })
 
@@ -493,7 +523,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     })
     const disabledOutput = {
@@ -516,7 +546,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     })
 
@@ -532,7 +562,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
     const first = hubBrowser({ binding: "STALE_BROWSER" })
@@ -559,7 +589,7 @@ describe("hubBrowser", () => {
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
-      nitro: {},
+      nitro: { preset: "cloudflare-module" },
       root,
     }
     const plugin = hubBrowser({ binding: "PEER_BROWSER" })

@@ -8,12 +8,12 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Browser gives your server a real web browser. The browser runs on Cloudflare, not on your server. You can open a page, read it after its scripts run, or take a screenshot.
+Browser gives your server a real web browser. This tutorial uses Cloudflare Browser Run, so the browser runs on Cloudflare, not on your server. You can open a page, read it after its scripts run, or take a screenshot.
 
 In this tutorial, you define a browser task that fetches the HTML of `https://example.com` and call it from an API route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need a Cloudflare account with Browser Run turned on. Because the browser runs on Cloudflare even during local testing, each run can cost money. To use a local Chromium browser instead, see [Hosts](/docs/browser/hosts).
+> Use the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need a Cloudflare account with Browser Run turned on. Because the browser runs on Cloudflare even during local testing, each run can cost money. On Node and in dev without `host: 'cloudflare'`, Browser uses a local Chromium instead, see [Hosts](/docs/browser/hosts#drivers).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
@@ -70,7 +70,7 @@ export default defineConfig({
 ::::
 :::
 
-- `host: 'cloudflare'` builds your app for Cloudflare, which Browser requires.
+- `host: 'cloudflare'` builds your app for Cloudflare, so Browser uses Browser Run.
 - `remote: true` connects local test runs to the browser on Cloudflare.
 
 ::

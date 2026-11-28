@@ -59,6 +59,38 @@ describe("CDP page", () => {
     )
   })
 
+  it("attaches to the page target that the connection names", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "other", type: "page" }, { targetId: "mine", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      return {}
+    })
+
+    await attachCDPPage({ ...fake.client, preferredTargetId: "mine" })
+
+    expect(fake.send).toHaveBeenCalledWith("Target.attachToTarget", { flatten: true, targetId: "mine" })
+    await expect(attachCDPPage({ ...fake.client, preferredTargetId: "gone" })).rejects.toThrow("find the browser page target")
+  })
+
+  it("reads the page title and HTML", async () => {
+    const fake = fakeClient()
+    fake.send.mockImplementation(async (method: string, params?: { expression?: string }) => {
+      if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+      if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+      if (method !== "Runtime.evaluate") return {}
+      if (params?.expression === "document.title") return { result: { value: "Docs" } }
+      return { result: { value: "<!DOCTYPE html><html></html>" } }
+    })
+    const { page } = await attachCDPPage(fake.client)
+
+    await expect(page.title()).resolves.toBe("Docs")
+    await expect(page.content()).resolves.toBe("<!DOCTYPE html><html></html>")
+    expect(fake.send).toHaveBeenCalledWith("Runtime.evaluate", { expression: "document.title", returnByValue: true }, "page-session")
+  })
+
   it("bounds page setup", async () => {
     vi.useFakeTimers()
     try {

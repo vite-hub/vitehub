@@ -412,13 +412,9 @@ export const ops: PrimitiveRow[] = [
         })
       `,
     },
+    prepare: context => setServerEnv(context, { BROWSER_SANDBOX: "false" }),
     async probe({ fetch, origin }) {
       await retry(3, async () => expectJson(await fetch(`/api/primitives/browser?url=${encodeURIComponent(`${origin}/`)}`), { rendered: true }))
-    },
-    exempt: {
-      "node-build": "Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.",
-      "node-dev": "Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.",
-      "cloudflare-dev": "vite-hub reports Browser as unsupported in dev, and in `nuxt dev` with the Cloudflare preset the content action answers 500. `wrangler dev` on the build output runs the Browser Run binding.",
     },
   },
 ]

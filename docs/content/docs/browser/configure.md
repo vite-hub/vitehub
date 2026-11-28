@@ -1,6 +1,6 @@
 ---
 title: Browser configuration
-description: Set the Browser Run binding, the session engine, and remote local development.
+description: Set the Browser Run binding, the session engine, remote local development, and the driver environment variables.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configuration
 
-A file in `server/browsers/` turns on Cloudflare Browser Run, so you do not add a `browser` option. Pass an object only to change the binding or engine, or to use the hosted service locally.
+A file in `server/browsers/` turns on Browser, so you do not add a `browser` option. The host picks the driver, see [Hosts](/docs/browser/hosts#drivers). The `binding`, `engine`, and `remote` options apply to Cloudflare Browser Run. Pass an object only to change the binding or engine, or to use the hosted service locally.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -71,7 +71,17 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `binding` | `string` | `'BROWSER'` | Browser Run binding name. Must be a valid binding identifier. |
 | `engine` | `'kitesurf' \| 'chromium'` | `'kitesurf'` | Session engine for `browser.open()`. `'chromium'` uses a persistent Chromium session. |
-| `remote` | `boolean` | `false` | Use the hosted Browser Run service in local Wrangler development. |
+| `remote` | `boolean` | `false` | Use the hosted Browser Run service in local Wrangler development. Without it, Cloudflare dev uses local Chromium. |
+
+## Environment variables
+
+These variables configure the driver at runtime on Node, Docker, Vercel, and in dev. Cloudflare reads none of them.
+
+| Variable | Hosts | Description |
+| --- | --- | --- |
+| `BROWSER_CDP_URL` | Node, Vercel, dev | A remote Chromium. Required on Vercel. On Node, it wins over local Chromium. |
+| `BROWSER_EXECUTABLE_PATH` | Node, dev | The Chromium binary. Without it, ViteHub finds one. |
+| `BROWSER_SANDBOX` | Node, dev | `false` runs local Chromium without its sandbox. Use it only on a trusted host. |
 
 `browser: false` disables Browser Provider Output. Without `vite-hub`, pass the same options to `hubBrowser()` from `@vite-hub/browser/vite`.
 

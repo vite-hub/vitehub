@@ -1,19 +1,14 @@
 import { withBrowserTimeout } from "./internal/timeout.ts"
 import browserRegistry from "#vitehub/browser/registry"
-import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
 import { browserProviderError, browserSessionStateError } from "./errors.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { browserRunErrors } from "./run-errors.ts"
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
-import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
 import { runBrowserAction, runBrowserContent } from "./actions.ts"
 import { attachCDPPage } from "./internal/cdp-page.ts"
-import { importBrowserOptionalPeer } from "./internal/optional-peer.ts"
-import { createCloudflareBrowser } from "./internal/cloudflare-provider.ts"
-
-import type { CloudflarePlaywrightDriver } from "./internal/cloudflare-provider.ts"
+import { resolveConfiguredClient } from "./internal/configured-client.ts"
 
 import type {
   BrowserAction,
@@ -128,7 +123,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
 
   private async openSession(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
     this.throwIfEnded()
-    const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
+    const providerSession = await (this.options.client ?? await resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
       this.throwIfEnded()
@@ -179,25 +174,6 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     }
     closeErrors(errors, "[vitehub:browser] One or more Browser Sessions failed to close.")
   }
-}
-
-let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
-
-function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
-  if (configuredClient) return configuredClient
-  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare") throw browserUnavailableError()
-  const configuredLoader = loadCloudflarePlaywright
-    ?? (() => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"))
-  configuredClient = createBrowser({
-    driver: createCloudflareBrowser(
-      {
-        binding: runtimeConfig.binding,
-        engine: runtimeConfig.engine,
-      },
-      configuredLoader,
-    ),
-  })
-  return configuredClient
 }
 
 function isBrowserDefinition(value: unknown): value is BrowserDefinition {

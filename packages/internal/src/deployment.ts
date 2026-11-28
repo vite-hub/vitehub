@@ -19,7 +19,7 @@ type UnsupportedDeploymentServicePolicy = {
 
 export interface DeploymentServices {
   blob: SupportedDeploymentServicePolicy<"cloudflare" | "fs" | "netlify-blobs" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
-  browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
+  browser: SupportedDeploymentServicePolicy<"cdp" | "cloudflare" | "local", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
   realtime: SupportedDeploymentServicePolicy<"cloudflare" | "node", "native"> | UnsupportedDeploymentServicePolicy
@@ -100,7 +100,7 @@ const plans = {
     runtime: "node",
     services: {
       blob: { driver: "fs", guarantee: "single-host", supported: true },
-      browser: unsupported("The Node host has no built-in Browser Provider."),
+      browser: { driver: "local", guarantee: "single-host", supported: true },
       queue: { driver: "local", guarantee: "single-host", supported: true },
       rateLimit: { driver: "memory", guarantee: "process-local", supported: true },
       realtime: { driver: "node", guarantee: "native", supported: true },
@@ -118,7 +118,7 @@ const plans = {
     runtime: "node",
     services: {
       blob: { driver: "vercel", guarantee: "native", supported: true },
-      browser: unsupported("Vercel has no built-in Browser Provider."),
+      browser: { driver: "cdp", guarantee: "native", supported: true },
       queue: { driver: "vercel", guarantee: "native", supported: true },
       rateLimit: unsupported("Vercel has no built-in distributed Rate Limit driver."),
       realtime: unsupported("Vercel has no shared room authority for Realtime."),

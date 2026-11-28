@@ -146,9 +146,12 @@ export interface BrowserPageGotoOptions {
 }
 
 export interface BrowserPage {
+  /** Returns the HTML of the page, with the changes that its scripts made. */
+  content(): Promise<string>
   goto(url: string, options?: BrowserPageGotoOptions): Promise<void>
   locator(selector: string, options?: BrowserLocatorOptions): BrowserLocator
   press(key: string): Promise<void>
+  title(): Promise<string>
 }
 
 export interface BrowserPageSession {
@@ -192,8 +195,15 @@ export type BrowserAvailability =
   | { available: true }
   | { available: false, host?: string, reason: string, fix: string }
 
+/**
+ * The driver that Browser Definitions use on a host. `cloudflare` is Browser Run, `local` starts a Chromium on the
+ * server (or connects to `BROWSER_CDP_URL` when it is set), and `cdp` connects to the Chromium at `BROWSER_CDP_URL`.
+ */
+export type BrowserHostDriver = "cdp" | "cloudflare" | "local"
+
 export interface BrowserRuntimeConfig {
   binding: string
   engine: BrowserEngine
-  driver?: "cloudflare"
+  driver?: BrowserHostDriver
+  host?: string
 }

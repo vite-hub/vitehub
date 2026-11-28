@@ -1657,8 +1657,8 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
       if (!enabled) {
         expect(availability.browser).toMatchObject({
           host: "node",
-          reason: "The Node host has no built-in Browser Provider.",
-          fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+          reason: "vitehub() does not enable Browser.",
+          fix: "Set `browser: true` in vitehub().",
         })
       }
     }

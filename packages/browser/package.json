@@ -63,6 +63,11 @@
       "import": "./dist/controllers/playwright.js",
       "default": "./dist/controllers/playwright.js"
     },
+    "./providers/cdp": {
+      "types": "./dist/providers/cdp.d.ts",
+      "import": "./dist/providers/cdp.js",
+      "default": "./dist/providers/cdp.js"
+    },
     "./providers/cloudflare": {
       "types": "./dist/providers/cloudflare.d.ts",
       "import": "./dist/providers/cloudflare.js",

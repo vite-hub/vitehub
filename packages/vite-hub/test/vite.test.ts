@@ -2537,10 +2537,12 @@ describe("vitehub", () => {
     expect(() => callHook(plugin.config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
   })
 
-  it("composes Browser for Cloudflare and rejects unsupported presets", () => {
+  it("composes Browser for Cloudflare, Node, and Vercel and rejects unsupported presets", () => {
     const plugins = vitehub({ browser: { binding: "AUTOMATION_BROWSER" }, host: "cloudflare" })
     expect(pluginNames(plugins)).toContain("@vite-hub/browser/vite")
     expect(integrationMocks.hubBrowser).toHaveBeenLastCalledWith({ binding: "AUTOMATION_BROWSER" })
-    expect(() => vitehub({ browser: true, host: "node" })).toThrow("requires the Cloudflare host")
+    expect(pluginNames(vitehub({ browser: true, host: "node" }))).toContain("@vite-hub/browser/vite")
+    expect(pluginNames(vitehub({ browser: true, host: "vercel" }))).toContain("@vite-hub/browser/vite")
+    expect(() => vitehub({ browser: true, host: "netlify" })).toThrow("runs on the Cloudflare, Node, and Vercel hosts")
   })
 })

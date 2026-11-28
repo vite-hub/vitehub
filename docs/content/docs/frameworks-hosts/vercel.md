@@ -13,6 +13,7 @@ Vercel details stay in the config and output.
 | Feature | Default on the `vercel` host |
 | --- | --- |
 | Blob | Vercel Blob with OIDC (`BLOB_STORE_ID`), or `BLOB_READ_WRITE_TOKEN` off Vercel |
+| Browser | The remote Chromium at `BROWSER_CDP_URL`, such as Browserless or Browserbase |
 | KV | Upstash Redis with `KV_REST_API_URL` and `KV_REST_API_TOKEN` |
 | Queue | Vercel Queues |
 | Sandbox | Vercel Sandbox |
