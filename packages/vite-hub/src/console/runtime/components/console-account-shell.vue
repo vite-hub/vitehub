@@ -249,9 +249,9 @@ async function retry(): Promise<void> {
             </header>
             <div class="flex flex-wrap gap-2">
               <UButton icon="i-lucide-refresh-cw" label="Try again" :loading="busy" @click="retry" />
-              <UButton v-if="projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${appName(projects.current.value)}`" @click="unlinking = true" />
+              <UButton v-if="manage && projects.current.value?.id" color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${appName(projects.current.value)}`" @click="unlinking = true" />
             </div>
-            <ConsoleAccountUnlink v-if="projects.current.value?.id" v-model:open="unlinking" :project-id="projects.current.value.id" :name="appName(projects.current.value)" />
+            <ConsoleAccountUnlink v-if="manage && projects.current.value?.id" v-model:open="unlinking" :project-id="projects.current.value.id" :name="appName(projects.current.value)" />
           </div>
         </main>
       </template>

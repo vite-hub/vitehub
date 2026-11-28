@@ -4,7 +4,7 @@ import { computed, ref } from "vue";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import { checkConsoleAccountProject } from "../client/account";
-import { openAccountProject } from "../client/project-session";
+import { canManageConsoleProjects, openAccountProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
@@ -17,6 +17,8 @@ const toast = useConsoleToast();
 const busy = ref(false);
 const result = ref<string>();
 const unlinking = ref(false);
+const projects = useConsoleProjects();
+const manage = computed(() => projects.account.value ? canManageConsoleProjects(projects.account.value) : false);
 const host = computed(() => consoleProjectHost(props.project));
 const name = computed(() => props.project.label || host.value);
 const line = computed(() => `${props.project.keyVariable}=${props.project.publicKey}`);
@@ -49,7 +51,7 @@ async function check(): Promise<void> {
     <ConsoleHostedCommentsEmbed :project-id="project.id" />
     <div class="flex flex-wrap gap-2">
       <UButton icon="i-lucide-external-link" label="Open site" :to="`${project.url}?vitehub`" target="_blank" rel="noopener" />
-      <UButton color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${name}`" @click="unlinking = true" />
+      <UButton v-if="manage" color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${name}`" @click="unlinking = true" />
     </div>
   </div>
   <div v-else class="grid max-w-2xl gap-6">
@@ -76,10 +78,10 @@ async function check(): Promise<void> {
     <div class="grid gap-2">
       <div class="flex flex-wrap gap-2">
         <UButton icon="i-lucide-refresh-cw" label="Check connection" :loading="busy" @click="check" />
-        <UButton color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${name}`" @click="unlinking = true" />
+        <UButton v-if="manage" color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${name}`" @click="unlinking = true" />
       </div>
       <p role="status" class="text-[13px] leading-5 text-muted">{{ result }}</p>
     </div>
   </div>
-  <ConsoleAccountUnlink v-model:open="unlinking" :project-id="project.id" :name="name" />
+  <ConsoleAccountUnlink v-if="manage" v-model:open="unlinking" :project-id="project.id" :name="name" />
 </template>
