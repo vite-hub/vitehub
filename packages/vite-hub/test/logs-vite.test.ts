@@ -75,6 +75,7 @@ describe("Logs host integration", () => {
     expect(names({ observability: true })).not.toContain("vite-hub/error-log");
     expect(names({ logs: { source: "./server/logs.ts" } })).toContain("vite-hub/error-log");
     expect(names({ logs: true, observability: { evlog: { enabled: false } } })).toContain("vite-hub/error-log");
+    expect(names({ observability: true })).toContain("vite-hub/result-error");
   });
   it("starts no logger for a source without observability", () => {
     type Options = NonNullable<Parameters<typeof vitehub>[0]>;
