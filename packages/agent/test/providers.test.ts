@@ -2084,9 +2084,12 @@ describe("agent Vite plugin", () => {
       const { isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const helpers = gatewayRoute.slice(gatewayRoute.indexOf("function routePathname"), gatewayRoute.indexOf("function runtimeEnvValue"))
       const routePathname = new Function(`${(await transform(helpers, { loader: "ts" })).code}\nreturn routePathname`)() as (request: Request) => string
+      const messageStart = gatewayRoute.indexOf("function unknownAgentMessage")
+      const messageHelper = gatewayRoute.slice(messageStart, gatewayRoute.indexOf("\n}\n", messageStart) + 2)
+      const unknownAgentMessage = new Function(`${(await transform(messageHelper, { loader: "ts" })).code}\nreturn unknownAgentMessage`)() as (name?: string) => string
       const gatewayHandler = new Function(
         "isViteHubBearerSecretEqual", "cloudflareFromContext", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities",
-        "defaultDurationMs", "webhookRoute", "routePath", "waitUntilFromContext", "errorResponse", "routePathname", code,
+        "defaultDurationMs", "webhookRoute", "routePath", "waitUntilFromContext", "errorResponse", "routePathname", "unknownAgentMessage", code,
       )(
         isViteHubBearerSecretEqual,
         () => undefined,
@@ -2100,6 +2103,7 @@ describe("agent Vite plugin", () => {
         () => undefined,
         (status: number, message: string) => Response.json({ status, message }, { status }),
         routePathname,
+        unknownAgentMessage,
       ) as { fetch: (request: Request) => Promise<Response> }
       const gatewayRequest = (authorization: string, path = "/_vitehub/agents/support/discord/gateway") =>
         new Request(`https://app.example${path}`, { headers: { authorization }, method: "POST" })
@@ -2116,7 +2120,7 @@ describe("agent Vite plugin", () => {
       expect(needless.status).toBe(200)
       const encoded = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/_vitehub/agents/sup%20port/discord/gateway"))
       expect(encoded.status).toBe(404)
-      await expect(encoded.json()).resolves.toEqual({ message: "Unknown ViteHub agent.", status: 404 })
+      await expect(encoded.json()).resolves.toEqual({ message: "No Agent has this name. Check the name that you pass to useAgent() or put in the route path.", status: 404 })
     } finally {
       await rm(root, { force: true, recursive: true })
     }
