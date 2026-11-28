@@ -346,7 +346,7 @@ const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLT
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
 const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
 const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
-const devRpcRuntimeSections: ReadonlySet<string> = new Set(["agents", "schedules"])
+const devRpcRuntimeSections: ReadonlySet<string> = new Set(["agents", "env", "schedules"])
 
 function workspaceStoreEntry() {
   return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
