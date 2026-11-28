@@ -508,7 +508,7 @@ export async function callOperation(target: OperationTarget, name: string, input
     if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
       return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
     }
-    return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). Pass the origin of an app that runs ViteHub.`, response.status)
+    return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). ${response.status === 404 && !target.roots?.length ? "A production build answers ViteHub operations only when `vitehub()` sets `console`. Set it, deploy again, and pass the origin of that app." : "Pass the origin of an app that runs ViteHub."}`, response.status)
   }
   catch (error) {
     return unreachable(`The request to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`)

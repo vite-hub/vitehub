@@ -140,7 +140,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
     [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [404, { message: "Invocation not found", ok: false, status: 404 }, "Console request failed with HTTP 404: Invocation not found."],
-    [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub Console (HTTP 404)."],
+    [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub app (HTTP 404). A production build answers only when `vitehub()` sets `console`."],
   ])("reports a Console HTTP %s response", async (status, body, message) => {
     const host = deployedConsole(() => new Response(typeof body === "string" ? body : body ? JSON.stringify(body) : null, { status }))
     const result = await run(["get", "ainv_1", "--url", "https://agent.example.com"], host.fetch)
