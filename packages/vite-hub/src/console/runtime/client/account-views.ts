@@ -6,7 +6,7 @@ export interface ConsoleAccountViews {
   shell?: Component
   team?: Component
   teamSettings?: Component
-  env?: Component
+  envValues?: Component
   settings?: Component
 }
 

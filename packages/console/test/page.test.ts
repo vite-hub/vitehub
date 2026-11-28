@@ -23,6 +23,7 @@ describe("consolePageBoot", () => {
     expect(consolePageBoot(visit("/", `vitehub-console-view=app; ${session}`))).toBe("app")
     expect(consolePageBoot(visit("/", `${session}; vitehub-console-view=application`))).toBe("shell")
     expect(consolePageBoot(visit("/logs", session))).toBe("app")
+    expect(consolePageBoot(visit("/env", session))).toBe("app")
   })
 })
 
@@ -32,7 +33,7 @@ describe("renderConsolePage", () => {
   it("marks the view and the sidebar row of the request", () => {
     expect(renderConsolePage(html, visit("/team", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team"')
     expect(renderConsolePage(html, visit("/team-settings", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team-settings"')
-    expect(renderConsolePage(html, visit("/env", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="env"')
+    expect(renderConsolePage(html, visit("/env-values", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="env-values"')
     expect(renderConsolePage(html, visit("/", session))).toContain('data-vitehub-boot="shell" data-vitehub-page=""')
     expect(renderConsolePage(html, visit("/"))).toContain('data-vitehub-boot="sign-in" data-vitehub-page=""')
   })

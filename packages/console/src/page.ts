@@ -19,7 +19,7 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
   if (pathname.startsWith("/invite/")) return "invite"
   const cookies = request.headers.get("cookie") ?? ""
   if (!sessionCookie.test(cookies)) return "sign-in"
-  if (/^\/(?:home|team|team-settings|env|settings)\/?$/.test(pathname)) return "shell"
+  if (/^\/(?:home|team|team-settings|env-values|settings)\/?$/.test(pathname)) return "shell"
   if (pathname === "/") return appView.test(cookies) ? "app" : "shell"
   return "app"
 }
@@ -45,7 +45,7 @@ export function consolePageServes(pathname: string): boolean {
  */
 export function renderConsolePage(html: string, request: Request): string {
   const boot = consolePageBoot(request)
-  const page = boot === "shell" ? /^\/(home|team|team-settings|env|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
+  const page = boot === "shell" ? /^\/(home|team|team-settings|env-values|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
   const marked = html.replace('data-vitehub-boot="app" data-vitehub-page=""', `data-vitehub-boot="${boot}" data-vitehub-page="${page}"`)
   if (boot !== "app" && boot !== "shell") return marked
   return marked.replace("<head>", `<head>\n    <link rel="preload" href="${consoleAccountPath}" as="fetch" crossorigin>`)
