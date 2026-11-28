@@ -6,14 +6,9 @@ import { acceptConsoleInvitation, linkConsoleGitHub, loadConsoleSignInMethods, s
 import { consoleSignInReturnPath, consoleSiteLink, finishConsoleSignIn, reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 
-/**
- * The sign-in page of an `account` Console: GitHub, a passkey, or a new account with a passkey. On an `/invite/<id>`
- * page, a signed-in person accepts the invitation instead.
- */
 const props = defineProps<{ invitation?: string }>();
 
 const projects = useConsoleProjects();
-// The app of a `/_vitehub` link, which the sign-in goes back to.
 const siteHost = computed(() => {
   const site = consoleSiteLink(new URL(consoleSignInReturnPath(), "https://console.invalid").search);
   return site ? consoleProjectHost(site) : undefined;
@@ -24,37 +19,28 @@ const busy = ref<"github" | "passkey" | "create" | "accept">();
 const problem = ref<string>();
 const creating = ref(false);
 const name = ref("");
-// The supported check is synchronous, so the passkey buttons never flash.
 const passkeys = typeof window.PublicKeyCredential === "function";
 
 onMounted(async () => {
   methods.value = await loadConsoleSignInMethods();
 });
 
-/**
- * Run a sign-in step. After it, the Console loads again: the invitation page shows Accept, an `/open` link opens its
- * page, and other pages show the projects.
- */
 async function run(kind: NonNullable<typeof busy.value>, action: () => Promise<void>): Promise<void> {
   if (busy.value) return;
   busy.value = kind;
   problem.value = undefined;
   try {
     await action();
-    // The browser is on its way to GitHub.
     if (kind === "github") return;
     if (props.invitation && kind !== "accept") window.location.reload();
-    // A sign-in from an `/open` link opens that link again.
     else finishConsoleSignIn();
   }
   catch (error) {
-    // A person who closed the browser's passkey sheet chose not to sign in. That is not an error to show.
     if (!(error instanceof DOMException && error.name === "NotAllowedError")) problem.value = error instanceof Error ? error.message : "Try again.";
     busy.value = undefined;
   }
 }
 
-// "Back" removes the form, so focus returns to the link that opened it.
 const createLink = ref<HTMLButtonElement>();
 
 function back(): void {
@@ -66,6 +52,7 @@ function create(): void {
   void run("create", () => signUpWithPasskey(name.value));
 }
 
+const githubMissing = computed(() => methods.value?.github === false);
 const invitationPath = computed(() => props.invitation ? `/invite/${encodeURIComponent(props.invitation)}` : undefined);
 </script>
 
@@ -74,11 +61,12 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
     <div class="grid gap-1.5">
       <h1 class="vitehub-project-gate__title">Join a team</h1>
       <p v-if="account.hasEmail" class="vitehub-project-gate__text">You are signed in as {{ account.user.name }}. Accept the invitation to open the apps of its team.</p>
+      <p v-else-if="githubMissing" class="vitehub-project-gate__text">Invitations go to the email of a GitHub account, and this Console has no GitHub sign-in. Ask the person who runs this Console to turn on GitHub sign-in.</p>
       <p v-else class="vitehub-project-gate__text">Invitations go to the email of a GitHub account, and {{ account.user.name }} signs in with a passkey only. Connect GitHub, and this page opens again to accept.</p>
     </div>
     <div class="flex flex-wrap gap-2">
       <UButton v-if="account.hasEmail" label="Accept invitation" :loading="busy === 'accept'" @click="run('accept', () => acceptConsoleInvitation(invitation!))" />
-      <UButton v-else icon="i-lucide-github" label="Connect GitHub" :loading="busy === 'github'" @click="run('github', () => linkConsoleGitHub(`${projects.pageOrigin}${invitationPath}`))" />
+      <UButton v-else-if="!githubMissing" icon="i-lucide-github" label="Connect GitHub" :loading="busy === 'github'" @click="run('github', () => linkConsoleGitHub(`${projects.pageOrigin}${invitationPath}`))" />
       <UButton color="neutral" variant="ghost" label="Not now" @click="reloadConsoleAccount" />
     </div>
   </template>
@@ -86,7 +74,8 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
   <template v-else>
     <div class="grid gap-1.5">
       <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ creating ? "Create your account" : invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
-      <p v-if="invitation" class="vitehub-project-gate__text">This invitation is for a GitHub account. Continue with GitHub to accept it.</p>
+      <p v-if="invitation && githubMissing" class="vitehub-project-gate__text">This invitation is for a GitHub account, and this Console has no GitHub sign-in. Ask the person who runs this Console to turn on GitHub sign-in.</p>
+      <p v-else-if="invitation" class="vitehub-project-gate__text">This invitation is for a GitHub account. Continue with GitHub to accept it.</p>
       <p v-else-if="siteHost" class="vitehub-project-gate__text">Then you go back to {{ siteHost }}, signed in with your tools.</p>
       <p v-else class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>

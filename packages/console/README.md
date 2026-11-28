@@ -25,7 +25,7 @@ Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachmen
 
 Sign-in uses Better Auth with `authDatabase()`, `organization()`, and `passkey()` from `@better-auth/passkey`. A team is a Better Auth organization.
 
-- **GitHub**: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. The callback URL of the GitHub OAuth app is `<console origin>/api/auth/callback/github`. Without them, the sign-in page offers passkeys only.
+- **GitHub**: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. The callback URL of the GitHub OAuth app is `<console origin>/api/auth/callback/github`. Without them, the sign-in page offers passkeys only, and you cannot invite people: an invitation goes to the email of a GitHub account.
 - **Passkeys**: the first passkey makes the account, with the name the person types. Such an account has no email address. Its email is a placeholder on the reserved `passkey.invalid` domain, so it cannot accept an invitation until the person signs in with GitHub. A signed-in person adds passkeys and GitHub from the account menu.
 - **Teams**: every session opens a team. The first sign-in makes a personal team with the person as `owner`. Owners and admins link and unlink projects and invite people. Members open the projects. An invitation is a link to `/invite/<id>` for the email of a GitHub account, valid for 48 hours. The Console sends no email.
 
