@@ -71,6 +71,12 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "workflow.driver": { values: ["openworkflow"] },
 }
 
+const optionExamples: Partial<Record<string, readonly [string, ...string[]]>> = {
+  "blob.driver": ["blob.driver=s3", "blob.bucket=<bucket>"],
+  "database.connection": ["database.connection.url=libsql://<host>"],
+  "workspace.store": ["workspace.store.driver=github", "workspace.store.repository=<owner>/<repo>"],
+}
+
 const providerKeys = ["driver", "store"]
 
 function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
@@ -355,7 +361,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         const choices = optionChoices[support.option]
         missing.push({ field, ...(choices ? { choices: choices.values } : {}) })
         if (choices) setPath(defaults[id] ??= {}, field.split(".").slice(1), choices.values[0])
-        else rerunnable = false
+        else {
+          const example = optionExamples[field]
+          inputFixes.push(`${example ? `Pass ${example.map(option => `\`--option ${option}\``).join(" ")}, or set \`${field}\` in the config.` : `Set \`${field}\` with --option or in the config.`} ${support.detail}`)
+          rerunnable = false
+        }
       }
     }
     for (const [field, choice] of Object.entries(optionChoices)) {
@@ -438,9 +448,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
     const fix = inputFixes.length ? inputFixes.join(" ") : undefined
-    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ fix, message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
+    const command = rerunnable ? rerun(args, defaults, requires) : undefined
+    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ fix, message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.`, rerun: command }), setupExitCodes.inputNeeded, {
       missing,
-      ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
+      ...(command ? { rerun: command } : {}),
     })
   }
 

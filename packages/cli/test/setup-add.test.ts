@@ -558,6 +558,33 @@ describe("vitehub add", () => {
     expect((await add(["email", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
 
+  it("names the --option value to pass when the host needs a value that has no choices", async () => {
+    const root = await copyFixture("vercel")
+
+    const first = await add(["database", "--no-install", "--yes"], root)
+
+    expect(first.exitCode).toBe(2)
+    expect(first.json.error?.code).toBe("SETUP_INPUT_NEEDED")
+    expect(first.json.missing).toEqual([{ field: "database.connection" }])
+    expect(first.json.rerun).toBeUndefined()
+    expect(first.json.error?.fix).toContain("Pass `--option database.connection.url=libsql://<host>`, or set `database.connection` in the config.")
+    expect(first.json.error?.fix).not.toContain("rerun")
+
+    const second = await add(["database", "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
+    expect(second.exitCode, second.stdout).toBe(0)
+    expect(second.json.status).toBe("applied")
+  })
+
+  it("does not name a rerun command when it prints none", async () => {
+    const root = await copyFixture("vercel")
+
+    const { exitCode, json } = await add(["--no-install", "--yes"], root)
+
+    expect(exitCode).toBe(2)
+    expect(json.rerun).toBeUndefined()
+    expect(json.error).toMatchObject({ code: "SETUP_INPUT_NEEDED", fix: "Pass the missing values, then run the command again." })
+  })
+
   it("adds kv with the cache driver that Netlify needs", async () => {
     const root = await copyFixture("netlify")
 
